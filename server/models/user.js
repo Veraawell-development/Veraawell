@@ -9,8 +9,9 @@ const userSchema = new mongoose.Schema({
   },
   lastName: {
     type: String,
-    required: true,
-    trim: true
+    required: false, // Make it optional for Google OAuth users
+    trim: true,
+    default: '' // Default to empty string
   },
   email: {
     type: String,
@@ -40,8 +41,13 @@ const userSchema = new mongoose.Schema({
   }
 });
 
-// Hash password before saving
+// Hash password before saving (only for non-Google users)
 userSchema.pre('save', async function(next) {
+  // Skip password hashing for Google OAuth users (they have googleId)
+  if (this.googleId) {
+    return next();
+  }
+  
   if (!this.isModified('password')) return next();
   
   try {
@@ -55,6 +61,10 @@ userSchema.pre('save', async function(next) {
 
 // Compare password method
 userSchema.methods.comparePassword = async function(candidatePassword) {
+  // For Google OAuth users, always return false for password comparison
+  if (this.googleId) {
+    return false;
+  }
   return bcrypt.compare(candidatePassword, this.password);
 };
 

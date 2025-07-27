@@ -74,12 +74,15 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         let user = await User.findOne({ googleId: profile.id });
         
         if (!user) {
-          // Create new user
+          // Create new user with better fallback handling
+          const firstName = profile.name?.givenName || profile.displayName || 'Google';
+          const lastName = profile.name?.familyName || 'User';
+          
           user = new User({
             googleId: profile.id,
             email: profile.emails[0].value,
-            firstName: profile.name.givenName || 'Google',
-            lastName: profile.name.familyName || 'User',
+            firstName: firstName,
+            lastName: lastName,
             username: profile.emails[0].value,
             password: 'google-auth-' + Math.random().toString(36).substring(7) // Random password for Google users
           });
