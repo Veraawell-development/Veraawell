@@ -154,6 +154,10 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
     }
   };
 
+  const handleGoogleAuth = () => {
+    window.location.href = `${API_BASE_URL}/auth/google`;
+  };
+
   return (
     <div className="min-h-[80vh] flex items-center justify-center bg-black p-2 sm:p-4">
       <div className="w-full max-w-md sm:max-w-md bg-gray-900 rounded-3xl shadow-xl p-4 sm:p-8 border border-gray-800">
@@ -163,8 +167,9 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
         {registerMode ? (
           <>
             <div className="flex flex-col items-center mb-4">
-              <button type="button" className="w-full flex items-center justify-center gap-2 border border-green-500 text-black bg-white py-2 rounded-3xl font-semibold hover:bg-gray-100 transition mb-4 text-base">
-                <FcGoogle className="text-xl" /> Sign up with Google
+              <button type="button" className="w-full flex items-center justify-center gap-2 border border-green-500 text-black bg-white py-2 rounded-3xl font-semibold hover:bg-gray-100 transition mb-4 text-base" onClick={handleGoogleAuth}>
+                <FcGoogle className="text-xl" />
+                Sign up with Google
               </button>
               <span className="text-gray-400 text-sm mb-2">or</span>
             </div>
@@ -243,8 +248,9 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
         ) : (
           <>
             <div className="flex flex-col items-center mb-4">
-              <button type="button" className="w-full flex items-center justify-center gap-2 border border-green-500 text-black bg-white py-2 rounded-3xl font-semibold hover:bg-gray-100 transition mb-4 text-base">
-                <FcGoogle className="text-xl" /> Sign in with Google
+              <button type="button" className="w-full flex items-center justify-center gap-2 border border-green-500 text-black bg-white py-2 rounded-3xl font-semibold hover:bg-gray-100 transition mb-4 text-base" onClick={handleGoogleAuth}>
+                <FcGoogle className="text-xl" />
+                Sign in with Google
               </button>
               <span className="text-gray-400 text-sm mb-2">or</span>
             </div>

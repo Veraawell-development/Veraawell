@@ -4,6 +4,9 @@ require('dotenv').config({ path: './config.env' });
 const mongoose = require('mongoose');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const session = require('express-session');
+const passport = require('passport');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const showBanner = require('./banner');
 
 const app = express();
@@ -26,6 +29,22 @@ app.use(cors({
 }));
 app.use(cookieParser());
 
+// Session middleware
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'your-secret-key',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+  }
+}));
+
+// Passport middleware
+app.use(passport.initialize());
+app.use(passport.session());
+
 // MongoDB connection
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
@@ -35,6 +54,86 @@ mongoose.connect(process.env.MONGO_URI, {
 .catch((err) => console.error('MongoDB connection error:', err));
 
 const User = require('./models/user');
+
+// Passport configuration
+passport.use(new GoogleStrategy({
+    clientID: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL: process.env.NODE_ENV === 'production' 
+      ? "https://veraawell-backend.onrender.com/api/auth/google/callback"
+      : "http://localhost:5001/api/auth/google/callback"
+  },
+  async function(accessToken, refreshToken, profile, cb) {
+    try {
+      console.log('Google profile:', profile);
+      // Check if user exists
+      let user = await User.findOne({ googleId: profile.id });
+      
+      if (!user) {
+        // Create new user
+        user = new User({
+          googleId: profile.id,
+          email: profile.emails[0].value,
+          firstName: profile.name.givenName,
+          lastName: profile.name.familyName,
+          username: profile.emails[0].value,
+          password: 'google-auth-' + Math.random().toString(36).substring(7) // Random password for Google users
+        });
+        await user.save();
+        console.log('New Google user created:', user.email);
+      } else {
+        console.log('Existing Google user found:', user.email);
+      }
+      
+      return cb(null, user);
+    } catch (error) {
+      console.error('Google OAuth error:', error);
+      return cb(error, null);
+    }
+  }
+));
+
+passport.serializeUser((user, done) => {
+  done(null, user.id);
+});
+
+passport.deserializeUser(async (id, done) => {
+  try {
+    const user = await User.findById(id);
+    done(null, user);
+  } catch (error) {
+    done(error, null);
+  }
+});
+
+// Google OAuth routes
+app.get('/api/auth/google',
+  passport.authenticate('google', { scope: ['profile', 'email'] })
+);
+
+app.get('/api/auth/google/callback', 
+  passport.authenticate('google', { failureRedirect: '/login' }),
+  (req, res) => {
+    console.log('Google OAuth callback - user:', req.user);
+    // Successful authentication, redirect to frontend
+    const token = jwt.sign({ username: req.user.email }, process.env.JWT_SECRET || 'testsecret', { expiresIn: '30d' });
+    
+    res.cookie('token', token, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    });
+    
+    // Redirect to frontend with success
+    const redirectUrl = process.env.NODE_ENV === 'production' 
+      ? 'https://veraawell.vercel.app?auth=success'
+      : 'http://localhost:5173?auth=success';
+    
+    console.log('Redirecting to:', redirectUrl);
+    res.redirect(redirectUrl);
+  }
+);
 
 // Register (Signup)
 app.post('/api/auth/register', async (req, res) => {
@@ -55,7 +154,7 @@ app.post('/api/auth/register', async (req, res) => {
       password
     });
     await newUser.save();
-    const token = jwt.sign({ username: email }, process.env.JWT_SECRET || 'testsecret', { expiresIn: '15m' });
+    const token = jwt.sign({ username: email }, process.env.JWT_SECRET || 'testsecret', { expiresIn: '30d' });
     res.cookie('token', token, {
       httpOnly: true,
       secure: true, // must be true for cross-site cookies
@@ -81,7 +180,7 @@ app.post('/api/auth/login', async (req, res) => {
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
-    const token = jwt.sign({ username: user.email }, process.env.JWT_SECRET || 'testsecret', { expiresIn: '15m' });
+    const token = jwt.sign({ username: user.email }, process.env.JWT_SECRET || 'testsecret', { expiresIn: '30d' });
     res.cookie('token', token, {
       httpOnly: true,
       secure: true, // must be true for cross-site cookies

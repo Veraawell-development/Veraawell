@@ -48,6 +48,37 @@ function AppRoutes() {
       });
   }, [location]);
 
+  // Add after the existing useEffect
+  useEffect(() => {
+    // Check if redirected from Google OAuth
+    const urlParams = new URLSearchParams(window.location.search);
+    const authSuccess = urlParams.get('auth');
+    
+    if (authSuccess === 'success') {
+      // Clear the URL parameter
+      window.history.replaceState({}, document.title, window.location.pathname);
+      
+      // Trigger auth check
+      fetch(`${API_BASE_URL}/protected`, { credentials: 'include' })
+        .then(res => {
+          if (res.ok) {
+            return res.json();
+          }
+          throw new Error('Not authenticated');
+        })
+        .then(data => {
+          if (data.user && data.user.username) {
+            setAuthSuccess(true);
+            setAuthUser(data.user.username);
+          }
+        })
+        .catch(() => {
+          setAuthSuccess(false);
+          setAuthUser('');
+        });
+    }
+  }, []);
+
   // Show success message if redirected from login/signup
   let showSuccess = authSuccess;
   let showUser = authUser;
