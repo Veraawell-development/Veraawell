@@ -8,6 +8,10 @@ interface AuthPageProps {
   onSuccess?: (username: string) => void;
 }
 
+const API_BASE_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:5001/api' 
+  : 'https://veraawell.vercel.app/api';
+
 export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -37,7 +41,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
     setError('');
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -86,7 +90,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
     setLoading(true);
     try {
       // Remove company from request
-      const res = await fetch('/api/auth/register', {
+      const res = await fetch(`${API_BASE_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -117,7 +121,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
           // Auto-login
           setTimeout(() => {
             setLoading(true);
-            fetch('/api/auth/login', {
+            fetch(`${API_BASE_URL}/auth/login`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               credentials: 'include',

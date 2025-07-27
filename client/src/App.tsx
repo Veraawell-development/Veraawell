@@ -5,6 +5,10 @@ import Footer from './components/Footer';
 import LandingPage from './pages/LandingPage';
 import AuthPage from './pages/AuthPage';
 
+const API_BASE_URL = window.location.hostname === 'localhost' 
+  ? 'http://localhost:5001/api' 
+  : 'https://veraawell.vercel.app/api';
+
 function AppRoutes() {
   const [authSuccess, setAuthSuccess] = useState(false);
   const [authUser, setAuthUser] = useState('');
@@ -16,7 +20,7 @@ function AppRoutes() {
   // Only trust backend for authentication state on every route change
   useEffect(() => {
     setLoading(true);
-    fetch('/api/protected', { credentials: 'include' })
+    fetch(`${API_BASE_URL}/protected`, { credentials: 'include' })
       .then(res => {
         setIsBackendConnected(true);
         if (!res.ok) {
@@ -59,7 +63,7 @@ function AppRoutes() {
     setAuthUser(username);
   };
   const handleLogout = async () => {
-    await fetch('/api/auth/logout', {
+    await fetch(`${API_BASE_URL}/auth/logout`, {
       method: 'POST',
       credentials: 'include',
     });
