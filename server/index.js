@@ -122,7 +122,24 @@ app.get('/api/health', (req, res) => {
     message: 'Backend is running', 
     timestamp: new Date().toISOString(),
     mongoConnected: mongoose.connection.readyState === 1,
-    googleOAuthEnabled: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
+    googleOAuthEnabled: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+    envVars: {
+      hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
+      hasGoogleClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
+      hasMongoUri: !!process.env.MONGO_URI,
+      hasJwtSecret: !!process.env.JWT_SECRET
+    }
+  });
+});
+
+// Test route to check if Google OAuth routes exist
+app.get('/api/test-google-routes', (req, res) => {
+  res.json({
+    googleOAuthEnabled: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
+    routes: {
+      '/api/auth/google': 'Available',
+      '/api/auth/google/callback': 'Available'
+    }
   });
 });
 
