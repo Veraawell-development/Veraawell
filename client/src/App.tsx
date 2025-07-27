@@ -53,36 +53,46 @@ function AppRoutes() {
     // Check if redirected from Google OAuth
     const urlParams = new URLSearchParams(window.location.search);
     const authSuccess = urlParams.get('auth');
+    const username = urlParams.get('username');
     
     if (authSuccess === 'success') {
       console.log('Google OAuth success detected');
+      console.log('Username from URL:', username);
+      
       // Clear the URL parameter
       window.history.replaceState({}, document.title, window.location.pathname);
       
-      // Trigger auth check after a short delay to ensure cookie is set
-      setTimeout(() => {
-        fetch(`${API_BASE_URL}/protected`, { credentials: 'include' })
-          .then(res => {
-            console.log('Auth check response:', res.status);
-            if (res.ok) {
-              return res.json();
-            }
-            throw new Error('Not authenticated');
-          })
-          .then(data => {
-            console.log('Auth check data:', data);
-            if (data.user && data.user.username) {
-              setAuthSuccess(true);
-              setAuthUser(data.user.username);
-              console.log('User authenticated:', data.user.username);
-            }
-          })
-          .catch((error) => {
-            console.error('Auth check error:', error);
-            setAuthSuccess(false);
-            setAuthUser('');
-          });
-      }, 1000);
+      if (username) {
+        // If username is provided in URL, set auth state immediately
+        setAuthSuccess(true);
+        setAuthUser(username);
+        console.log('User authenticated from URL:', username);
+      } else {
+        // Trigger auth check after a short delay to ensure cookie is set
+        setTimeout(() => {
+          fetch(`${API_BASE_URL}/protected`, { credentials: 'include' })
+            .then(res => {
+              console.log('Auth check response:', res.status);
+              if (res.ok) {
+                return res.json();
+              }
+              throw new Error('Not authenticated');
+            })
+            .then(data => {
+              console.log('Auth check data:', data);
+              if (data.user && data.user.username) {
+                setAuthSuccess(true);
+                setAuthUser(data.user.username);
+                console.log('User authenticated:', data.user.username);
+              }
+            })
+            .catch((error) => {
+              console.error('Auth check error:', error);
+              setAuthSuccess(false);
+              setAuthUser('');
+            });
+        }, 1000);
+      }
     }
   }, []);
 

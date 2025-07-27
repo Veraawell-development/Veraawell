@@ -251,7 +251,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
             <div className="flex flex-col items-center mb-4">
               <button type="button" className="w-full flex items-center justify-center gap-2 border border-green-500 text-black bg-white py-2 rounded-3xl font-semibold hover:bg-gray-100 transition mb-4 text-base" onClick={handleGoogleAuth}>
                 <FcGoogle className="text-xl" />
-                Sign in with Google
+                {registerMode ? 'Sign up with Google' : 'Sign in with Google'}
               </button>
               <span className="text-gray-400 text-sm mb-2">or</span>
             </div>
