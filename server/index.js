@@ -60,7 +60,7 @@ app.post('/api/auth/register', async (req, res) => {
       httpOnly: true,
       secure: true, // must be true for cross-site cookies
       sameSite: 'none', // must be 'none' for cross-site cookies
-      maxAge: 15 * 60 * 1000, // 15 minutes
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     });
     res.json({ message: 'Registration successful' });
   } catch (err) {
@@ -86,7 +86,7 @@ app.post('/api/auth/login', async (req, res) => {
       httpOnly: true,
       secure: true, // must be true for cross-site cookies
       sameSite: 'none', // must be 'none' for cross-site cookies
-      maxAge: 15 * 60 * 1000, // 15 minutes
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     });
     res.json({ message: 'Login successful' });
   } catch (err) {
