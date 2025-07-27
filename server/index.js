@@ -58,8 +58,8 @@ app.post('/api/auth/register', async (req, res) => {
     const token = jwt.sign({ username: email }, process.env.JWT_SECRET || 'testsecret', { expiresIn: '15m' });
     res.cookie('token', token, {
       httpOnly: true,
-      secure: false, // set to true in production (HTTPS)
-      sameSite: 'lax',
+      secure: true, // must be true for cross-site cookies
+      sameSite: 'none', // must be 'none' for cross-site cookies
       maxAge: 15 * 60 * 1000, // 15 minutes
     });
     res.json({ message: 'Registration successful' });
@@ -84,8 +84,8 @@ app.post('/api/auth/login', async (req, res) => {
     const token = jwt.sign({ username: user.email }, process.env.JWT_SECRET || 'testsecret', { expiresIn: '15m' });
     res.cookie('token', token, {
       httpOnly: true,
-      secure: false, // set to true in production (HTTPS)
-      sameSite: 'lax',
+      secure: true, // must be true for cross-site cookies
+      sameSite: 'none', // must be 'none' for cross-site cookies
       maxAge: 15 * 60 * 1000, // 15 minutes
     });
     res.json({ message: 'Login successful' });
@@ -104,8 +104,8 @@ app.get('/api/protected', async (req, res) => {
     if (!dbUser) {
       res.clearCookie('token', {
         httpOnly: true,
-        secure: false, // set to true in production
-        sameSite: 'lax',
+        secure: true, // must be true for cross-site cookies
+        sameSite: 'none', // must be 'none' for cross-site cookies
       });
       return res.status(401).json({ message: 'User does not exist' });
     }
@@ -117,8 +117,8 @@ app.get('/api/protected', async (req, res) => {
 app.post('/api/auth/logout', (req, res) => {
   res.clearCookie('token', {
     httpOnly: true,
-    secure: false, // set to true in production
-    sameSite: 'lax',
+    secure: true, // must be true for cross-site cookies
+    sameSite: 'none', // must be 'none' for cross-site cookies
   });
   res.json({ message: 'Logged out successfully' });
 });
