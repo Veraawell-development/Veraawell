@@ -10,7 +10,7 @@ interface AuthPageProps {
 
 const API_BASE_URL = window.location.hostname === 'localhost' 
   ? 'http://localhost:5001/api' 
-  : 'https://veraawell.vercel.app/api';
+  : 'https://veraawell.onrender.com/api';
 
 export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   const [username, setUsername] = useState('');

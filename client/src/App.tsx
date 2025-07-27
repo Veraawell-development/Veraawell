@@ -7,7 +7,7 @@ import AuthPage from './pages/AuthPage';
 
 const API_BASE_URL = window.location.hostname === 'localhost' 
   ? 'http://localhost:5001/api' 
-  : 'https://veraawell.vercel.app/api';
+  : 'https://veraawell.onrender.com/api';
 
 function AppRoutes() {
   const [authSuccess, setAuthSuccess] = useState(false);
