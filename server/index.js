@@ -144,22 +144,33 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   app.get('/api/auth/google/callback', 
     passport.authenticate('google', { failureRedirect: 'https://veraawell.vercel.app/login?error=google_auth_failed' }),
     (req, res) => {
-      console.log('Google OAuth callback - user:', req.user);
-      // Successful authentication, redirect to frontend with success
-      const token = jwt.sign({ username: req.user.email }, process.env.JWT_SECRET || 'testsecret', { expiresIn: '30d' });
-      
-      res.cookie('token', token, {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'none',
-        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-      });
-      
-      // Redirect to frontend with success and user info
-      const redirectUrl = `https://veraawell.vercel.app?auth=success&username=${encodeURIComponent(req.user.email)}`;
-      
-      console.log('Redirecting to:', redirectUrl);
-      res.redirect(redirectUrl);
+      try {
+        console.log('Google OAuth callback - user:', req.user);
+        
+        if (!req.user) {
+          console.error('No user found in Google OAuth callback');
+          return res.redirect('https://veraawell.vercel.app/login?error=no_user');
+        }
+        
+        // Successful authentication, redirect to frontend with success
+        const token = jwt.sign({ username: req.user.email }, process.env.JWT_SECRET || 'testsecret', { expiresIn: '30d' });
+        
+        res.cookie('token', token, {
+          httpOnly: true,
+          secure: true,
+          sameSite: 'none',
+          maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+        });
+        
+        // Redirect to frontend with success and user info
+        const redirectUrl = `https://veraawell.vercel.app?auth=success&username=${encodeURIComponent(req.user.email)}`;
+        
+        console.log('Redirecting to:', redirectUrl);
+        res.redirect(redirectUrl);
+      } catch (error) {
+        console.error('Error in Google OAuth callback:', error);
+        res.redirect('https://veraawell.vercel.app/login?error=callback_error');
+      }
     }
   );
 } else {
