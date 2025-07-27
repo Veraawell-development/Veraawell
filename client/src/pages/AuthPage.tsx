@@ -155,6 +155,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   };
 
   const handleGoogleAuth = () => {
+    console.log('Redirecting to Google OAuth:', `${API_BASE_URL}/auth/google`);
     window.location.href = `${API_BASE_URL}/auth/google`;
   };
 

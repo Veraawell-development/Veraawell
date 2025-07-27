@@ -1,6 +1,6 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
-require('dotenv').config({ path: './config.env' });
+require('dotenv').config();
 const mongoose = require('mongoose');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
@@ -59,9 +59,7 @@ const User = require('./models/user');
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: process.env.NODE_ENV === 'production' 
-      ? "https://veraawell-backend.onrender.com/api/auth/google/callback"
-      : "http://localhost:5001/api/auth/google/callback"
+    callbackURL: "https://veraawell-backend.onrender.com/api/auth/google/callback"
   },
   async function(accessToken, refreshToken, profile, cb) {
     try {
@@ -106,6 +104,11 @@ passport.deserializeUser(async (id, done) => {
   }
 });
 
+// Debug route to check if backend is working
+app.get('/api/health', (req, res) => {
+  res.json({ message: 'Backend is running', timestamp: new Date().toISOString() });
+});
+
 // Google OAuth routes
 app.get('/api/auth/google',
   passport.authenticate('google', { scope: ['profile', 'email'] })
@@ -126,9 +129,7 @@ app.get('/api/auth/google/callback',
     });
     
     // Redirect to frontend with success
-    const redirectUrl = process.env.NODE_ENV === 'production' 
-      ? 'https://veraawell.vercel.app?auth=success'
-      : 'http://localhost:5173?auth=success';
+    const redirectUrl = 'https://veraawell.vercel.app?auth=success';
     
     console.log('Redirecting to:', redirectUrl);
     res.redirect(redirectUrl);
