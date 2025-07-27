@@ -64,7 +64,12 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     },
     async function(accessToken, refreshToken, profile, cb) {
       try {
-        console.log('Google profile:', profile);
+        console.log('Google profile received:', {
+          id: profile.id,
+          email: profile.emails?.[0]?.value,
+          name: profile.name
+        });
+        
         // Check if user exists
         let user = await User.findOne({ googleId: profile.id });
         
@@ -73,8 +78,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           user = new User({
             googleId: profile.id,
             email: profile.emails[0].value,
-            firstName: profile.name.givenName,
-            lastName: profile.name.familyName,
+            firstName: profile.name.givenName || 'Google',
+            lastName: profile.name.familyName || 'User',
             username: profile.emails[0].value,
             password: 'google-auth-' + Math.random().toString(36).substring(7) // Random password for Google users
           });
@@ -96,14 +101,17 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 }
 
 passport.serializeUser((user, done) => {
+  console.log('Serializing user:', user.id);
   done(null, user.id);
 });
 
 passport.deserializeUser(async (id, done) => {
   try {
+    console.log('Deserializing user ID:', id);
     const user = await User.findById(id);
     done(null, user);
   } catch (error) {
+    console.error('Deserialize error:', error);
     done(error, null);
   }
 });
@@ -142,7 +150,10 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   );
 
   app.get('/api/auth/google/callback', 
-    passport.authenticate('google', { failureRedirect: 'https://veraawell.vercel.app/login?error=google_auth_failed' }),
+    (req, res, next) => {
+      console.log('Google callback route hit');
+      passport.authenticate('google', { failureRedirect: 'https://veraawell.vercel.app/login?error=google_auth_failed' })(req, res, next);
+    },
     (req, res) => {
       try {
         console.log('Google OAuth callback - user:', req.user);
