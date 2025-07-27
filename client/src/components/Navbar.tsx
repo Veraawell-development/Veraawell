@@ -5,7 +5,7 @@ export default function Navbar({ isBackendConnected, isLoggedIn, onLogout }: { i
   return (
     <nav className="w-full flex items-center justify-between px-6 py-4 bg-black text-white shadow-sm">
       <div className="flex items-center gap-2 font-bold text-xl cursor-pointer" onClick={() => navigate('/') }>
-        VeroCare
+        Veraawell
       </div>
       <div className="flex gap-2">
         {isLoggedIn ? (

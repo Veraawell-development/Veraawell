@@ -22,7 +22,7 @@ export default function HeroSection({ onLogin, onSignup, username, onLogout }: {
   }
   return (
     <section className="flex flex-col items-center justify-center min-h-[60vh] px-4 bg-black">
-      <h1 className="text-4xl md:text-5xl font-extrabold text-white mb-4 text-center mt-44">Welcome to VeroCare</h1>
+      <h1 className="text-4xl md:text-5xl font-extrabold text-white mb-4 text-center mt-44">Welcome to Veraawell</h1>
       <p className="text-gray-300 text-base md:text-lg mb-8 text-center max-w-xl">
         Your modern, minimal, and secure platform for authentication. Sign up or log in to get started.
       </p>

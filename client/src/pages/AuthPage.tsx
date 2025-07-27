@@ -154,7 +154,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
     <div className="min-h-[80vh] flex items-center justify-center bg-black p-2 sm:p-4">
       <div className="w-full max-w-md sm:max-w-md bg-gray-900 rounded-3xl shadow-xl p-4 sm:p-8 border border-gray-800">
         <h2 className="text-lg sm:text-xl font-bold text-center mb-6 text-white tracking-tight">
-          {registerMode ? 'Create your account' : 'Sign in to VeroCare'}
+          {registerMode ? 'Create your account' : 'Sign in to Veraawell'}
         </h2>
         {registerMode ? (
           <>
