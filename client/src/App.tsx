@@ -55,27 +55,34 @@ function AppRoutes() {
     const authSuccess = urlParams.get('auth');
     
     if (authSuccess === 'success') {
+      console.log('Google OAuth success detected');
       // Clear the URL parameter
       window.history.replaceState({}, document.title, window.location.pathname);
       
-      // Trigger auth check
-      fetch(`${API_BASE_URL}/protected`, { credentials: 'include' })
-        .then(res => {
-          if (res.ok) {
-            return res.json();
-          }
-          throw new Error('Not authenticated');
-        })
-        .then(data => {
-          if (data.user && data.user.username) {
-            setAuthSuccess(true);
-            setAuthUser(data.user.username);
-          }
-        })
-        .catch(() => {
-          setAuthSuccess(false);
-          setAuthUser('');
-        });
+      // Trigger auth check after a short delay to ensure cookie is set
+      setTimeout(() => {
+        fetch(`${API_BASE_URL}/protected`, { credentials: 'include' })
+          .then(res => {
+            console.log('Auth check response:', res.status);
+            if (res.ok) {
+              return res.json();
+            }
+            throw new Error('Not authenticated');
+          })
+          .then(data => {
+            console.log('Auth check data:', data);
+            if (data.user && data.user.username) {
+              setAuthSuccess(true);
+              setAuthUser(data.user.username);
+              console.log('User authenticated:', data.user.username);
+            }
+          })
+          .catch((error) => {
+            console.error('Auth check error:', error);
+            setAuthSuccess(false);
+            setAuthUser('');
+          });
+      }, 1000);
     }
   }, []);
 

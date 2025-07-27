@@ -12,6 +12,11 @@ const showBanner = require('./banner');
 const app = express();
 const PORT = process.env.PORT || 8000;
 
+// Basic route to test if server is running
+app.get('/', (req, res) => {
+  res.json({ message: 'Veraawell Backend is running!', timestamp: new Date().toISOString() });
+});
+
 app.use(express.json());
 app.use(cors({
   origin: function (origin, callback) {
@@ -45,51 +50,58 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
-// MongoDB connection
-mongoose.connect(process.env.MONGO_URI, {
+// MongoDB connection with better error handling
+mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/verocare', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
 .then(() => console.log('MongoDB connected'))
-.catch((err) => console.error('MongoDB connection error:', err));
+.catch((err) => {
+  console.error('MongoDB connection error:', err);
+  console.log('Please check your MONGO_URI environment variable');
+});
 
 const User = require('./models/user');
 
-// Passport configuration
-passport.use(new GoogleStrategy({
-    clientID: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: "https://veraawell-backend.onrender.com/api/auth/google/callback"
-  },
-  async function(accessToken, refreshToken, profile, cb) {
-    try {
-      console.log('Google profile:', profile);
-      // Check if user exists
-      let user = await User.findOne({ googleId: profile.id });
-      
-      if (!user) {
-        // Create new user
-        user = new User({
-          googleId: profile.id,
-          email: profile.emails[0].value,
-          firstName: profile.name.givenName,
-          lastName: profile.name.familyName,
-          username: profile.emails[0].value,
-          password: 'google-auth-' + Math.random().toString(36).substring(7) // Random password for Google users
-        });
-        await user.save();
-        console.log('New Google user created:', user.email);
-      } else {
-        console.log('Existing Google user found:', user.email);
+// Passport configuration with error handling
+if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  passport.use(new GoogleStrategy({
+      clientID: process.env.GOOGLE_CLIENT_ID,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+      callbackURL: "https://veraawell-backend.onrender.com/api/auth/google/callback"
+    },
+    async function(accessToken, refreshToken, profile, cb) {
+      try {
+        console.log('Google profile:', profile);
+        // Check if user exists
+        let user = await User.findOne({ googleId: profile.id });
+        
+        if (!user) {
+          // Create new user
+          user = new User({
+            googleId: profile.id,
+            email: profile.emails[0].value,
+            firstName: profile.name.givenName,
+            lastName: profile.name.familyName,
+            username: profile.emails[0].value,
+            password: 'google-auth-' + Math.random().toString(36).substring(7) // Random password for Google users
+          });
+          await user.save();
+          console.log('New Google user created:', user.email);
+        } else {
+          console.log('Existing Google user found:', user.email);
+        }
+        
+        return cb(null, user);
+      } catch (error) {
+        console.error('Google OAuth error:', error);
+        return cb(error, null);
       }
-      
-      return cb(null, user);
-    } catch (error) {
-      console.error('Google OAuth error:', error);
-      return cb(error, null);
     }
-  }
-));
+  ));
+} else {
+  console.log('Google OAuth credentials not found. Google OAuth will be disabled.');
+}
 
 passport.serializeUser((user, done) => {
   done(null, user.id);
@@ -106,35 +118,51 @@ passport.deserializeUser(async (id, done) => {
 
 // Debug route to check if backend is working
 app.get('/api/health', (req, res) => {
-  res.json({ message: 'Backend is running', timestamp: new Date().toISOString() });
+  res.json({ 
+    message: 'Backend is running', 
+    timestamp: new Date().toISOString(),
+    mongoConnected: mongoose.connection.readyState === 1,
+    googleOAuthEnabled: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
+  });
 });
 
-// Google OAuth routes
-app.get('/api/auth/google',
-  passport.authenticate('google', { scope: ['profile', 'email'] })
-);
+// Google OAuth routes (only if credentials are available)
+if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  app.get('/api/auth/google',
+    passport.authenticate('google', { scope: ['profile', 'email'] })
+  );
 
-app.get('/api/auth/google/callback', 
-  passport.authenticate('google', { failureRedirect: '/login' }),
-  (req, res) => {
-    console.log('Google OAuth callback - user:', req.user);
-    // Successful authentication, redirect to frontend
-    const token = jwt.sign({ username: req.user.email }, process.env.JWT_SECRET || 'testsecret', { expiresIn: '30d' });
-    
-    res.cookie('token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    });
-    
-    // Redirect to frontend with success
-    const redirectUrl = 'https://veraawell.vercel.app?auth=success';
-    
-    console.log('Redirecting to:', redirectUrl);
-    res.redirect(redirectUrl);
-  }
-);
+  app.get('/api/auth/google/callback', 
+    passport.authenticate('google', { failureRedirect: '/login' }),
+    (req, res) => {
+      console.log('Google OAuth callback - user:', req.user);
+      // Successful authentication, redirect to frontend
+      const token = jwt.sign({ username: req.user.email }, process.env.JWT_SECRET || 'testsecret', { expiresIn: '30d' });
+      
+      res.cookie('token', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      });
+      
+      // Redirect to frontend with success
+      const redirectUrl = 'https://veraawell.vercel.app?auth=success';
+      
+      console.log('Redirecting to:', redirectUrl);
+      res.redirect(redirectUrl);
+    }
+  );
+} else {
+  // Fallback routes if Google OAuth is not configured
+  app.get('/api/auth/google', (req, res) => {
+    res.status(400).json({ message: 'Google OAuth not configured' });
+  });
+  
+  app.get('/api/auth/google/callback', (req, res) => {
+    res.status(400).json({ message: 'Google OAuth not configured' });
+  });
+}
 
 // Register (Signup)
 app.post('/api/auth/register', async (req, res) => {
@@ -226,4 +254,10 @@ app.post('/api/auth/logout', (req, res) => {
 showBanner();
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log('Environment variables:');
+  console.log('- MONGO_URI:', process.env.MONGO_URI ? 'Set' : 'Not set');
+  console.log('- GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID ? 'Set' : 'Not set');
+  console.log('- GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET ? 'Set' : 'Not set');
+  console.log('- JWT_SECRET:', process.env.JWT_SECRET ? 'Set' : 'Not set');
+  console.log('- SESSION_SECRET:', process.env.SESSION_SECRET ? 'Set' : 'Not set');
 }); 
