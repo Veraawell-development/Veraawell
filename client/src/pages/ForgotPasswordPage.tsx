@@ -41,12 +41,13 @@ export default function ForgotPasswordPage() {
           setMessage(`${data.message} (For testing: ${data.resetUrl})`);
         }
       } else {
-        let errorMsg = 'Failed to send reset email';
-        try {
-          const errorData = await res.json();
-          errorMsg = errorData.message || errorMsg;
-        } catch {}
-        setError(errorMsg);
+        let errorMsg = data.message || 'Failed to send reset email';
+        // Special handling for Google login accounts
+        if (errorMsg.toLowerCase().includes('google login')) {
+          setError('This account uses Google login. Please use Google Sign-In.');
+        } else {
+          setError(errorMsg);
+        }
       }
     } catch (err) {
       setError('Network error. Please try again.');
