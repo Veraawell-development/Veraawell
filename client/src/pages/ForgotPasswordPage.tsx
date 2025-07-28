@@ -41,8 +41,12 @@ export default function ForgotPasswordPage() {
           setMessage(`${data.message} (For testing: ${data.resetUrl})`);
         }
       } else {
-        const errorData = await res.json();
-        setError(errorData.message || 'Failed to send reset email');
+        let errorMsg = 'Failed to send reset email';
+        try {
+          const errorData = await res.json();
+          errorMsg = errorData.message || errorMsg;
+        } catch {}
+        setError(errorMsg);
       }
     } catch (err) {
       setError('Network error. Please try again.');
@@ -68,6 +72,15 @@ export default function ForgotPasswordPage() {
         
         {error && (
           <div className="text-center text-red-400 mb-4">{error}</div>
+        )}
+        {error && error.toLowerCase().includes('no account found') && (
+          <button
+            type="button"
+            className="w-full bg-green-500 text-black py-2 rounded-3xl hover:bg-green-400 transition font-semibold mb-2"
+            onClick={() => navigate('/signup')}
+          >
+            Create Account
+          </button>
         )}
 
         <form onSubmit={handleForgotPassword} className="space-y-4">

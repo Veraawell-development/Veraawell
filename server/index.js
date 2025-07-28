@@ -213,7 +213,10 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     const user = await User.findOne({ email: email.toLowerCase() });
     
     if (!user) {
-      return res.status(404).json({ message: 'No account found with this email address.' });
+      return res.status(404).json({ message: 'No account found with this email. Please create a new account.' });
+    }
+    if (user.googleId) {
+      return res.status(400).json({ message: 'This account uses Google login. Please use Google Sign-In.' });
     }
     
     // Generate reset token
@@ -305,6 +308,15 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 app.get('/api/debug/reset-tokens', async (req, res) => {
   const users = await User.find({}, 'email resetToken resetTokenExpiry');
   res.json(users);
+});
+
+// DEBUG: Echo token and show user info (for troubleshooting only, remove in production!)
+app.get('/api/debug/echo-token', async (req, res) => {
+  const { token } = req.query;
+  if (!token) return res.status(400).json({ message: 'Token required' });
+  const user = await User.findOne({ resetToken: token });
+  if (!user) return res.status(404).json({ message: 'No user found for this token' });
+  res.json({ email: user.email, resetToken: user.resetToken, resetTokenExpiry: user.resetTokenExpiry });
 });
 
 // Reset Password

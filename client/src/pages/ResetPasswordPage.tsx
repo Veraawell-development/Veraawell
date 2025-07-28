@@ -62,7 +62,12 @@ export default function ResetPasswordPage() {
           navigate('/login');
         }, 2000);
       } else {
-        setError(data.message || 'Password reset failed');
+        let errorMsg = 'Password reset failed';
+        try {
+          const errorData = await res.json();
+          errorMsg = errorData.message || errorMsg;
+        } catch {}
+        setError(errorMsg);
       }
     } catch (err) {
       setError('Network error. Please try again.');
