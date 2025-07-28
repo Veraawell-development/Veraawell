@@ -4,6 +4,8 @@ import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import LandingPage from './pages/LandingPage';
 import AuthPage from './pages/AuthPage';
+import ForgotPasswordPage from './pages/ForgotPasswordPage';
+import ResetPasswordPage from './pages/ResetPasswordPage';
 
 const API_BASE_URL = window.location.hostname === 'localhost' 
   ? 'http://localhost:5001/api' 
@@ -139,6 +141,8 @@ function AppRoutes() {
         />
         <Route path="/login" element={<AuthPage mode="login" onSuccess={handleAuthSuccess} />} />
         <Route path="/signup" element={<AuthPage mode="signup" onSuccess={handleAuthSuccess} />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
       </Routes>
     </main>
   );

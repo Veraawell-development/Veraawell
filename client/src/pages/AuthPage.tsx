@@ -279,7 +279,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
                 </button>
               </div>
               <div className="flex justify-end">
-                <button type="button" className="text-green-400 text-xs hover:underline focus:outline-none" onClick={() => alert('Forgot password feature coming soon!')}>
+                <button type="button" className="text-green-400 text-xs hover:underline focus:outline-none" onClick={() => navigate('/forgot-password')}>
                   Forgot password?
                 </button>
               </div>

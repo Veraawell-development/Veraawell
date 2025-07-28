@@ -7,7 +7,10 @@ const cookieParser = require('cookie-parser');
 const session = require('express-session');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const { Resend } = require('resend');
+const crypto = require('crypto');
 const showBanner = require('./banner');
+const nodemailer = require('nodemailer');
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -197,6 +200,123 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     res.status(400).json({ message: 'Google OAuth not configured' });
   });
 }
+
+// Forgot Password
+app.post('/api/auth/forgot-password', async (req, res) => {
+  const { email } = req.body;
+  
+  if (!email) {
+    return res.status(400).json({ message: 'Email is required' });
+  }
+  
+  try {
+    const user = await User.findOne({ email: email.toLowerCase() });
+    
+    if (!user) {
+      return res.status(404).json({ message: 'No account found with this email address.' });
+    }
+    
+    // Generate reset token
+    const resetToken = crypto.randomBytes(32).toString('hex');
+    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour from now
+    
+    // Save reset token to user
+    user.resetToken = resetToken;
+    user.resetTokenExpiry = resetTokenExpiry;
+    await user.save();
+    
+    // Create reset URL
+    const frontendResetUrl = `https://veraawell.vercel.app/reset-password?token=${resetToken}`;
+
+    // Configure nodemailer transporter
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+      }
+    });
+
+    // Email content
+    const mailOptions = {
+      from: `Veraawell <${process.env.MAIL_USER}>`,
+      to: user.email,
+      subject: 'Veraawell - Password Reset Request',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
+          <div style="background-color: #1f2937; color: white; padding: 20px; border-radius: 10px; text-align: center;">
+            <h1 style="margin: 0; color: #10b981;">Veraawell</h1>
+          </div>
+          <div style="background-color: white; padding: 30px; border-radius: 10px; margin-top: 20px;">
+            <h2 style="color: #1f2937; margin-bottom: 20px;">Password Reset Request</h2>
+            <p style="color: #6b7280; line-height: 1.6; margin-bottom: 25px;">
+              You requested a password reset for your Veraawell account. Click the button below to reset your password:
+            </p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${frontendResetUrl}" 
+                 style="background-color: #10b981; color: white; padding: 12px 30px; text-decoration: none; border-radius: 25px; display: inline-block; font-weight: bold;">
+                Reset Password
+              </a>
+            </div>
+            <p style="color: #6b7280; font-size: 14px; margin-top: 25px;">
+              If you didn't request this password reset, you can safely ignore this email. The reset link will expire in 1 hour.
+            </p>
+            <p style="color: #6b7280; font-size: 14px;">
+              If the button doesn't work, copy and paste this link into your browser:<br>
+              <a href="${frontendResetUrl}" style="color: #10b981; word-break: break-all;">${frontendResetUrl}</a>
+            </p>
+          </div>
+          <div style="text-align: center; margin-top: 20px; color: #6b7280; font-size: 12px;">
+            © 2025 VeroCare. All rights reserved.
+          </div>
+        </div>
+      `
+    };
+
+    try {
+      await transporter.sendMail(mailOptions);
+      res.json({ message: 'Password reset link has been sent to your email.' });
+    } catch (emailError) {
+      console.error('❌ Email sending failed:', emailError.message);
+      res.status(500).json({ message: 'Failed to send reset email. Please try again later.' });
+    }
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Reset Password
+app.post('/api/auth/reset-password', async (req, res) => {
+  const { token, newPassword } = req.body;
+  
+  if (!token || !newPassword) {
+    return res.status(400).json({ message: 'Token and new password are required' });
+  }
+  
+  try {
+    const user = await User.findOne({ 
+      resetToken: token,
+      resetTokenExpiry: { $gt: Date.now() }
+    });
+    
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid or expired reset token' });
+    }
+    
+    // Update password
+    user.password = newPassword;
+    user.resetToken = null;
+    user.resetTokenExpiry = null;
+    await user.save();
+    
+    res.json({ message: 'Password reset successful' });
+    
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 
 // Register (Signup)
 app.post('/api/auth/register', async (req, res) => {

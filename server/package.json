@@ -11,12 +11,14 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "@sendgrid/mail": "^8.1.5",
     "bcrypt": "^6.0.0",
     "bcryptjs": "^3.0.2",
     "cfonts": "^3.3.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
     "cros": "^1.1.0",
+    "crypto": "^1.0.1",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
     "express-session": "^1.18.2",
@@ -24,8 +26,10 @@
     "mongodb": "^6.18.0",
     "mongoose": "^8.16.4",
     "mysql2": "^3.14.2",
+    "nodemailer": "^7.0.5",
     "passport": "^0.7.0",
-    "passport-google-oauth20": "^2.0.0"
+    "passport-google-oauth20": "^2.0.0",
+    "resend": "^4.7.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
