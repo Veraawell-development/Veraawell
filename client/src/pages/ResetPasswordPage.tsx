@@ -54,8 +54,6 @@ export default function ResetPasswordPage() {
         body: JSON.stringify({ token, newPassword }),
       });
 
-      const data = await res.json();
-
       if (res.ok) {
         setMessage('Password reset successful! Redirecting to login...');
         setTimeout(() => {
@@ -64,8 +62,7 @@ export default function ResetPasswordPage() {
       } else {
         let errorMsg = 'Password reset failed';
         try {
-          const errorData = await res.json();
-          errorMsg = errorData.message || errorMsg;
+          await res.json();
         } catch {}
         setError(errorMsg);
       }
