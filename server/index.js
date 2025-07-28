@@ -239,37 +239,52 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 
     // Email content
     const mailOptions = {
-      from: `Veraawell <${process.env.MAIL_USER}>`,
+      from: `Veraawell <${process.env.EMAIL_USER}>`,
       to: user.email,
       subject: 'Veraawell - Password Reset Request',
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9f9f9;">
-          <div style="background-color: #1f2937; color: white; padding: 20px; border-radius: 10px; text-align: center;">
-            <h1 style="margin: 0; color: #10b981;">Veraawell</h1>
-          </div>
-          <div style="background-color: white; padding: 30px; border-radius: 10px; margin-top: 20px;">
-            <h2 style="color: #1f2937; margin-bottom: 20px;">Password Reset Request</h2>
-            <p style="color: #6b7280; line-height: 1.6; margin-bottom: 25px;">
-              You requested a password reset for your Veraawell account. Click the button below to reset your password:
-            </p>
-            <div style="text-align: center; margin: 30px 0;">
-              <a href="${frontendResetUrl}" 
-                 style="background-color: #10b981; color: white; padding: 12px 30px; text-decoration: none; border-radius: 25px; display: inline-block; font-weight: bold;">
-                Reset Password
-              </a>
-            </div>
-            <p style="color: #6b7280; font-size: 14px; margin-top: 25px;">
-              If you didn't request this password reset, you can safely ignore this email. The reset link will expire in 1 hour.
-            </p>
-            <p style="color: #6b7280; font-size: 14px;">
-              If the button doesn't work, copy and paste this link into your browser:<br>
-              <a href="${frontendResetUrl}" style="color: #10b981; word-break: break-all;">${frontendResetUrl}</a>
-            </p>
-          </div>
-          <div style="text-align: center; margin-top: 20px; color: #6b7280; font-size: 12px;">
-            © 2025 VeroCare. All rights reserved.
-          </div>
-        </div>
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>Password Reset</title>
+        </head>
+        <body style="margin:0;padding:0;background:#f6f8fa;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
+          <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f6f8fa;padding:0;margin:0;">
+            <tr>
+              <td align="center">
+                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:420px;margin:40px auto;background:#fff;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,0.04);overflow:hidden;">
+                  <tr>
+                    <td style="background:#18181b;padding:32px 0;text-align:center;">
+                      <span style="font-size:2rem;font-weight:700;letter-spacing:1px;color:#10b981;">Veraawell</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:32px 24px 16px 24px;text-align:center;">
+                      <h2 style="margin:0 0 16px 0;font-size:1.4rem;font-weight:600;color:#18181b;">Password Reset Request</h2>
+                      <p style="margin:0 0 24px 0;color:#52525b;font-size:1rem;line-height:1.6;">You requested a password reset for your Veraawell account. Click the button below to reset your password:</p>
+                      <a href="${frontendResetUrl}" style="display:inline-block;padding:14px 32px;background:#10b981;color:#fff;font-weight:600;font-size:1rem;border-radius:32px;text-decoration:none;box-shadow:0 2px 8px rgba(16,185,129,0.08);margin-bottom:24px;">Reset Password</a>
+                      <p style="margin:24px 0 0 0;color:#71717a;font-size:0.95rem;">If you have any trouble resetting your password, just reply to this email and we’ll help you out.</p>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:0 24px 0 24px;">
+                      <hr style="border:none;border-top:1px solid #ececec;margin:24px 0 0 0;">
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="background:#f6f8fa;text-align:center;padding:18px 0 8px 0;color:#b0b0b0;font-size:0.93rem;letter-spacing:0.01em;">
+                      &copy; 2025 VeroCare. All rights reserved.<br>
+                      <span style="color:#b0b0b0;font-size:0.92rem;">This email was sent automatically. Please do not share your reset link with anyone.</span>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
       `
     };
 
@@ -286,11 +301,25 @@ app.post('/api/auth/forgot-password', async (req, res) => {
   }
 });
 
+// DEBUG: List all reset tokens (for troubleshooting only, remove in production!)
+app.get('/api/debug/reset-tokens', async (req, res) => {
+  const users = await User.find({}, 'email resetToken resetTokenExpiry');
+  res.json(users);
+});
+
 // Reset Password
 app.post('/api/auth/reset-password', async (req, res) => {
   const { token, newPassword } = req.body;
   
+  console.log('--- Password Reset Attempt ---');
+  console.log('Received token:', token);
+
+  // List all tokens for debug
+  const allUsers = await User.find({}, 'email resetToken resetTokenExpiry');
+  console.log('All tokens in DB:', allUsers.map(u => ({ email: u.email, resetToken: u.resetToken, resetTokenExpiry: u.resetTokenExpiry })));
+
   if (!token || !newPassword) {
+    console.log('Missing token or newPassword');
     return res.status(400).json({ message: 'Token and new password are required' });
   }
   
@@ -299,8 +328,11 @@ app.post('/api/auth/reset-password', async (req, res) => {
       resetToken: token,
       resetTokenExpiry: { $gt: Date.now() }
     });
+    console.log('DB Query:', { resetToken: token, resetTokenExpiry: { $gt: Date.now() } });
+    console.log('User found:', user ? user.email : null);
     
     if (!user) {
+      console.log('Invalid or expired token');
       return res.status(400).json({ message: 'Invalid or expired reset token' });
     }
     
@@ -309,6 +341,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
     user.resetToken = null;
     user.resetTokenExpiry = null;
     await user.save();
+    console.log('Password reset successful for:', user.email);
     
     res.json({ message: 'Password reset successful' });
     
