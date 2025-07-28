@@ -18,6 +18,7 @@ export default function ResetPasswordPage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const token = searchParams.get('token');
+  const [isGoogleUser, setIsGoogleUser] = useState(false);
 
   useEffect(() => {
     if (!token) {
@@ -62,7 +63,11 @@ export default function ResetPasswordPage() {
       } else {
         let errorMsg = 'Password reset failed';
         try {
-          await res.json();
+          const errorData = await res.json();
+          errorMsg = errorData.message || errorMsg;
+          if (errorMsg.toLowerCase().includes('google')) {
+            setIsGoogleUser(true);
+          }
         } catch {}
         setError(errorMsg);
       }
@@ -102,7 +107,9 @@ export default function ResetPasswordPage() {
         {error && (
           <div className="text-center text-red-400 mb-4">{error}</div>
         )}
-
+        {isGoogleUser ? (
+          <div className="text-center text-yellow-400 mb-4">You signed up with Google. Please use Google Sign-In to log in. Password reset is not available for Google accounts.</div>
+        ) : (
         <form onSubmit={handleResetPassword} className="space-y-4">
           <div className="relative">
             <input
@@ -151,7 +158,7 @@ export default function ResetPasswordPage() {
             {loading ? 'Resetting Password...' : 'Reset Password'}
           </button>
         </form>
-
+        )}
         <button 
           type="button" 
           className="w-full text-green-400 py-2 rounded-3xl hover:bg-gray-800 transition mt-4 text-sm font-semibold" 

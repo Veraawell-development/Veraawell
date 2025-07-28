@@ -327,8 +327,8 @@ app.post('/api/auth/reset-password', async (req, res) => {
   console.log('Received token:', token);
 
   // List all tokens for debug
-  const allUsers = await User.find({}, 'email resetToken resetTokenExpiry');
-  console.log('All tokens in DB:', allUsers.map(u => ({ email: u.email, resetToken: u.resetToken, resetTokenExpiry: u.resetTokenExpiry })));
+  const allUsers = await User.find({}, 'email resetToken resetTokenExpiry googleId');
+  console.log('All tokens in DB:', allUsers.map(u => ({ email: u.email, resetToken: u.resetToken, resetTokenExpiry: u.resetTokenExpiry, googleId: u.googleId })));
 
   if (!token || !newPassword) {
     console.log('Missing token or newPassword');
@@ -346,6 +346,10 @@ app.post('/api/auth/reset-password', async (req, res) => {
     if (!user) {
       console.log('Invalid or expired token');
       return res.status(400).json({ message: 'Invalid or expired reset token' });
+    }
+    if (user.googleId) {
+      console.log('Attempted password reset for Google user:', user.email);
+      return res.status(400).json({ message: 'You signed up with Google. Please use Google Sign-In to log in. Password reset is not available for Google accounts.' });
     }
     
     // Update password
