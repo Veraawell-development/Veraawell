@@ -278,10 +278,6 @@ const transporter = nodemailer.createTransporter({
    - Implement role-based access
    - Add analytics
 
-## 📝 License
-
-MIT License - see [LICENSE](LICENSE) for details
-
 ---
 
 **Made with ❤️ by Abhigyan Raj and the Veraawell team.** 
