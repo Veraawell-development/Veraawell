@@ -30,7 +30,6 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   const [agree, setAgree] = useState(false);
   const [selectedRole, setSelectedRole] = useState<'patient' | 'doctor'>('patient');
   const [isAdminMode, setIsAdminMode] = useState(false);
-  const [showAdminLogin, setShowAdminLogin] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
