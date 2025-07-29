@@ -1,117 +1,286 @@
-# Veraawell
+# Veraawell 🚀
 
-A modern, secure authentication platform built with the MERN stack and deployed on Vercel (frontend) and Render (backend).
+A modern, secure authentication platform built with the MERN stack, featuring OAuth integration, password reset functionality, and secure session management.
 
----
+## System Architecture
 
-## 🚀 Tech Stack
+### High-Level Overview
+```mermaid
+graph TD
+    A[Frontend - Vercel] -->|API Requests| B[Backend - Render]
+    B -->|Store/Query Data| C[MongoDB Atlas]
+    B -->|Send Emails| D[Gmail/SMTP]
+    B -->|OAuth| E[Google Auth]
+    
+    subgraph Frontend Stack
+    A1[React + Vite] -->|UI Framework| A2[TypeScript]
+    A2 -->|Styling| A3[Tailwind CSS]
+    end
+    
+    subgraph Backend Stack
+    B1[Node.js] -->|Framework| B2[Express.js]
+    B2 -->|Auth| B3[JWT + Passport]
+    B3 -->|Security| B4[bcrypt]
+    end
+```
 
-- **Frontend:** React (Vite), TypeScript, Tailwind CSS
-- **Backend:** Node.js, Express.js
-- **Database:** MongoDB Atlas (cloud)
-- **Authentication:** JWT (HttpOnly cookies), bcrypt password hashing
-- **OAuth:** (UI ready for Google OAuth)
-- **Email:** (Ready for SendGrid integration for password reset)
-- **Deployment:**
-  - **Frontend:** Vercel (with SPA routing via `vercel.json`)
-  - **Backend:** Render.com
+### Authentication Flow
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant F as Frontend
+    participant B as Backend
+    participant DB as MongoDB
+    participant E as Email
 
----
+    %% Regular Auth Flow
+    U->>F: Enter Credentials
+    F->>B: POST /api/auth/login
+    B->>DB: Verify User
+    DB-->>B: User Data
+    B->>F: Set HTTP-Only Cookie
+    F->>U: Redirect to Dashboard
 
-## 🏗️ Architecture & Features
+    %% Password Reset Flow
+    U->>F: Click Forgot Password
+    F->>B: POST /api/auth/forgot-password
+    B->>DB: Generate Reset Token
+    B->>E: Send Reset Email
+    E-->>U: Reset Link
+    U->>F: Click Reset Link
+    F->>B: POST /api/auth/reset-password
+    B->>DB: Update Password
+    B-->>F: Success Response
+    F->>U: Show Success Message
+```
 
-### 1. **Frontend (React + Vite)**
-- Responsive, modern UI with dark mode.
-- Authentication pages: Login, Signup, Forgot Password (UI), Google Auth (UI).
-- Uses React Router for client-side routing.
-- All navigation and protected routes handled client-side.
-- Uses `fetch` with `credentials: 'include'` for secure cookie-based auth.
-- No sensitive data stored in localStorage/sessionStorage.
-- SPA routing enabled via `client/vercel.json` for Vercel deployment.
+### Data Model
+```mermaid
+classDiagram
+    class User {
+        +String firstName
+        +String lastName
+        +String email
+        +String password
+        +String role
+        +String googleId
+        +String resetToken
+        +Date resetTokenExpiry
+        +comparePassword()
+        +setResetToken()
+        +clearResetToken()
+    }
+    
+    class AuthController {
+        +login()
+        +register()
+        +forgotPassword()
+        +resetPassword()
+        +googleAuth()
+        +logout()
+    }
+    
+    class EmailService {
+        +sendResetEmail()
+        +sendWelcomeEmail()
+    }
+    
+    AuthController --> User
+    AuthController --> EmailService
+```
 
-### 2. **Backend (Node.js + Express)**
-- REST API for authentication and user management.
-- Passwords are hashed with bcrypt before storing in MongoDB.
-- JWTs are issued as HttpOnly cookies for secure, stateless sessions.
-- Protected routes verify JWT from cookies and check user existence in DB.
-- Logout endpoint clears the auth cookie.
-- CORS configured for secure cross-origin requests from frontend.
-- Ready for SendGrid integration for password reset emails.
+## 🛠️ Tech Stack
 
-### 3. **Database (MongoDB Atlas)**
-- Stores user data: first name, last name, email (as username), hashed password.
-- Email is unique and required for all users.
+### Frontend
+- **Framework**: React 18 with Vite
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS
+- **Routing**: React Router v6
+- **State Management**: React Context + Hooks
+- **Build Tool**: Vite
+- **Deployment**: Vercel
 
-### 4. **OAuth & Password Reset (Planned/Partial)**
-- UI for Google OAuth and Forgot Password is implemented.
-- Backend ready for integration with Google OAuth and SendGrid for password reset.
+### Backend
+- **Runtime**: Node.js
+- **Framework**: Express.js
+- **Database**: MongoDB with Mongoose
+- **Authentication**: 
+  - JWT (HttpOnly cookies)
+  - Passport.js
+  - Google OAuth 2.0
+- **Email**: Nodemailer with SMTP
+- **Deployment**: Render.com
 
----
+## 🔒 Security Features
 
-## 🔒 Authentication Flow
+1. **Password Security**
+   - Bcrypt hashing with salt rounds
+   - Password strength validation
+   - Secure password reset flow
 
-1. **Signup:**
-   - User provides first name, last name, email, password.
-   - Backend hashes password, stores user, issues JWT as HttpOnly cookie.
-2. **Login:**
-   - User logs in with email and password.
-   - Backend verifies credentials, issues JWT as HttpOnly cookie.
-3. **Persistent Auth:**
-   - Frontend checks `/api/protected` on every route/page load.
-   - Backend verifies JWT from cookie and user existence.
-   - If valid, user stays logged in; if not, user is logged out.
-4. **Logout:**
-   - Frontend calls logout endpoint, backend clears cookie.
-5. **OAuth & Password Reset:**
-   - UI in place; backend ready for integration.
+2. **Session Management**
+   - HttpOnly cookies
+   - Secure session handling
+   - CSRF protection
 
----
+3. **OAuth Integration**
+   - Google OAuth 2.0
+   - State parameter validation
+   - Secure callback handling
+
+4. **API Security**
+   - CORS configuration
+   - Rate limiting
+   - Input validation
+
+## 📧 Email Configuration
+
+### Gmail Setup
+1. Enable 2FA on your Gmail account
+2. Generate App Password:
+   - Go to Google Account settings
+   - Security → 2-Step Verification → App passwords
+   - Select "Mail" and name it "Veraawell"
+   - Copy the 16-character password
+
+### Environment Variables
+```env
+# Email Configuration
+EMAIL_USER=your-gmail@gmail.com
+EMAIL_PASS=your-16-character-app-password
+
+# Auth Configuration
+JWT_SECRET=your-jwt-secret
+SESSION_SECRET=your-session-secret
+
+# OAuth Configuration
+GOOGLE_CLIENT_ID=your-google-client-id
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+
+# Database
+MONGO_URI=your-mongodb-uri
+```
+
+### Alternative Email Services
+```javascript
+// SendGrid Configuration
+const transporter = nodemailer.createTransporter({
+  host: 'smtp.sendgrid.net',
+  port: 587,
+  auth: {
+    user: 'apikey',
+    pass: process.env.SENDGRID_API_KEY
+  }
+});
+
+// Mailgun Configuration
+const transporter = nodemailer.createTransporter({
+  host: 'smtp.mailgun.org',
+  port: 587,
+  auth: {
+    user: process.env.MAILGUN_USER,
+    pass: process.env.MAILGUN_PASS
+  }
+});
+```
+
+## 🚀 Getting Started
+
+1. **Clone and Install**
+   ```bash
+   git clone https://github.com/your-username/veraawell.git
+   cd veraawell
+   ```
+
+2. **Setup Frontend**
+   ```bash
+   cd client
+   npm install
+   cp .env.example .env
+   ```
+
+3. **Setup Backend**
+   ```bash
+   cd server
+   npm install
+   cp .env.example .env
+   ```
+
+4. **Configure Environment**
+   - Set up all environment variables
+   - Configure MongoDB connection
+   - Set up email service
+   - Configure OAuth credentials
+
+5. **Run Development Servers**
+   ```bash
+   # Terminal 1 - Frontend
+   cd client && npm run dev
+
+   # Terminal 2 - Backend
+   cd server && npm run dev
+   ```
 
 ## 🌐 Deployment
 
-- **Frontend:** Deployed to Vercel (`client/vercel.json` ensures SPA routing).
-- **Backend:** Deployed to Render.com (Node.js service).
-- **MongoDB Atlas:** Cloud database for all user data.
+### Frontend (Vercel)
+1. Connect your GitHub repository
+2. Configure build settings:
+   - Framework Preset: Vite
+   - Build Command: `npm run build`
+   - Output Directory: `dist`
+3. Add environment variables
+4. Deploy!
 
----
+### Backend (Render)
+1. Create a new Web Service
+2. Connect your repository
+3. Configure:
+   - Environment: Node
+   - Build Command: `npm install`
+   - Start Command: `npm start`
+4. Add environment variables
+5. Deploy!
 
-## 📝 How to Run Locally
+## 🧪 Testing
 
-1. Clone the repo and install dependencies in both `client` and `server`:
-   ```bash
-   cd client && npm install
-   cd ../server && npm install
-   ```
-2. Set up your environment variables in `server/config.env` (MongoDB URI, JWT secret, etc).
-3. Start the backend:
-   ```bash
-   cd server && npm run dev
-   ```
-4. Start the frontend:
-   ```bash
-   cd ../client && npm run dev
-   ```
-5. Visit `http://localhost:5173` in your browser.
+### Manual Test Cases
+- [ ] Regular authentication flow
+- [ ] Google OAuth flow
+- [ ] Password reset flow
+- [ ] Session persistence
+- [ ] Error handling
+- [ ] Input validation
+- [ ] Mobile responsiveness
 
----
+### Security Checklist
+- [ ] HTTPS enforced
+- [ ] Secure cookies
+- [ ] XSS protection
+- [ ] CSRF protection
+- [ ] Rate limiting
+- [ ] Input sanitization
 
-## 📦 Major Features Implemented
-- Secure, persistent authentication with JWT (HttpOnly cookies)
-- Password hashing with bcrypt
-- Responsive, modern dark-themed UI
-- SPA routing for all frontend routes
-- User registration, login, logout
-- UI for Google OAuth and password reset (backend ready for integration)
-- Deployed and production-ready for real users
+## 🔜 Roadmap
 
----
+1. **Short Term**
+   - Add email verification
+   - Implement rate limiting
+   - Add user profiles
 
-## 💡 Next Steps / Improvements
-- Integrate Google OAuth (backend)
-- Implement password reset with SendGrid
-- Add email verification
-- Add rate limiting and brute-force protection
-- Add user profile and settings
+2. **Medium Term**
+   - Add more OAuth providers
+   - Implement 2FA
+   - Add audit logging
+
+3. **Long Term**
+   - Add admin dashboard
+   - Implement role-based access
+   - Add analytics
+
+## 📝 License
+
+MIT License - see [LICENSE](LICENSE) for details
 
 ---
 
