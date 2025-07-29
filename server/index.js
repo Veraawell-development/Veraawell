@@ -81,13 +81,19 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           const firstName = profile.name?.givenName || profile.displayName || 'Google';
           const lastName = profile.name?.familyName || 'User';
           
+          // Get role from state if available, default to 'patient'
+          const role = profile.state?.role || 'patient';
+          
           user = new User({
             googleId: profile.id,
             email: profile.emails[0].value,
             firstName: firstName,
             lastName: lastName,
             username: profile.emails[0].value,
-            password: 'google-auth-' + Math.random().toString(36).substring(7) // Random password for Google users
+            password: 'google-auth-' + Math.random().toString(36).substring(7), // Random password for Google users
+            role: role, // Add role here
+            resetToken: null,
+            resetTokenExpiry: null
           });
           await user.save();
           console.log('New Google user created:', user.email);
@@ -152,42 +158,57 @@ app.get('/api/test-google-routes', (req, res) => {
 // Google OAuth routes (only if credentials are available)
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   app.get('/api/auth/google',
-    passport.authenticate('google', { scope: ['profile', 'email'] })
+    (req, res, next) => {
+      // Store role in state
+      const role = req.query.role || 'patient';
+      if (!['patient', 'doctor'].includes(role)) {
+        return res.status(400).json({ message: 'Invalid role specified' });
+      }
+      passport.authenticate('google', {
+        scope: ['profile', 'email'],
+        state: JSON.stringify({ role }) // Pass role through state
+      })(req, res, next);
+    }
   );
 
   app.get('/api/auth/google/callback', 
     (req, res, next) => {
-      console.log('Google callback route hit');
-      passport.authenticate('google', { failureRedirect: 'https://veraawell.vercel.app/login?error=google_auth_failed' })(req, res, next);
-    },
-    (req, res) => {
+      // Parse state to get role
+      let role = 'patient';
       try {
-        console.log('Google OAuth callback - user:', req.user);
-        
-        if (!req.user) {
-          console.error('No user found in Google OAuth callback');
-          return res.redirect('https://veraawell.vercel.app/login?error=no_user');
+        const state = JSON.parse(req.query.state || '{}');
+        role = state.role || 'patient';
+      } catch (e) {
+        console.error('Error parsing state:', e);
+      }
+
+      passport.authenticate('google', async (err, user) => {
+        if (err) {
+          console.error('Google callback error:', err);
+          return res.redirect('/login?error=google-auth-failed');
         }
-        
-        // Successful authentication, redirect to frontend with success
-        const token = jwt.sign({ username: req.user.email }, process.env.JWT_SECRET || 'testsecret', { expiresIn: '30d' });
-        
+        if (!user) {
+          return res.redirect('/login?error=no-user');
+        }
+
+        // Create JWT token with role
+        const token = jwt.sign(
+          { username: user.email, role: user.role },
+          process.env.JWT_SECRET || 'testsecret',
+          { expiresIn: '30d' }
+        );
+
+        // Set cookie
         res.cookie('token', token, {
           httpOnly: true,
           secure: true,
           sameSite: 'none',
-          maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+          maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
         });
-        
-        // Redirect to frontend with success and user info
-        const redirectUrl = `https://veraawell.vercel.app?auth=success&username=${encodeURIComponent(req.user.email)}`;
-        
-        console.log('Redirecting to:', redirectUrl);
-        res.redirect(redirectUrl);
-      } catch (error) {
-        console.error('Error in Google OAuth callback:', error);
-        res.redirect('https://veraawell.vercel.app/login?error=callback_error');
-      }
+
+        // Redirect with success
+        res.redirect(`/?auth=success&username=${encodeURIComponent(user.email)}`);
+      })(req, res, next);
     }
   );
 } else {
@@ -367,33 +388,81 @@ app.post('/api/auth/reset-password', async (req, res) => {
   }
 });
 
+// Admin middleware
+const isAdmin = async (req, res, next) => {
+  const token = req.cookies.token;
+  if (!token) return res.status(401).json({ message: 'No token provided' });
+  
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'testsecret');
+    const user = await User.findOne({ username: decoded.username });
+    
+    if (!user || user.role !== 'admin') {
+      return res.status(403).json({ message: 'Admin access required' });
+    }
+    
+    req.user = user;
+    next();
+  } catch (err) {
+    return res.status(403).json({ message: 'Invalid token' });
+  }
+};
+
 // Register (Signup)
 app.post('/api/auth/register', async (req, res) => {
-  const { firstName, lastName, email, password } = req.body;
+  const { firstName, lastName, email, password, role = 'patient' } = req.body; // Default to patient if no role specified
+  
+  // Validate required fields
   if (!firstName || !lastName || !email || !password) {
     return res.status(400).json({ message: 'All required fields must be filled' });
   }
+
+  // Validate role
+  if (!['patient', 'doctor'].includes(role)) {
+    return res.status(400).json({ message: 'Invalid role specified. Must be either patient or doctor.' });
+  }
+
   try {
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(409).json({ message: 'User already exists' });
     }
+
     const newUser = new User({
       firstName,
       lastName,
       email,
-      username: email, // use email as username
-      password
+      username: email,
+      password,
+      role,
+      resetToken: null,
+      resetTokenExpiry: null
     });
+
     await newUser.save();
-    const token = jwt.sign({ username: email }, process.env.JWT_SECRET || 'testsecret', { expiresIn: '30d' });
+    
+    const token = jwt.sign(
+      { username: email, role: newUser.role }, 
+      process.env.JWT_SECRET || 'testsecret', 
+      { expiresIn: '30d' }
+    );
+
     res.cookie('token', token, {
       httpOnly: true,
-      secure: true, // must be true for cross-site cookies
-      sameSite: 'none', // must be 'none' for cross-site cookies
+      secure: true,
+      sameSite: 'none',
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     });
-    res.json({ message: 'Registration successful' });
+
+    res.json({ 
+      message: 'Registration successful',
+      user: {
+        username: newUser.email,
+        role: newUser.role,
+        firstName: newUser.firstName,
+        lastName: newUser.lastName
+      }
+    });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -408,18 +477,62 @@ app.post('/api/auth/login', async (req, res) => {
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
+
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
-    const token = jwt.sign({ username: user.email }, process.env.JWT_SECRET || 'testsecret', { expiresIn: '30d' });
+
+    const token = jwt.sign(
+      { username: user.email, role: user.role },
+      process.env.JWT_SECRET || 'testsecret',
+      { expiresIn: '30d' }
+    );
+
     res.cookie('token', token, {
       httpOnly: true,
-      secure: true, // must be true for cross-site cookies
-      sameSite: 'none', // must be 'none' for cross-site cookies
+      secure: true,
+      sameSite: 'none',
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     });
-    res.json({ message: 'Login successful' });
+
+    res.json({ 
+      message: 'Login successful',
+      user: {
+        username: user.email,
+        role: user.role,
+        firstName: user.firstName,
+        lastName: user.lastName
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Create Admin (admin only)
+app.post('/api/auth/create-admin', isAdmin, async (req, res) => {
+  const { firstName, lastName, email, password } = req.body;
+
+  if (!firstName || !lastName || !email || !password) {
+    return res.status(400).json({ message: 'All fields are required' });
+  }
+
+  try {
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(409).json({ message: 'User already exists' });
+    }
+
+    const admin = await User.createAdmin({
+      firstName,
+      lastName,
+      email,
+      username: email,
+      password
+    });
+
+    res.json({ message: 'Admin created successfully' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -429,18 +542,29 @@ app.post('/api/auth/login', async (req, res) => {
 app.get('/api/protected', async (req, res) => {
   const token = req.cookies.token;
   if (!token) return res.status(401).json({ message: 'No token provided' });
-  jwt.verify(token, process.env.JWT_SECRET || 'testsecret', async (err, user) => {
+  
+  jwt.verify(token, process.env.JWT_SECRET || 'testsecret', async (err, decoded) => {
     if (err) return res.status(403).json({ message: 'Invalid token' });
-    const dbUser = await User.findOne({ username: user.username });
+    
+    const dbUser = await User.findOne({ username: decoded.username });
     if (!dbUser) {
       res.clearCookie('token', {
         httpOnly: true,
-        secure: true, // must be true for cross-site cookies
-        sameSite: 'none', // must be 'none' for cross-site cookies
+        secure: true,
+        sameSite: 'none',
       });
       return res.status(401).json({ message: 'User does not exist' });
     }
-    res.json({ message: 'Protected data', user: { username: dbUser.username } });
+    
+    res.json({ 
+      message: 'Protected data', 
+      user: { 
+        username: dbUser.username,
+        role: dbUser.role,
+        firstName: dbUser.firstName,
+        lastName: dbUser.lastName
+      } 
+    });
   });
 });
 

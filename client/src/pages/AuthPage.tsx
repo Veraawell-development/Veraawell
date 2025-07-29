@@ -17,7 +17,6 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [registerMode, setRegisterMode] = useState(mode === 'signup');
-  // const [registerUsername, setRegisterUsername] = useState('');
   const [registerPassword, setRegisterPassword] = useState('');
   const [registerConfirm, setRegisterConfirm] = useState('');
   const [registerMsg, setRegisterMsg] = useState('');
@@ -29,6 +28,9 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
   const [agree, setAgree] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<'patient' | 'doctor'>('patient');
+  const [isAdminMode, setIsAdminMode] = useState(false);
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -45,7 +47,11 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ 
+          username, 
+          password,
+          role: isAdminMode ? 'admin' : selectedRole 
+        }),
       });
       const data = await res.json();
       if (res.ok) {
@@ -89,7 +95,6 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
     }
     setLoading(true);
     try {
-      // Remove company from request
       const res = await fetch(`${API_BASE_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -98,8 +103,9 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
           firstName,
           lastName,
           email,
-          username: email, // for now, use email as username
-          password: registerPassword
+          username: email,
+          password: registerPassword,
+          role: selectedRole
         }),
       });
       const data = await res.json();
@@ -156,21 +162,49 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
 
   const handleGoogleAuth = () => {
     console.log('Redirecting to Google OAuth:', `${API_BASE_URL}/auth/google`);
-    window.location.href = `${API_BASE_URL}/auth/google`;
+    window.location.href = `${API_BASE_URL}/auth/google?role=${selectedRole}`;
   };
 
   return (
     <div className="min-h-[80vh] flex items-center justify-center bg-black p-2 sm:p-4">
       <div className="w-full max-w-md sm:max-w-md bg-gray-900 rounded-3xl shadow-xl p-4 sm:p-8 border border-gray-800">
+        {!isAdminMode && (
+          <div className="mb-6">
+            <div className="flex rounded-3xl overflow-hidden border border-gray-700 mb-4">
+              <button
+                className={`flex-1 py-2 text-sm font-medium transition ${selectedRole === 'patient' ? 'bg-green-500 text-black' : 'bg-transparent text-gray-400 hover:bg-gray-800'}`}
+                onClick={() => setSelectedRole('patient')}
+                disabled={loading}
+              >
+                Patient
+              </button>
+              <button
+                className={`flex-1 py-2 text-sm font-medium transition ${selectedRole === 'doctor' ? 'bg-green-500 text-black' : 'bg-transparent text-gray-400 hover:bg-gray-800'}`}
+                onClick={() => setSelectedRole('doctor')}
+                disabled={loading}
+              >
+                Doctor
+              </button>
+            </div>
+          </div>
+        )}
+        
         <h2 className="text-lg sm:text-xl font-bold text-center mb-6 text-white tracking-tight">
-          {registerMode ? 'Create your account' : 'Sign in to Veraawell'}
+          {isAdminMode 
+            ? 'Admin Portal' 
+            : (registerMode ? `Create your ${selectedRole} account` : `Sign in as ${selectedRole}`)}
         </h2>
-        {registerMode ? (
+
+        {registerMode && !isAdminMode ? (
           <>
             <div className="flex flex-col items-center mb-4">
-              <button type="button" className="w-full flex items-center justify-center gap-2 border border-green-500 text-black bg-white py-2 rounded-3xl font-semibold hover:bg-gray-100 transition mb-4 text-base" onClick={handleGoogleAuth}>
+              <button 
+                type="button" 
+                className="w-full flex items-center justify-center gap-2 border border-green-500 text-black bg-white py-2 rounded-3xl font-semibold hover:bg-gray-100 transition mb-4 text-base" 
+                onClick={handleGoogleAuth}
+              >
                 <FcGoogle className="text-xl" />
-                Sign up with Google
+                Sign up with Google as {selectedRole}
               </button>
               <span className="text-gray-400 text-sm mb-2">or</span>
             </div>
@@ -248,17 +282,23 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
           </>
         ) : (
           <>
-            <div className="flex flex-col items-center mb-4">
-              <button type="button" className="w-full flex items-center justify-center gap-2 border border-green-500 text-black bg-white py-2 rounded-3xl font-semibold hover:bg-gray-100 transition mb-4 text-base" onClick={handleGoogleAuth}>
-                <FcGoogle className="text-xl" />
-                {registerMode ? 'Sign up with Google' : 'Sign in with Google'}
-              </button>
-              <span className="text-gray-400 text-sm mb-2">or</span>
-            </div>
+            {!isAdminMode && (
+              <div className="flex flex-col items-center mb-4">
+                <button 
+                  type="button" 
+                  className="w-full flex items-center justify-center gap-2 border border-green-500 text-black bg-white py-2 rounded-3xl font-semibold hover:bg-gray-100 transition mb-4 text-base" 
+                  onClick={handleGoogleAuth}
+                >
+                  <FcGoogle className="text-xl" />
+                  Sign in with Google as {selectedRole}
+                </button>
+                <span className="text-gray-400 text-sm mb-2">or</span>
+              </div>
+            )}
             <form onSubmit={handleLogin} className="space-y-4">
               <input
                 type="text"
-                placeholder="Username"
+                placeholder={isAdminMode ? "Admin Username" : "Email"}
                 value={username}
                 onChange={e => setUsername(e.target.value)}
                 className="w-full px-4 py-2 border border-gray-700 bg-gray-800 text-white rounded-3xl focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
@@ -274,21 +314,69 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
                   className="w-full px-4 py-2 border border-gray-700 bg-gray-800 text-white rounded-3xl focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
                   disabled={loading}
                 />
-                <button type="button" tabIndex={-1} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" onClick={() => setShowPassword(v => !v)}>
+                <button 
+                  type="button" 
+                  tabIndex={-1} 
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" 
+                  onClick={() => setShowPassword(v => !v)}
+                >
                   {showPassword ? <FaEyeSlash /> : <FaEye />}
                 </button>
               </div>
-              <div className="flex justify-end">
-                <button type="button" className="text-green-400 text-xs hover:underline focus:outline-none" onClick={() => navigate('/forgot-password')}>
-                  Forgot password?
-                </button>
-              </div>
-              <button type="submit" className="w-full bg-green-500 text-black py-2 rounded-3xl hover:bg-green-400 transition disabled:opacity-50 text-base font-semibold" disabled={loading}>Login</button>
+              {!isAdminMode && (
+                <div className="flex justify-end">
+                  <button 
+                    type="button" 
+                    className="text-green-400 text-xs hover:underline focus:outline-none" 
+                    onClick={() => navigate('/forgot-password')}
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+              )}
+              <button 
+                type="submit" 
+                className={`w-full py-2 rounded-3xl hover:opacity-90 transition disabled:opacity-50 text-base font-semibold ${
+                  isAdminMode 
+                    ? 'bg-red-500 hover:bg-red-600 text-white' 
+                    : 'bg-green-500 hover:bg-green-400 text-black'
+                }`} 
+                disabled={loading}
+              >
+                {isAdminMode ? 'Admin Login' : 'Login'}
+              </button>
             </form>
-            <button type="button" className="w-full border border-green-500 text-green-400 py-2 rounded-3xl hover:bg-gray-800 transition disabled:opacity-50 mt-4 text-base font-semibold" onClick={() => { setRegisterMode(true); setRegisterMsg(''); }} disabled={loading}>Go to Register</button>
+            {!isAdminMode && (
+              <button 
+                type="button" 
+                className="w-full border border-green-500 text-green-400 py-2 rounded-3xl hover:bg-gray-800 transition disabled:opacity-50 mt-4 text-base font-semibold" 
+                onClick={() => { setRegisterMode(true); setRegisterMsg(''); }} 
+                disabled={loading}
+              >
+                Create New Account
+              </button>
+            )}
             {error && <div className="text-center text-red-400 mt-4">{error}</div>}
           </>
         )}
+
+        {/* Admin portal link */}
+        <div className="mt-6 text-center">
+          <button
+            type="button"
+            className={`text-xs text-gray-500 hover:text-gray-400 transition ${isAdminMode ? 'text-red-400 hover:text-red-300' : ''}`}
+            onClick={() => {
+              setIsAdminMode(!isAdminMode);
+              setError('');
+              setRegisterMsg('');
+              setUsername('');
+              setPassword('');
+              setRegisterMode(false);
+            }}
+          >
+            {isAdminMode ? '← Back to User Login' : 'Admin Portal'}
+          </button>
+        </div>
       </div>
     </div>
   );

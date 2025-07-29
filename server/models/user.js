@@ -1,6 +1,8 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
+const VALID_ROLES = ['patient', 'doctor', 'admin'];
+
 const userSchema = new mongoose.Schema({
   firstName: {
     type: String,
@@ -29,6 +31,12 @@ const userSchema = new mongoose.Schema({
   password: {
     type: String,
     required: true
+  },
+  role: {
+    type: String,
+    required: true,
+    enum: VALID_ROLES,
+    default: 'patient'
   },
   googleId: {
     type: String,
@@ -74,6 +82,20 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
     return false;
   }
   return bcrypt.compare(candidatePassword, this.password);
+};
+
+// Static method to check if a role is valid
+userSchema.statics.isValidRole = function(role) {
+  return VALID_ROLES.includes(role);
+};
+
+// Static method to create admin (can only be called by existing admin)
+userSchema.statics.createAdmin = async function(adminData) {
+  const admin = new this({
+    ...adminData,
+    role: 'admin'
+  });
+  return admin.save();
 };
 
 module.exports = mongoose.model('User', userSchema); 
