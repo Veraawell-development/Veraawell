@@ -60,11 +60,13 @@ function AppRoutes() {
     const authSuccess = urlParams.get('auth');
     const username = urlParams.get('username');
     const role = urlParams.get('role');
+    const isGoogle = urlParams.get('isGoogle');
     
     if (authSuccess === 'success' && username) {
-      console.log('Google OAuth success detected');
+      console.log('Auth success detected');
       console.log('Username from URL:', username);
       console.log('Role from URL:', role);
+      console.log('Is Google auth:', isGoogle);
       
       // Clear the URL parameters
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -74,14 +76,21 @@ function AppRoutes() {
       setAuthUser(username);
       setUserRole(role as 'patient' | 'doctor' | '');
       
-      // Also set the state for LandingPage component
-      window.history.replaceState(
-        { success: true, username, role },
-        document.title,
-        window.location.pathname
-      );
+      // Set state for LandingPage component
+      const state = {
+        success: true,
+        username,
+        role,
+        isGoogle: isGoogle === 'true'
+      };
+      
+      // Update history state
+      window.history.replaceState(state, document.title, window.location.pathname);
+      
+      // Force a re-render of LandingPage
+      navigate('/', { state, replace: true });
     }
-  }, []);
+  }, [navigate]);
 
   // Show success message if redirected from login/signup
   let showSuccess = authSuccess;

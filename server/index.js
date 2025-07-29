@@ -30,9 +30,13 @@ app.use(cors({
 }));
 app.use(cookieParser());
 
-// Session middleware
+// Generate secure secrets if not provided in environment
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(64).toString('hex');
+
+// Session middleware with secure configuration
 app.use(session({
-  secret: process.env.SESSION_SECRET || 'your-secret-key',
+  secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
   cookie: {
@@ -204,8 +208,29 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
             return res.redirect('https://veraawell.vercel.app/login?error=login-failed');
           }
           
-          // Redirect to frontend with success parameters including role
-          return res.redirect(`https://veraawell.vercel.app/?auth=success&username=${encodeURIComponent(user.username)}&role=${user.role}`);
+          // Create JWT token for the user
+          const token = jwt.sign(
+            { userId: user._id, username: user.username, role: user.role },
+            JWT_SECRET,
+            { expiresIn: '30d' }
+          );
+
+          // Set cookie
+          res.cookie('token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+            maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+          });
+          
+          // Redirect to frontend with success parameters
+          const redirectUrl = new URL('https://veraawell.vercel.app/');
+          redirectUrl.searchParams.set('auth', 'success');
+          redirectUrl.searchParams.set('username', user.username);
+          redirectUrl.searchParams.set('role', user.role);
+          redirectUrl.searchParams.set('isGoogle', 'true');
+          
+          return res.redirect(redirectUrl.toString());
         });
       })(req, res, next);
     }
@@ -345,7 +370,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
     // Find user with valid reset token
     const user = await User.findOne({ 
       resetToken: token,
-      resetTokenExpiry: { $gt: new Date() }  // Compare with current date
+      resetTokenExpiry: { $gt: new Date() }
     });
     
     console.log('DB Query:', { resetToken: token, resetTokenExpiry: { $gt: new Date() } });
@@ -361,14 +386,14 @@ app.post('/api/auth/reset-password', async (req, res) => {
       return res.status(400).json({ message: 'You signed up with Google. Please use Google Sign-In to log in.' });
     }
     
-    // Hash the new password
+    // Hash the new password using bcrypt
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
     
-    // Update user
+    // Update user with new password and clear reset token
     user.password = hashedPassword;
-    user.resetToken = undefined;  // Use undefined instead of null
-    user.resetTokenExpiry = undefined;  // Use undefined instead of null
+    user.resetToken = undefined;
+    user.resetTokenExpiry = undefined;
     await user.save();
     
     console.log('Password reset successful for:', user.email);
@@ -460,45 +485,60 @@ app.post('/api/auth/register', async (req, res) => {
   }
 });
 
-// Login
+// Login endpoint
 app.post('/api/auth/login', async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password, role } = req.body;
+
   try {
-    // Allow login by email (username is email)
-    const user = await User.findOne({ email: username });
+    // Find user by email/username
+    const user = await User.findOne({ 
+      $or: [
+        { email: username.toLowerCase() },
+        { username: username.toLowerCase() }
+      ]
+    });
+
     if (!user) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
-    const isMatch = await user.comparePassword(password);
+    // For Google users, prevent password login
+    if (user.googleId) {
+      return res.status(400).json({ message: 'Please use Google Sign-In to log in' });
+    }
+
+    // Compare password using bcrypt
+    const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
+    // Create JWT token
     const token = jwt.sign(
-      { username: user.email, role: user.role },
-      process.env.JWT_SECRET || 'testsecret',
+      { userId: user._id, username: user.username, role: user.role },
+      JWT_SECRET,
       { expiresIn: '30d' }
     );
 
+    // Set cookie
     res.cookie('token', token, {
       httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
     });
 
     res.json({ 
       message: 'Login successful',
       user: {
-        username: user.email,
-        role: user.role,
-        firstName: user.firstName,
-        lastName: user.lastName
+        username: user.username,
+        email: user.email,
+        role: user.role
       }
     });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 
