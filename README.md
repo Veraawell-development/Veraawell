@@ -1,6 +1,15 @@
 # Veraawell 🚀
 
-A modern, secure authentication platform built with the MERN stack, featuring OAuth integration, password reset functionality, and secure session management.
+A modern, secure mental health platform built with the MERN stack. Veraawell provides a safe and secure environment for mental health professionals and patients to connect, featuring robust authentication with OAuth integration, secure session management, and encrypted communication channels.
+
+## Technical Overview
+Our platform leverages cutting-edge technologies to ensure security, privacy, and seamless user experience:
+
+- **Authentication & Security**: OAuth integration, JWT-based session management, and encrypted data transmission
+- **Role-Based Access**: Separate secure portals for mental health professionals and patients
+- **Real-time Communication**: WebSocket integration for secure messaging
+- **Data Privacy**: End-to-end encryption for sensitive medical data
+- **Scalable Architecture**: MERN stack with cloud deployment for high availability
 
 ## System Architecture
 
@@ -280,4 +289,4 @@ const transporter = nodemailer.createTransporter({
 
 ---
 
-**Made with ❤️ by Abhigyan Raj and the Veraawell team.** 
+**Made with ❤️ by Abhigyan Raj | IIIT Delhi** 
