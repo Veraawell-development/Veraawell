@@ -55,10 +55,23 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
       const data = await res.json();
       if (res.ok) {
         setError('');
-        if (onSuccess) onSuccess(username, data.role || selectedRole);
-        navigate('/', { state: { success: true, username, role: data.role || selectedRole } });
+        if (onSuccess) onSuccess(username, data.user.role);
+        navigate('/', { state: { success: true, username, role: data.user.role } });
       } else {
-        setError(data.message || 'Login failed');
+        // Check if it's a role mismatch error
+        if (data.correctRole) {
+          setError(data.message);
+          // Auto-switch to correct role
+          setSelectedRole(data.correctRole as 'patient' | 'doctor');
+          // Auto-fill password
+          setPassword(password);
+          // Show helper message
+          setTimeout(() => {
+            setError('Role updated. Please try logging in again.');
+          }, 2000);
+        } else {
+          setError(data.message || 'Login failed');
+        }
       }
     } catch (err) {
       setError('Network error');

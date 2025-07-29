@@ -326,13 +326,8 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       `
     };
 
-    try {
-      await transporter.sendMail(mailOptions);
-      res.json({ message: 'Password reset instructions have been sent to your email.' });
-    } catch (emailError) {
-      console.error('❌ Email sending failed:', emailError.message);
-      res.status(500).json({ message: 'Failed to send reset email. Please try again later.' });
-    }
+    await transporter.sendMail(mailOptions);
+    res.json({ message: 'Password reset instructions have been sent to your email.' });
   } catch (error) {
     console.error('Forgot password error:', error);
     res.status(500).json({ message: 'Server error. Please try again later.' });
@@ -359,10 +354,8 @@ app.post('/api/auth/reset-password', async (req, res) => {
   const { token, newPassword } = req.body;
   
   console.log('--- Password Reset Attempt ---');
-  console.log('Received token:', token);
 
   if (!token || !newPassword) {
-    console.log('Missing token or newPassword');
     return res.status(400).json({ message: 'Token and new password are required' });
   }
   
@@ -373,20 +366,15 @@ app.post('/api/auth/reset-password', async (req, res) => {
       resetTokenExpiry: { $gt: new Date() }
     });
     
-    console.log('DB Query:', { resetToken: token, resetTokenExpiry: { $gt: new Date() } });
-    console.log('User found:', user ? user.email : null);
-    
     if (!user) {
-      console.log('Invalid or expired token');
       return res.status(400).json({ message: 'Invalid or expired reset token. Please request a new password reset.' });
     }
 
     if (user.googleId) {
-      console.log('Attempted password reset for Google user:', user.email);
       return res.status(400).json({ message: 'You signed up with Google. Please use Google Sign-In to log in.' });
     }
     
-    // Hash the new password using bcrypt
+    // Hash the new password
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
     
@@ -507,7 +495,15 @@ app.post('/api/auth/login', async (req, res) => {
       return res.status(400).json({ message: 'Please use Google Sign-In to log in' });
     }
 
-    // Compare password using bcrypt
+    // Check if user is trying to login with a different role
+    if (role && role !== user.role) {
+      return res.status(400).json({ 
+        message: `You are registered as a ${user.role}. Please use the correct role to login.`,
+        correctRole: user.role
+      });
+    }
+
+    // Compare password using bcrypt directly
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid credentials' });
@@ -533,7 +529,9 @@ app.post('/api/auth/login', async (req, res) => {
       user: {
         username: user.username,
         email: user.email,
-        role: user.role
+        role: user.role,
+        firstName: user.firstName,
+        lastName: user.lastName
       }
     });
   } catch (error) {
