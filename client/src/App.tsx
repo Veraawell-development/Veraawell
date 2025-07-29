@@ -61,48 +61,25 @@ function AppRoutes() {
     const username = urlParams.get('username');
     const role = urlParams.get('role');
     
-    if (authSuccess === 'success') {
+    if (authSuccess === 'success' && username) {
       console.log('Google OAuth success detected');
       console.log('Username from URL:', username);
       console.log('Role from URL:', role);
       
-      // Clear the URL parameter
+      // Clear the URL parameters
       window.history.replaceState({}, document.title, window.location.pathname);
       
-      if (username) {
-        // If username is provided in URL, set auth state immediately
-        setAuthSuccess(true);
-        setAuthUser(username);
-        setUserRole(role as 'patient' | 'doctor' | '');
-        console.log('User authenticated from URL:', username, 'with role:', role);
-      } else {
-        // Trigger auth check after a short delay to ensure cookie is set
-        setTimeout(() => {
-          fetch(`${API_BASE_URL}/protected`, { credentials: 'include' })
-            .then(res => {
-              console.log('Auth check response:', res.status);
-              if (res.ok) {
-                return res.json();
-              }
-              throw new Error('Not authenticated');
-            })
-            .then(data => {
-              console.log('Auth check data:', data);
-              if (data.user && data.user.username) {
-                setAuthSuccess(true);
-                setAuthUser(data.user.username);
-                setUserRole(data.user.role || '');
-                console.log('User authenticated:', data.user.username, 'with role:', data.user.role);
-              }
-            })
-            .catch((error) => {
-              console.error('Auth check error:', error);
-              setAuthSuccess(false);
-              setAuthUser('');
-              setUserRole('');
-            });
-        }, 1000);
-      }
+      // Set auth state immediately
+      setAuthSuccess(true);
+      setAuthUser(username);
+      setUserRole(role as 'patient' | 'doctor' | '');
+      
+      // Also set the state for LandingPage component
+      window.history.replaceState(
+        { success: true, username, role },
+        document.title,
+        window.location.pathname
+      );
     }
   }, []);
 

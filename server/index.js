@@ -11,6 +11,7 @@ const { Resend } = require('resend');
 const crypto = require('crypto');
 const showBanner = require('./banner');
 const nodemailer = require('nodemailer');
+const bcrypt = require('bcryptjs'); // Added bcrypt for password hashing
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -238,11 +239,11 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       return res.status(400).json({ message: 'This account uses Google login. Please use Google Sign-In.' });
     }
     
-    // Generate reset token
-    const resetToken = crypto.randomBytes(32).toString('hex');
+    // Generate reset token with more entropy
+    const resetToken = crypto.randomBytes(48).toString('hex');
     const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour from now
     
-    // Save reset token to user
+    // Update user with reset token
     user.resetToken = resetToken;
     user.resetTokenExpiry = resetTokenExpiry;
     await user.save();
@@ -259,52 +260,42 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       }
     });
 
-    // Email content
+    // Email content with better formatting
     const mailOptions = {
       from: `Veraawell <${process.env.EMAIL_USER}>`,
       to: user.email,
       subject: 'Veraawell - Password Reset Request',
       html: `
         <!DOCTYPE html>
-        <html lang="en">
+        <html>
         <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Password Reset</title>
+          <style>
+            .container { padding: 20px; font-family: Arial, sans-serif; }
+            .button { 
+              background-color: #10B981;
+              color: white;
+              padding: 12px 24px;
+              text-decoration: none;
+              border-radius: 24px;
+              display: inline-block;
+              margin: 20px 0;
+            }
+            .warning {
+              color: #EF4444;
+              margin-top: 20px;
+              font-size: 0.9em;
+            }
+          </style>
         </head>
-        <body style="margin:0;padding:0;background:#f6f8fa;font-family:system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;">
-          <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f6f8fa;padding:0;margin:0;">
-            <tr>
-              <td align="center">
-                <table width="100%" cellpadding="0" cellspacing="0" border="0" style="max-width:420px;margin:40px auto;background:#fff;border-radius:16px;box-shadow:0 2px 8px rgba(0,0,0,0.04);overflow:hidden;">
-                  <tr>
-                    <td style="background:#18181b;padding:32px 0;text-align:center;">
-                      <span style="font-size:2rem;font-weight:700;letter-spacing:1px;color:#10b981;">Veraawell</span>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding:32px 24px 16px 24px;text-align:center;">
-                      <h2 style="margin:0 0 16px 0;font-size:1.4rem;font-weight:600;color:#18181b;">Password Reset Request</h2>
-                      <p style="margin:0 0 24px 0;color:#52525b;font-size:1rem;line-height:1.6;">You requested a password reset for your Veraawell account. Click the button below to reset your password:</p>
-                      <a href="${frontendResetUrl}" style="display:inline-block;padding:14px 32px;background:#10b981;color:#fff;font-weight:600;font-size:1rem;border-radius:32px;text-decoration:none;box-shadow:0 2px 8px rgba(16,185,129,0.08);margin-bottom:24px;">Reset Password</a>
-                      <p style="margin:24px 0 0 0;color:#71717a;font-size:0.95rem;">If you have any trouble resetting your password, just reply to this email and we’ll help you out.</p>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding:0 24px 0 24px;">
-                      <hr style="border:none;border-top:1px solid #ececec;margin:24px 0 0 0;">
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="background:#f6f8fa;text-align:center;padding:18px 0 8px 0;color:#b0b0b0;font-size:0.93rem;letter-spacing:0.01em;">
-                      &copy; 2025 VeroCare. All rights reserved.<br>
-                      <span style="color:#b0b0b0;font-size:0.92rem;">This email was sent automatically. Please do not share your reset link with anyone.</span>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-          </table>
+        <body>
+          <div class="container">
+            <h2>Reset Your Password</h2>
+            <p>Hello ${user.firstName},</p>
+            <p>We received a request to reset your password. Click the button below to create a new password. This link will expire in 1 hour.</p>
+            <a href="${frontendResetUrl}" class="button">Reset Password</a>
+            <p class="warning">If you didn't request this password reset, please ignore this email or contact support if you have concerns.</p>
+            <p>Best regards,<br>The Veraawell Team</p>
+          </div>
         </body>
         </html>
       `
@@ -312,14 +303,14 @@ app.post('/api/auth/forgot-password', async (req, res) => {
 
     try {
       await transporter.sendMail(mailOptions);
-      res.json({ message: 'Password reset link has been sent to your email.' });
+      res.json({ message: 'Password reset instructions have been sent to your email.' });
     } catch (emailError) {
       console.error('❌ Email sending failed:', emailError.message);
       res.status(500).json({ message: 'Failed to send reset email. Please try again later.' });
     }
   } catch (error) {
     console.error('Forgot password error:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Server error. Please try again later.' });
   }
 });
 
@@ -345,44 +336,47 @@ app.post('/api/auth/reset-password', async (req, res) => {
   console.log('--- Password Reset Attempt ---');
   console.log('Received token:', token);
 
-  // List all tokens for debug
-  const allUsers = await User.find({}, 'email resetToken resetTokenExpiry googleId');
-  console.log('All tokens in DB:', allUsers.map(u => ({ email: u.email, resetToken: u.resetToken, resetTokenExpiry: u.resetTokenExpiry, googleId: u.googleId })));
-
   if (!token || !newPassword) {
     console.log('Missing token or newPassword');
     return res.status(400).json({ message: 'Token and new password are required' });
   }
   
   try {
+    // Find user with valid reset token
     const user = await User.findOne({ 
       resetToken: token,
-      resetTokenExpiry: { $gt: Date.now() }
+      resetTokenExpiry: { $gt: new Date() }  // Compare with current date
     });
-    console.log('DB Query:', { resetToken: token, resetTokenExpiry: { $gt: Date.now() } });
+    
+    console.log('DB Query:', { resetToken: token, resetTokenExpiry: { $gt: new Date() } });
     console.log('User found:', user ? user.email : null);
     
     if (!user) {
       console.log('Invalid or expired token');
-      return res.status(400).json({ message: 'Invalid or expired reset token' });
+      return res.status(400).json({ message: 'Invalid or expired reset token. Please request a new password reset.' });
     }
+
     if (user.googleId) {
       console.log('Attempted password reset for Google user:', user.email);
-      return res.status(400).json({ message: 'You signed up with Google. Please use Google Sign-In to log in. Password reset is not available for Google accounts.' });
+      return res.status(400).json({ message: 'You signed up with Google. Please use Google Sign-In to log in.' });
     }
     
-    // Update password
-    user.password = newPassword;
-    user.resetToken = null;
-    user.resetTokenExpiry = null;
-    await user.save();
-    console.log('Password reset successful for:', user.email);
+    // Hash the new password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
     
-    res.json({ message: 'Password reset successful' });
+    // Update user
+    user.password = hashedPassword;
+    user.resetToken = undefined;  // Use undefined instead of null
+    user.resetTokenExpiry = undefined;  // Use undefined instead of null
+    await user.save();
+    
+    console.log('Password reset successful for:', user.email);
+    res.json({ message: 'Password reset successful. Please login with your new password.' });
     
   } catch (error) {
     console.error('Reset password error:', error);
-    res.status(500).json({ message: 'Server error' });
+    res.status(500).json({ message: 'Server error. Please try again later.' });
   }
 });
 
