@@ -14,6 +14,7 @@ const API_BASE_URL = window.location.hostname === 'localhost'
 function AppRoutes() {
   const [authSuccess, setAuthSuccess] = useState(false);
   const [authUser, setAuthUser] = useState('');
+  const [userRole, setUserRole] = useState<'patient' | 'doctor' | ''>('');
   const [loading, setLoading] = useState(true);
   const [isBackendConnected, setIsBackendConnected] = useState(false);
   const location = useLocation();
@@ -28,14 +29,17 @@ function AppRoutes() {
         if (!res.ok) {
           setAuthSuccess(false);
           setAuthUser('');
+          setUserRole('');
         } else {
           res.json().then(data => {
             if (data.user && data.user.username) {
               setAuthSuccess(true);
               setAuthUser(data.user.username);
+              setUserRole(data.user.role || '');
             } else {
               setAuthSuccess(false);
               setAuthUser('');
+              setUserRole('');
             }
           });
         }
@@ -43,23 +47,24 @@ function AppRoutes() {
       .catch(() => {
         setAuthSuccess(false);
         setAuthUser('');
-        setIsBackendConnected(false);
+        setUserRole('');
       })
       .finally(() => {
         setLoading(false);
       });
   }, [location]);
 
-  // Add after the existing useEffect
+  // Check if redirected from Google OAuth
   useEffect(() => {
-    // Check if redirected from Google OAuth
     const urlParams = new URLSearchParams(window.location.search);
     const authSuccess = urlParams.get('auth');
     const username = urlParams.get('username');
+    const role = urlParams.get('role');
     
     if (authSuccess === 'success') {
       console.log('Google OAuth success detected');
       console.log('Username from URL:', username);
+      console.log('Role from URL:', role);
       
       // Clear the URL parameter
       window.history.replaceState({}, document.title, window.location.pathname);
@@ -68,7 +73,8 @@ function AppRoutes() {
         // If username is provided in URL, set auth state immediately
         setAuthSuccess(true);
         setAuthUser(username);
-        console.log('User authenticated from URL:', username);
+        setUserRole(role as 'patient' | 'doctor' | '');
+        console.log('User authenticated from URL:', username, 'with role:', role);
       } else {
         // Trigger auth check after a short delay to ensure cookie is set
         setTimeout(() => {
@@ -85,13 +91,15 @@ function AppRoutes() {
               if (data.user && data.user.username) {
                 setAuthSuccess(true);
                 setAuthUser(data.user.username);
-                console.log('User authenticated:', data.user.username);
+                setUserRole(data.user.role || '');
+                console.log('User authenticated:', data.user.username, 'with role:', data.user.role);
               }
             })
             .catch((error) => {
               console.error('Auth check error:', error);
               setAuthSuccess(false);
               setAuthUser('');
+              setUserRole('');
             });
         }, 1000);
       }
@@ -101,17 +109,21 @@ function AppRoutes() {
   // Show success message if redirected from login/signup
   let showSuccess = authSuccess;
   let showUser = authUser;
+  let showRole = userRole;
   if (location.state && (location.state as any).success && (location.state as any).username) {
     showSuccess = true;
     showUser = (location.state as any).username;
+    showRole = (location.state as any).role || '';
     // Clear state after showing once
     window.history.replaceState({}, document.title);
   }
 
-  const handleAuthSuccess = (username: string) => {
+  const handleAuthSuccess = (username: string, role: string) => {
     setAuthSuccess(true);
     setAuthUser(username);
+    setUserRole(role as 'patient' | 'doctor' | '');
   };
+
   const handleLogout = async () => {
     await fetch(`${API_BASE_URL}/auth/logout`, {
       method: 'POST',
@@ -119,6 +131,7 @@ function AppRoutes() {
     });
     setAuthSuccess(false);
     setAuthUser('');
+    setUserRole('');
     navigate('/');
   };
 
@@ -135,6 +148,7 @@ function AppRoutes() {
               onLogin={() => (window.location.href = '/login')}
               onSignup={() => (window.location.href = '/signup')}
               username={showSuccess ? showUser : undefined}
+              userRole={showSuccess ? showRole : undefined}
               onLogout={showSuccess ? handleLogout : undefined}
             />
           }

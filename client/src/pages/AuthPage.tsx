@@ -5,7 +5,7 @@ import { FcGoogle } from 'react-icons/fc';
 
 interface AuthPageProps {
   mode?: 'login' | 'signup';
-  onSuccess?: (username: string) => void;
+  onSuccess?: (username: string, role: string) => void;
 }
 
 const API_BASE_URL = window.location.hostname === 'localhost' 
@@ -55,8 +55,8 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
       const data = await res.json();
       if (res.ok) {
         setError('');
-        if (onSuccess) onSuccess(username);
-        navigate('/', { state: { success: true, username } });
+        if (onSuccess) onSuccess(username, data.role || selectedRole);
+        navigate('/', { state: { success: true, username, role: data.role || selectedRole } });
       } else {
         setError(data.message || 'Login failed');
       }
@@ -71,8 +71,8 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
     const token = localStorage.getItem('token');
     const savedUsername = localStorage.getItem('username');
     if (token && savedUsername && onSuccess) {
-      onSuccess(savedUsername);
-      navigate('/', { state: { success: true, username: savedUsername } });
+      onSuccess(savedUsername, localStorage.getItem('role') || 'patient');
+      navigate('/', { state: { success: true, username: savedUsername, role: localStorage.getItem('role') || 'patient' } });
     }
   }, []);
 
@@ -136,8 +136,8 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
               .then(({ ok, data }) => {
                 if (ok) {
                   setError('');
-                  if (onSuccess) onSuccess(email);
-                  navigate('/', { state: { success: true, username: email } });
+                  if (onSuccess) onSuccess(email, data.role || selectedRole);
+                  navigate('/', { state: { success: true, username: email, role: data.role || selectedRole } });
                 } else {
                   setError(data.message || 'Login failed');
                 }

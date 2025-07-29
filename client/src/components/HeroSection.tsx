@@ -1,9 +1,10 @@
 import { FaUserPlus, FaSignInAlt } from 'react-icons/fa';
 
-export default function HeroSection({ onLogin, onSignup, username, onLogout }: {
+export default function HeroSection({ onLogin, onSignup, username, userRole, onLogout }: {
   onLogin: () => void;
   onSignup: () => void;
   username?: string;
+  userRole?: string;
   onLogout?: () => void;
 }) {
   if (username) {
@@ -11,7 +12,8 @@ export default function HeroSection({ onLogin, onSignup, username, onLogout }: {
       <section className="flex flex-col items-center justify-center min-h-[60vh] px-4 bg-black">
         <div className="bg-gray-900 rounded-3xl shadow-xl p-8 border border-gray-800 flex flex-col items-center">
           <h2 className="text-2xl font-bold text-green-400 mb-4">Successfully logged in</h2>
-          <p className="text-base mb-6 text-gray-200">Hello <span className="font-semibold text-white">{username}</span>!</p>
+          <p className="text-base mb-2 text-gray-200">Hello <span className="font-semibold text-white">{username}</span>!</p>
+          <p className="text-sm mb-6 text-gray-400">You are logged in as a <span className="font-semibold text-green-400">{userRole}</span></p>
           <button
             className="bg-green-500 text-black py-2 px-6 rounded-3xl hover:bg-green-400 transition text-sm font-semibold"
             onClick={onLogout}

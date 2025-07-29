@@ -190,6 +190,12 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           return res.redirect('https://veraawell.vercel.app/login?error=no-user');
         }
 
+        // Update user's role if it's different
+        if (role !== user.role) {
+          user.role = role;
+          await user.save();
+        }
+
         // Log the user in
         req.logIn(user, (err) => {
           if (err) {
@@ -197,8 +203,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
             return res.redirect('https://veraawell.vercel.app/login?error=login-failed');
           }
           
-          // Redirect to frontend with success parameters
-          return res.redirect(`https://veraawell.vercel.app/?auth=success&username=${encodeURIComponent(user.username)}`);
+          // Redirect to frontend with success parameters including role
+          return res.redirect(`https://veraawell.vercel.app/?auth=success&username=${encodeURIComponent(user.username)}&role=${user.role}`);
         });
       })(req, res, next);
     }
