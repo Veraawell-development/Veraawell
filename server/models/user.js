@@ -44,12 +44,10 @@ const userSchema = new mongoose.Schema({
     sparse: true // Allows multiple null values
   },
   resetToken: {
-    type: String,
-    default: null
+    type: String
   },
   resetTokenExpiry: {
-    type: Date,
-    default: null
+    type: Date
   },
   createdAt: {
     type: Date,
