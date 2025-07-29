@@ -292,7 +292,10 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       return res.status(400).json({ message: 'This account uses Google login. Please use Google Sign-In.' });
     }
     
-    // Initialize reset token using the new method
+    // Clear any existing reset token
+    await user.clearResetToken();
+    
+    // Initialize new reset token
     const resetToken = await user.initializeResetToken();
     
     // Create reset URL
@@ -396,8 +399,13 @@ app.post('/api/auth/reset-password', async (req, res) => {
     // Find user with valid reset token
     const user = await User.findOne({ resetToken: token });
     
-    if (!user || !user.isResetActive) {
-      return res.status(400).json({ message: 'Invalid or expired reset token. Please request a new password reset.' });
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid reset token. Please request a new password reset.' });
+    }
+
+    if (!user.isResetActive) {
+      await user.clearResetToken(); // Clean up expired token
+      return res.status(400).json({ message: 'Reset token has expired. Please request a new password reset.' });
     }
 
     if (user.googleId) {

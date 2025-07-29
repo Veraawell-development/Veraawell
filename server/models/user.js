@@ -47,16 +47,13 @@ const userSchema = new mongoose.Schema({
   },
   resetToken: {
     type: String,
-    default: '',
-    set: v => v || ''
+    default: null,
+    get: v => v || null
   },
   resetTokenExpiry: {
     type: Date,
-    default: null
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now
+    default: null,
+    get: v => v || null
   }
 }, {
   timestamps: true,
@@ -69,44 +66,25 @@ userSchema.index({ resetToken: 1, resetTokenExpiry: 1 });
 
 // Virtual to check if password reset is active
 userSchema.virtual('isResetActive').get(function() {
-  return !!(this.resetToken && this.resetToken !== '' && 
-           this.resetTokenExpiry && this.resetTokenExpiry > new Date());
+  return !!(this.resetToken && this.resetTokenExpiry && this.resetTokenExpiry > new Date());
 });
 
-// Ensure reset token fields are always in a valid state
+// Ensure reset token fields are always in sync
 userSchema.pre('save', async function(next) {
-  // Initialize fields if they don't exist
-  if (!this.hasOwnProperty('resetToken')) {
-    this.resetToken = '';
+  // If either field is being modified, ensure they are in sync
+  if (this.isModified('resetToken') || this.isModified('resetTokenExpiry')) {
+    // If either field is null/empty/undefined, clear both
+    if (!this.resetToken || !this.resetTokenExpiry) {
+      this.resetToken = null;
+      this.resetTokenExpiry = null;
+    }
+    
+    // If token exists but expiry is in the past, clear both
+    if (this.resetTokenExpiry && this.resetTokenExpiry < new Date()) {
+      this.resetToken = null;
+      this.resetTokenExpiry = null;
+    }
   }
-  if (!this.hasOwnProperty('resetTokenExpiry')) {
-    this.resetTokenExpiry = null;
-  }
-
-  // Ensure consistent state
-  if (!this.resetToken || this.resetToken === '') {
-    this.resetToken = '';
-    this.resetTokenExpiry = null;
-  }
-
-  // If token exists but no expiry, clear both
-  if (this.resetToken && !this.resetTokenExpiry) {
-    this.resetToken = '';
-    this.resetTokenExpiry = null;
-  }
-
-  // If expiry exists but no token, clear both
-  if (!this.resetToken && this.resetTokenExpiry) {
-    this.resetToken = '';
-    this.resetTokenExpiry = null;
-  }
-
-  // If expiry is in the past, clear both
-  if (this.resetTokenExpiry && this.resetTokenExpiry < new Date()) {
-    this.resetToken = '';
-    this.resetTokenExpiry = null;
-  }
-
   next();
 });
 
@@ -153,7 +131,7 @@ userSchema.methods.initializeResetToken = async function() {
 // Clear reset token
 userSchema.methods.clearResetToken = async function() {
   try {
-    this.resetToken = '';
+    this.resetToken = null;
     this.resetTokenExpiry = null;
     await this.save();
   } catch (error) {
@@ -179,10 +157,10 @@ userSchema.statics.migrateResetTokens = async function() {
       $or: [
         { resetToken: { $exists: false } },
         { resetTokenExpiry: { $exists: false } },
-        { resetToken: null },
-        { resetTokenExpiry: { $ne: null, $lt: new Date() } },
-        { resetToken: { $ne: '' }, resetTokenExpiry: null },
-        { resetToken: '', resetTokenExpiry: { $ne: null } }
+        { resetToken: '' },
+        { resetToken: { $ne: null, $type: 'string' }, resetTokenExpiry: null },
+        { resetToken: null, resetTokenExpiry: { $ne: null } },
+        { resetTokenExpiry: { $lt: new Date() } }
       ]
     });
 
@@ -190,7 +168,7 @@ userSchema.statics.migrateResetTokens = async function() {
 
     for (const user of users) {
       // Reset both fields to initial state
-      user.resetToken = '';
+      user.resetToken = null;
       user.resetTokenExpiry = null;
       await user.save();
     }
