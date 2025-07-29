@@ -58,23 +58,28 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/verocare', 
 .then(async () => {
   console.log('MongoDB connected');
   
-  // Migration: Fix null reset tokens
+  // Run migration to fix reset tokens
   try {
-    const usersToFix = await User.find({
+    const migratedCount = await User.migrateResetTokens();
+    console.log(`Migration completed: Fixed ${migratedCount} users with inconsistent reset tokens`);
+    
+    // Verify migration
+    const inconsistentUsers = await User.find({
       $or: [
+        { resetToken: { $exists: false } },
+        { resetTokenExpiry: { $exists: false } },
         { resetToken: null },
-        { resetTokenExpiry: null }
+        { resetTokenExpiry: { $ne: null, $lt: new Date() } },
+        { resetToken: { $ne: '' }, resetTokenExpiry: null },
+        { resetToken: '', resetTokenExpiry: { $ne: null } }
       ]
     });
     
-    console.log(`Found ${usersToFix.length} users with null reset tokens`);
-    
-    for (const user of usersToFix) {
-      user.clearResetToken();
-      await user.save();
+    if (inconsistentUsers.length > 0) {
+      console.warn(`Warning: Found ${inconsistentUsers.length} users with inconsistent reset tokens after migration`);
+    } else {
+      console.log('All users have consistent reset token state');
     }
-    
-    console.log('Migration completed: Fixed null reset tokens');
   } catch (error) {
     console.error('Migration failed:', error);
   }
@@ -287,8 +292,8 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       return res.status(400).json({ message: 'This account uses Google login. Please use Google Sign-In.' });
     }
     
-    // Generate reset token using the model method
-    const resetToken = await user.setResetToken();
+    // Initialize reset token using the new method
+    const resetToken = await user.initializeResetToken();
     
     // Create reset URL
     const frontendResetUrl = `https://veraawell.vercel.app/reset-password?token=${resetToken}`;
@@ -344,6 +349,15 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     };
 
     await transporter.sendMail(mailOptions);
+    
+    // Log success with token state
+    console.log('Reset token generated:', {
+      email: user.email,
+      resetToken: user.resetToken,
+      resetTokenExpiry: user.resetTokenExpiry,
+      isResetActive: user.isResetActive
+    });
+    
     res.json({ message: 'Password reset instructions have been sent to your email.' });
   } catch (error) {
     console.error('Forgot password error:', error);
@@ -380,12 +394,9 @@ app.post('/api/auth/reset-password', async (req, res) => {
   
   try {
     // Find user with valid reset token
-    const user = await User.findOne({ 
-      resetToken: token,
-      resetTokenExpiry: { $gt: new Date() }
-    });
+    const user = await User.findOne({ resetToken: token });
     
-    if (!user) {
+    if (!user || !user.isResetActive) {
       return res.status(400).json({ message: 'Invalid or expired reset token. Please request a new password reset.' });
     }
 
@@ -402,8 +413,13 @@ app.post('/api/auth/reset-password', async (req, res) => {
     // Update password using the model method
     await user.updatePassword(newPassword);
     
-    // Log the success
-    console.log('Password reset successful for:', user.email);
+    // Log success with token state
+    console.log('Password reset successful:', {
+      email: user.email,
+      resetToken: user.resetToken,
+      resetTokenExpiry: user.resetTokenExpiry,
+      isResetActive: user.isResetActive
+    });
     
     res.json({ message: 'Password reset successful. Please login with your new password.' });
     
