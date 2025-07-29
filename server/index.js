@@ -287,13 +287,8 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       return res.status(400).json({ message: 'This account uses Google login. Please use Google Sign-In.' });
     }
     
-    // Generate reset token with more entropy
-    const resetToken = crypto.randomBytes(48).toString('hex');
-    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour from now
-    
-    // Set reset token using the new method
-    user.setResetToken(resetToken, resetTokenExpiry);
-    await user.save();
+    // Generate reset token using the model method
+    const resetToken = await user.setResetToken();
     
     // Create reset URL
     const frontendResetUrl = `https://veraawell.vercel.app/reset-password?token=${resetToken}`;
@@ -378,6 +373,10 @@ app.post('/api/auth/reset-password', async (req, res) => {
   if (!token || !newPassword) {
     return res.status(400).json({ message: 'Token and new password are required' });
   }
+
+  if (newPassword.length < 6) {
+    return res.status(400).json({ message: 'Password must be at least 6 characters long' });
+  }
   
   try {
     // Find user with valid reset token
@@ -393,17 +392,19 @@ app.post('/api/auth/reset-password', async (req, res) => {
     if (user.googleId) {
       return res.status(400).json({ message: 'You signed up with Google. Please use Google Sign-In to log in.' });
     }
+
+    // Verify the new password is different from the current one
+    const isSamePassword = await user.comparePassword(newPassword);
+    if (isSamePassword) {
+      return res.status(400).json({ message: 'New password must be different from your current password' });
+    }
     
-    // Hash the new password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(newPassword, salt);
+    // Update password using the model method
+    await user.updatePassword(newPassword);
     
-    // Update user with new password and clear reset token
-    user.password = hashedPassword;
-    user.clearResetToken(); // Use the new method
-    await user.save();
-    
+    // Log the success
     console.log('Password reset successful for:', user.email);
+    
     res.json({ message: 'Password reset successful. Please login with your new password.' });
     
   } catch (error) {
@@ -522,8 +523,8 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
-    // Compare password using bcrypt directly
-    const isMatch = await bcrypt.compare(password, user.password);
+    // Compare password using the model method
+    const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }

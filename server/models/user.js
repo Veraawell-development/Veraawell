@@ -45,13 +45,12 @@ const userSchema = new mongoose.Schema({
   },
   resetToken: {
     type: String,
-    default: undefined,
-    set: v => v === null ? undefined : v // Convert null to undefined
+    required: false,
+    index: true // Add index for faster queries
   },
   resetTokenExpiry: {
     type: Date,
-    default: undefined,
-    set: v => v === null ? undefined : v // Convert null to undefined
+    required: false
   },
   createdAt: {
     type: Date,
@@ -59,16 +58,16 @@ const userSchema = new mongoose.Schema({
   }
 });
 
-// Hash password before saving (only for non-Google users)
+// Hash password before saving
 userSchema.pre('save', async function(next) {
-  // Skip password hashing for Google OAuth users
-  if (this.googleId) {
-    return next();
-  }
-  
-  if (!this.isModified('password')) return next();
-  
   try {
+    // Only hash the password if it has been modified or is new
+    if (!this.isModified('password')) return next();
+    
+    // Skip for Google users
+    if (this.googleId) return next();
+
+    // Generate salt and hash password
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
     next();
@@ -79,22 +78,60 @@ userSchema.pre('save', async function(next) {
 
 // Compare password method
 userSchema.methods.comparePassword = async function(candidatePassword) {
-  if (this.googleId) {
-    return false;
+  try {
+    // For Google users, always return false
+    if (this.googleId) return false;
+    
+    // Compare passwords
+    return await bcrypt.compare(candidatePassword, this.password);
+  } catch (error) {
+    throw new Error('Password comparison failed');
   }
-  return bcrypt.compare(candidatePassword, this.password);
 };
 
-// Method to clear reset token
-userSchema.methods.clearResetToken = function() {
-  this.resetToken = undefined;
-  this.resetTokenExpiry = undefined;
+// Set reset token
+userSchema.methods.setResetToken = async function() {
+  try {
+    // Generate a secure random token
+    const buffer = await require('crypto').randomBytes(48);
+    const token = buffer.toString('hex');
+    
+    // Set token and expiry
+    this.resetToken = token;
+    this.resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour
+    
+    await this.save();
+    return token;
+  } catch (error) {
+    throw new Error('Failed to set reset token');
+  }
 };
 
-// Method to set reset token
-userSchema.methods.setResetToken = function(token, expiry) {
-  this.resetToken = token;
-  this.resetTokenExpiry = expiry;
+// Clear reset token
+userSchema.methods.clearResetToken = async function() {
+  try {
+    this.resetToken = null;
+    this.resetTokenExpiry = null;
+    await this.save();
+  } catch (error) {
+    throw new Error('Failed to clear reset token');
+  }
+};
+
+// Update password
+userSchema.methods.updatePassword = async function(newPassword) {
+  try {
+    // Set new password (will be hashed by pre-save hook)
+    this.password = newPassword;
+    
+    // Clear reset token
+    this.resetToken = null;
+    this.resetTokenExpiry = null;
+    
+    await this.save();
+  } catch (error) {
+    throw new Error('Failed to update password');
+  }
 };
 
 // Static method to check if a role is valid
