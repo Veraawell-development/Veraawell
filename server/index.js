@@ -234,23 +234,23 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           if (err) {
             console.error('Login error:', err);
             return res.redirect('https://veraawell.vercel.app/login?error=login-failed');
-          }
-          
+        }
+
           // Create JWT token for the user
-          const token = jwt.sign(
+        const token = jwt.sign(
             { userId: user._id, username: user.username, role: user.role },
             JWT_SECRET,
-            { expiresIn: '30d' }
-          );
+          { expiresIn: '30d' }
+        );
 
-          // Set cookie
-          res.cookie('token', token, {
-            httpOnly: true,
+        // Set cookie
+        res.cookie('token', token, {
+          httpOnly: true,
             secure: process.env.NODE_ENV === 'production',
             sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-            maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
-          });
-          
+          maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+        });
+
           // Redirect to frontend with success parameters
           const redirectUrl = new URL('https://veraawell.vercel.app/');
           redirectUrl.searchParams.set('auth', 'success');
@@ -455,7 +455,7 @@ app.post('/api/auth/forgot-password', async (req, res) => {
       `
     };
 
-    await transporter.sendMail(mailOptions);
+      await transporter.sendMail(mailOptions);
     
     // Log success with token state
     console.log('Reset token generated:', {
@@ -490,11 +490,11 @@ app.get('/api/debug/echo-token', async (req, res) => {
 // Reset Password
 app.post('/api/auth/reset-password', async (req, res) => {
   const { token, newPassword } = req.body;
-  
+
   if (!token || !newPassword) {
     return res.status(400).json({ message: 'Token and new password are required' });
   }
-
+  
   if (newPassword.length < 6) {
     return res.status(400).json({ message: 'Password must be at least 6 characters long' });
   }
@@ -755,6 +755,12 @@ app.post('/api/auth/logout', (req, res) => {
   });
   res.json({ message: 'Logged out successfully' });
 });
+
+// Import admin routes
+const adminAuthRoutes = require('./routes/admin/auth');
+
+// Admin routes
+app.use('/api/admin/auth', adminAuthRoutes);
 
 showBanner();
 app.listen(PORT, () => {

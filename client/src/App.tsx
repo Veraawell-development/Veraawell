@@ -72,8 +72,8 @@ function AppRoutes() {
       window.history.replaceState({}, document.title, window.location.pathname);
       
       // Set auth state immediately
-      setAuthSuccess(true);
-      setAuthUser(username);
+        setAuthSuccess(true);
+        setAuthUser(username);
       setUserRole(role as 'patient' | 'doctor' | '');
       
       // Set state for LandingPage component

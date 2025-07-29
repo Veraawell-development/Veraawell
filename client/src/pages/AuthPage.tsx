@@ -69,8 +69,8 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
           setTimeout(() => {
             setError('Role updated. Please try logging in again.');
           }, 2000);
-        } else {
-          setError(data.message || 'Login failed');
+      } else {
+        setError(data.message || 'Login failed');
         }
       }
     } catch (err) {

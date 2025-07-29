@@ -273,7 +273,7 @@ const transporter = nodemailer.createTransporter({
 ## 🔜 Roadmap
 
 1. **Short Term**
-   - Add email verification
+- Add email verification
    - Implement rate limiting
    - Add user profiles
 
