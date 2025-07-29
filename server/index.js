@@ -55,7 +55,30 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/verocare', 
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(() => console.log('MongoDB connected'))
+.then(async () => {
+  console.log('MongoDB connected');
+  
+  // Migration: Fix null reset tokens
+  try {
+    const usersToFix = await User.find({
+      $or: [
+        { resetToken: null },
+        { resetTokenExpiry: null }
+      ]
+    });
+    
+    console.log(`Found ${usersToFix.length} users with null reset tokens`);
+    
+    for (const user of usersToFix) {
+      user.clearResetToken();
+      await user.save();
+    }
+    
+    console.log('Migration completed: Fixed null reset tokens');
+  } catch (error) {
+    console.error('Migration failed:', error);
+  }
+})
 .catch((err) => {
   console.error('MongoDB connection error:', err);
   console.log('Please check your MONGO_URI environment variable');
@@ -268,9 +291,8 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     const resetToken = crypto.randomBytes(48).toString('hex');
     const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour from now
     
-    // Update user with reset token
-    user.resetToken = resetToken;
-    user.resetTokenExpiry = resetTokenExpiry;
+    // Set reset token using the new method
+    user.setResetToken(resetToken, resetTokenExpiry);
     await user.save();
     
     // Create reset URL
@@ -353,8 +375,6 @@ app.get('/api/debug/echo-token', async (req, res) => {
 app.post('/api/auth/reset-password', async (req, res) => {
   const { token, newPassword } = req.body;
   
-  console.log('--- Password Reset Attempt ---');
-
   if (!token || !newPassword) {
     return res.status(400).json({ message: 'Token and new password are required' });
   }
@@ -380,8 +400,7 @@ app.post('/api/auth/reset-password', async (req, res) => {
     
     // Update user with new password and clear reset token
     user.password = hashedPassword;
-    user.resetToken = undefined;
-    user.resetTokenExpiry = undefined;
+    user.clearResetToken(); // Use the new method
     await user.save();
     
     console.log('Password reset successful for:', user.email);

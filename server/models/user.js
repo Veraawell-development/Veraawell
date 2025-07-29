@@ -11,9 +11,9 @@ const userSchema = new mongoose.Schema({
   },
   lastName: {
     type: String,
-    required: false, // Make it optional for Google OAuth users
+    required: false,
     trim: true,
-    default: '' // Default to empty string
+    default: ''
   },
   email: {
     type: String,
@@ -41,13 +41,17 @@ const userSchema = new mongoose.Schema({
   googleId: {
     type: String,
     unique: true,
-    sparse: true // Allows multiple null values
+    sparse: true
   },
   resetToken: {
-    type: String
+    type: String,
+    default: undefined,
+    set: v => v === null ? undefined : v // Convert null to undefined
   },
   resetTokenExpiry: {
-    type: Date
+    type: Date,
+    default: undefined,
+    set: v => v === null ? undefined : v // Convert null to undefined
   },
   createdAt: {
     type: Date,
@@ -57,7 +61,7 @@ const userSchema = new mongoose.Schema({
 
 // Hash password before saving (only for non-Google users)
 userSchema.pre('save', async function(next) {
-  // Skip password hashing for Google OAuth users (they have googleId)
+  // Skip password hashing for Google OAuth users
   if (this.googleId) {
     return next();
   }
@@ -75,11 +79,22 @@ userSchema.pre('save', async function(next) {
 
 // Compare password method
 userSchema.methods.comparePassword = async function(candidatePassword) {
-  // For Google OAuth users, always return false for password comparison
   if (this.googleId) {
     return false;
   }
   return bcrypt.compare(candidatePassword, this.password);
+};
+
+// Method to clear reset token
+userSchema.methods.clearResetToken = function() {
+  this.resetToken = undefined;
+  this.resetTokenExpiry = undefined;
+};
+
+// Method to set reset token
+userSchema.methods.setResetToken = function(token, expiry) {
+  this.resetToken = token;
+  this.resetTokenExpiry = expiry;
 };
 
 // Static method to check if a role is valid
@@ -87,7 +102,7 @@ userSchema.statics.isValidRole = function(role) {
   return VALID_ROLES.includes(role);
 };
 
-// Static method to create admin (can only be called by existing admin)
+// Static method to create admin
 userSchema.statics.createAdmin = async function(adminData) {
   const admin = new this({
     ...adminData,
