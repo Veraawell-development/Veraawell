@@ -63,13 +63,12 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   passport.use(new GoogleStrategy({
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: process.env.NODE_ENV === 'production' 
-        ? "https://veraawell-backend.onrender.com/api/auth/google/callback"
-        : "http://localhost:5001/api/auth/google/callback"
+      callbackURL: "https://veraawell-backend.onrender.com/api/auth/google/callback"
     },
     async function(accessToken, refreshToken, profile, cb) {
       try {
         console.log('Google profile received:', {
+          id: profile.id,
           email: profile.emails?.[0]?.value,
           name: profile.name
         });
@@ -184,37 +183,22 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       passport.authenticate('google', async (err, user) => {
         if (err) {
           console.error('Google callback error:', err);
-          return res.redirect('https://vero-care.vercel.app/login?error=google-auth-failed');
+          return res.redirect('https://veraawell.vercel.app/login?error=google-auth-failed');
         }
         
         if (!user) {
-          return res.redirect('https://vero-care.vercel.app/login?error=no-user');
+          return res.redirect('https://veraawell.vercel.app/login?error=no-user');
         }
 
         // Log the user in
         req.logIn(user, (err) => {
           if (err) {
             console.error('Login error:', err);
-            return res.redirect('https://vero-care.vercel.app/login?error=login-failed');
+            return res.redirect('https://veraawell.vercel.app/login?error=login-failed');
           }
           
-          // Create JWT token
-          const token = jwt.sign(
-            { userId: user._id, role: user.role },
-            process.env.JWT_SECRET || 'testsecret',
-            { expiresIn: '30d' }
-          );
-
-          // Set cookie
-          res.cookie('token', token, {
-            httpOnly: true,
-            secure: true,
-            sameSite: 'none',
-            maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
-          });
-
           // Redirect to frontend with success parameters
-          return res.redirect(`https://vero-care.vercel.app/?auth=success&username=${encodeURIComponent(user.username)}`);
+          return res.redirect(`https://veraawell.vercel.app/?auth=success&username=${encodeURIComponent(user.username)}`);
         });
       })(req, res, next);
     }
