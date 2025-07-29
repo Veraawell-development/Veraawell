@@ -15,6 +15,15 @@ const transporter = nodemailer.createTransport({
   }
 });
 
+// Verify email configuration
+transporter.verify((error, success) => {
+  if (error) {
+    console.error('Email configuration error:', error);
+  } else {
+    console.log('Email server is ready');
+  }
+});
+
 // First-time setup route
 router.post('/setup', checkFirstTimeSetup, async (req, res) => {
   try {
@@ -35,18 +44,34 @@ router.post('/setup', checkFirstTimeSetup, async (req, res) => {
       lastName: req.body.lastName
     });
 
-    // Send credentials via email
-    await transporter.sendMail({
-      from: process.env.EMAIL_USER,
-      to: admin.email,
-      subject: 'Veraawell Admin Account Created',
-      html: `
-        <h2>Your Admin Account Has Been Created</h2>
-        <p>Email: ${admin.email}</p>
-        <p>Temporary Password: ${tempPassword}</p>
-        <p>Please change your password upon first login.</p>
-      `
-    });
+    // Try to send email
+    try {
+      await transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: admin.email,
+        subject: 'Veraawell Admin Account Created',
+        html: `
+          <h2>Your Admin Account Has Been Created</h2>
+          <p>Email: ${admin.email}</p>
+          <p>Temporary Password: ${tempPassword}</p>
+          <p>Please change your password upon first login.</p>
+        `
+      });
+      console.log('Admin credentials email sent successfully');
+    } catch (emailError) {
+      console.error('Failed to send admin credentials email:', emailError);
+    }
+
+    // In development, return the credentials
+    if (process.env.NODE_ENV !== 'production') {
+      return res.status(201).json({
+        message: 'Super admin created successfully',
+        debug: {
+          email: admin.email,
+          tempPassword: tempPassword
+        }
+      });
+    }
 
     res.status(201).json({ 
       message: 'Super admin created successfully. Check email for credentials.' 
@@ -208,6 +233,80 @@ router.post('/logout', adminAuth, async (req, res) => {
   } catch (error) {
     console.error('Logout error:', error);
     res.status(500).json({ message: 'Logout failed' });
+  }
+});
+
+// DEBUG: Check admin (remove in production)
+router.get('/debug', async (req, res) => {
+  try {
+    const admins = await Admin.find({});
+    res.json({ admins: admins.map(admin => ({
+      email: admin.email,
+      role: admin.role,
+      isFirstAdmin: admin.isFirstAdmin,
+      isPasswordChanged: admin.isPasswordChanged
+    }))});
+  } catch (error) {
+    res.status(500).json({ message: 'Error fetching admins' });
+  }
+});
+
+// DEBUG: Reset admin setup (remove in production)
+router.post('/debug/reset', async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ message: 'Not found' });
+  }
+  
+  try {
+    await Admin.deleteMany({});
+    res.json({ message: 'Admin setup reset successful' });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to reset admin setup' });
+  }
+});
+
+// DEBUG: Get admin token (remove in production)
+router.post('/debug/token', async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    return res.status(404).json({ message: 'Not found' });
+  }
+
+  try {
+    const { email, password } = req.body;
+    const admin = await Admin.findOne({ email: email.toLowerCase() });
+    
+    if (!admin || !(await admin.comparePassword(password))) {
+      return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    const token = jwt.sign(
+      { adminId: admin._id, role: admin.role },
+      process.env.ADMIN_JWT_SECRET || 'admin-secret',
+      { expiresIn: '1h' }
+    );
+
+    res.json({ token });
+  } catch (error) {
+    res.status(500).json({ message: 'Error generating token' });
+  }
+});
+
+// Get admin status
+router.get('/status', adminAuth, async (req, res) => {
+  try {
+    const admin = req.admin;
+    res.json({
+      admin: {
+        id: admin._id,
+        email: admin.email,
+        role: admin.role,
+        firstName: admin.firstName,
+        lastName: admin.lastName
+      }
+    });
+  } catch (error) {
+    console.error('Status check error:', error);
+    res.status(500).json({ message: 'Server error' });
   }
 });
 

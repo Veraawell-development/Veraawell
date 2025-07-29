@@ -6,6 +6,8 @@ import LandingPage from './pages/LandingPage';
 import AuthPage from './pages/AuthPage';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
+import AdminLogin from './pages/admin/AdminLogin';
+import AdminDashboard from './pages/admin/AdminDashboard';
 
 const API_BASE_URL = window.location.hostname === 'localhost' 
   ? 'http://localhost:5001/api' 
@@ -143,6 +145,8 @@ function AppRoutes() {
         <Route path="/signup" element={<AuthPage mode="signup" onSuccess={handleAuthSuccess} />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/admin/login" element={<AdminLogin />} />
+        <Route path="/admin/dashboard" element={<AdminDashboard />} />
       </Routes>
     </main>
   );
