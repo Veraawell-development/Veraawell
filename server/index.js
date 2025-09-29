@@ -13,6 +13,9 @@ const showBanner = require('./banner');
 const nodemailer = require('nodemailer');
 const bcrypt = require('bcryptjs'); // Added bcrypt for password hashing
 
+// Import User model early to avoid circular dependency
+const User = require('./models/user');
+
 const app = express();
 const PORT = process.env.PORT || 8000;
 
@@ -60,43 +63,53 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/verocare', 
   
   // Run migration to fix reset tokens
   try {
+    console.log('Starting reset token migration...');
     const migratedCount = await User.migrateResetTokens();
     console.log(`Migration completed: Fixed ${migratedCount} users with inconsistent reset tokens`);
     
     // Verify migration
-    const inconsistentUsers = await User.find({
-      $or: [
-        { resetToken: { $exists: false } },
-        { resetTokenExpiry: { $exists: false } },
-        { resetToken: null },
-        { resetTokenExpiry: { $ne: null, $lt: new Date() } },
-        { resetToken: { $ne: '' }, resetTokenExpiry: null },
-        { resetToken: '', resetTokenExpiry: { $ne: null } }
-      ]
-    });
-    
-    if (inconsistentUsers.length > 0) {
-      console.warn(`Warning: Found ${inconsistentUsers.length} users with inconsistent reset tokens after migration`);
-    } else {
-      console.log('All users have consistent reset token state');
+    try {
+      const inconsistentUsers = await User.find({
+        $or: [
+          { resetToken: { $exists: false } },
+          { resetTokenExpiry: { $exists: false } },
+          { resetToken: null },
+          { resetTokenExpiry: { $ne: null, $lt: new Date() } },
+          { resetToken: { $ne: '' }, resetTokenExpiry: null },
+          { resetToken: '', resetTokenExpiry: { $ne: null } }
+        ]
+      });
+      
+      if (inconsistentUsers.length > 0) {
+        console.warn(`Warning: Found ${inconsistentUsers.length} users with inconsistent reset tokens after migration`);
+      } else {
+        console.log('All users have consistent reset token state');
+      }
+    } catch (verificationError) {
+      console.warn('Could not verify migration results:', verificationError.message);
     }
   } catch (error) {
     console.error('Migration failed:', error);
+    // Don't crash the server if migration fails
+    console.log('Continuing server startup despite migration failure...');
   }
 })
 .catch((err) => {
   console.error('MongoDB connection error:', err);
   console.log('Please check your MONGO_URI environment variable');
+  // Don't exit the process, let it continue and retry
 });
-
-const User = require('./models/user');
 
 // Passport configuration with error handling
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
+  const callbackURL = process.env.NODE_ENV === 'production' 
+    ? "https://veraawell-backend.onrender.com/api/auth/google/callback"
+    : `http://localhost:${PORT}/api/auth/google/callback`;
+    
   passport.use(new GoogleStrategy({
       clientID: process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-      callbackURL: "https://veraawell-backend.onrender.com/api/auth/google/callback"
+      callbackURL: callbackURL
     },
     async function(accessToken, refreshToken, profile, cb) {
       try {
@@ -216,11 +229,17 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       passport.authenticate('google', async (err, user) => {
         if (err) {
           console.error('Google callback error:', err);
-          return res.redirect('https://veraawell.vercel.app/login?error=google-auth-failed');
+          const frontendUrl = process.env.NODE_ENV === 'production' 
+            ? 'https://veraawell.vercel.app/login?error=google-auth-failed'
+            : 'http://localhost:5173/login?error=google-auth-failed';
+          return res.redirect(frontendUrl);
         }
         
         if (!user) {
-          return res.redirect('https://veraawell.vercel.app/login?error=no-user');
+          const frontendUrl = process.env.NODE_ENV === 'production' 
+            ? 'https://veraawell.vercel.app/login?error=no-user'
+            : 'http://localhost:5173/login?error=no-user';
+          return res.redirect(frontendUrl);
         }
 
         // Update user's role if it's different
@@ -252,7 +271,10 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         });
 
           // Redirect to frontend with success parameters
-          const redirectUrl = new URL('https://veraawell.vercel.app/');
+          const baseUrl = process.env.NODE_ENV === 'production' 
+            ? 'https://veraawell.vercel.app/'
+            : 'http://localhost:5173/';
+          const redirectUrl = new URL(baseUrl);
           redirectUrl.searchParams.set('auth', 'success');
           redirectUrl.searchParams.set('username', user.username);
           redirectUrl.searchParams.set('role', user.role);
@@ -299,7 +321,10 @@ app.post('/api/auth/forgot-password', async (req, res) => {
     const resetToken = await user.initializeResetToken();
     
     // Create reset URL
-    const frontendResetUrl = `https://veraawell.vercel.app/reset-password?token=${resetToken}`;
+    const frontendBaseUrl = process.env.NODE_ENV === 'production' 
+      ? 'https://veraawell.vercel.app'
+      : 'http://localhost:5173';
+    const frontendResetUrl = `${frontendBaseUrl}/reset-password?token=${resetToken}`;
 
     // Configure nodemailer transporter
     const transporter = nodemailer.createTransport({
@@ -771,4 +796,31 @@ app.listen(PORT, () => {
   console.log('- GOOGLE_CLIENT_SECRET:', process.env.GOOGLE_CLIENT_SECRET ? 'Set' : 'Not set');
   console.log('- JWT_SECRET:', process.env.JWT_SECRET ? 'Set' : 'Not set');
   console.log('- SESSION_SECRET:', process.env.SESSION_SECRET ? 'Set' : 'Not set');
+});
+
+// Add process error handlers for better stability
+process.on('uncaughtException', (error) => {
+  console.error('Uncaught Exception:', error);
+  console.log('Server will continue running...');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  console.log('Server will continue running...');
+});
+
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully...');
+  mongoose.connection.close(() => {
+    console.log('MongoDB connection closed.');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully...');
+  mongoose.connection.close(() => {
+    console.log('MongoDB connection closed.');
+    process.exit(0);
+  });
 }); 

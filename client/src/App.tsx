@@ -4,10 +4,19 @@ import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import LandingPage from './pages/LandingPage';
 import AuthPage from './pages/AuthPage';
+import CareerPage from './pages/CareerPage';
+import AboutPage from './pages/AboutPage';
+import ServicesPage from './pages/ServicesPage';
+import DoctorProfilePage from './pages/DoctorProfilePage';
+import ChooseProfessionalPage from './pages/ChooseProfessionalPage';
+import PatientDashboard from './pages/PatientDashboard';
+import DoctorDashboard from './pages/DoctorDashboard';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import AdminLogin from './pages/admin/AdminLogin';
 import AdminDashboard from './pages/admin/AdminDashboard';
+import AdminForgotPassword from './pages/admin/AdminForgotPassword';
+import AdminResetPassword from './pages/admin/AdminResetPassword';
 
 const API_BASE_URL = window.location.hostname === 'localhost' 
   ? 'http://localhost:5001/api' 
@@ -89,8 +98,15 @@ function AppRoutes() {
       // Update history state
       window.history.replaceState(state, document.title, window.location.pathname);
       
-      // Force a re-render of LandingPage
-      navigate('/', { state, replace: true });
+      // Redirect based on role
+      if (role === 'patient') {
+        navigate('/patient-dashboard', { state, replace: true });
+      } else if (role === 'doctor') {
+        // TODO: Create doctor dashboard and redirect there
+        navigate('/doctor-dashboard', { state, replace: true });
+      } else {
+        navigate('/', { state, replace: true });
+      }
     }
   }, [navigate]);
 
@@ -110,6 +126,16 @@ function AppRoutes() {
     setAuthSuccess(true);
     setAuthUser(username);
     setUserRole(role as 'patient' | 'doctor' | '');
+    
+    // Redirect based on role
+    if (role === 'patient') {
+      navigate('/patient-dashboard');
+    } else if (role === 'doctor') {
+      // TODO: Create doctor dashboard and redirect there
+      navigate('/doctor-dashboard');
+    } else {
+      navigate('/');
+    }
   };
 
   const handleLogout = async () => {
@@ -125,9 +151,14 @@ function AppRoutes() {
 
   if (loading) return null; // or a spinner
 
+  // Check if current route is auth-related
+  const isAuthRoute = location.pathname === '/login' || location.pathname === '/signup' || 
+                     location.pathname === '/forgot-password' || location.pathname === '/reset-password' ||
+                     location.pathname.startsWith('/admin');
+
   return (
     <main className="flex-1 flex flex-col bg-black">
-      <Navbar isBackendConnected={isBackendConnected} isLoggedIn={authSuccess} onLogout={handleLogout} />
+      {!isAuthRoute && <Navbar isBackendConnected={isBackendConnected} isLoggedIn={authSuccess} onLogout={handleLogout} />}
       <Routes>
         <Route
           path="/"
@@ -143,23 +174,45 @@ function AppRoutes() {
         />
         <Route path="/login" element={<AuthPage mode="login" onSuccess={handleAuthSuccess} />} />
         <Route path="/signup" element={<AuthPage mode="signup" onSuccess={handleAuthSuccess} />} />
+        <Route path="/about" element={<AboutPage />} />
+        <Route path="/careers" element={<CareerPage />} />
+        <Route path="/services" element={<ServicesPage />} />
+        <Route path="/doctor-profile" element={<DoctorProfilePage />} />
+        <Route path="/choose-professional" element={<ChooseProfessionalPage />} />
+        <Route path="/patient-dashboard" element={<PatientDashboard />} />
+        <Route path="/doctor-dashboard" element={<DoctorDashboard />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/admin/dashboard" element={<AdminDashboard />} />
+        <Route path="/admin/forgot-password" element={<AdminForgotPassword />} />
+        <Route path="/admin/reset-password/:token" element={<AdminResetPassword />} />
       </Routes>
     </main>
+  );
+}
+
+function AppWithFooter() {
+  const location = useLocation();
+  
+  // Check if current route is auth-related or dashboard-related
+  const isAuthRoute = location.pathname === '/login' || location.pathname === '/signup' || 
+                     location.pathname === '/forgot-password' || location.pathname === '/reset-password' ||
+                     location.pathname.startsWith('/admin') || location.pathname === '/patient-dashboard' ||
+                     location.pathname === '/doctor-dashboard';
+
+  return (
+    <div className="min-h-screen flex flex-col bg-black">
+      <AppRoutes />
+      {!isAuthRoute && <Footer />}
+    </div>
   );
 }
 
 export default function App() {
   return (
     <Router>
-      <div className="min-h-screen flex flex-col bg-black">
-      
-        <AppRoutes />
-        <Footer />
-      </div>
+      <AppWithFooter />
     </Router>
   );
 }

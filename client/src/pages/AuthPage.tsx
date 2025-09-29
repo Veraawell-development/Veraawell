@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaEye, FaEyeSlash } from 'react-icons/fa';
 import { FcGoogle } from 'react-icons/fc';
 
 interface AuthPageProps {
@@ -21,15 +20,10 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   const [registerConfirm, setRegisterConfirm] = useState('');
   const [registerMsg, setRegisterMsg] = useState('');
   const [loading, setLoading] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
-  const [showRegisterPassword, setShowRegisterPassword] = useState(false);
-  const [showRegisterConfirm, setShowRegisterConfirm] = useState(false);
   const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
   const [email, setEmail] = useState('');
-  const [agree, setAgree] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<'patient' | 'doctor'>('patient');
-  const [isAdminMode, setIsAdminMode] = useState(false);
+  const [phoneNo, setPhoneNo] = useState('');
+  const [isProfessional, setIsProfessional] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -49,7 +43,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
         body: JSON.stringify({ 
           username, 
           password,
-          role: isAdminMode ? 'admin' : selectedRole 
+          role: isProfessional ? 'doctor' : 'patient'
         }),
       });
       const data = await res.json();
@@ -58,20 +52,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
         if (onSuccess) onSuccess(username, data.user.role);
         navigate('/', { state: { success: true, username, role: data.user.role } });
       } else {
-        // Check if it's a role mismatch error
-        if (data.correctRole) {
-          setError(data.message);
-          // Auto-switch to correct role
-          setSelectedRole(data.correctRole as 'patient' | 'doctor');
-          // Auto-fill password
-          setPassword(password);
-          // Show helper message
-          setTimeout(() => {
-            setError('Role updated. Please try logging in again.');
-          }, 2000);
-      } else {
         setError(data.message || 'Login failed');
-        }
       }
     } catch (err) {
       setError('Network error');
@@ -93,16 +74,12 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
     e.preventDefault();
     setRegisterMsg('');
     setError('');
-    if (!firstName.trim() || !lastName.trim() || !email.trim() || !registerPassword.trim() || !registerConfirm.trim()) {
+    if (!firstName.trim() || !email.trim() || !registerPassword.trim() || !registerConfirm.trim()) {
       setRegisterMsg('All required fields must be filled');
       return;
     }
     if (registerPassword !== registerConfirm) {
       setRegisterMsg('Passwords do not match');
-      return;
-    }
-    if (!agree) {
-      setRegisterMsg('You must agree to the Terms of Service and Privacy Policy');
       return;
     }
     setLoading(true);
@@ -113,11 +90,12 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
         credentials: 'include',
         body: JSON.stringify({
           firstName,
-          lastName,
+          lastName: '',
           email,
           username: email,
           password: registerPassword,
-          role: selectedRole
+          phoneNo,
+          role: isProfessional ? 'doctor' : 'patient'
         }),
       });
       const data = await res.json();
@@ -126,12 +104,10 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
         setUsername(email);
         setPassword(registerPassword);
         setFirstName('');
-        setLastName('');
         setEmail('');
-        // setRegisterUsername('');
+        setPhoneNo('');
         setRegisterPassword('');
         setRegisterConfirm('');
-        setAgree(false);
         setTimeout(() => {
           setRegisterMode(false);
           setRegisterMsg('');
@@ -143,14 +119,14 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               credentials: 'include',
-              body: JSON.stringify({ username: email, password: registerPassword }),
+              body: JSON.stringify({ username: email, password: registerPassword, role: isProfessional ? 'doctor' : 'patient' }),
             })
               .then(res => res.json().then(data => ({ ok: res.ok, data })))
               .then(({ ok, data }) => {
                 if (ok) {
                   setError('');
-                  if (onSuccess) onSuccess(email, data.role || selectedRole);
-                  navigate('/', { state: { success: true, username: email, role: data.role || selectedRole } });
+                  if (onSuccess) onSuccess(email, data.role || (isProfessional ? 'doctor' : 'patient'));
+                  navigate('/', { state: { success: true, username: email, role: data.role || (isProfessional ? 'doctor' : 'patient') } });
                 } else {
                   setError(data.message || 'Login failed');
                 }
@@ -174,221 +150,209 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
 
   const handleGoogleAuth = () => {
     console.log('Redirecting to Google OAuth:', `${API_BASE_URL}/auth/google`);
-    window.location.href = `${API_BASE_URL}/auth/google?role=${selectedRole}`;
+    window.location.href = `${API_BASE_URL}/auth/google?role=${isProfessional ? 'doctor' : 'patient'}`;
   };
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center bg-black p-2 sm:p-4">
-      <div className="w-full max-w-md sm:max-w-md bg-gray-900 rounded-3xl shadow-xl p-4 sm:p-8 border border-gray-800">
-        {!isAdminMode && (
-          <div className="mb-6">
-            <div className="flex rounded-3xl overflow-hidden border border-gray-700 mb-4">
-              <button
-                className={`flex-1 py-2 text-sm font-medium transition ${selectedRole === 'patient' ? 'bg-green-500 text-black' : 'bg-transparent text-gray-400 hover:bg-gray-800'}`}
-                onClick={() => setSelectedRole('patient')}
-                disabled={loading}
-              >
-                Patient
-              </button>
-              <button
-                className={`flex-1 py-2 text-sm font-medium transition ${selectedRole === 'doctor' ? 'bg-green-500 text-black' : 'bg-transparent text-gray-400 hover:bg-gray-800'}`}
-                onClick={() => setSelectedRole('doctor')}
-                disabled={loading}
-              >
-                Doctor
-              </button>
-            </div>
-          </div>
-        )}
-        
-        <h2 className="text-lg sm:text-xl font-bold text-center mb-6 text-white tracking-tight">
-          {isAdminMode 
-            ? 'Admin Portal' 
-            : (registerMode ? `Create your ${selectedRole} account` : `Sign in as ${selectedRole}`)}
-        </h2>
+    <div className="h-screen bg-white flex items-center justify-center px-4 overflow-hidden font-sans">
+      {/* Back Button */}
+      <button
+        onClick={() => navigate('/')}
+        className="absolute top-6 left-6 flex items-center gap-2 text-gray-600 hover:text-gray-800 transition-colors font-sans"
+      >
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+        </svg>
+        <span className="text-sm">Back to Home</span>
+      </button>
 
-        {registerMode && !isAdminMode ? (
-          <>
-            <div className="flex flex-col items-center mb-4">
-              <button 
-                type="button" 
-                className="w-full flex items-center justify-center gap-2 border border-green-500 text-black bg-white py-2 rounded-3xl font-semibold hover:bg-gray-100 transition mb-4 text-base" 
-                onClick={handleGoogleAuth}
-              >
-                <FcGoogle className="text-xl" />
-                Sign up with Google as {selectedRole}
-              </button>
-              <span className="text-gray-400 text-sm mb-2">or</span>
-            </div>
-            <form onSubmit={handleRegister} className="space-y-4">
-              <div className="flex flex-col sm:flex-row gap-2">
-                <input
-                  type="text"
-                  placeholder="First Name*"
-                  value={firstName}
-                  onChange={e => setFirstName(e.target.value)}
-                  className="w-full sm:w-1/2 px-4 py-2 border border-gray-700 bg-gray-800 text-white rounded-3xl focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
-                  disabled={loading}
-                  autoFocus
-                />
-                <input
-                  type="text"
-                  placeholder="Last Name*"
-                  value={lastName}
-                  onChange={e => setLastName(e.target.value)}
-                  className="w-full sm:w-1/2 px-4 py-2 border border-gray-700 bg-gray-800 text-white rounded-3xl focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
-                  disabled={loading}
-                />
-              </div>
-              <input
-                type="email"
-                placeholder="Email*"
-                value={email}
-                onChange={e => setEmail(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-700 bg-gray-800 text-white rounded-3xl focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
-                disabled={loading}
-              />
-              <div className="relative">
-                <input
-                  type={showRegisterPassword ? 'text' : 'password'}
-                  placeholder="Password*"
-                  value={registerPassword}
-                  onChange={e => setRegisterPassword(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-700 bg-gray-800 text-white rounded-3xl focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
-                  disabled={loading}
-                />
-                <button type="button" tabIndex={-1} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" onClick={() => setShowRegisterPassword(v => !v)}>
-                  {showRegisterPassword ? <FaEyeSlash /> : <FaEye />}
-                </button>
-              </div>
-              <div className="relative">
-                <input
-                  type={showRegisterConfirm ? 'text' : 'password'}
-                  placeholder="Confirm Password*"
-                  value={registerConfirm}
-                  onChange={e => setRegisterConfirm(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-700 bg-gray-800 text-white rounded-3xl focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
-                  disabled={loading}
-                />
-                <button type="button" tabIndex={-1} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" onClick={() => setShowRegisterConfirm(v => !v)}>
-                  {showRegisterConfirm ? <FaEyeSlash /> : <FaEye />}
-                </button>
-              </div>
-              <div className="flex items-center gap-2 mt-2">
-                <input
-                  type="checkbox"
-                  checked={agree}
-                  onChange={e => setAgree(e.target.checked)}
-                  className="accent-green-500 w-4 h-4"
-                  disabled={loading}
-                  id="terms"
-                />
-                <label htmlFor="terms" className="text-gray-300 text-xs select-none">
-                  I agree to the <a href="#" className="underline">Terms of Service</a> and <a href="#" className="underline">Privacy Policy</a>.
-                </label>
-              </div>
-              <button type="submit" className="w-full bg-green-500 text-black py-2 rounded-3xl hover:bg-green-400 transition disabled:opacity-50 text-base font-semibold mt-2" disabled={loading}>Create your account</button>
-            </form>
-            <button type="button" className="w-full text-green-400 py-2 rounded-3xl hover:bg-gray-800 transition disabled:opacity-50 mt-4 text-sm font-semibold" onClick={() => { setRegisterMode(false); setRegisterMsg(''); }} disabled={loading}>Sign in</button>
-            {registerMsg && <div className={`text-center mt-2 ${registerMsg.startsWith('Registration successful') ? 'text-green-400' : 'text-red-400'}`}>{registerMsg}</div>}
-          </>
-        ) : (
-          <>
-            {!isAdminMode && (
-              <div className="flex flex-col items-center mb-4">
-                <button 
-                  type="button" 
-                  className="w-full flex items-center justify-center gap-2 border border-green-500 text-black bg-white py-2 rounded-3xl font-semibold hover:bg-gray-100 transition mb-4 text-base" 
-                  onClick={handleGoogleAuth}
-                >
-                  <FcGoogle className="text-xl" />
-                  Sign in with Google as {selectedRole}
-                </button>
-                <span className="text-gray-400 text-sm mb-2">or</span>
-              </div>
-            )}
-            <form onSubmit={handleLogin} className="space-y-4">
-              <input
-                type="text"
-                placeholder={isAdminMode ? "Admin Username" : "Email"}
-                value={username}
-                onChange={e => setUsername(e.target.value)}
-                className="w-full px-4 py-2 border border-gray-700 bg-gray-800 text-white rounded-3xl focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
-                disabled={loading}
-                autoFocus
-              />
-              <div className="relative">
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="Password"
-                  value={password}
-                  onChange={e => setPassword(e.target.value)}
-                  className="w-full px-4 py-2 border border-gray-700 bg-gray-800 text-white rounded-3xl focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
-                  disabled={loading}
-                />
-                <button 
-                  type="button" 
-                  tabIndex={-1} 
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" 
-                  onClick={() => setShowPassword(v => !v)}
-                >
-                  {showPassword ? <FaEyeSlash /> : <FaEye />}
-                </button>
-              </div>
-              {!isAdminMode && (
-                <div className="flex justify-end">
-                  <button 
-                    type="button" 
-                    className="text-green-400 text-xs hover:underline focus:outline-none" 
-                    onClick={() => navigate('/forgot-password')}
-                  >
-                    Forgot password?
-                  </button>
-                </div>
-              )}
-              <button 
-                type="submit" 
-                className={`w-full py-2 rounded-3xl hover:opacity-90 transition disabled:opacity-50 text-base font-semibold ${
-                  isAdminMode 
-                    ? 'bg-red-500 hover:bg-red-600 text-white' 
-                    : 'bg-green-500 hover:bg-green-400 text-black'
-                }`} 
-                disabled={loading}
-              >
-                {isAdminMode ? 'Admin Login' : 'Login'}
-              </button>
-            </form>
-            {!isAdminMode && (
-              <button 
-                type="button" 
-                className="w-full border border-green-500 text-green-400 py-2 rounded-3xl hover:bg-gray-800 transition disabled:opacity-50 mt-4 text-base font-semibold" 
-                onClick={() => { setRegisterMode(true); setRegisterMsg(''); }} 
-                disabled={loading}
-              >
-                Create New Account
-              </button>
-            )}
-            {error && <div className="text-center text-red-400 mt-4">{error}</div>}
-          </>
-        )}
+      <div className="w-full max-w-sm">
+        {/* Logo */}
+        <div className="flex justify-center mb-6">
+          <img className="w-auto h-20" src="logo.png" alt="Veraawell Logo" />
+        </div>
 
-        {/* Admin portal link */}
-        <div className="mt-6 text-center">
+        {/* Title */}
+        <h1 className="text-2xl font-semibold text-center mb-8 text-teal-600 font-serif">
+          Welcome To Veraawell
+        </h1>
+
+        {/* Toggle Buttons */}
+        <div className="flex gap-2 mb-6 justify-center">
           <button
-            type="button"
-            className={`text-xs text-gray-500 hover:text-gray-400 transition ${isAdminMode ? 'text-red-400 hover:text-red-300' : ''}`}
-            onClick={() => {
-              setIsAdminMode(!isAdminMode);
-              setError('');
-              setRegisterMsg('');
-              setUsername('');
-              setPassword('');
-              setRegisterMode(false);
-            }}
+            onClick={() => setRegisterMode(false)}
+            className={`px-6 py-2.5 text-sm font-medium transition-colors rounded-full ${
+              !registerMode 
+                ? 'bg-teal-600 text-white' 
+                : 'bg-gray-300 text-gray-700 hover:bg-gray-400'
+            }`}
           >
-            {isAdminMode ? '← Back to User Login' : 'Admin Portal'}
+            Sign In
+          </button>
+          <button
+            onClick={() => setRegisterMode(true)}
+            className={`px-6 py-2.5 text-sm font-medium transition-colors rounded-full ${
+              registerMode 
+                ? 'bg-teal-600 text-white' 
+                : 'bg-gray-300 text-gray-700 hover:bg-gray-400'
+            }`}
+          >
+            Sign Up
           </button>
         </div>
+
+        {/* Professional Toggle */}
+        <div className="flex items-center justify-center mb-8">
+          <button
+            onClick={() => setIsProfessional(!isProfessional)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
+              isProfessional 
+                ? 'bg-teal-600 text-white' 
+                : 'bg-gray-300 text-gray-700 hover:bg-gray-400'
+            }`}
+          >
+            {isProfessional && (
+              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+              </svg>
+            )}
+            As a Professional
+          </button>
+        </div>
+
+        {/* Form */}
+        {registerMode ? (
+          <form onSubmit={handleRegister} className="space-y-4 font-sans">
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-2 font-sans">Name</label>
+              <input
+                type="text"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-400 rounded-sm focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 text-sm font-sans"
+                disabled={loading}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-2 font-sans">Enter your email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-400 rounded-sm focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 text-md sm:text-sm text-sm font-sans"
+                disabled={loading}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-2 font-sans">Phone no.</label>
+              <input
+                type="tel"
+                value={phoneNo}
+                onChange={(e) => setPhoneNo(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-400 rounded-sm focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 text-sm font-sans"
+                disabled={loading}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-2 font-sans">Enter your Password</label>
+              <input
+                type="password"
+                value={registerPassword}
+                onChange={(e) => setRegisterPassword(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-400 rounded-sm focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 text-sm font-sans"
+                disabled={loading}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-2 font-sans">Re-Enter your Password</label>
+              <input
+                type="password"
+                value={registerConfirm}
+                onChange={(e) => setRegisterConfirm(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-400 rounded-sm focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 text-sm font-sans"
+                disabled={loading}
+              />
+            </div>
+            <div className="flex justify-center mt-6">
+              <button
+                type="submit"
+                className="bg-teal-600 text-white py-2.5 px-8 rounded-full font-medium hover:bg-teal-700 transition-colors disabled:opacity-50 text-sm font-sans"
+                disabled={loading}
+              >
+                Sign Up
+              </button>
+            </div>
+          </form>
+        ) : (
+          <form onSubmit={handleLogin} className="space-y-4 font-sans">
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-2 font-sans">Enter your email/ phone no.</label>
+              <input
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-400 rounded-sm focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 text-sm font-sans"
+                disabled={loading}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-900 mb-2 font-sans">Enter your Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-3 py-2.5 border border-gray-400 rounded-sm focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 text-sm font-sans"
+                disabled={loading}
+              />
+            </div>
+            <div className="text-left">
+              <button
+                type="button"
+                className="text-sm text-gray-900 hover:text-gray-700 font-sans underline"
+                onClick={() => navigate('/forgot-password')}
+              >
+                Forgot Password
+              </button>
+            </div>
+            <div className="flex justify-center mt-6">
+              <button
+                type="submit"
+                className="bg-teal-600 text-white py-2.5 px-8 rounded-full font-medium hover:bg-teal-700 transition-colors disabled:opacity-50 text-sm font-sans"
+                disabled={loading}
+              >
+                Sign In
+              </button>
+            </div>
+          </form>
+        )}
+
+        {/* Or divider */}
+        <div className="flex items-center my-6">
+          <div className="flex-1 border-t border-gray-400"></div>
+          <span className="px-4 text-sm text-gray-600 font-sans">or</span>
+          <div className="flex-1 border-t border-gray-400"></div>
+        </div>
+
+        {/* Google Sign In */}
+        <div className="flex justify-center hover:scale-105 transition-transform">
+          <button
+            onClick={handleGoogleAuth}
+            className="flex items-center justify-center gap-3 py-2.5 px-6 border border-gray-400 rounded-full hover:bg-gray-50 transition-colors text-sm font-sans"
+          >
+            <FcGoogle className="text-lg" />
+            <span className="text-gray-900 font-medium">Continue with Google</span>
+          </button>
+        </div>
+
+        {/* Error Messages */}
+        {error && (
+          <div className="mt-3 text-center text-red-500 text-sm">{error}</div>
+        )}
+        {registerMsg && (
+          <div className={`mt-3 text-center text-sm ${registerMsg.includes('successful') ? 'text-green-500' : 'text-red-500'}`}>
+            {registerMsg}
+          </div>
+        )}
       </div>
     </div>
   );

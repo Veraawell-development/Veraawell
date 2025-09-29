@@ -4,104 +4,71 @@ const bcrypt = require('bcryptjs');
 const ADMIN_ROLES = ['super_admin', 'admin', 'moderator'];
 
 const adminSchema = new mongoose.Schema({
-  email: {
-    type: String,
-    required: true,
-    unique: true,
-    trim: true,
-    lowercase: true
-  },
-  password: {
-    type: String,
-    required: true
-  },
-  role: {
-    type: String,
-    enum: ADMIN_ROLES,
-    required: true
-  },
-  firstName: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  lastName: {
-    type: String,
-    required: true,
-    trim: true
-  },
-  isFirstAdmin: {
-    type: Boolean,
-    default: false
-  },
-  isPasswordChanged: {
-    type: Boolean,
-    default: false
-  },
-  lastLogin: {
-    type: Date
-  },
-  status: {
-    type: String,
-    enum: ['active', 'suspended'],
-    default: 'active'
-  },
-  activityLog: [{
-    action: String,
-    timestamp: { type: Date, default: Date.now },
-    details: mongoose.Schema.Types.Mixed
-  }]
-}, {
-  timestamps: true
-});
+  email: { type: String, required: true, unique: true, trim: true, lowercase: true },
+  password: { type: String, required: true },
+  role: { type: String, enum: ADMIN_ROLES, required: true },
+  firstName: { type: String, required: true, trim: true },
+  lastName: { type: String, required: true, trim: true },
+  isFirstAdmin: { type: Boolean, default: false },
+  isPasswordChanged: { type: Boolean, default: false },
+  lastLogin: { type: Date },
+  status: { type: String, enum: ['active', 'suspended'], default: 'active' },
+  resetToken: { type: String, default: null },
+  resetTokenExpiry: { type: Date, default: null },
+  activityLog: [{ action: String, timestamp: { type: Date, default: Date.now }, details: mongoose.Schema.Types.Mixed }]
+}, { timestamps: true });
 
-// Hash password before saving
+// Password hashing middleware
 adminSchema.pre('save', async function(next) {
-  if (!this.isModified('password')) return next();
-  
-  try {
-    const salt = await bcrypt.genSalt(10);
-    this.password = await bcrypt.hash(this.password, salt);
-    next();
-  } catch (error) {
-    next(error);
+  if (this.isModified('password')) {
+    this.password = await bcrypt.hash(this.password, 10);
   }
+  next();
 });
 
 // Compare password method
 adminSchema.methods.comparePassword = async function(candidatePassword) {
-  try {
-    return await bcrypt.compare(candidatePassword, this.password);
-  } catch (error) {
-    throw new Error('Password comparison failed');
-  }
+  return bcrypt.compare(candidatePassword, this.password);
 };
 
-// Log activity method
+// Activity logging method
 adminSchema.methods.logActivity = async function(action, details = {}) {
   this.activityLog.push({ action, details });
-  await this.save();
+  return this.save();
 };
 
-// Static method to check if any admin exists
+// Reset token methods
+adminSchema.methods.initializeResetToken = async function() {
+  const crypto = require('crypto');
+  this.resetToken = crypto.randomBytes(32).toString('hex');
+  this.resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour
+  await this.save();
+  return this.resetToken;
+};
+
+adminSchema.methods.clearResetToken = async function() {
+  this.resetToken = null;
+  this.resetTokenExpiry = null;
+  return this.save();
+};
+
+adminSchema.methods.isResetTokenValid = function() {
+  return this.resetToken && this.resetTokenExpiry && this.resetTokenExpiry > new Date();
+};
+
+// Static methods
 adminSchema.statics.hasAnyAdmin = async function() {
   return await this.countDocuments() > 0;
 };
 
-// Static method to create first admin
 adminSchema.statics.createFirstAdmin = async function(adminData) {
-  const existingAdmin = await this.findOne();
-  if (existingAdmin) {
-    throw new Error('Cannot create first admin: admins already exist');
-  }
-
   const admin = new this({
     ...adminData,
     role: 'super_admin',
     isFirstAdmin: true,
-    isPasswordChanged: false
+    firstName: 'Super',
+    lastName: 'Admin'
   });
-
   return admin.save();
 };
 

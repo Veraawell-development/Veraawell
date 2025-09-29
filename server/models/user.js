@@ -152,8 +152,44 @@ userSchema.methods.updatePassword = async function(newPassword) {
 // Static method to migrate existing documents
 userSchema.statics.migrateResetTokens = async function() {
   try {
-    // Find all documents with inconsistent reset token state
-    const users = await this.find({
+    console.log('Starting reset token migration...');
+    
+    // First, let's check for any corrupted users that might cause issues
+    const corruptedUsers = await this.find({
+      $or: [
+        { firstName: { $exists: false } },
+        { username: { $exists: false } },
+        { password: { $exists: false } },
+        { email: { $exists: false } }
+      ]
+    });
+    
+    if (corruptedUsers.length > 0) {
+      console.warn(`Found ${corruptedUsers.length} corrupted users. Attempting to fix or remove them...`);
+      
+      for (const user of corruptedUsers) {
+        try {
+          // Try to fix the user if possible
+          if (!user.firstName) user.firstName = 'Unknown';
+          if (!user.username) user.username = user.email || `user_${user._id}`;
+          if (!user.password) user.password = 'temp_password_' + Math.random().toString(36).substring(7);
+          if (!user.email) {
+            console.warn(`User ${user._id} has no email, removing...`);
+            await this.findByIdAndDelete(user._id);
+            continue;
+          }
+          
+          await user.save();
+          console.log(`Fixed corrupted user: ${user._id}`);
+        } catch (fixError) {
+          console.error(`Failed to fix user ${user._id}, removing:`, fixError.message);
+          await this.findByIdAndDelete(user._id);
+        }
+      }
+    }
+
+    // Now handle reset token migration
+    const usersWithResetTokens = await this.find({
       $or: [
         { resetToken: { $exists: false } },
         { resetTokenExpiry: { $exists: false } },
@@ -164,17 +200,35 @@ userSchema.statics.migrateResetTokens = async function() {
       ]
     });
 
-    console.log(`Found ${users.length} users with inconsistent reset tokens`);
+    console.log(`Found ${usersWithResetTokens.length} users with inconsistent reset tokens`);
 
-    for (const user of users) {
-      // Reset both fields to initial state
-      user.resetToken = null;
-      user.resetTokenExpiry = null;
-      await user.save();
+    if (usersWithResetTokens.length === 0) {
+      console.log('No users need reset token migration');
+      return 0;
     }
 
-    console.log('Migration completed successfully');
-    return users.length;
+    // Use bulk update operation to avoid validation issues
+    const result = await this.updateMany(
+      {
+        $or: [
+          { resetToken: { $exists: false } },
+          { resetTokenExpiry: { $exists: false } },
+          { resetToken: '' },
+          { resetToken: { $ne: null, $type: 'string' }, resetTokenExpiry: null },
+          { resetToken: null, resetTokenExpiry: { $ne: null } },
+          { resetTokenExpiry: { $lt: new Date() } }
+        ]
+      },
+      {
+        $set: {
+          resetToken: null,
+          resetTokenExpiry: null
+        }
+      }
+    );
+
+    console.log(`Reset token migration completed successfully. Updated ${result.modifiedCount} users.`);
+    return result.modifiedCount;
   } catch (error) {
     console.error('Migration failed:', error);
     throw error;

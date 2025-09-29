@@ -6,79 +6,145 @@ const { adminAuth, superAdminAuth, checkFirstTimeSetup, requirePasswordChange } 
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 
-// Configure email transporter
+// Email configuration
 const transporter = nodemailer.createTransport({
   service: 'gmail',
   auth: {
-    user: process.env.EMAIL_USER,
+    user: process.env.EMAIL_USER || 'development.veraawell@gmail.com',
     pass: process.env.EMAIL_PASS
-  }
-});
-
-// Verify email configuration
-transporter.verify((error, success) => {
-  if (error) {
-    console.error('Email configuration error:', error);
-  } else {
-    console.log('Email server is ready');
   }
 });
 
 // First-time setup route
 router.post('/setup', checkFirstTimeSetup, async (req, res) => {
   try {
-    // Only allow if no admins exist
-    const hasAdmin = await Admin.hasAnyAdmin();
-    if (hasAdmin) {
-      return res.status(400).json({ message: 'Admin already exists' });
-    }
+    const adminData = {
+      email: 'development.veraawell@gmail.com',
+      password: 'Admin@123',
+      firstName: 'Super',
+      lastName: 'Admin'
+    };
 
-    // Generate temporary password
-    const tempPassword = crypto.randomBytes(8).toString('hex');
+    const admin = await Admin.createFirstAdmin(adminData);
+    await admin.logActivity('account_created', { isFirstAdmin: true });
 
-    // Create super admin
-    const admin = await Admin.createFirstAdmin({
-      email: req.body.email,
-      password: tempPassword,
-      firstName: req.body.firstName,
-      lastName: req.body.lastName
-    });
-
-    // Try to send email
-    try {
-      await transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: admin.email,
-        subject: 'Veraawell Admin Account Created',
-        html: `
-          <h2>Your Admin Account Has Been Created</h2>
-          <p>Email: ${admin.email}</p>
-          <p>Temporary Password: ${tempPassword}</p>
-          <p>Please change your password upon first login.</p>
-        `
-      });
-      console.log('Admin credentials email sent successfully');
-    } catch (emailError) {
-      console.error('Failed to send admin credentials email:', emailError);
-    }
-
-    // In development, return the credentials
-    if (process.env.NODE_ENV !== 'production') {
-      return res.status(201).json({
-        message: 'Super admin created successfully',
-        debug: {
-          email: admin.email,
-          tempPassword: tempPassword
-        }
-      });
-    }
-
-    res.status(201).json({ 
-      message: 'Super admin created successfully. Check email for credentials.' 
+    res.json({ 
+      message: 'Super admin account created successfully',
+      email: admin.email
     });
   } catch (error) {
-    console.error('Admin setup error:', error);
-    res.status(500).json({ message: 'Failed to create admin account' });
+    console.error('Setup error:', error);
+    res.status(500).json({ message: 'Failed to create super admin account' });
+  }
+});
+
+// Forgot password route
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
+
+    const admin = await Admin.findOne({ email: email.toLowerCase() });
+
+    if (!admin) {
+      return res.status(404).json({ message: 'No admin account found with this email' });
+    }
+
+    // Clear any existing reset token
+    await admin.clearResetToken();
+
+    // Generate new reset token
+    const resetToken = await admin.initializeResetToken();
+
+    // Create reset URL
+    const frontendBaseUrl = process.env.NODE_ENV === 'production' 
+      ? 'https://veraawell.vercel.app'
+      : 'http://localhost:5173';
+    const resetUrl = `${frontendBaseUrl}/admin/reset-password/${resetToken}`;
+
+    // Send email
+    const mailOptions = {
+      from: process.env.EMAIL_USER || 'development.veraawell@gmail.com',
+      to: admin.email,
+      subject: 'Admin Password Reset Request',
+      html: `
+        <div style="max-width: 600px; margin: 0 auto; padding: 20px; font-family: Arial, sans-serif;">
+          <div style="text-align: center; margin-bottom: 30px;">
+            <h1 style="color: #1a1a1a; margin-bottom: 10px;">Password Reset Request</h1>
+            <p style="color: #666; margin-bottom: 20px;">Admin Portal - VeraAwell</p>
+          </div>
+          <div style="background: #f9f9f9; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <p style="margin-bottom: 20px; color: #333;">Hello ${admin.firstName},</p>
+            <p style="margin-bottom: 20px; color: #333;">We received a request to reset your admin account password. Click the button below to proceed:</p>
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="${resetUrl}" style="background: #dc2626; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">Reset Password</a>
+            </div>
+            <p style="color: #666; font-size: 14px;">This link will expire in 1 hour for security reasons.</p>
+            <p style="color: #666; font-size: 14px;">If you didn't request this, please ignore this email or contact support if you're concerned.</p>
+          </div>
+          <div style="text-align: center; color: #666; font-size: 12px;">
+            <p>VeraAwell Admin System</p>
+            <p>This is a secure system email. Please do not reply.</p>
+          </div>
+        </div>
+      `
+    };
+
+    await transporter.sendMail(mailOptions);
+    await admin.logActivity('password_reset_requested', { timestamp: new Date() });
+
+    // Log for debugging
+    console.log(`Reset token generated for admin ${admin.email}:`, resetToken);
+    console.log('Reset token expiry:', admin.resetTokenExpiry);
+
+    res.json({ 
+      message: 'Password reset instructions sent to your email',
+      debug: process.env.NODE_ENV === 'development' ? { resetToken } : undefined
+    });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    res.status(500).json({ message: 'Failed to process password reset request' });
+  }
+});
+
+// Reset password route
+router.post('/reset-password/:token', async (req, res) => {
+  try {
+    const { token } = req.params;
+    const { password } = req.body;
+
+    if (!password) {
+      return res.status(400).json({ message: 'New password is required' });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({ message: 'Password must be at least 8 characters long' });
+    }
+
+    const admin = await Admin.findOne({
+      resetToken: token,
+      resetTokenExpiry: { $gt: Date.now() }
+    });
+
+    if (!admin) {
+      return res.status(400).json({ message: 'Invalid or expired reset token' });
+    }
+
+    // Update password and clear reset token
+    admin.password = password;
+    await admin.clearResetToken();
+    await admin.logActivity('password_reset_completed', { timestamp: new Date() });
+
+    // Log for debugging
+    console.log(`Password reset completed for admin ${admin.email}`);
+
+    res.json({ message: 'Password reset successful' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    res.status(500).json({ message: 'Failed to reset password' });
   }
 });
 

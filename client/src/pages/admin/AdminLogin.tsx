@@ -1,14 +1,15 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FaLock } from 'react-icons/fa';
+import { FaLock, FaEye, FaEyeSlash } from 'react-icons/fa';
 
-const API_BASE_URL = window.location.hostname === 'localhost' 
-  ? 'http://localhost:5001/api' 
+const API_BASE_URL = window.location.hostname === 'localhost'
+  ? 'http://localhost:5001/api'
   : 'https://veraawell-backend.onrender.com/api';
 
 export default function AdminLogin() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
@@ -29,7 +30,6 @@ export default function AdminLogin() {
       const data = await res.json();
 
       if (res.ok) {
-        // Redirect to admin dashboard
         navigate('/admin/dashboard');
       } else {
         setError(data.message || 'Login failed');
@@ -45,8 +45,8 @@ export default function AdminLogin() {
     <div className="min-h-screen flex items-center justify-center bg-black p-4">
       <div className="w-full max-w-md bg-gray-900 rounded-3xl shadow-xl p-8 border border-gray-800">
         <div className="text-center mb-8">
-          <div className="inline-block p-3 rounded-full bg-green-500/10 mb-4">
-            <FaLock className="text-3xl text-green-500" />
+          <div className="inline-block p-3 rounded-full bg-red-500/10 mb-4">
+            <FaLock className="text-3xl text-red-500" />
           </div>
           <h1 className="text-2xl font-bold text-white">Admin Portal</h1>
           <p className="text-gray-400 mt-2">Enter your credentials to continue</p>
@@ -59,22 +59,40 @@ export default function AdminLogin() {
               placeholder="Admin Email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-red-500"
               required
               disabled={loading}
+              autoFocus
             />
           </div>
 
-          <div>
+          <div className="relative">
             <input
-              type="password"
+              type={showPassword ? 'text' : 'password'}
               placeholder="Password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-green-500"
+              className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-xl text-white focus:outline-none focus:ring-2 focus:ring-red-500"
               required
               disabled={loading}
             />
+            <button
+              type="button"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400"
+              onClick={() => setShowPassword(!showPassword)}
+            >
+              {showPassword ? <FaEyeSlash /> : <FaEye />}
+            </button>
+          </div>
+
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={() => navigate('/admin/forgot-password')}
+              className="text-red-400 text-xs hover:text-red-300 transition"
+            >
+              Forgot password?
+            </button>
           </div>
 
           {error && (
@@ -85,7 +103,7 @@ export default function AdminLogin() {
 
           <button
             type="submit"
-            className="w-full py-3 bg-green-500 text-black rounded-xl font-semibold hover:bg-green-400 transition duration-200 disabled:opacity-50"
+            className="w-full py-3 bg-red-500 text-white rounded-xl font-semibold hover:bg-red-600 transition duration-200 disabled:opacity-50"
             disabled={loading}
           >
             {loading ? 'Authenticating...' : 'Login as Admin'}
@@ -94,10 +112,10 @@ export default function AdminLogin() {
 
         <div className="mt-6 text-center">
           <button
-            onClick={() => navigate('/')}
+            onClick={() => navigate('/login')}
             className="text-sm text-gray-400 hover:text-white transition duration-200"
           >
-            ← Back to Main Site
+            ← Back to User Login
           </button>
         </div>
       </div>
