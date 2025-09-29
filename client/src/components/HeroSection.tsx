@@ -1,6 +1,4 @@
-export default function HeroSection({ onLogin, onSignup, username, userRole, onLogout }: {
-  onLogin: () => void;
-  onSignup: () => void;
+export default function HeroSection({ username, userRole, onLogout }: {
   username?: string;
   userRole?: string;
   onLogout?: () => void;

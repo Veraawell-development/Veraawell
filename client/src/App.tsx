@@ -27,7 +27,6 @@ function AppRoutes() {
   const [authUser, setAuthUser] = useState('');
   const [userRole, setUserRole] = useState<'patient' | 'doctor' | ''>('');
   const [loading, setLoading] = useState(true);
-  const [isBackendConnected, setIsBackendConnected] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -36,7 +35,6 @@ function AppRoutes() {
     setLoading(true);
     fetch(`${API_BASE_URL}/protected`, { credentials: 'include' })
       .then(res => {
-        setIsBackendConnected(true);
         if (!res.ok) {
           setAuthSuccess(false);
           setAuthUser('');
@@ -158,14 +156,12 @@ function AppRoutes() {
 
   return (
     <main className="flex-1 flex flex-col bg-black">
-      {!isAuthRoute && <Navbar isBackendConnected={isBackendConnected} isLoggedIn={authSuccess} onLogout={handleLogout} />}
+      {!isAuthRoute && <Navbar isLoggedIn={authSuccess} onLogout={handleLogout} />}
       <Routes>
         <Route
           path="/"
           element={
             <LandingPage
-              onLogin={() => (window.location.href = '/login')}
-              onSignup={() => (window.location.href = '/signup')}
               username={showSuccess ? showUser : undefined}
               userRole={showSuccess ? showRole : undefined}
               onLogout={showSuccess ? handleLogout : undefined}

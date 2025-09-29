@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 
-export default function Navbar({ isBackendConnected, isLoggedIn, onLogout }: { isBackendConnected: boolean, isLoggedIn: boolean, onLogout?: () => void }) {
+export default function Navbar({ isLoggedIn, onLogout }: { isLoggedIn: boolean, onLogout?: () => void }) {
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
