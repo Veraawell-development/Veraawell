@@ -2,7 +2,7 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 
-const VALID_ROLES = ['patient', 'doctor', 'admin'];
+const VALID_ROLES = ['patient', 'doctor', 'admin', 'super_admin'];
 
 // Schema definition with strict mode enabled
 const userSchema = new mongoose.Schema({
@@ -40,6 +40,10 @@ const userSchema = new mongoose.Schema({
     enum: VALID_ROLES,
     default: 'patient'
   },
+  isPasswordChanged: { type: Boolean, default: false },
+  lastLogin: { type: Date },
+  status: { type: String, enum: ['active', 'suspended'], default: 'active' },
+  activityLog: [{ action: String, timestamp: { type: Date, default: Date.now }, details: mongoose.Schema.Types.Mixed }],
   googleId: {
     type: String,
     unique: true,
@@ -102,6 +106,12 @@ userSchema.pre('save', async function(next) {
   }
 });
 
+// Activity logging method
+userSchema.methods.logActivity = async function(action, details = {}) {
+  this.activityLog.push({ action, details });
+  return this.save();
+};
+
 // Compare password method
 userSchema.methods.comparePassword = async function(candidatePassword) {
   try {
@@ -153,79 +163,30 @@ userSchema.methods.updatePassword = async function(newPassword) {
 userSchema.statics.migrateResetTokens = async function() {
   try {
     console.log('Starting reset token migration...');
-    
-    // First, let's check for any corrupted users that might cause issues
-    const corruptedUsers = await this.find({
+
+    // Find users with expired or inconsistent tokens
+    const query = {
       $or: [
-        { firstName: { $exists: false } },
-        { username: { $exists: false } },
-        { password: { $exists: false } },
-        { email: { $exists: false } }
+        { resetToken: { $exists: true, $ne: null }, resetTokenExpiry: { $lt: new Date() } }, // Expired tokens
+        { resetToken: { $exists: true, $ne: null }, resetTokenExpiry: { $exists: false } }, // Token without expiry
+        { resetToken: { $exists: false }, resetTokenExpiry: { $exists: true, $ne: null } } // Expiry without token
       ]
-    });
-    
-    if (corruptedUsers.length > 0) {
-      console.warn(`Found ${corruptedUsers.length} corrupted users. Attempting to fix or remove them...`);
-      
-      for (const user of corruptedUsers) {
-        try {
-          // Try to fix the user if possible
-          if (!user.firstName) user.firstName = 'Unknown';
-          if (!user.username) user.username = user.email || `user_${user._id}`;
-          if (!user.password) user.password = 'temp_password_' + Math.random().toString(36).substring(7);
-          if (!user.email) {
-            console.warn(`User ${user._id} has no email, removing...`);
-            await this.findByIdAndDelete(user._id);
-            continue;
-          }
-          
-          await user.save();
-          console.log(`Fixed corrupted user: ${user._id}`);
-        } catch (fixError) {
-          console.error(`Failed to fix user ${user._id}, removing:`, fixError.message);
-          await this.findByIdAndDelete(user._id);
-        }
-      }
-    }
+    };
 
-    // Now handle reset token migration
-    const usersWithResetTokens = await this.find({
-      $or: [
-        { resetToken: { $exists: false } },
-        { resetTokenExpiry: { $exists: false } },
-        { resetToken: '' },
-        { resetToken: { $ne: null, $type: 'string' }, resetTokenExpiry: null },
-        { resetToken: null, resetTokenExpiry: { $ne: null } },
-        { resetTokenExpiry: { $lt: new Date() } }
-      ]
-    });
+    const usersToUpdate = await this.find(query).countDocuments();
+    console.log(`Found ${usersToUpdate} users needing reset token cleanup.`);
 
-    console.log(`Found ${usersWithResetTokens.length} users with inconsistent reset tokens`);
-
-    if (usersWithResetTokens.length === 0) {
-      console.log('No users need reset token migration');
+    if (usersToUpdate === 0) {
+      console.log('No users need reset token migration.');
       return 0;
     }
 
-    // Use bulk update operation to avoid validation issues
-    const result = await this.updateMany(
-      {
-        $or: [
-          { resetToken: { $exists: false } },
-          { resetTokenExpiry: { $exists: false } },
-          { resetToken: '' },
-          { resetToken: { $ne: null, $type: 'string' }, resetTokenExpiry: null },
-          { resetToken: null, resetTokenExpiry: { $ne: null } },
-          { resetTokenExpiry: { $lt: new Date() } }
-        ]
-      },
-      {
-        $set: {
-          resetToken: null,
-          resetTokenExpiry: null
-        }
+    const result = await this.updateMany(query, {
+      $set: {
+        resetToken: null,
+        resetTokenExpiry: null
       }
-    );
+    });
 
     console.log(`Reset token migration completed successfully. Updated ${result.modifiedCount} users.`);
     return result.modifiedCount;
@@ -245,6 +206,21 @@ userSchema.statics.createAdmin = async function(adminData) {
   const admin = new this({
     ...adminData,
     role: 'admin'
+  });
+  return admin.save();
+};
+
+// Static method to check if any admin exists
+userSchema.statics.hasAnyAdmin = async function() {
+  return await this.countDocuments({ role: { $in: ['admin', 'super_admin'] } }) > 0;
+};
+
+// Static method to create the first admin
+userSchema.statics.createFirstAdmin = async function(adminData) {
+  const admin = new this({
+    ...adminData,
+    role: 'super_admin',
+    isPasswordChanged: false // Force password change on first login
   });
   return admin.save();
 };

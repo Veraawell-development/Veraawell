@@ -1,11 +1,33 @@
 import React, { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
+import Calendar from '../components/Calendar';
+import SessionModal from '../components/SessionModal';
+
+interface Session {
+  _id: string;
+  sessionDate: string;
+  sessionTime: string;
+  status: 'scheduled' | 'completed' | 'cancelled' | 'no-show';
+  patientId: {
+    firstName: string;
+    lastName: string;
+  };
+  doctorId: {
+    firstName: string;
+    lastName: string;
+  };
+  meetingLink?: string;
+  sessionType: string;
+  price: number;
+}
 
 const DoctorDashboard: React.FC = () => {
-  const navigate = useNavigate();
+  // const navigate = useNavigate();
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isActive, setIsActive] = useState(true);
+  const [selectedSession, setSelectedSession] = useState<Session | null>(null);
+  const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
   
   // Get user name from location state or default
   let userName = "Harris";
@@ -29,11 +51,16 @@ const DoctorDashboard: React.FC = () => {
         method: 'POST',
         credentials: 'include',
       });
-      navigate('/');
+      window.location.href = '/';
     } catch (error) {
       console.error('Logout error:', error);
-      navigate('/');
+      window.location.href = '/';
     }
+  };
+
+  const handleSessionClick = (session: Session) => {
+    setSelectedSession(session);
+    setIsSessionModalOpen(true);
   };
 
   return (
@@ -218,42 +245,11 @@ const DoctorDashboard: React.FC = () => {
           </div>
 
           {/* Calendar Card */}
-          <div className="p-6 text-white flex flex-col" style={{ backgroundColor: '#ABA5D1' }}>
-            <h3 className="text-xl font-bold font-serif mb-3">Calendar</h3>
-            <div className="text-center mb-4">
-              <h4 className="text-2xl font-bold font-serif">August</h4>
-              <p className="text-lg font-serif">2025</p>
-            </div>
-            <div className="grid grid-cols-7 gap-1 text-center text-xs font-serif mb-3">
-              <div className="font-semibold">Sun</div>
-              <div className="font-semibold">Mon</div>
-              <div className="font-semibold">Tue</div>
-              <div className="font-semibold">Wed</div>
-              <div className="font-semibold">Thu</div>
-              <div className="font-semibold">Fri</div>
-              <div className="font-semibold">Sat</div>
-            </div>
-            <div className="grid grid-cols-7 gap-1 text-center text-xs font-serif flex-1">
-              {/* Calendar days */}
-              <div></div><div></div><div></div><div></div><div className="p-1">1</div><div className="p-1">2</div><div className="p-1">3</div>
-              <div className="p-1">6</div><div className="p-1">7</div><div className="p-1">8</div><div className="p-1">9</div><div className="p-1">10</div><div className="p-1">11</div><div className="p-1">12</div>
-              <div className="p-1">13</div><div className="p-1">14</div><div className="p-1">15</div><div className="p-1">16</div><div className="p-1">17</div><div className="bg-red-500 p-1">18</div><div className="p-1">19</div>
-              <div className="p-1">20</div><div className="p-1">21</div><div className="p-1">22</div><div className="p-1">23</div><div className="p-1">24</div><div className="p-1">25</div><div className="p-1">26</div>
-              <div className="p-1">27</div><div className="p-1">28</div><div className="p-1">29</div><div className="p-1">30</div><div className="p-1">31</div><div></div><div></div>
-            </div>
-            <div className="flex justify-between items-center mt-3 text-xs font-serif">
-              <div className="flex items-center">
-                <div className="w-2 h-2 bg-red-500 mr-1"></div>
-                <span>Upcoming sessions</span>
-              </div>
-              <div className="flex items-center">
-                <div className="w-2 h-2 bg-green-500 mr-1"></div>
-                <span>Attended sessions</span>
-              </div>
-            </div>
-            <button className="mt-3 bg-white text-purple-600 px-4 py-1.5 font-serif text-sm font-medium hover:bg-gray-100 transition-colors self-start" style={{ borderRadius: '20px' }}>
-              View Details
-            </button>
+          <div className="flex flex-col">
+            <Calendar 
+              userRole="doctor" 
+              onSessionClick={handleSessionClick}
+            />
           </div>
 
           {/* Tasks Assigned + Reports Card */}
@@ -305,6 +301,17 @@ const DoctorDashboard: React.FC = () => {
 
         </div>
       </div>
+
+      {/* Session Modal */}
+      <SessionModal
+        session={selectedSession}
+        userRole="doctor"
+        isOpen={isSessionModalOpen}
+        onClose={() => {
+          setIsSessionModalOpen(false);
+          setSelectedSession(null);
+        }}
+      />
     </div>
   );
 };

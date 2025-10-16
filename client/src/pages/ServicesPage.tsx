@@ -62,8 +62,8 @@ const services = [
 const ServicesPage: React.FC = () => {
   const navigate = useNavigate();
 
-  const handleViewTherapist = () => {
-    navigate('/choose-professional');
+  const handleViewTherapist = (serviceType: string) => {
+    navigate('/booking-preference', { state: { serviceType } });
   };
 
   return (
@@ -90,7 +90,7 @@ const ServicesPage: React.FC = () => {
               description={service.description}
               imageSrc={service.image}
               bgColor={service.color}
-              onClick={handleViewTherapist}
+              onClick={() => handleViewTherapist(service.title)}
             />
           ))}
         </div>

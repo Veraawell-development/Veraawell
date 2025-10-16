@@ -1,106 +1,80 @@
-import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import DoctorCard from '../components/DoctorCard';
+
+interface Doctor {
+  _id: string;
+  userId: {
+    _id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+  };
+  specialization: string[];
+  experience: number;
+  qualification: string[];
+  languages: string[];
+  treatsFor: string[];
+  pricing: {
+    min: number;
+    max: number;
+  };
+  profileImage: string;
+  bio: string;
+  isOnline: boolean;
+  rating: {
+    average: number;
+    totalReviews: number;
+  };
+}
 
 const ChooseProfessionalPage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  // Removed loading state for faster page load
+  const [error, setError] = useState<string | null>(null);
 
-  const handleBookSession = () => {
-    navigate('/doctor-profile');
+  const serviceType = (location.state as any)?.serviceType || 'General';
+  const bookingType = (location.state as any)?.bookingType || 'later';
+
+  const API_BASE_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:5001/api' 
+    : 'https://veraawell-backend.onrender.com/api';
+
+  useEffect(() => {
+    fetchDoctors();
+  }, []);
+
+  const fetchDoctors = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/sessions/doctors`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch doctors');
+      }
+      const doctorsData = await response.json();
+      setDoctors(doctorsData);
+    } catch (error) {
+      console.error('Error fetching doctors:', error);
+      setError('Failed to load doctors. Please try again.');
+    }
   };
 
-  const doctors = [
-    {
-      name: "Ishan Sharma",
-      experience: "5 years",
-      qualification: "MPhil., BSC(Psy)",
-      pricing: "500rs - 1500rs",
-      language: "English, Hindi",
-      treatsFor: "Depressive disorders, ADHD, OCD",
-      imageSrc: "/doctor-01.svg",
-      bgColor: "#ABA5D1"
-    },
-    {
-      name: "Aprajita Singh",
-      experience: "5 years",
-      qualification: "MPhil., BSC(Psy)",
-      pricing: "500rs - 1500rs",
-      language: "English, Hindi",
-      treatsFor: "Depressive disorders, ADHD, OCD",
-      imageSrc: "/doctor-02.svg",
-      bgColor: "#6DBEDF"
-    },
-    {
-      name: "Isha Sharma",
-      experience: "5 years",
-      qualification: "MPhil., BSC(Psy)",
-      pricing: "500rs - 1500rs",
-      language: "English, Hindi",
-      treatsFor: "Depressive disorders, ADHD, OCD",
-      imageSrc: "/doctor-01.svg",
-      bgColor: "#38ABAE"
-    },
-    {
-      name: "Ishan Sharma",
-      experience: "5 years",
-      qualification: "MPhil., BSC(Psy)",
-      pricing: "500rs - 1500rs",
-      language: "English, Hindi",
-      treatsFor: "Depressive disorders, ADHD, OCD",
-      imageSrc: "/doctor-01.svg",
-      bgColor: "#38ABAE"
-    },
-    {
-      name: "Aprajita Singh",
-      experience: "5 years",
-      qualification: "MPhil., BSC(Psy)",
-      pricing: "500rs - 1500rs",
-      language: "English, Hindi",
-      treatsFor: "Depressive disorders, ADHD, OCD",
-      imageSrc: "/doctor-02.svg",
-      bgColor: "#ABA5D1"
-    },
-    {
-      name: "Isha Sharma",
-      experience: "5 years",
-      qualification: "MPhil., BSC(Psy)",
-      pricing: "500rs - 1500rs",
-      language: "English, Hindi",
-      treatsFor: "Depressive disorders, ADHD, OCD",
-      imageSrc: "/doctor-01.svg",
-      bgColor: "#6DBEDF"
-    },
-    {
-      name: "Ishan Sharma",
-      experience: "5 years",
-      qualification: "MPhil., BSC(Psy)",
-      pricing: "500rs - 1500rs",
-      language: "English, Hindi",
-      treatsFor: "Depressive disorders, ADHD, OCD",
-      imageSrc: "/doctor-01.svg",
-      bgColor: "#6DBEDF"
-    },
-    {
-      name: "Aprajita Singh",
-      experience: "5 years",
-      qualification: "MPhil., BSC(Psy)",
-      pricing: "500rs - 1500rs",
-      language: "English, Hindi",
-      treatsFor: "Depressive disorders, ADHD, OCD",
-      imageSrc: "/doctor-02.svg",
-      bgColor: "#38ABAE"
-    },
-    {
-      name: "Isha Sharma",
-      experience: "5 years",
-      qualification: "MPhil., BSC(Psy)",
-      pricing: "500rs - 1500rs",
-      language: "English, Hindi",
-      treatsFor: "Depressive disorders, ADHD, OCD",
-      imageSrc: "/doctor-01.svg",
-      bgColor: "#ABA5D1"
-    }
-  ];
+  const handleBookSession = (doctorId: string) => {
+    navigate('/doctor-profile', { 
+      state: { 
+        doctorId,
+        serviceType,
+        bookingType 
+      } 
+    });
+  };
+
+
+  const getRandomBgColor = (index: number) => {
+    const colors = ['#ABA5D1', '#6DBEDF', '#38ABAE', '#78BE9F'];
+    return colors[index % colors.length];
+  };
 
   return (
     <div className="bg-white min-h-screen">
@@ -135,22 +109,36 @@ const ChooseProfessionalPage: React.FC = () => {
       {/* Doctors Section */}
       <div className="py-16 px-4 bg-white">
         <div className="max-w-7xl mx-auto">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {doctors.map((doctor, index) => (
-              <DoctorCard
-                key={index}
-                name={doctor.name}
-                experience={doctor.experience}
-                qualification={doctor.qualification}
-                pricing={doctor.pricing}
-                language={doctor.language}
-                treatsFor={doctor.treatsFor}
-                imageSrc={doctor.imageSrc}
-                bgColor={doctor.bgColor}
-                onBookSession={handleBookSession}
-              />
-            ))}
-          </div>
+          {error && (
+            <div className="text-center py-12">
+              <p className="text-red-600 mb-4">{error}</p>
+              <button 
+                onClick={fetchDoctors}
+                className="px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700"
+              >
+                Try Again
+              </button>
+            </div>
+          )}
+          
+          {!error && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+              {doctors.map((doctor, index) => (
+                <DoctorCard
+                  key={doctor._id}
+                  name={`${doctor.userId.firstName} ${doctor.userId.lastName}`}
+                  experience={`${doctor.experience} years`}
+                  qualification={doctor.qualification.join(', ')}
+                  pricing={`₹${doctor.pricing.min} - ₹${doctor.pricing.max}`}
+                  language={doctor.languages.join(', ')}
+                  treatsFor={doctor.treatsFor.join(', ')}
+                  imageSrc={doctor.profileImage}
+                  bgColor={getRandomBgColor(index)}
+                  onBookSession={() => handleBookSession(doctor._id)}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </div>

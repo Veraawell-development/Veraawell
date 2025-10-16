@@ -1,6 +1,16 @@
 import React from 'react';
 
 const CareerPage: React.FC = () => {
+  const scrollToForm = () => {
+    const formElement = document.getElementById('join-us-form');
+    if (formElement) {
+      formElement.scrollIntoView({ 
+        behavior: 'smooth',
+        block: 'start'
+      });
+    }
+  };
+
   return (
     <>
     <div className="min-h-screen bg-white">
@@ -63,6 +73,7 @@ const CareerPage: React.FC = () => {
           </h2>
           
           <button 
+            onClick={scrollToForm}
             className="text-white font-semibold py-4 px-12 rounded-2xl text-lg transition-colors duration-200 shadow-lg hover:opacity-90"
             style={{ backgroundColor: '#E07A5F' }}
           >
@@ -74,6 +85,9 @@ const CareerPage: React.FC = () => {
       {/* Add custom CSS for scrolling animation */}
       <style dangerouslySetInnerHTML={{
         __html: `
+          html {
+            scroll-behavior: smooth;
+          }
           @keyframes scroll {
             0% {
               transform: translateX(100%);
@@ -149,7 +163,7 @@ const CareerPage: React.FC = () => {
       </div>
 
       {/* Join Us Now Form - Centered */}
-      <div className="max-w-4xl mx-auto px-4">
+      <div id="join-us-form" className="max-w-4xl mx-auto px-4">
         <div className="rounded-2xl p-8" style={{ backgroundColor: '#F5E6D3' }}>
           <h2 className="text-3xl font-bold text-center mb-8" style={{ color: '#C17B5C' }}>
             Join Us Now

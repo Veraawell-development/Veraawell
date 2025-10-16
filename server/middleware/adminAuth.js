@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const Admin = require('../models/admin');
+const User = require('../models/user');
 
 // Verify admin JWT token
 const adminAuth = async (req, res, next) => {
@@ -11,10 +11,15 @@ const adminAuth = async (req, res, next) => {
     }
 
     // Verify token
-    const decoded = jwt.verify(token, process.env.ADMIN_JWT_SECRET || 'admin-secret');
+    const decoded = jwt.verify(token, process.env.ADMIN_JWT_SECRET);
+
+    // Check for admin roles
+    if (!decoded.role || !['admin', 'super_admin'].includes(decoded.role)) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
     
     // Find admin
-    const admin = await Admin.findById(decoded.adminId);
+    const admin = await User.findById(decoded.userId);
     if (!admin) {
       return res.status(401).json({ message: 'Admin not found' });
     }
@@ -49,7 +54,7 @@ const superAdminAuth = async (req, res, next) => {
 // Check if first-time setup is needed
 const checkFirstTimeSetup = async (req, res, next) => {
   try {
-    const hasAdmin = await Admin.hasAnyAdmin();
+    const hasAdmin = await User.hasAnyAdmin();
     if (!hasAdmin) {
       // Allow access for first-time setup
       req.isFirstTimeSetup = true;

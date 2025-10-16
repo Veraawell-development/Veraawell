@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FcGoogle } from 'react-icons/fc';
+import { useAuth } from '../context/AuthContext';
 
 interface AuthPageProps {
   mode?: 'login' | 'signup';
-  onSuccess?: (username: string, role: string) => void;
+  onSuccess?: () => void;
 }
 
 const API_BASE_URL = window.location.hostname === 'localhost' 
@@ -25,6 +26,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   const [phoneNo, setPhoneNo] = useState('');
   const [isProfessional, setIsProfessional] = useState(false);
   const navigate = useNavigate();
+  const { setAuthToken } = useAuth();
 
   useEffect(() => {
     if (mode === 'signup') setRegisterMode(true);
@@ -49,8 +51,11 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
       const data = await res.json();
       if (res.ok) {
         setError('');
-        if (onSuccess) onSuccess(username, data.user.role);
-        navigate('/', { state: { success: true, username, role: data.user.role } });
+        // Store the token for WebSocket authentication
+        if (data.token) {
+          setAuthToken(data.token);
+        }
+        if (onSuccess) onSuccess();
       } else {
         setError(data.message || 'Login failed');
       }
@@ -61,21 +66,32 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   };
 
   // Auto-login if cookie exists (handled in App.tsx now)
-  useEffect(() => {
-    const token = localStorage.getItem('token');
-    const savedUsername = localStorage.getItem('username');
-    if (token && savedUsername && onSuccess) {
-      onSuccess(savedUsername, localStorage.getItem('role') || 'patient');
-      navigate('/', { state: { success: true, username: savedUsername, role: localStorage.getItem('role') || 'patient' } });
-    }
-  }, []);
-
+  
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setRegisterMsg('');
     setError('');
-    if (!firstName.trim() || !email.trim() || !registerPassword.trim() || !registerConfirm.trim()) {
-      setRegisterMsg('All required fields must be filled');
+    
+    console.log('Form values:', { firstName, email, phoneNo, registerPassword, registerConfirm });
+    
+    if (!firstName.trim()) {
+      setRegisterMsg('Name is required');
+      return;
+    }
+    if (!email.trim()) {
+      setRegisterMsg('Email is required');
+      return;
+    }
+    if (!phoneNo.trim()) {
+      setRegisterMsg('Phone number is required');
+      return;
+    }
+    if (!registerPassword.trim()) {
+      setRegisterMsg('Password is required');
+      return;
+    }
+    if (!registerConfirm.trim()) {
+      setRegisterMsg('Please confirm your password');
       return;
     }
     if (registerPassword !== registerConfirm) {
@@ -100,44 +116,17 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
       });
       const data = await res.json();
       if (res.ok) {
-        setRegisterMsg('Registration successful! Logging you in...');
-        setUsername(email);
-        setPassword(registerPassword);
+        setRegisterMsg('Registration successful! Please sign in.');
         setFirstName('');
         setEmail('');
         setPhoneNo('');
         setRegisterPassword('');
         setRegisterConfirm('');
+        setLoading(false);
         setTimeout(() => {
           setRegisterMode(false);
           setRegisterMsg('');
-          setLoading(false);
-          // Auto-login
-          setTimeout(() => {
-            setLoading(true);
-            fetch(`${API_BASE_URL}/auth/login`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({ username: email, password: registerPassword, role: isProfessional ? 'doctor' : 'patient' }),
-            })
-              .then(res => res.json().then(data => ({ ok: res.ok, data })))
-              .then(({ ok, data }) => {
-                if (ok) {
-                  setError('');
-                  if (onSuccess) onSuccess(email, data.role || (isProfessional ? 'doctor' : 'patient'));
-                  navigate('/', { state: { success: true, username: email, role: data.role || (isProfessional ? 'doctor' : 'patient') } });
-                } else {
-                  setError(data.message || 'Login failed');
-                }
-                setLoading(false);
-              })
-              .catch(() => {
-                setError('Network error');
-                setLoading(false);
-              });
-          }, 500);
-        }, 1000);
+        }, 2000);
       } else {
         setRegisterMsg(data.message || 'Registration failed');
         setLoading(false);

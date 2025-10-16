@@ -1,77 +1,89 @@
 import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
+import { useAuth } from '../context/AuthContext';
 
-export default function Navbar({ isLoggedIn, onLogout }: { isLoggedIn: boolean, onLogout?: () => void }) {
+export default function Navbar() {
+  const { isLoggedIn, user, logout } = useAuth();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-
   const navigationLinks = [
     { name: 'About Us', path: '/about' },
     { name: 'Services', path: '/services' },
     { name: 'Resources', path: '/resources' },
     { name: 'Partner', path: '/partner' },
     { name: 'Careers', path: '/careers' },
-    { name: 'FAQs', path: '/faqs' }
   ];
 
   const toggleMobileMenu = () => {
     setIsMobileMenuOpen(!isMobileMenuOpen);
   };
 
+  const AuthButton: React.FC<{ isMobile?: boolean }> = ({ isMobile = false }) => {
+    const commonClasses = 'font-bree-serif font-semibold px-6 py-2 rounded-full transition-colors duration-300';
+    const mobileClasses = isMobile ? 'w-full' : '';
+
+    if (isLoggedIn) {
+      const handleLogout = async () => {
+        await logout();
+        if (isMobile) setIsMobileMenuOpen(false);
+        navigate('/', { replace: true });
+        window.location.href = '/';
+      };
+
+      return (
+        <button
+          onClick={handleLogout}
+          className={`${commonClasses} ${mobileClasses} bg-transparent border-2 border-white text-white hover:bg-white hover:text-[#7DA9A7]`}
+        >
+          Logout
+        </button>
+      );
+    }
+
+    return (
+      <button
+        onClick={isMobile ? () => { navigate('/login'); setIsMobileMenuOpen(false); } : () => navigate('/login')}
+        className={`${commonClasses} ${mobileClasses} bg-white text-[#7DA9A7] hover:bg-gray-200`}
+      >
+        Sign In
+      </button>
+    );
+  };
+
   return (
-    <nav className="w-full bg-[#7DA9A7] shadow-sm">
+    <nav className="w-full bg-[#7DA9A7] shadow-md font-bree-serif">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo Section */}
-          <div className="flex items-center cursor-pointer" onClick={() => navigate('/')}>
-            <div className="w-12 h-12 flex items-center justify-center mr-3">
-              <img 
-                src="/logo.png" 
-                alt="Veraawell Logo" 
-                className="w-40 h-auto scale-150"
-              />
-            </div>
+        <div className="flex items-center justify-between h-20">
+          {/* Logo */}
+          <div className="flex-shrink-0 cursor-pointer" onClick={() => {
+            if (isLoggedIn && user) {
+              const dashboardPath = user.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard';
+              navigate(dashboardPath);
+            } else {
+              navigate('/');
+            }
+          }}>
+            <img src="/logo.png" alt="Veraawell Logo" className="h-24 w-auto" />
           </div>
 
-          {/* Desktop Navigation Links */}
-          <div className="hidden md:flex items-center space-x-8">
+          {/* Desktop Navigation */}
+          <div className="hidden md:flex items-center space-x-10">
             {navigationLinks.map((link) => (
-              <a
-                key={link.name}
-                href={link.path}
-                className="text-white font-sans font-semibold hover:text-gray-200 transition-colors duration-200 cursor-pointer"
-              >
+              <a key={link.name} href={link.path} className="text-white text-lg hover:text-gray-200 transition-colors">
                 {link.name}
               </a>
             ))}
           </div>
 
-          {/* Sign In Button */}
+          {/* Desktop Auth Button */}
           <div className="hidden md:block">
-            {isLoggedIn ? (
-              <button
-                onClick={onLogout}
-                className="bg-[#7DA9A7] border-2 border-gray-300 text-white font-sans font-semibold px-6 py-2 rounded-full hover:bg-[#6B9593] transition-colors duration-200 shadow-md"
-              >
-                Logout
-              </button>
-            ) : (
-              <button
-                onClick={() => navigate('/login')}
-                className="bg-[#7DA9A7] border-2 border-gray-300 text-white font-sans font-semibold px-6 py-2 rounded-full hover:bg-[#6B9593] transition-colors duration-200 shadow-md"
-              >
-                Sign In
-              </button>
-            )}
+            <AuthButton />
           </div>
 
           {/* Mobile Menu Button */}
           <div className="md:hidden">
-            <button
-              onClick={toggleMobileMenu}
-              className="text-white hover:text-gray-200 focus:outline-none focus:text-gray-200"
-            >
-              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <button onClick={toggleMobileMenu} className="text-white p-2 rounded-md focus:outline-none">
+              <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 {isMobileMenuOpen ? (
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 ) : (
@@ -81,48 +93,23 @@ export default function Navbar({ isLoggedIn, onLogout }: { isLoggedIn: boolean, 
             </button>
           </div>
         </div>
+      </div>
 
-        {/* Mobile Navigation Menu */}
-        {isMobileMenuOpen && (
-          <div className="md:hidden">
-            <div className="px-2 pt-2 pb-3 space-y-1 bg-[#7DA9A7] border-t border-[#6B9593]">
-              {navigationLinks.map((link) => (
-                <a
-                  key={link.name}
-                  href={link.path}
-                  className="block px-3 py-2 text-white font-sans font-semibold hover:text-gray-200 transition-colors duration-200"
-                  onClick={() => setIsMobileMenuOpen(false)}
-                >
-                  {link.name}
-                </a>
-              ))}
-              <div className="pt-4">
-                {isLoggedIn ? (
-                  <button
-                    onClick={() => {
-                      onLogout?.();
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className="w-full bg-[#7DA9A7] border-2 border-gray-300 text-white font-sans font-semibold px-6 py-2 rounded-full hover:bg-[#6B9593] transition-colors duration-200"
-                  >
-                    Logout
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => {
-                      navigate('/login');
-                      setIsMobileMenuOpen(false);
-                    }}
-                    className="w-full bg-[#7DA9A7] border-2 border-gray-300 text-white font-sans font-semibold px-6 py-2 rounded-full hover:bg-[#6B9593] transition-colors duration-200"
-                  >
-                    Sign In
-                  </button>
-                )}
-              </div>
+      {/* Mobile Menu */}
+      {isMobileMenuOpen && (
+        <div className="md:hidden">
+          <div className="px-4 pt-4 pb-6 space-y-4">
+            {navigationLinks.map((link) => (
+              <a key={link.name} href={link.path} className="block text-white text-lg hover:text-gray-200" onClick={() => setIsMobileMenuOpen(false)}>
+                {link.name}
+              </a>
+            ))}
+            <div className="pt-4">
+              <AuthButton isMobile />
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </nav>
   );
-} 
+}

@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
-const Admin = require('../../models/admin');
+const User = require('../../models/user');
 const { adminAuth, superAdminAuth, checkFirstTimeSetup, requirePasswordChange } = require('../../middleware/adminAuth');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
@@ -25,7 +25,7 @@ router.post('/setup', checkFirstTimeSetup, async (req, res) => {
       lastName: 'Admin'
     };
 
-    const admin = await Admin.createFirstAdmin(adminData);
+    const admin = await User.createFirstAdmin(adminData);
     await admin.logActivity('account_created', { isFirstAdmin: true });
 
     res.json({ 
@@ -47,7 +47,7 @@ router.post('/forgot-password', async (req, res) => {
       return res.status(400).json({ message: 'Email is required' });
     }
 
-    const admin = await Admin.findOne({ email: email.toLowerCase() });
+    const admin = await User.findOne({ email: email.toLowerCase(), role: { $in: ['admin', 'super_admin'] } });
 
     if (!admin) {
       return res.status(404).json({ message: 'No admin account found with this email' });
@@ -124,9 +124,10 @@ router.post('/reset-password/:token', async (req, res) => {
       return res.status(400).json({ message: 'Password must be at least 8 characters long' });
     }
 
-    const admin = await Admin.findOne({
+    const admin = await User.findOne({
       resetToken: token,
-      resetTokenExpiry: { $gt: Date.now() }
+      resetTokenExpiry: { $gt: Date.now() },
+      role: { $in: ['admin', 'super_admin'] }
     });
 
     if (!admin) {
@@ -154,7 +155,7 @@ router.post('/login', async (req, res) => {
     const { email, password } = req.body;
 
     // Find admin
-    const admin = await Admin.findOne({ email: email.toLowerCase() });
+    const admin = await User.findOne({ email: email.toLowerCase(), role: { $in: ['admin', 'super_admin'] } });
     if (!admin) {
       return res.status(401).json({ message: 'Invalid credentials' });
     }
@@ -172,8 +173,8 @@ router.post('/login', async (req, res) => {
 
     // Create token
     const token = jwt.sign(
-      { adminId: admin._id, role: admin.role },
-      process.env.ADMIN_JWT_SECRET || 'admin-secret',
+      { userId: admin._id, role: admin.role },
+      process.env.ADMIN_JWT_SECRET,
       { expiresIn: '1h' }
     );
 
@@ -245,7 +246,7 @@ router.post('/create', adminAuth, superAdminAuth, async (req, res) => {
     const tempPassword = crypto.randomBytes(8).toString('hex');
 
     // Create admin
-    const newAdmin = new Admin({
+    const newAdmin = new User({
       email,
       password: tempPassword,
       firstName,
@@ -302,60 +303,6 @@ router.post('/logout', adminAuth, async (req, res) => {
   }
 });
 
-// DEBUG: Check admin (remove in production)
-router.get('/debug', async (req, res) => {
-  try {
-    const admins = await Admin.find({});
-    res.json({ admins: admins.map(admin => ({
-      email: admin.email,
-      role: admin.role,
-      isFirstAdmin: admin.isFirstAdmin,
-      isPasswordChanged: admin.isPasswordChanged
-    }))});
-  } catch (error) {
-    res.status(500).json({ message: 'Error fetching admins' });
-  }
-});
-
-// DEBUG: Reset admin setup (remove in production)
-router.post('/debug/reset', async (req, res) => {
-  if (process.env.NODE_ENV === 'production') {
-    return res.status(404).json({ message: 'Not found' });
-  }
-  
-  try {
-    await Admin.deleteMany({});
-    res.json({ message: 'Admin setup reset successful' });
-  } catch (error) {
-    res.status(500).json({ message: 'Failed to reset admin setup' });
-  }
-});
-
-// DEBUG: Get admin token (remove in production)
-router.post('/debug/token', async (req, res) => {
-  if (process.env.NODE_ENV === 'production') {
-    return res.status(404).json({ message: 'Not found' });
-  }
-
-  try {
-    const { email, password } = req.body;
-    const admin = await Admin.findOne({ email: email.toLowerCase() });
-    
-    if (!admin || !(await admin.comparePassword(password))) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
-    const token = jwt.sign(
-      { adminId: admin._id, role: admin.role },
-      process.env.ADMIN_JWT_SECRET || 'admin-secret',
-      { expiresIn: '1h' }
-    );
-
-    res.json({ token });
-  } catch (error) {
-    res.status(500).json({ message: 'Error generating token' });
-  }
-});
 
 // Get admin status
 router.get('/status', adminAuth, async (req, res) => {

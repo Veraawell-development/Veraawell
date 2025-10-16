@@ -1,0 +1,74 @@
+## 1. Waiting Room
+
+   [Patient]  ───────── 'join-room' ─────────▶ [Server]
+                                                 (Room is empty)
+   [Patient]  ◀──────── 'waiting-for-peer' ─────── [Server]
+
+
+## 2. Peer Joins
+
+   [Doctor]   ───────── 'join-room' ─────────▶ [Server]
+                                                 (Patient is waiting)
+   [Patient]  ◀───────── 'peer-joined' ───────── [Server]
+   [Doctor]   ◀───────── 'peer-joined' ───────── [Server]
+
+
+## 3. WebRTC Handshake (Signaling)
+
+   [Patient] ──── 'offer' ───▶ [Server] ─── 'offer' ───▶ [Doctor]
+
+   [Patient] ◀─── 'answer' ── [Server] ◀─── 'answer' ─── [Doctor]
+
+   [Patient] ── 'ice-candidate' ▶ [Server] ▶ 'ice-candidate' ─▶ [Doctor]
+
+   [Patient] ◀─ 'ice-candidate' ─ [Server] ◀ 'ice-candidate' ── [Doctor]
+
+
+## 4. P2P Connection
+
+   [Patient] ◀════════════════════════════════════════▶ [Doctor]
+               (Encrypted Audio/Video Stream)
+
+
+   [Patient] ◀─────────── Signaling (Chat) ───────────▶ [Doctor]
+                      (via Server)
+
+
+## 5. Peer Leaves
+
+   [Doctor]   ───────── 'leave-room' ──────────▶ [Server]
+
+   [Patient]  ◀────────── 'peer-left' ─────────── [Server]
+
+
+## 6. Future Application Integration
+
+   **A. Scheduling a Session**
+
+   [Doctor Dashboard] ─── Creates Appointment ───▶ [API Server]
+                                                     (Creates Room & Session)
+   [Patient Dashboard] ◀─── Shows Appointment ───── [API Server]
+
+
+   **B. Joining the Call**
+
+   (On Patient/Doctor Dashboard at appointment time)
+
+   [Dashboard UI] ── Shows "Join Call" button ──▶ [User Clicks]
+
+   [User Clicks] ── Initiates Flow #1 (Waiting Room) ──▶ [Video Call]
+
+
+   **C. Post-Call Actions**
+
+   [Video Call Ends] ── 'end-session' ──▶ [API Server]
+                                             (Updates Session, Generates Report)
+   [Doctor Dashboard] ◀─── 'Add Notes' ────── [API Server]
+
+
+   **D. Viewing History**
+
+   [Patient/Doctor Dashboard] ── 'Get History' ──▶ [API Server]
+                                                    (Returns list of past sessions)
+   [Dashboard UI] ◀──── Displays History ───── [API Server]
+

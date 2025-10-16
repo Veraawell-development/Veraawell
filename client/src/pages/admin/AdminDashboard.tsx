@@ -15,7 +15,7 @@ interface AdminUser {
 
 export default function AdminDashboard() {
   const [admin, setAdmin] = useState<AdminUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  // Removed loading state for faster page load
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -33,9 +33,7 @@ export default function AdminDashboard() {
       .catch(() => {
         navigate('/admin/login');
       })
-      .finally(() => {
-        setLoading(false);
-      });
+      // Removed setLoading for faster page load
   }, [navigate]);
 
   const handleLogout = async () => {
@@ -44,19 +42,14 @@ export default function AdminDashboard() {
         method: 'POST',
         credentials: 'include'
       });
-      navigate('/admin/login');
+      window.location.href = '/';
     } catch (error) {
       console.error('Logout failed:', error);
+      window.location.href = '/';
     }
   };
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-black flex items-center justify-center">
-        <div className="text-green-500">Loading...</div>
-      </div>
-    );
-  }
+  // Remove loading screen for faster page load
 
   return (
     <div className="min-h-screen bg-black text-white p-6">

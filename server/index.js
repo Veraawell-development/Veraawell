@@ -11,12 +11,23 @@ const { Resend } = require('resend');
 const crypto = require('crypto');
 const showBanner = require('./banner');
 const nodemailer = require('nodemailer');
-const bcrypt = require('bcryptjs'); // Added bcrypt for password hashing
+const bcrypt = require('bcryptjs');
+const { createServer } = require('http');
+const { Server } = require('socket.io');
 
 // Import User model early to avoid circular dependency
 const User = require('./models/user');
 
 const app = express();
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: true,
+    credentials: true,
+    methods: ['GET', 'POST']
+  }
+});
+
 const PORT = process.env.PORT || 8000;
 
 // Basic route to test if server is running
@@ -34,7 +45,7 @@ app.use(cors({
 app.use(cookieParser());
 
 // Generate secure secrets if not provided in environment
-const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
+const JWT_SECRET = process.env.JWT_SECRET || 'veraawell_jwt_secret_key_2024_development_environment_secure_token_generation';
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(64).toString('hex');
 
 // Session middleware with secure configuration
@@ -54,12 +65,15 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 // MongoDB connection with better error handling
+let isMongoConnected = false;
+
 mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/verocare', {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
 .then(async () => {
   console.log('MongoDB connected');
+  isMongoConnected = true;
   
   // Run migration to fix reset tokens
   try {
@@ -97,7 +111,24 @@ mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/verocare', 
 .catch((err) => {
   console.error('MongoDB connection error:', err);
   console.log('Please check your MONGO_URI environment variable');
+  isMongoConnected = false;
   // Don't exit the process, let it continue and retry
+});
+
+// Monitor connection status
+mongoose.connection.on('connected', () => {
+  isMongoConnected = true;
+  console.log('MongoDB connection established');
+});
+
+mongoose.connection.on('disconnected', () => {
+  isMongoConnected = false;
+  console.log('MongoDB connection lost');
+});
+
+mongoose.connection.on('error', (err) => {
+  isMongoConnected = false;
+  console.error('MongoDB connection error:', err);
 });
 
 // Passport configuration with error handling
@@ -127,8 +158,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           const firstName = profile.name?.givenName || profile.displayName || 'Google';
           const lastName = profile.name?.familyName || 'User';
           
-          // Get role from state if available, default to 'patient'
-          const role = profile.state?.role || 'patient';
+          // Default role for new users - will be updated in callback based on session
+          const role = 'patient';
           
           user = new User({
             googleId: profile.id,
@@ -137,7 +168,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
             lastName: lastName,
             username: profile.emails[0].value,
             password: 'google-auth-' + Math.random().toString(36).substring(7), // Random password for Google users
-            role: role // Add role here
+            role: role
           });
           await user.save();
           console.log('New Google user created:', user.email);
@@ -177,7 +208,7 @@ app.get('/api/health', (req, res) => {
   res.json({ 
     message: 'Backend is running', 
     timestamp: new Date().toISOString(),
-    mongoConnected: mongoose.connection.readyState === 1,
+    mongoConnected: isMongoConnected && mongoose.connection.readyState === 1,
     googleOAuthEnabled: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET),
     envVars: {
       hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
@@ -203,28 +234,30 @@ app.get('/api/test-google-routes', (req, res) => {
 if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
   app.get('/api/auth/google',
     (req, res, next) => {
-      // Store role in state
+      // Store role in session instead of state parameter
       const role = req.query.role || 'patient';
       if (!['patient', 'doctor'].includes(role)) {
         return res.status(400).json({ message: 'Invalid role specified' });
       }
+      
+      // Store role in session for callback
+      req.session.oauthRole = role;
+      
       passport.authenticate('google', {
-        scope: ['profile', 'email'],
-        state: JSON.stringify({ role }) // Pass role through state
+        scope: ['profile', 'email']
       })(req, res, next);
     }
   );
 
   app.get('/api/auth/google/callback', 
     (req, res, next) => {
-      // Parse state to get role
-      let role = 'patient';
-      try {
-        const state = JSON.parse(req.query.state || '{}');
-        role = state.role || 'patient';
-      } catch (e) {
-        console.error('Error parsing state:', e);
-      }
+      console.log('=== OAuth Callback Received ===');
+      console.log('Query params:', req.query);
+      console.log('Session:', req.session);
+      
+      // Get role from session instead of state parameter
+      const role = req.session.oauthRole || 'patient';
+      console.log('OAuth callback - role from session:', role);
 
       passport.authenticate('google', async (err, user) => {
         if (err) {
@@ -246,14 +279,21 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         if (role !== user.role) {
           user.role = role;
           await user.save();
+          console.log(`Updated user role to: ${role}`);
         }
+
+        // Clear the OAuth role from session
+        delete req.session.oauthRole;
 
         // Log the user in
         req.logIn(user, (err) => {
           if (err) {
             console.error('Login error:', err);
-            return res.redirect('https://veraawell.vercel.app/login?error=login-failed');
-        }
+            const frontendUrl = process.env.NODE_ENV === 'production' 
+              ? 'https://veraawell.vercel.app/login?error=login-failed'
+              : 'http://localhost:5173/login?error=login-failed';
+            return res.redirect(frontendUrl);
+          }
 
           // Create JWT token for the user
         const token = jwt.sign(
@@ -566,32 +606,13 @@ app.post('/api/auth/reset-password', async (req, res) => {
   }
 });
 
-// Admin middleware
-const isAdmin = async (req, res, next) => {
-  const token = req.cookies.token;
-  if (!token) return res.status(401).json({ message: 'No token provided' });
-  
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'testsecret');
-    const user = await User.findOne({ username: decoded.username });
-    
-    if (!user || user.role !== 'admin') {
-      return res.status(403).json({ message: 'Admin access required' });
-    }
-    
-    req.user = user;
-    next();
-  } catch (err) {
-    return res.status(403).json({ message: 'Invalid token' });
-  }
-};
 
 // Register (Signup)
 app.post('/api/auth/register', async (req, res) => {
-  const { firstName, lastName, email, password, role = 'patient' } = req.body; // Default to patient if no role specified
+  const { firstName, lastName, email, password, role = 'patient', phoneNo, username } = req.body; // Default to patient if no role specified
   
-  // Validate required fields
-  if (!firstName || !lastName || !email || !password) {
+  // Validate required fields (lastName is optional)
+  if (!firstName || !email || !password) {
     return res.status(400).json({ message: 'All required fields must be filled' });
   }
 
@@ -608,10 +629,11 @@ app.post('/api/auth/register', async (req, res) => {
 
     const newUser = new User({
       firstName,
-      lastName,
+      lastName: lastName || '',
       email,
-      username: email,
+      username: username || email,
       password,
+      phoneNo: phoneNo || '',
       role,
       resetToken: null,
       resetTokenExpiry: null
@@ -620,15 +642,15 @@ app.post('/api/auth/register', async (req, res) => {
     await newUser.save();
     
     const token = jwt.sign(
-      { username: email, role: newUser.role }, 
-      process.env.JWT_SECRET || 'testsecret', 
+      { userId: newUser._id, username: newUser.username, role: newUser.role }, 
+      JWT_SECRET, 
       { expiresIn: '30d' }
     );
 
     res.cookie('token', token, {
       httpOnly: true,
-      secure: true,
-      sameSite: 'none',
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     });
 
@@ -700,12 +722,14 @@ app.post('/api/auth/login', async (req, res) => {
     res.json({ 
       message: 'Login successful',
       user: {
+        userId: user._id,
         username: user.username,
         email: user.email,
         role: user.role,
         firstName: user.firstName,
         lastName: user.lastName
-      }
+      },
+      token // Include token in response for WebSocket auth
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -713,83 +737,95 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Create Admin (admin only)
-app.post('/api/auth/create-admin', isAdmin, async (req, res) => {
-  const { firstName, lastName, email, password } = req.body;
 
-  if (!firstName || !lastName || !email || !password) {
-    return res.status(400).json({ message: 'All fields are required' });
+// Unified protected route (checks JWT from either cookie)
+app.get('/api/protected', async (req, res) => {
+  const token = req.cookies.token || req.cookies.adminToken;
+  if (!token) {
+    return res.status(401).json({ message: 'No token provided' });
   }
+
+  // Determine which secret to use for verification
+  const isUserToken = !!req.cookies.token;
+  const secret = isUserToken ? JWT_SECRET : process.env.ADMIN_JWT_SECRET;
 
   try {
-    const existingUser = await User.findOne({ email });
-    if (existingUser) {
-      return res.status(409).json({ message: 'User already exists' });
+    const decoded = jwt.verify(token, secret);
+    
+    // Handle different token formats for backward compatibility
+    let user;
+    if (decoded.userId) {
+      user = await User.findById(decoded.userId);
+    } else if (decoded.username) {
+      // Legacy token format - find by username
+      user = await User.findOne({ username: decoded.username });
     }
 
-    const admin = await User.createAdmin({
-      firstName,
-      lastName,
-      email,
-      username: email,
-      password
-    });
+    if (!user) {
+      // Clear the invalid cookie
+      const cookieName = isUserToken ? 'token' : 'adminToken';
+      res.clearCookie(cookieName, { 
+        httpOnly: true, 
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+      });
+      return res.status(401).json({ message: 'User not found' });
+    }
 
-    res.json({ message: 'Admin created successfully' });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
+    res.json({
+      message: 'Protected data',
+      user: {
+        userId: user._id,
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        firstName: user.firstName,
+        lastName: user.lastName
+      },
+      token: token // Include token for WebSocket authentication
+    });
+  } catch (error) {
+    const cookieName = isUserToken ? 'token' : 'adminToken';
+    res.clearCookie(cookieName, { 
+      httpOnly: true, 
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
+    });
+    return res.status(403).json({ message: 'Invalid token' });
   }
 });
 
-// Protected route (checks JWT from cookie and user existence)
-app.get('/api/protected', async (req, res) => {
-  const token = req.cookies.token;
-  if (!token) return res.status(401).json({ message: 'No token provided' });
-  
-  jwt.verify(token, process.env.JWT_SECRET || 'testsecret', async (err, decoded) => {
-    if (err) return res.status(403).json({ message: 'Invalid token' });
-    
-    const dbUser = await User.findOne({ username: decoded.username });
-    if (!dbUser) {
-      res.clearCookie('token', {
-        httpOnly: true,
-        secure: true,
-        sameSite: 'none',
-      });
-      return res.status(401).json({ message: 'User does not exist' });
-    }
-    
-    res.json({ 
-      message: 'Protected data', 
-      user: { 
-        username: dbUser.username,
-        role: dbUser.role,
-        firstName: dbUser.firstName,
-        lastName: dbUser.lastName
-      } 
-    });
-  });
-});
-
-// Logout (clears cookie)
+// Logout (clears all auth cookies)
 app.post('/api/auth/logout', (req, res) => {
-  res.clearCookie('token', {
+  const cookieOptions = {
     httpOnly: true,
-    secure: true, // must be true for cross-site cookies
-    sameSite: 'none', // must be 'none' for cross-site cookies
-  });
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+  };
+  res.clearCookie('token', cookieOptions);
+  res.clearCookie('adminToken', cookieOptions);
   res.json({ message: 'Logged out successfully' });
 });
 
 // Import admin routes
 const adminAuthRoutes = require('./routes/admin/auth');
+const sessionRoutes = require('./routes/sessions');
 
 // Admin routes
 app.use('/api/admin/auth', adminAuthRoutes);
 
+// Session routes
+app.use('/api/sessions', sessionRoutes);
+
+// Initialize Socket.IO handler
+const socketHandler = require('./socketHandler');
+socketHandler(io);
+
 showBanner();
-app.listen(PORT, () => {
+httpServer.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
+  console.log('Socket.IO server initialized for video calling');
   console.log('Environment variables:');
   console.log('- MONGO_URI:', process.env.MONGO_URI ? 'Set' : 'Not set');
   console.log('- GOOGLE_CLIENT_ID:', process.env.GOOGLE_CLIENT_ID ? 'Set' : 'Not set');
