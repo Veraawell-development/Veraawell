@@ -22,9 +22,16 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: true,
+    origin: ['http://localhost:5173', 'http://localhost:3000'],
     credentials: true,
-    methods: ['GET', 'POST']
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+  },
+  allowEIO3: true,
+  transports: ['websocket', 'polling'],
+  cookie: {
+    name: 'io',
+    httpOnly: true,
+    sameSite: 'lax'
   }
 });
 
@@ -698,10 +705,45 @@ app.post('/api/auth/login', async (req, res) => {
       });
     }
 
+    // STRICT CHECK: Block doctor login BEFORE password check if not approved
+    if (user.role === 'doctor' && user.approvalStatus !== 'approved') {
+      if (user.approvalStatus === 'pending') {
+        return res.status(403).json({ 
+          message: 'Your doctor account is pending approval. An admin will review your application soon.',
+          approvalStatus: 'pending'
+        });
+      } else if (user.approvalStatus === 'rejected') {
+        return res.status(403).json({ 
+          message: 'Your doctor account has been rejected. Reason: ' + (user.rejectionReason || 'No reason provided'),
+          approvalStatus: 'rejected'
+        });
+      }
+      // Fallback for any other non-approved status
+      return res.status(403).json({ 
+        message: 'Your doctor account requires approval before you can login.',
+        approvalStatus: user.approvalStatus
+      });
+    }
+
     // Compare password using the model method
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid credentials' });
+    }
+
+    // Double-check approval status for doctors (redundant but safe)
+    if (user.role === 'doctor' && user.approvalStatus !== 'approved') {
+      if (user.approvalStatus === 'pending') {
+        return res.status(403).json({ 
+          message: 'Your doctor account is pending approval. An admin will review your application soon.',
+          approvalStatus: 'pending'
+        });
+      } else if (user.approvalStatus === 'rejected') {
+        return res.status(403).json({ 
+          message: 'Your doctor account has been rejected. Reason: ' + (user.rejectionReason || 'No reason provided'),
+          approvalStatus: 'rejected'
+        });
+      }
     }
 
     // Create JWT token
@@ -737,6 +779,51 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
+
+// Profile route alias
+app.get('/api/auth/profile', async (req, res) => {
+  const token = req.cookies.token || req.cookies.adminToken;
+  if (!token) {
+    return res.status(401).json({ message: 'No token provided' });
+  }
+
+  const isUserToken = !!req.cookies.token;
+  const secret = isUserToken ? JWT_SECRET : process.env.ADMIN_JWT_SECRET;
+
+  try {
+    const decoded = jwt.verify(token, secret);
+    
+    let user;
+    if (decoded.userId) {
+      user = await User.findById(decoded.userId);
+    } else if (decoded.username) {
+      user = await User.findOne({ username: decoded.username });
+    }
+
+    if (!user) {
+      const cookieName = isUserToken ? 'token' : 'adminToken';
+      res.clearCookie(cookieName, { 
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: 'lax'
+      });
+      return res.status(401).json({ message: 'User not found' });
+    }
+
+    res.json({
+      userId: user._id,
+      username: user.username || user.email,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      role: user.role,
+      profileCompleted: user.profileCompleted
+    });
+  } catch (error) {
+    console.error('Token verification error:', error);
+    return res.status(401).json({ message: 'Invalid token' });
+  }
+});
 
 // Unified protected route (checks JWT from either cookie)
 app.get('/api/protected', async (req, res) => {
@@ -808,19 +895,135 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ message: 'Logged out successfully' });
 });
 
+// Profile setup routes
+app.post('/api/profile/setup', async (req, res) => {
+  const token = req.cookies.token;
+  if (!token) {
+    return res.status(401).json({ message: 'No token provided' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const user = await User.findById(decoded.userId);
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const {
+      name,
+      qualification,
+      languages,
+      type,
+      experience,
+      specialization,
+      pricing,
+      modeOfSession,
+      quote,
+      quoteAuthor,
+      introduction
+    } = req.body;
+
+    // If user is a doctor, create/update doctor profile
+    if (user.role === 'doctor') {
+      const DoctorProfile = require('./models/doctorProfile');
+      
+      const profileData = {
+        userId: user._id,
+        qualification: qualification || [],
+        languages: languages || [],
+        experience: experience || 0,
+        specialization: specialization || [],
+        treatsFor: specialization || [], // Using specialization as treatsFor
+        pricing: {
+          min: pricing?.discovery || pricing?.session30 || 0,
+          max: pricing?.session45 || pricing?.session30 || 0
+        },
+        bio: introduction || '',
+        isOnline: true
+      };
+
+      // Update or create doctor profile
+      await DoctorProfile.findOneAndUpdate(
+        { userId: user._id },
+        profileData,
+        { upsert: true, new: true }
+      );
+    }
+
+    // Mark profile as completed
+    user.profileCompleted = true;
+    await user.save();
+
+    res.json({ 
+      message: 'Profile setup completed successfully',
+      profileCompleted: true
+    });
+  } catch (error) {
+    console.error('Profile setup error:', error);
+    res.status(500).json({ message: 'Failed to save profile' });
+  }
+});
+
+// Get profile status
+app.get('/api/profile/status', async (req, res) => {
+  const token = req.cookies.token;
+  if (!token) {
+    return res.status(401).json({ message: 'No token provided' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    const user = await User.findById(decoded.userId);
+    
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.json({ 
+      profileCompleted: user.profileCompleted || false
+    });
+  } catch (error) {
+    console.error('Profile status error:', error);
+    res.status(500).json({ message: 'Failed to get profile status' });
+  }
+});
+
 // Import admin routes
 const adminAuthRoutes = require('./routes/admin/auth');
+const adminApprovalRoutes = require('./routes/admin/approvals');
 const sessionRoutes = require('./routes/sessions');
+const availabilityRoutes = require('./routes/availability');
+const chatRoutes = require('./routes/chat');
+const patientRoutes = require('./routes/patients');
+const sessionToolsRoutes = require('./routes/sessionTools');
 
 // Admin routes
 app.use('/api/admin/auth', adminAuthRoutes);
+app.use('/api/admin/approvals', adminApprovalRoutes);
 
 // Session routes
 app.use('/api/sessions', sessionRoutes);
 
-// Initialize Socket.IO handler
+// Availability routes
+app.use('/api/availability', availabilityRoutes);
+
+// Chat routes
+app.use('/api/chat', chatRoutes);
+
+// Patient routes
+app.use('/api/patients', patientRoutes);
+
+// Session Tools routes (Notes, Tasks, Reports)
+app.use('/api/session-tools', sessionToolsRoutes);
+
+// Initialize Socket.IO handlers
 const socketHandler = require('./socketHandler');
 socketHandler(io);
+
+// Initialize Chat Socket.IO handler
+const { initializeChatSocket } = require('./socket/chatSocket');
+initializeChatSocket(io);
 
 showBanner();
 httpServer.listen(PORT, () => {

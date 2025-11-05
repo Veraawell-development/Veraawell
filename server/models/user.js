@@ -58,6 +58,33 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: null,
     get: v => v || null
+  },
+  profileCompleted: {
+    type: Boolean,
+    default: false
+  },
+  approvalStatus: {
+    type: String,
+    enum: ['pending', 'approved', 'rejected'],
+    default: function() {
+      // Auto-approve patients, require approval for doctors and admins
+      if (this.role === 'patient') return 'approved';
+      if (this.role === 'super_admin') return 'approved';
+      return 'pending';
+    }
+  },
+  approvedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+  approvedAt: {
+    type: Date,
+    default: null
+  },
+  rejectionReason: {
+    type: String,
+    default: null
   }
 }, {
   timestamps: true,

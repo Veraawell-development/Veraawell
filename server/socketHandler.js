@@ -70,7 +70,7 @@ module.exports = (io) => {
     log.info('New socket connection', { socketId: socket.id, userId, role });
 
     // Handle disconnection
-    socket.on('disconnect', () => {
+    socket.on('disconnect', async () => {
       log.user('DISCONNECTED', userId, role, socket.roomId);
       if (socket.roomId && activeRooms.has(socket.roomId)) {
         const room = activeRooms.get(socket.roomId);
@@ -79,6 +79,33 @@ module.exports = (io) => {
           // Notify other users in the room
           socket.to(socket.roomId).emit('user-left', { userId, role });
           log.user('LEFT ROOM', userId, role, socket.roomId);
+          
+          // Update call tracking when ANY user leaves
+          // Mark session as completed immediately when last user leaves
+          if (room.users.size === 0) {
+            try {
+              const session = await Session.findById(socket.roomId);
+              if (session && session.callStatus === 'in-progress') {
+                session.callEndTime = new Date();
+                session.callStatus = 'completed';
+                // Calculate actual duration in minutes (minimum 1 minute)
+                if (session.callStartTime) {
+                  const durationMs = session.callEndTime - session.callStartTime;
+                  session.actualDuration = Math.max(1, Math.round(durationMs / 60000));
+                } else {
+                  session.actualDuration = 1; // Default to 1 minute if no start time
+                }
+                session.status = 'completed';
+                await session.save();
+                log.success('Call ended and tracked', { 
+                  sessionId: socket.roomId.substring(0, 8),
+                  duration: session.actualDuration
+                });
+              }
+            } catch (error) {
+              log.error('Failed to update call tracking', { error: error.message });
+            }
+          }
           
           // Clean up empty rooms
           if (room.users.size === 0) {
@@ -104,6 +131,15 @@ module.exports = (io) => {
         if (!session) {
           log.error('Session not found', { sessionId });
           return socket.emit('error', { message: 'Session not found' });
+        }
+
+        // Update call tracking - mark call as started
+        // Handle undefined/null callStatus from old sessions
+        if (!session.callStatus || session.callStatus === 'not-started') {
+          session.callStatus = 'in-progress';
+          session.callStartTime = new Date();
+          await session.save();
+          log.success('Call started', { sessionId: sessionId.substring(0, 8) });
         }
 
         // Verify user authorization
@@ -266,24 +302,8 @@ module.exports = (io) => {
       handleUserLeave(socket, sessionId, userId, role);
     });
 
-    // Handle disconnect
-    socket.on('disconnect', () => {
-      log.info('Socket disconnected', { socketId: socket.id });
-
-      // Find and remove user from all rooms
-      for (const [userId, socketId] of userSockets.entries()) {
-        if (socketId === socket.id) {
-          userSockets.delete(userId);
-          
-          // Find which room they were in
-          for (const [sessionId, room] of activeRooms.entries()) {
-            if (room.users.has(userId)) {
-              handleUserLeave(socket, sessionId, userId, 'user');
-            }
-          }
-        }
-      }
-    });
+    // Note: Main disconnect handler is above (lines 73-118)
+    // This duplicate handler has been removed to prevent conflicts
   });
 
   // Helper function to handle user leaving

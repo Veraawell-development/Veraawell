@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Calendar from '../components/Calendar';
 import SessionModal from '../components/SessionModal';
+import WelcomeModal from '../components/WelcomeModal';
+import { useAuth } from '../context/AuthContext';
 
 interface Session {
   _id: string;
@@ -23,29 +25,104 @@ interface Session {
 
 const PatientDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const location = useLocation();
+  const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
-  
-  // Get user name from location state or default
-  let userName = "Harris";
-  if (location.state && (location.state as any).username) {
-    const fullUsername = (location.state as any).username;
-    // Extract username from email (everything before @)
-    if (fullUsername.includes('@')) {
-      userName = fullUsername.split('@')[0];
-    } else {
-      userName = fullUsername;
+  const [userName, setUserName] = useState<string>('User');
+  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+  const [recentReports, setRecentReports] = useState<any[]>([]);
+  const [recentJournal, setRecentJournal] = useState<any[]>([]);
+  const [pendingTasks, setPendingTasks] = useState<any[]>([]);
+
+  const API_BASE_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:5001/api' 
+    : 'https://veraawell-backend.onrender.com/api';
+
+  useEffect(() => {
+    fetchUserProfile();
+    fetchDashboardData();
+    
+    // Show welcome modal only once - check localStorage
+    if (user) {
+      const hasSeenWelcome = localStorage.getItem(`welcomeModal_${user.userId}`);
+      if (!hasSeenWelcome && user.profileCompleted === false) {
+        setShowWelcomeModal(true);
+      }
     }
-  }
+  }, [user]);
+
+  const fetchUserProfile = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/profile`, {
+        credentials: 'include'
+      });
+      
+      if (response.ok) {
+        const userData = await response.json();
+        setUserName(userData.firstName || userData.username || 'User');
+      }
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+    }
+  };
+
+  const fetchDashboardData = async () => {
+    if (!user) return;
+
+    try {
+      // Fetch recent reports
+      const reportsRes = await fetch(`${API_BASE_URL}/session-tools/reports/patient/${user.userId}`, {
+        credentials: 'include'
+      });
+      if (reportsRes.ok) {
+        const reports = await reportsRes.json();
+        setRecentReports(reports.slice(0, 2));
+      }
+
+      // Fetch pending tasks
+      const tasksRes = await fetch(`${API_BASE_URL}/session-tools/tasks/patient/${user.userId}?status=pending`, {
+        credentials: 'include'
+      });
+      if (tasksRes.ok) {
+        const tasks = await tasksRes.json();
+        setPendingTasks(tasks.slice(0, 1));
+      }
+
+      // Fetch journal entries
+      const journalRes = await fetch(`${API_BASE_URL}/session-tools/journal/patient/${user.userId}`, {
+        credentials: 'include'
+      });
+      if (journalRes.ok) {
+        const journals = await journalRes.json();
+        setRecentJournal(journals.slice(0, 1));
+      }
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    const day = date.getDate();
+    const month = date.toLocaleString('en-US', { month: 'long' });
+    const year = date.getFullYear();
+    
+    const suffix = (day: number) => {
+      if (day > 3 && day < 21) return 'th';
+      switch (day % 10) {
+        case 1: return 'st';
+        case 2: return 'nd';
+        case 3: return 'rd';
+        default: return 'th';
+      }
+    };
+    
+    return `${day}${suffix(day)} ${month}, ${year}`;
+  };
 
   const handleLogout = async () => {
     try {
-      const API_BASE_URL = window.location.hostname === 'localhost' 
-        ? 'http://localhost:5001/api' 
-        : 'https://veraawell-backend.onrender.com/api';
-        
       await fetch(`${API_BASE_URL}/auth/logout`, {
         method: 'POST',
         credentials: 'include',
@@ -63,7 +140,19 @@ const PatientDashboard: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="h-screen overflow-hidden bg-gray-50">
+      {/* Welcome Modal */}
+      <WelcomeModal 
+        isOpen={showWelcomeModal} 
+        onClose={() => {
+          setShowWelcomeModal(false);
+          // Mark that user has seen the welcome modal
+          if (user) {
+            localStorage.setItem(`welcomeModal_${user.userId}`, 'true');
+          }
+        }} 
+      />
+      
       {/* Sidebar Overlay - Transparent */}
       {sidebarOpen && (
         <div 
@@ -79,18 +168,51 @@ const PatientDashboard: React.FC = () => {
         <div className="h-full flex flex-col p-4 text-white font-serif">
           {/* Main Menu Items */}
           <div className="space-y-3 mb-6">
-            <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2">
+            <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
               </svg>
               <span className="text-base font-medium">My Dashboard</span>
             </div>
             
-            <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2">
+            <div 
+              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
+              onClick={() => navigate('/profile-setup')}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+              <span className="text-base font-medium">My Profile</span>
+            </div>
+            
+            <div 
+              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
+              onClick={() => navigate('/call-history')}
+            >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
               </svg>
               <span className="text-base font-medium">My Calls</span>
+            </div>
+            
+            <div 
+              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
+              onClick={() => navigate('/pending-tasks')}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+              </svg>
+              <span className="text-base font-medium">Pending Tasks</span>
+            </div>
+            
+            <div 
+              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
+              onClick={() => navigate('/my-journal')}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+              </svg>
+              <span className="text-base font-medium">My Journal</span>
             </div>
             
             <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2">
@@ -156,7 +278,7 @@ const PatientDashboard: React.FC = () => {
 
       {/* Top Navigation Bar */}
       <nav className="bg-white shadow-sm border-b">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             {/* Left side - Hamburger Menu */}
             <div className="flex items-center">
@@ -168,30 +290,44 @@ const PatientDashboard: React.FC = () => {
                 className="p-2 hover:bg-gray-100 rounded-md transition-colors z-10 relative"
                 type="button"
               >
-                <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                <svg className="w-8 h-8 text-gray-800" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
               </button>
             </div>
 
             {/* Center - Greeting */}
             <div className="flex-1 text-center">
-              <h1 className="text-2xl font-bold text-gray-800 font-serif">
+              <h1 className="text-3xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
                 Hi {userName}
               </h1>
             </div>
 
-            {/* Right side - Book Session and Balance */}
-            <div className="flex items-center space-x-4">
+            {/* Right side - Chat, Book Session and Balance */}
+            <div className="flex items-center space-x-3">
+              {/* Chat Icon with Badge */}
+              <button
+                onClick={() => navigate('/messages')}
+                className="relative p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                </svg>
+                {/* Notification Badge */}
+                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                  3
+                </span>
+              </button>
+              
               <button 
                 onClick={() => navigate('/booking-preference')}
-                className="px-6 py-2 text-white rounded-full font-medium font-serif transition-colors hover:opacity-90"
-                style={{ backgroundColor: '#38ABAE' }}
+                className="px-6 py-2.5 text-white rounded-full font-medium transition-colors hover:opacity-90 text-base"
+                style={{ backgroundColor: '#38ABAE', fontFamily: 'Inter, sans-serif' }}
               >
                 Book Session
               </button>
-              <div className="px-4 py-2 bg-gray-100 rounded-full">
-                <span className="text-gray-700 font-medium font-serif">Bal: Rs.0</span>
+              <div className="px-5 py-2.5 border-2 border-gray-900 rounded-full">
+                <span className="text-gray-900 font-medium text-base" style={{ fontFamily: 'Inter, sans-serif' }}>Bal: Rs. 500</span>
               </div>
             </div>
           </div>
@@ -199,52 +335,84 @@ const PatientDashboard: React.FC = () => {
       </nav>
 
       {/* Main Dashboard Content */}
-      <div className="px-4 py-4">
+      <div className="h-[calc(100vh-4rem)] overflow-hidden px-4 py-4">
         {/* 2x2 Grid Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4" style={{ height: '75vh' }}>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 h-full">
           
           {/* Reports & Recommendation Card */}
-          <div className="p-6 text-white flex flex-col" style={{ backgroundColor: '#38ABAE' }}>
-            <h3 className="text-xl font-bold font-serif mb-4">Reports & Recommendation</h3>
-            <div className="space-y-3 flex-1">
-              <div className="border-b border-white/20 pb-2">
-                <p className="font-serif text-base">3rd September, 2025 - Dr. Riya Singh</p>
-              </div>
-              <div className="border-b border-white/20 pb-2">
-                <p className="font-serif text-base">27th August, 2025 - Dr. Riya Singh</p>
-              </div>
+          <div className="p-6 text-white flex flex-col rounded-lg border border-gray-300" style={{ backgroundColor: '#38ABAE' }}>
+            <div className="border-b-2 border-white pb-3 mb-6">
+              <h3 className="text-2xl font-bold text-center" style={{ fontFamily: 'Bree Serif, serif' }}>Reports & Recommendation</h3>
             </div>
-            <button onClick={() => navigate('/reports')} className="mt-4 bg-white text-teal-600 px-6 py-2 font-serif text-base font-medium hover:bg-gray-100 transition-colors self-start" style={{ borderRadius: '20px' }}>
-              View All
-            </button>
+            <div className="space-y-4 flex-1">
+              {recentReports.length > 0 ? (
+                recentReports.map((report) => (
+                  <div key={report._id} className="border-b border-white pb-4">
+                    <p className="text-base text-white" style={{ fontFamily: 'Inter, sans-serif' }}>
+                      {formatDate(report.createdAt)} - Dr. {report.doctorId.firstName} {report.doctorId.lastName}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8">
+                  <p className="text-white opacity-70" style={{ fontFamily: 'Inter, sans-serif' }}>No reports yet</p>
+                </div>
+              )}
+            </div>
+            <div className="mt-6 flex justify-center">
+              <button 
+                onClick={() => navigate('/reports-recommendation')} 
+                className="bg-white px-10 py-2.5 text-base font-semibold hover:bg-gray-100 transition-colors rounded-full" 
+                style={{ color: '#38ABAE', fontFamily: 'Inter, sans-serif' }}
+              >
+                View All
+              </button>
+            </div>
           </div>
 
           {/* Mental Health Screening Card */}
-          <div className="p-6 text-white flex flex-col" style={{ backgroundColor: '#ABA5D1' }}>
-            <h3 className="text-xl font-bold font-serif mb-4">Mental Health Screening</h3>
-            <div className="grid grid-cols-2 gap-3 flex-1">
-              <div className="bg-white p-4 text-center flex flex-col justify-center">
-                <p className="text-gray-600 font-serif text-sm mb-1">Depression Score</p>
-                <p className="text-xl font-bold text-gray-800 mb-1">8.6</p>
-                <button className="text-purple-600 font-serif text-xs font-medium hover:underline">
-                  View Inference
-                </button>
-              </div>
-              <div className="bg-white p-4 text-center flex flex-col justify-center">
-                <p className="text-gray-600 font-serif text-sm mb-1">Anxiety Score</p>
-                <button onClick={() => navigate('/mental-health-test')} className="text-purple-600 font-serif text-base font-medium hover:underline">
+          <div className="p-6 text-white flex flex-col rounded-lg border border-gray-300" style={{ backgroundColor: '#ABA5D1' }}>
+            <div className="border-b-2 border-white pb-3 mb-6">
+              <h3 className="text-2xl font-bold text-center" style={{ fontFamily: 'Bree Serif, serif' }}>Mental Health Screening</h3>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 flex-1">
+              <div className="bg-white p-4 text-center flex flex-col justify-center rounded-lg border border-gray-200">
+                <p className="text-gray-600 text-sm mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>Depression Score</p>
+                <button 
+                  onClick={() => navigate('/mental-health-test')} 
+                  className="text-base font-semibold hover:underline"
+                  style={{ color: '#ABA5D1', fontFamily: 'Inter, sans-serif' }}
+                >
                   Take Test
                 </button>
               </div>
-              <div className="bg-white p-4 text-center flex flex-col justify-center">
-                <p className="text-gray-600 font-serif text-sm mb-1">Addiction Rate</p>
-                <button onClick={() => navigate('/mental-health-test')} className="text-purple-600 font-serif text-base font-medium hover:underline">
+              <div className="bg-white p-4 text-center flex flex-col justify-center rounded-lg border border-gray-200">
+                <p className="text-gray-600 text-sm mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>Anxiety Score</p>
+                <button 
+                  onClick={() => navigate('/mental-health-test')} 
+                  className="text-base font-semibold hover:underline"
+                  style={{ color: '#ABA5D1', fontFamily: 'Inter, sans-serif' }}
+                >
                   Take Test
                 </button>
               </div>
-              <div className="bg-white p-4 text-center flex flex-col justify-center">
-                <p className="text-gray-600 font-serif text-sm mb-1">DLA- 20</p>
-                <button onClick={() => navigate('/mental-health-test')} className="text-purple-600 font-serif text-base font-medium hover:underline">
+              <div className="bg-white p-4 text-center flex flex-col justify-center rounded-lg border border-gray-200">
+                <p className="text-gray-600 text-sm mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>Addiction Rate</p>
+                <button 
+                  onClick={() => navigate('/mental-health-test')} 
+                  className="text-base font-semibold hover:underline"
+                  style={{ color: '#ABA5D1', fontFamily: 'Inter, sans-serif' }}
+                >
+                  Take Test
+                </button>
+              </div>
+              <div className="bg-white p-4 text-center flex flex-col justify-center rounded-lg border border-gray-200">
+                <p className="text-gray-600 text-sm mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>DLA- 20</p>
+                <button 
+                  onClick={() => navigate('/mental-health-test')} 
+                  className="text-base font-semibold hover:underline"
+                  style={{ color: '#ABA5D1', fontFamily: 'Inter, sans-serif' }}
+                >
                   Take Test
                 </button>
               </div>
@@ -262,41 +430,73 @@ const PatientDashboard: React.FC = () => {
           {/* My Journal + Pending Tasks Card */}
           <div className="flex flex-col space-y-3">
             {/* My Journal Section */}
-            <div className="p-4 text-white flex-1 flex flex-col" style={{ backgroundColor: '#6DBEDF' }}>
-              <h3 className="text-lg font-bold font-serif mb-3">My Journal</h3>
-              <div className="bg-white/20 p-3 flex-1">
-                <div className="flex justify-between items-center text-sm font-serif mb-2 font-semibold">
-                  <span>Date</span>
-                  <span>Subject</span>
-                </div>
-                <div className="flex justify-between items-center text-sm font-serif">
-                  <span>3rd September, 2025</span>
-                  <span>I had a good day today.</span>
-                </div>
+            <div className="p-6 text-white flex-1 flex flex-col rounded-lg border border-gray-300" style={{ backgroundColor: '#6DBEDF' }}>
+              <div className="border-b-2 border-white pb-3 mb-4">
+                <h3 className="text-2xl font-bold text-center" style={{ fontFamily: 'Bree Serif, serif' }}>My Journal</h3>
               </div>
-              <button className="mt-3 bg-white text-blue-600 px-4 py-1.5 font-serif text-sm font-medium hover:bg-gray-100 transition-colors self-start" style={{ borderRadius: '20px' }}>
-                View All
-              </button>
+              <div className="flex-1">
+                <div className="grid grid-cols-2 gap-4 text-base mb-3 font-bold border-b border-white pb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                  <span className="text-center">Date</span>
+                  <span className="text-center">Subject</span>
+                </div>
+                {recentJournal.length > 0 ? (
+                  recentJournal.map((entry) => (
+                    <div key={entry._id} className="grid grid-cols-2 gap-4 text-sm text-center mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                      <span>{formatDate(entry.createdAt)}</span>
+                      <span>{entry.title}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-white opacity-70 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>No journal entries yet</p>
+                  </div>
+                )}
+              </div>
+              <div className="mt-4 flex justify-center">
+                <button 
+                  onClick={() => navigate('/my-journal')}
+                  className="bg-white px-10 py-2.5 text-base font-semibold hover:bg-gray-100 transition-colors rounded-full" 
+                  style={{ color: '#6DBEDF', fontFamily: 'Inter, sans-serif' }}
+                >
+                  View All
+                </button>
+              </div>
             </div>
 
             {/* Pending Tasks Section */}
-            <div className="p-4 text-white flex-1 flex flex-col" style={{ backgroundColor: '#78BE9F' }}>
-              <h3 className="text-lg font-bold font-serif mb-3">Pending Tasks</h3>
-              <div className="bg-white/20 p-3 flex-1">
-                <div className="grid grid-cols-3 gap-2 text-sm font-serif mb-2 font-semibold">
-                  <span>Date</span>
-                  <span>Dr. Name</span>
-                  <span>Tasks</span>
-                </div>
-                <div className="grid grid-cols-3 gap-2 text-sm font-serif">
-                  <span>3rd September, 2025</span>
-                  <span>Dr. Riya Singh</span>
-                  <span>Task</span>
-                </div>
+            <div className="p-6 text-white flex-1 flex flex-col rounded-lg border border-gray-300" style={{ backgroundColor: '#78BE9F' }}>
+              <div className="border-b-2 border-white pb-3 mb-4">
+                <h3 className="text-2xl font-bold text-center" style={{ fontFamily: 'Bree Serif, serif' }}>Pending Tasks</h3>
               </div>
-              <button className="mt-3 bg-white text-green-600 px-4 py-1.5 font-serif text-sm font-medium hover:bg-gray-100 transition-colors self-start" style={{ borderRadius: '20px' }}>
-                View All
-              </button>
+              <div className="flex-1">
+                <div className="grid grid-cols-3 gap-4 text-base mb-3 font-bold border-b border-white pb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                  <span className="text-center">Date</span>
+                  <span className="text-center">Dr. Name</span>
+                  <span className="text-center">Tasks</span>
+                </div>
+                {pendingTasks.length > 0 ? (
+                  pendingTasks.map((task) => (
+                    <div key={task._id} className="grid grid-cols-3 gap-4 text-sm text-center mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                      <span>{formatDate(task.dueDate)}</span>
+                      <span>Dr. {task.doctorId.firstName} {task.doctorId.lastName}</span>
+                      <span>{task.title}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-center py-4">
+                    <p className="text-white opacity-70 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>No pending tasks</p>
+                  </div>
+                )}
+              </div>
+              <div className="mt-4 flex justify-center">
+                <button 
+                  onClick={() => navigate('/pending-tasks')}
+                  className="bg-white px-10 py-2.5 text-base font-semibold hover:bg-gray-100 transition-colors rounded-full" 
+                  style={{ color: '#78BE9F', fontFamily: 'Inter, sans-serif' }}
+                >
+                  View All
+                </button>
+              </div>
             </div>
           </div>
 

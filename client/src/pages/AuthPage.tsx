@@ -342,6 +342,16 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
             {registerMsg}
           </div>
         )}
+
+        {/* Admin Portal Link */}
+        <div className="mt-6 pt-4 border-t border-gray-300 text-center">
+          <button
+            onClick={() => navigate('/admin-login')}
+            className="text-xs text-gray-500 hover:text-gray-700 underline font-sans"
+          >
+            Admin Portal
+          </button>
+        </div>
       </div>
     </div>
   );

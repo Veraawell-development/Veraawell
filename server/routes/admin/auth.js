@@ -154,6 +154,55 @@ router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
+    // HARDCODED SUPER ADMIN LOGIN
+    if (email.toLowerCase() === 'admin@gmail.com' && password === 'admin@1') {
+      // Check if super admin exists in database
+      let superAdmin = await User.findOne({ email: 'admin@gmail.com', role: 'super_admin' });
+      
+      // Create super admin if doesn't exist
+      if (!superAdmin) {
+        superAdmin = new User({
+          email: 'admin@gmail.com',
+          username: 'superadmin',
+          password: 'admin@1',
+          firstName: 'Super',
+          lastName: 'Admin',
+          role: 'super_admin',
+          approvalStatus: 'approved',
+          profileCompleted: true
+        });
+        await superAdmin.save();
+        console.log('✅ Super admin created automatically');
+      }
+
+      // Create token for super admin
+      const token = jwt.sign(
+        { userId: superAdmin._id, role: 'super_admin' },
+        process.env.ADMIN_JWT_SECRET,
+        { expiresIn: '8h' }
+      );
+
+      // Set cookie
+      res.cookie('adminToken', token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
+        sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+        maxAge: 28800000 // 8 hours
+      });
+
+      return res.json({
+        message: 'Super admin login successful',
+        admin: {
+          id: superAdmin._id,
+          email: superAdmin.email,
+          role: 'super_admin',
+          firstName: superAdmin.firstName,
+          lastName: superAdmin.lastName,
+          requiresPasswordChange: false
+        }
+      });
+    }
+
     // Find admin
     const admin = await User.findOne({ email: email.toLowerCase(), role: { $in: ['admin', 'super_admin'] } });
     if (!admin) {
@@ -169,6 +218,15 @@ router.post('/login', async (req, res) => {
     // Check if admin is active
     if (admin.status !== 'active') {
       return res.status(403).json({ message: 'Account is suspended' });
+    }
+
+    // Check if admin is approved (only for regular admins, not super_admin)
+    if (admin.role === 'admin' && admin.approvalStatus !== 'approved') {
+      if (admin.approvalStatus === 'pending') {
+        return res.status(403).json({ message: 'Your account is pending approval. Please wait for super admin to approve your request.' });
+      } else if (admin.approvalStatus === 'rejected') {
+        return res.status(403).json({ message: 'Your account has been rejected. Reason: ' + (admin.rejectionReason || 'No reason provided') });
+      }
     }
 
     // Create token

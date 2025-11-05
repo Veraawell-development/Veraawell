@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { io, Socket } from 'socket.io-client';
+import SessionToolsModal from '../components/SessionToolsModal';
 
 const VideoCallRoom: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -24,10 +25,37 @@ const VideoCallRoom: React.FC = () => {
   const [remoteUserJoined, setRemoteUserJoined] = useState(false);
   const [connectionQuality, setConnectionQuality] = useState<'excellent' | 'good' | 'poor' | 'disconnected'>('excellent');
   const [qualityMessage, setQualityMessage] = useState<string | null>(null);
+  const [showDoctorPanel, setShowDoctorPanel] = useState(false);
+  const [sessionData, setSessionData] = useState<any>(null);
+  const [loadingSession, setLoadingSession] = useState(true);
 
   const API_BASE_URL = window.location.hostname === 'localhost' 
     ? 'http://localhost:5001' 
     : 'https://veraawell-backend.onrender.com';
+
+  const fetchSessionData = async () => {
+    try {
+      setLoadingSession(true);
+      console.log('📋 Fetching session data for:', sessionId);
+      
+      const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}`, {
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch session data');
+      }
+
+      const data = await response.json();
+      console.log('📋 Session data received:', data);
+      setSessionData(data);
+    } catch (error) {
+      console.error('Error fetching session data:', error);
+      setError('Failed to load session details');
+    } finally {
+      setLoadingSession(false);
+    }
+  };
 
   // ICE servers configuration (Google's public STUN servers)
   const iceServers = {
@@ -40,6 +68,7 @@ const VideoCallRoom: React.FC = () => {
   useEffect(() => {
     if (!sessionId || !user) return;
 
+    fetchSessionData();
     initializeCall();
     
     return () => {
@@ -485,9 +514,23 @@ const VideoCallRoom: React.FC = () => {
   };
 
   const cleanup = () => {
-    // Stop local stream
+    console.log('[VIDEO-CALL] 🧹 Cleaning up resources...');
+    
+    // Stop all local stream tracks (camera and microphone)
     if (localStream) {
-      localStream.getTracks().forEach(track => track.stop());
+      localStream.getTracks().forEach(track => {
+        console.log('[VIDEO-CALL] 🛑 Stopping track:', track.kind);
+        track.stop();
+      });
+      setLocalStream(null);
+    }
+    
+    // Clear video elements
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = null;
+    }
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null;
     }
     
     // Close peer connection and clear stats interval
@@ -497,12 +540,16 @@ const VideoCallRoom: React.FC = () => {
         clearInterval(statsInterval);
       }
       peerConnectionRef.current.close();
+      peerConnectionRef.current = null;
     }
     
     // Disconnect socket
     if (socketRef.current) {
       socketRef.current.disconnect();
+      socketRef.current = null;
     }
+    
+    console.log('[VIDEO-CALL] ✅ Cleanup complete');
   };
 
   return (
@@ -636,6 +683,35 @@ const VideoCallRoom: React.FC = () => {
             </div>
           </div>
       </div>
+
+      {/* Doctor Panel */}
+      {user?.role === 'doctor' && (
+        <>
+          {/* Toggle Button */}
+          <button
+            onClick={() => setShowDoctorPanel(!showDoctorPanel)}
+            className="absolute right-6 top-1/2 transform -translate-y-1/2 bg-teal-600 hover:bg-teal-700 text-white p-3 rounded-l-lg shadow-xl z-40 transition-all"
+            title="Session Tools"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </button>
+
+          {/* Session Tools Modal */}
+          {sessionData && (
+            <SessionToolsModal 
+              isOpen={showDoctorPanel}
+              onClose={() => setShowDoctorPanel(false)}
+              sessionId={sessionId || ''}
+              patientId={user?.role === 'doctor' ? sessionData.patientId?._id || sessionData.patientId : sessionData.doctorId?._id || sessionData.doctorId}
+              patientName={user?.role === 'doctor' 
+                ? `${sessionData.patientId?.firstName || ''} ${sessionData.patientId?.lastName || ''}`.trim() 
+                : `${sessionData.doctorId?.firstName || ''} ${sessionData.doctorId?.lastName || ''}`.trim()}
+            />
+          )}
+        </>
+      )}
 
       {/* Minimal Controls */}
       <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex items-center gap-4 z-50">

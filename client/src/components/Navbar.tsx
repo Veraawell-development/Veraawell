@@ -19,7 +19,9 @@ export default function Navbar() {
   };
 
   const AuthButton: React.FC<{ isMobile?: boolean }> = ({ isMobile = false }) => {
-    const commonClasses = 'font-bree-serif font-semibold px-6 py-2 rounded-full transition-colors duration-300';
+    const commonClasses = isMobile 
+      ? 'font-bree-serif font-semibold px-4 py-2 rounded-full transition-colors duration-300 text-sm'
+      : 'font-bree-serif font-semibold px-6 py-2 rounded-full transition-colors duration-300';
     const mobileClasses = isMobile ? 'w-full' : '';
 
     if (isLoggedIn) {
@@ -30,13 +32,26 @@ export default function Navbar() {
         window.location.href = '/';
       };
 
+      const handleProfile = () => {
+        if (isMobile) setIsMobileMenuOpen(false);
+        navigate('/profile-setup');
+      };
+
       return (
-        <button
-          onClick={handleLogout}
-          className={`${commonClasses} ${mobileClasses} bg-transparent border-2 border-white text-white hover:bg-white hover:text-[#7DA9A7]`}
-        >
-          Logout
-        </button>
+        <div className={`flex ${isMobile ? 'flex-col' : 'flex-row'} gap-2`}>
+          <button
+            onClick={handleProfile}
+            className={`${commonClasses} ${mobileClasses} bg-white text-[#7DA9A7] hover:bg-gray-200`}
+          >
+            My Profile
+          </button>
+          <button
+            onClick={handleLogout}
+            className={`${commonClasses} ${mobileClasses} bg-transparent border-2 border-white text-white hover:bg-white hover:text-[#7DA9A7]`}
+          >
+            Logout
+          </button>
+        </div>
       );
     }
 
@@ -52,8 +67,8 @@ export default function Navbar() {
 
   return (
     <nav className="w-full bg-[#7DA9A7] shadow-md font-bree-serif">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-20">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
+        <div className="flex items-center justify-between h-16 md:h-20">
           {/* Logo */}
           <div className="flex-shrink-0 cursor-pointer" onClick={() => {
             if (isLoggedIn && user) {
@@ -63,13 +78,13 @@ export default function Navbar() {
               navigate('/');
             }
           }}>
-            <img src="/logo.png" alt="Veraawell Logo" className="h-24 w-auto" />
+            <img src="/logo.png" alt="Veraawell Logo" className="h-14 md:h-24 w-auto" />
           </div>
 
           {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center space-x-10">
+          <div className="hidden md:flex items-center space-x-6 lg:space-x-10">
             {navigationLinks.map((link) => (
-              <a key={link.name} href={link.path} className="text-white text-lg hover:text-gray-200 transition-colors">
+              <a key={link.name} href={link.path} className="text-white text-base lg:text-lg hover:text-gray-200 transition-colors">
                 {link.name}
               </a>
             ))}
@@ -82,8 +97,8 @@ export default function Navbar() {
 
           {/* Mobile Menu Button */}
           <div className="md:hidden">
-            <button onClick={toggleMobileMenu} className="text-white p-2 rounded-md focus:outline-none">
-              <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <button onClick={toggleMobileMenu} className="text-white p-1.5 rounded-md focus:outline-none">
+              <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 {isMobileMenuOpen ? (
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 ) : (
@@ -98,13 +113,13 @@ export default function Navbar() {
       {/* Mobile Menu */}
       {isMobileMenuOpen && (
         <div className="md:hidden">
-          <div className="px-4 pt-4 pb-6 space-y-4">
+          <div className="px-3 pt-3 pb-4 space-y-2">
             {navigationLinks.map((link) => (
-              <a key={link.name} href={link.path} className="block text-white text-lg hover:text-gray-200" onClick={() => setIsMobileMenuOpen(false)}>
+              <a key={link.name} href={link.path} className="block text-white text-sm py-2 hover:text-gray-200" onClick={() => setIsMobileMenuOpen(false)}>
                 {link.name}
               </a>
             ))}
-            <div className="pt-4">
+            <div className="pt-2">
               <AuthButton isMobile />
             </div>
           </div>

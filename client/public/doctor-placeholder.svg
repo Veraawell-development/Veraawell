@@ -1,0 +1,15 @@
+<svg width="200" height="200" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background Circle -->
+  <circle cx="100" cy="100" r="100" fill="#E3F0F0"/>
+  
+  <!-- Doctor Icon -->
+  <circle cx="100" cy="75" r="30" fill="#7DA9A7"/>
+  
+  <!-- Body -->
+  <path d="M 50 150 Q 50 120 100 120 Q 150 120 150 150 L 150 200 L 50 200 Z" fill="#7DA9A7"/>
+  
+  <!-- Stethoscope -->
+  <circle cx="85" cy="130" r="8" fill="#38ABAE" stroke="#FFFFFF" stroke-width="2"/>
+  <path d="M 85 138 Q 85 155 100 160" stroke="#38ABAE" stroke-width="3" fill="none"/>
+  <circle cx="100" cy="160" r="5" fill="#38ABAE"/>
+</svg>

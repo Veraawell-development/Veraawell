@@ -4,23 +4,23 @@ const FeaturesSection: React.FC = () => {
   const features = [
     {
       text: "PROGRESS-TRACKING DASHBOARD",
-      backgroundColor: "#9F8FC2"
+      backgroundColor: "#ABA5D1"
     },
     {
       text: "NETWORK OF HIGH-QUALITY PSYCHOLOGISTS",
-      backgroundColor: "#8BC9E8"
+      backgroundColor: "#A6D6EA"
     },
     {
       text: "SESSION-WISE REPORT",
-      backgroundColor: "#3CA8A8"
+      backgroundColor: "#38ABAE"
     },
     {
       text: "ON DEMAND THERAPY SESSIONS",
-      backgroundColor: "#F6CBA5"
+      backgroundColor: "#F4CCA9"
     },
     {
       text: "FLEXIBLE PRICING MODEL",
-      backgroundColor: "#9AD2BE"
+      backgroundColor: "#9BD3BA"
     }
   ];
 
@@ -42,7 +42,7 @@ const FeaturesSection: React.FC = () => {
                 <h3 className="text-white font-bold text-base sm:text-lg md:text-xl lg:text-2xl xl:text-3xl text-left leading-[110%] tracking-[0%] uppercase"
                      style={{ 
                        fontFamily: 'Bowlby One SC, serif',
-                       WebkitTextStroke: '0.1px #6B5B8A',
+                       WebkitTextStroke: '0.5px #383162',
                        WebkitTextFillColor: 'white',
                        color: 'white'
                      }}>
@@ -65,12 +65,13 @@ const FeaturesSection: React.FC = () => {
                 className="h-36 sm:h-40 md:h-44 lg:h-48 xl:h-52 rounded-lg md:rounded-xl shadow-xl flex items-center justify-start p-4 sm:p-5 md:p-6 lg:p-7 relative"
                 style={{ backgroundColor: features[1].backgroundColor }}
               >
-                <h3 className="text-white font-bold text-base sm:text-lg md:text-xl lg:text-2xl xl:text-3xl text-left leading-[110%] tracking-[0%] uppercase"
+                <h3 className="text-white font-bold text-base sm:text-lg md:text-2xl lg:text-2xl xl:text-3xl text-left leading-[110%] tracking-[0%] uppercase"
                      style={{ 
                        fontFamily: 'Bowlby One SC, serif',
-                       WebkitTextStroke: '0.5px #5A9BC4',
+                       WebkitTextStroke: '0.5px #004462ff',
                        WebkitTextFillColor: 'white',
-                       color: 'white'
+                       color: 'white',
+                       
                      }}>
                   NETWORK OF<br />HIGH-QUALITY<br />PSYCHOLOGISTS
                 </h3>
@@ -97,7 +98,7 @@ const FeaturesSection: React.FC = () => {
                 <h3 className="text-white font-bold text-base sm:text-lg md:text-xl lg:text-2xl xl:text-3xl text-left leading-[110%] tracking-[0%] uppercase"
                      style={{ 
                        fontFamily: 'Bowlby One SC, serif',
-                       WebkitTextStroke: '0.5px #2A7A7A',
+                       WebkitTextStroke: '0.5px #155153',
                        WebkitTextFillColor: 'white',
                        color: 'white'
                      }}>
@@ -115,7 +116,7 @@ const FeaturesSection: React.FC = () => {
                 <h3 className="text-white font-bold text-base sm:text-lg md:text-xl lg:text-2xl xl:text-3xl text-left leading-[110%] tracking-[0%] uppercase"
                      style={{ 
                        fontFamily: 'Bowlby One SC, serif',
-                       WebkitTextStroke: '0.5px #D4A87A',
+                       WebkitTextStroke: '0.5px #885A32',
                        WebkitTextFillColor: 'white',
                        color: 'white'
                      }}>
@@ -133,7 +134,7 @@ const FeaturesSection: React.FC = () => {
                 <h3 className="text-white font-bold text-base sm:text-lg md:text-xl lg:text-2xl xl:text-3xl text-left leading-[110%] tracking-[0%] uppercase"
                      style={{ 
                        fontFamily: 'Bowlby One SC, serif',
-                       WebkitTextStroke: '0.5px #6BA08A',
+                       WebkitTextStroke: '0.5px #1C4A35',
                        WebkitTextFillColor: 'white',
                        color: 'white'
                      }}>

@@ -55,6 +55,29 @@ const sessionSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  // Call history tracking fields
+  callStartTime: {
+    type: Date,
+    default: null
+  },
+  callEndTime: {
+    type: Date,
+    default: null
+  },
+  actualDuration: {
+    type: Number, // in minutes
+    default: 0
+  },
+  callStatus: {
+    type: String,
+    enum: ['not-started', 'in-progress', 'completed', 'failed'],
+    default: 'not-started'
+  },
+  callMode: {
+    type: String,
+    enum: ['Video Calling', 'Voice Calling', 'Cancelled & Refunded'],
+    default: 'Video Calling'
+  },
   createdAt: {
     type: Date,
     default: Date.now

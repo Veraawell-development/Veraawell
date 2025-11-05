@@ -6,12 +6,13 @@ import Reviews from '../components/landing/testimonials';
 
 export default function LandingPage() {
   return (
-    <>
+    <div style={{overflowX:'hidden'}}>
+
       <HeroSection />
       <FeaturesSection />
       <WhatIsVeraawell />
       <MissionStats />
       <Reviews />
-    </>
+    </div>
   );
 } 

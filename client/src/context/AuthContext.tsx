@@ -11,6 +11,7 @@ interface User {
   role: string;
   firstName: string;
   lastName: string;
+  profileCompleted?: boolean;
 }
 
 interface AuthContextType {
@@ -28,13 +29,13 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('authToken'));
+  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [loading, setLoading] = useState<boolean>(false);
 
   const setAuthToken = useCallback((newToken: string) => {
     console.log('[AUTH] Setting token:', newToken ? 'Token received' : 'No token');
     setToken(newToken);
-    localStorage.setItem('authToken', newToken);
+    localStorage.setItem('token', newToken);
   }, []);
 
   const checkAuth = useCallback(async () => {
@@ -45,14 +46,29 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
       if (res.ok) {
         const data = await res.json();
+        
+        // Fetch profile status
+        const profileRes = await fetch(`${API_BASE_URL}/profile/status`, {
+          credentials: 'include',
+        });
+        
+        let profileCompleted = false;
+        if (profileRes.ok) {
+          const profileData = await profileRes.json();
+          profileCompleted = profileData.profileCompleted;
+        }
+        
         setIsLoggedIn(true);
-        setUser(data.user);
+        setUser({
+          ...data.user,
+          profileCompleted
+        });
         
         // Store the token from the response if available
         if (data.token) {
           console.log('[AUTH] Token received from server, storing in localStorage');
           setToken(data.token);
-          localStorage.setItem('authToken', data.token);
+          localStorage.setItem('token', data.token); // Changed from 'authToken' to 'token'
         } else if (!token) {
           console.log('[AUTH] ⚠️ No token in response or localStorage');
         }
@@ -60,7 +76,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setIsLoggedIn(false);
         setUser(null);
         setToken(null);
-        localStorage.removeItem('authToken');
+        localStorage.removeItem('token'); // Changed from 'authToken' to 'token'
       }
     } catch (error) {
       setIsLoggedIn(false);
@@ -75,7 +91,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsLoggedIn(false);
     setUser(null);
     setToken(null);
-    localStorage.removeItem('authToken');
+    localStorage.removeItem('token'); // Changed from 'authToken' to 'token'
   }, []);
 
   return (

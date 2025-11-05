@@ -1,8 +1,6 @@
-import { useState } from 'react';
+import React from 'react';
 
 export default function Reviews() {
-  const [currentIndex, setCurrentIndex] = useState(0);
-  
   const testimonials = [
     {
       name: "Isha",
@@ -51,27 +49,56 @@ export default function Reviews() {
       rating: 4,
       text: "The flexibility to schedule sessions at my convenience has made therapy accessible for my busy lifestyle.",
       bgColor: "bg-[#F4C87A]"
+    },
+    {
+      name: "Amit",
+      rating: 5,
+      text: "I appreciate the confidentiality and ease of booking sessions. Veraawell is a blessing!",
+      bgColor: "bg-[#A594C4]"
+    },
+    {
+      name: "Neha",
+      rating: 4,
+      text: "Therapy at Veraawell has helped me regain my confidence and peace of mind.",
+      bgColor: "bg-[#7BC3E8]"
+    },
+    {
+      name: "Karan",
+      rating: 5,
+      text: "The therapists are knowledgeable and truly care about your progress.",
+      bgColor: "bg-[#9BC49A]"
+    },
+    {
+      name: "Simran",
+      rating: 5,
+      text: "The best mental health platform I've used so far. Highly recommend!",
+      bgColor: "bg-[#F4B87A]"
     }
   ];
 
-  const cardsPerView = 4;
-  const maxIndex = Math.max(0, testimonials.length - cardsPerView);
-
-  const handlePrevious = () => {
-    setCurrentIndex(prev => Math.max(0, prev - 1));
+  // For scrolling
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+  const scrollByCard = () => {
+    if (!scrollRef.current) return 0;
+    const card = scrollRef.current.querySelector('div[data-testimonial-card]');
+    return card ? (card as HTMLElement).offsetWidth + 32 : 350; // 32 = gap-8
   };
-
-  const handleNext = () => {
-    setCurrentIndex(prev => Math.min(maxIndex, prev + 1));
+  const scrollLeft = () => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollBy({ left: -scrollByCard(), behavior: 'smooth' });
+    }
   };
-
+  const scrollRight = () => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollBy({ left: scrollByCard(), behavior: 'smooth' });
+    }
+  };
 
   return (
     <section className="w-full bg-[#E0EAEA] py-20 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         {/* Header with Illustration */}
         <div className="relative flex justify-center mb-16">
-          {/* People Illustration */}
           <div className="absolute md:-top-16 left-1/2 transform -translate-x-1/2 z-20 sm:-top-16 ">
             <img 
               src="/2453876 1.svg" 
@@ -79,88 +106,64 @@ export default function Reviews() {
               className="w-80 h-auto mt-3"
             />
           </div>
-          
-          {/* Reviews Header */}
           <div className="bg-[#C17B5C] rounded-[40px] px-20 py-2 shadow-[0_8px_16px_rgba(0,0,0,0.2)] mt-32 relative z-10">
             <h2 className="text-white text-[36px] font-bold text-center font-serif">
               Reviews
             </h2>
           </div>
         </div>
-
-        {/* Slider Container */}
+        {/* Horizontal Scrollable Testimonials */}
         <div className="relative">
-          {/* Navigation Buttons */}
           <button
-            onClick={handlePrevious}
-            disabled={currentIndex === 0}
-            className="absolute left-0 top-1/2 transform -translate-y-1/2 -translate-x-2 sm:-translate-x-3 md:-translate-x-4 z-10 bg-white rounded-full w-8 h-8 sm:w-10 sm:h-10 md:w-12 md:h-12 flex items-center justify-center shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={scrollLeft}
+            className="hidden sm:flex absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-white rounded-full w-12 h-12 items-center justify-center shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50"
+            aria-label="Scroll left"
+            style={{transform: 'translate(-50%, -50%)'}}
           >
-            <span className="text-[#C17B5C] text-sm sm:text-lg md:text-xl font-bold">‹</span>
+            <span className="text-[#C17B5C] text-3xl font-bold">&#8249;</span>
           </button>
-
-          <button
-            onClick={handleNext}
-            disabled={currentIndex >= maxIndex}
-            className="absolute right-0 top-1/2 transform -translate-y-1/2 translate-x-2 sm:translate-x-3 md:translate-x-4 z-10 bg-white rounded-full w-8 h-8 sm:w-10 sm:h-10 md:w-12 md:h-12 flex items-center justify-center shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
+          <div
+            ref={scrollRef}
+            className="flex gap-4 sm:gap-6 md:gap-8 overflow-x-auto scroll-smooth pb-4 hide-scrollbar"
+            style={{scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch'}}
           >
-            <span className="text-[#C17B5C] text-sm sm:text-lg md:text-xl font-bold">›</span>
-          </button>
-
-          {/* Testimonials Slider */}
-          <div className="overflow-hidden">
-            <div 
-              className="flex transition-transform duration-500 ease-in-out gap-2 sm:gap-4 md:gap-6"
-              style={{ transform: `translateX(-${currentIndex * (100 / cardsPerView)}%)` }}
-            >
-              {testimonials.map((testimonial, index) => (
-                <div
-                  key={index}
-                  className={`${testimonial.bgColor} rounded-[15px] sm:rounded-[18px] md:rounded-[20px] p-3 sm:p-4 md:p-6 shadow-[0_4px_8px_rgba(0,0,0,0.1)] flex-shrink-0 h-32 sm:h-40 md:h-auto min-h-[180px]`}
-                  style={{ width: `calc(${100 / cardsPerView}% - 8px)` }}
-                >
-                  {/* Name */}
-                  <h3 className="text-white text-[12px] sm:text-[16px] md:text-[18px] font-bold mb-1 sm:mb-2 font-sans">
-                    {testimonial.name}
-                  </h3>
-                  
-                  {/* Star Rating */}
-                  <div className="flex mb-2 sm:mb-3 md:mb-4">
-                    <div className="flex space-x-0.5">
-                      {Array.from({ length: 5 }, (_, starIndex) => (
-                        <span
-                          key={starIndex}
-                          className={`text-[10px] sm:text-[14px] md:text-[16px] ${
-                            starIndex < testimonial.rating ? 'text-[#FFB800]' : 'text-gray-300'
-                          }`}
-                        >
-                          ★
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                  
-                  {/* Testimonial Text */}
-                  <p className="text-white text-[8px] sm:text-[11px] md:text-[14px] leading-[1.3] sm:leading-[1.4] md:leading-[1.5] font-sans overflow-hidden">
-                    "{testimonial.text}"
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Dots Indicator */}
-          <div className="flex justify-center mt-8 space-x-2">
-            {Array.from({ length: maxIndex + 1 }, (_, index) => (
-              <button
+            {testimonials.map((testimonial, index) => (
+              <div
                 key={index}
-                onClick={() => setCurrentIndex(index)}
-                className={`w-3 h-3 rounded-full transition-all duration-300 ${
-                  currentIndex === index ? 'bg-[#C17B5C]' : 'bg-gray-300'
-                }`}
-              />
+                data-testimonial-card
+                className={`
+                  ${testimonial.bgColor}
+                  min-w-[85vw] max-w-[95vw] sm:min-w-[340px] sm:max-w-[370px] md:min-w-[320px] md:max-w-[350px]
+                  rounded-[10px] border border-[rgba(0,0,0,0.16)] shadow-xl flex flex-col h-full p-5 sm:p-8 flex-shrink-0
+                `}
+              >
+                <h3 className="text-white font-bold text-[22px] sm:text-[26px] md:text-[30px] font-bowlby mb-2 leading-tight">
+                  {testimonial.name}
+                </h3>
+                <div className="flex items-center mb-4">
+                  {Array.from({ length: 5 }, (_, starIndex) => (
+                    <span
+                      key={starIndex}
+                      className={`text-[24px] sm:text-[28px] md:text-[32px] mr-1 ${starIndex < testimonial.rating ? 'text-[#FFB800]' : 'text-white/40'}`}
+                    >
+                      ★
+                    </span>
+                  ))}
+                </div>
+                <p className="text-white font-bree text-[15px] sm:text-[18px] md:text-[22px] leading-snug">
+                  "{testimonial.text}"
+                </p>
+              </div>
             ))}
           </div>
+          <button
+            onClick={scrollRight}
+            className="hidden sm:flex absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-white rounded-full w-12 h-12 items-center justify-center shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50"
+            aria-label="Scroll right"
+            style={{transform: 'translate(50%, -50%)'}}
+          >
+            <span className="text-[#C17B5C] text-3xl font-bold">&#8250;</span>
+          </button>
         </div>
       </div>
     </section>

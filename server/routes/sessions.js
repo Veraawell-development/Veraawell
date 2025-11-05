@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const Session = require('../models/session');
+const Conversation = require('../models/conversation');
 const User = require('../models/user');
 const DoctorProfile = require('../models/doctorProfile');
 const jwt = require('jsonwebtoken');
@@ -27,6 +28,76 @@ const verifyToken = (req, res, next) => {
   }
 };
 
+
+// Get call history for the authenticated user
+router.get('/call-history', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userRole = req.user.role;
+
+    console.log('📞 Fetching call history for:', { userId: userId.substring(0, 8), role: userRole });
+
+    // Build query based on user role
+    const query = userRole === 'patient' 
+      ? { patientId: userId }
+      : { doctorId: userId };
+
+    // Fetch ALL sessions where user participated and call was started
+    // This includes: completed, cancelled, or any session where callStartTime exists
+    const callHistory = await Session.find({
+      ...query,
+      $or: [
+        { status: { $in: ['completed', 'cancelled'] } },
+        { callStatus: { $in: ['in-progress', 'completed'] } },
+        { callStartTime: { $exists: true, $ne: null } }
+      ]
+    })
+      .populate('patientId', 'firstName lastName')
+      .populate('doctorId', 'firstName lastName')
+      .sort({ sessionDate: -1, sessionTime: -1 })
+      .lean();
+
+    console.log('📞 Found sessions:', callHistory.length);
+
+    // Format the response
+    const formattedHistory = callHistory.map(session => {
+      // Handle null doctor/patient (for test sessions where user is both)
+      let name = 'Unknown';
+      if (userRole === 'patient') {
+        if (session.doctorId) {
+          name = `Dr. ${session.doctorId.firstName} ${session.doctorId.lastName}`;
+        } else {
+          name = 'Test Session (Self)';
+        }
+      } else {
+        if (session.patientId) {
+          name = `${session.patientId.firstName} ${session.patientId.lastName}`;
+        } else {
+          name = 'Test Session (Self)';
+        }
+      }
+
+      return {
+        _id: session._id,
+        name: name,
+        date: session.sessionDate,
+        duration: session.actualDuration || session.duration,
+        mode: session.status === 'cancelled' ? 'Cancelled & Refunded' : (session.callMode || 'Video Calling'),
+        paymentAmount: session.price,
+        paymentStatus: session.paymentStatus,
+        sessionType: session.sessionType,
+        status: session.status,
+        callStatus: session.callStatus
+      };
+    });
+
+    console.log('📞 Returning formatted history:', formattedHistory.length, 'records');
+    res.json(formattedHistory);
+  } catch (error) {
+    console.error('Error fetching call history:', error);
+    res.status(500).json({ message: 'Failed to fetch call history', error: error.message });
+  }
+});
 
 // Get available slots for a doctor on a specific date
 router.get('/doctors/:doctorId/slots/:date', async (req, res) => {
@@ -55,16 +126,27 @@ router.post('/book-immediate', verifyToken, async (req, res) => {
       });
     }
 
-    // Create immediate session (starts in 2 minutes)
+    // Create immediate session (starts NOW - can join immediately)
     const now = new Date();
-    const sessionDateTime = new Date(now.getTime() + 2 * 60 * 1000); // 2 minutes from now
-    const sessionDate = sessionDateTime.toISOString().split('T')[0];
-    const sessionTime = sessionDateTime.toTimeString().slice(0, 5);
+    
+    // Use local date to avoid timezone issues
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const sessionDate = `${year}-${month}-${day}`;
+    
+    // Current time for immediate joining
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const sessionTime = `${hours}:${minutes}`;
 
-    console.log('💾 Creating session with data:', {
+    console.log('💾 Creating immediate session with data:', {
       patientId: patientId.substring(0, 8),
       doctorId: doctorId.substring(0, 8),
-      sessionType: 'immediate'
+      sessionType: 'immediate',
+      sessionDate,
+      sessionTime,
+      localTime: now.toLocaleString()
     });
 
     const session = new Session({
@@ -96,8 +178,17 @@ router.post('/book-immediate', verifyToken, async (req, res) => {
       .populate('patientId', 'firstName lastName email')
       .populate('doctorId', 'firstName lastName email');
 
+    // Auto-create conversation between patient and doctor
+    try {
+      await Conversation.findOrCreateConversation(patientId, doctorId, savedSession._id);
+      console.log(`Conversation created/found for patient ${patientId} and doctor ${doctorId}`);
+    } catch (convError) {
+      console.error('Error creating conversation:', convError);
+      // Don't fail the session booking if conversation creation fails
+    }
+
     res.status(201).json({
-      message: 'Immediate session booked successfully! You can join in 2 minutes.',
+      message: 'Immediate session booked successfully! You can join now.',
       session: populatedSession
     });
   } catch (error) {
@@ -154,6 +245,15 @@ router.post('/book', verifyToken, async (req, res) => {
     const populatedSession = await Session.findById(session._id)
       .populate('patientId', 'firstName lastName email')
       .populate('doctorId', 'firstName lastName email');
+
+    // Auto-create conversation between patient and doctor
+    try {
+      await Conversation.findOrCreateConversation(patientId, doctorId, session._id);
+      console.log(`Conversation created/found for patient ${patientId} and doctor ${doctorId}`);
+    } catch (convError) {
+      console.error('Error creating conversation:', convError);
+      // Don't fail the session booking if conversation creation fails
+    }
 
     res.status(201).json({
       message: 'Session booked successfully',
@@ -220,6 +320,188 @@ router.get('/upcoming', verifyToken, async (req, res) => {
   }
 });
 
+// IMPORTANT: Specific routes must come BEFORE parameterized routes like /:sessionId
+// Otherwise /:sessionId will match /doctors and cause 401 errors
+
+// Get all doctors with their profiles (including those without completed profiles)
+router.get('/doctors', async (req, res) => {
+  try {
+    // First, get all users with role 'doctor'
+    const allDoctors = await User.find({ role: 'doctor' }).select('firstName lastName email');
+    
+    // Then get all doctor profiles
+    const doctorProfiles = await DoctorProfile.find({})
+      .populate('userId', 'firstName lastName email');
+    
+    // Create a map of userId to profile
+    const profileMap = new Map();
+    doctorProfiles.forEach(profile => {
+      if (profile.userId && profile.userId._id) {
+        profileMap.set(profile.userId._id.toString(), profile);
+      }
+    });
+    
+    // Available doctor images for rotation
+    const doctorImages = ['/doctor-01.svg', '/doctor-02.svg', '/doctor-03.svg', '/doctor-04.svg'];
+    
+    // Merge doctors with their profiles (or create default profile)
+    const result = allDoctors.map((doctor, index) => {
+      const profile = profileMap.get(doctor._id.toString());
+      
+      if (profile) {
+        // If profile exists but has no image, assign one from rotation
+        if (!profile.profileImage || profile.profileImage === '/doctor-placeholder.svg') {
+          profile.profileImage = doctorImages[index % doctorImages.length];
+        }
+        return profile;
+      } else {
+        // Create a default profile structure for doctors without profiles
+        return {
+          _id: `temp_${doctor._id}`,
+          userId: {
+            _id: doctor._id,
+            firstName: doctor.firstName,
+            lastName: doctor.lastName,
+            email: doctor.email
+          },
+          specialization: ['Unknown'],
+          experience: 0,
+          qualification: ['Unknown'],
+          languages: ['Unknown'],
+          treatsFor: ['General'],
+          pricing: {
+            min: 0,
+            max: 0
+          },
+          profileImage: doctorImages[index % doctorImages.length],
+          bio: 'Profile not completed yet',
+          isOnline: false,
+          rating: {
+            average: 0,
+            totalReviews: 0
+          }
+        };
+      }
+    });
+    
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching doctors:', error);
+    res.status(500).json({ message: 'Failed to fetch doctors', error: error.message });
+  }
+});
+
+// Get single doctor by ID with profile
+router.get('/doctors/:doctorId', async (req, res) => {
+  try {
+    const { doctorId } = req.params;
+    
+    console.log('🔍 Fetching doctor profile for ID:', doctorId);
+    
+    // Validate MongoDB ObjectId format
+    if (!doctorId.match(/^[0-9a-fA-F]{24}$/)) {
+      console.error('❌ Invalid doctor ID format:', doctorId);
+      return res.status(400).json({ message: 'Invalid doctor ID format' });
+    }
+    
+    // First, check if this is a valid doctor user
+    const doctor = await User.findOne({ _id: doctorId, role: 'doctor' }).select('firstName lastName email');
+    
+    console.log('👤 Doctor found:', doctor ? `${doctor.firstName} ${doctor.lastName}` : 'Not found');
+    
+    if (!doctor) {
+      return res.status(404).json({ message: 'Doctor not found' });
+    }
+    
+    // Try to get the doctor's profile
+    const profile = await DoctorProfile.findOne({ userId: doctorId });
+    
+    console.log('📋 Profile found:', profile ? 'Yes' : 'No (using defaults)');
+    
+    // Available doctor images for rotation
+    const doctorImages = ['/doctor-01.svg', '/doctor-02.svg', '/doctor-03.svg', '/doctor-04.svg'];
+    
+    // Get all doctors to determine index for image rotation
+    const allDoctors = await User.find({ role: 'doctor' }).select('_id').sort({ createdAt: 1 });
+    const doctorIndex = allDoctors.findIndex(d => d._id.toString() === doctorId);
+    const assignedImage = doctorImages[doctorIndex >= 0 ? doctorIndex % doctorImages.length : 0];
+    
+    if (profile) {
+      // Return existing profile with populated user data
+      const populatedProfile = await DoctorProfile.findById(profile._id)
+        .populate('userId', 'firstName lastName email');
+      
+      // If profile has no image or placeholder, assign one from rotation
+      if (!populatedProfile.profileImage || populatedProfile.profileImage === '/doctor-placeholder.svg') {
+        populatedProfile.profileImage = assignedImage;
+      }
+      
+      console.log('✅ Returning populated profile with image:', populatedProfile.profileImage);
+      return res.json(populatedProfile);
+    } else {
+      // Return default profile structure for doctors without profiles
+      console.log('✅ Returning default profile with image:', assignedImage);
+      return res.json({
+        _id: `temp_${doctor._id}`,
+        userId: {
+          _id: doctor._id,
+          firstName: doctor.firstName,
+          lastName: doctor.lastName,
+          email: doctor.email
+        },
+        specialization: ['Unknown'],
+        experience: 0,
+        qualification: ['Unknown'],
+        languages: ['Unknown'],
+        treatsFor: ['General'],
+        pricing: {
+          min: 0,
+          max: 0
+        },
+        profileImage: assignedImage,
+        bio: 'Profile not completed yet',
+        isOnline: false,
+        rating: {
+          average: 0,
+          totalReviews: 0
+        }
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error fetching doctor:', error);
+    res.status(500).json({ message: 'Failed to fetch doctor details', error: error.message });
+  }
+});
+
+// Get session by ID (MUST come after /doctors routes)
+router.get('/:sessionId', verifyToken, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const userId = req.user.userId;
+
+    const session = await Session.findById(sessionId)
+      .populate('patientId', 'firstName lastName email')
+      .populate('doctorId', 'firstName lastName email');
+
+    if (!session) {
+      return res.status(404).json({ message: 'Session not found' });
+    }
+
+    // Check if user is authorized to view this session
+    const patientIdStr = session.patientId?._id?.toString() || session.patientId?.toString();
+    const doctorIdStr = session.doctorId?._id?.toString() || session.doctorId?.toString();
+    
+    if (patientIdStr !== userId && doctorIdStr !== userId) {
+      return res.status(403).json({ message: 'Unauthorized to view this session' });
+    }
+
+    res.json(session);
+  } catch (error) {
+    console.error('Error fetching session:', error);
+    res.status(500).json({ message: 'Failed to fetch session', error: error.message });
+  }
+});
+
 // Join a session
 router.get('/join/:sessionId', verifyToken, async (req, res) => {
   try {
@@ -249,9 +531,8 @@ router.get('/join/:sessionId', verifyToken, async (req, res) => {
     const isPatient = patientIdStr === userId;
     const isDoctor = doctorIdStr === userId;
     
-    // For immediate sessions (testing), allow if user is either patient or doctor
-    // For regular sessions, strict authorization
-    const isAuthorized = isPatient || isDoctor || session.sessionType === 'immediate';
+    // Strict authorization - user must be either the patient or the doctor
+    const isAuthorized = isPatient || isDoctor;
 
     if (!isAuthorized) {
       console.error('Authorization failed:', { 
@@ -331,7 +612,7 @@ router.put('/cancel/:sessionId', verifyToken, async (req, res) => {
   }
 });
 
-// Get sessions for calendar (by month) - Show all sessions to all users
+// Get sessions for calendar (by month) - Show only user-specific sessions
 router.get('/calendar/:year/:month', verifyToken, async (req, res) => {
   try {
     const { year, month } = req.params;
@@ -348,26 +629,19 @@ router.get('/calendar/:year/:month', verifyToken, async (req, res) => {
       }
     };
 
-    // For immediate sessions (testing), show to all users
-    // For regular sessions, filter by user role
+    // Filter sessions based on user role - only show sessions where user is involved
+    // Use $or to match either ObjectId or string format
     if (userRole === 'patient') {
-      query.$or = [
-        { patientId: userId },
-        { sessionType: 'immediate' } // Show immediate sessions to all
-      ];
+      query.patientId = userId;
     } else if (userRole === 'doctor') {
-      query.$or = [
-        { doctorId: userId },
-        { sessionType: 'immediate' }, // Show immediate sessions to all
-        { patientId: userId, sessionType: 'immediate' } // Show self-sessions where user is both patient and doctor
-      ];
+      query.doctorId = userId;
     }
 
     console.log('📅 Calendar query:', {
       userId: userId.substring(0, 8),
       role: userRole,
       month: `${year}-${month}`,
-      query: JSON.stringify(query)
+      dateRange: `${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`
     });
 
     const sessions = await Session.find(query)
@@ -381,28 +655,16 @@ router.get('/calendar/:year/:month', verifyToken, async (req, res) => {
         id: s._id.toString().substring(0, 8),
         type: s.sessionType,
         date: s.sessionDate.toISOString().split('T')[0],
-        time: s.sessionTime
+        time: s.sessionTime,
+        patientId: s.patientId?._id?.toString().substring(0, 8) || 'null',
+        doctorId: s.doctorId?._id?.toString().substring(0, 8) || 'null'
       }))
     });
 
     res.json(sessions);
   } catch (error) {
-    console.error('Error fetching calendar sessions:', error);
-    res.status(500).json({ message: 'Failed to fetch calendar sessions' });
-  }
-});
-
-// Get all doctors with their profiles
-router.get('/doctors', async (req, res) => {
-  try {
-    const doctors = await DoctorProfile.find({})
-      .populate('userId', 'firstName lastName email')
-      .sort({ 'rating.average': -1 });
-    
-    res.json(doctors);
-  } catch (error) {
-    console.error('Error fetching doctors:', error);
-    res.status(500).json({ message: 'Failed to fetch doctors' });
+    console.error('Error in join session:', error);
+    res.status(500).json({ message: 'Failed to process session join' });
   }
 });
 

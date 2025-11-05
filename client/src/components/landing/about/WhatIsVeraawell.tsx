@@ -1,6 +1,6 @@
 export default function WhatIsVeraawell() {
   return (
-    <section className="w-full bg-[#E0EAEA] py-20 px-4 sm:px-6 lg:px-8 ">
+    <section className="w-full bg-[#E0EAEA] py-20 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto">
         {/* Main Container */}
         <div className="bg-transparent p-6 rounded-2xl">
@@ -8,7 +8,7 @@ export default function WhatIsVeraawell() {
           {/* Text Content */}
           <div className="space-y-4">
             {/* Title Box */}
-            <div className="flex justify-center scale-110">
+            <div className="flex justify-center">
               <div className="bg-[#B55D35] opacity-[80%] rounded-3xl px-15 py-4">
                 <h2 className="text-white text-xl font-semibold leading-7" style={{fontFamily: 'Bree Serif, serif'}}>
                   What is Veraawell?
@@ -18,8 +18,8 @@ export default function WhatIsVeraawell() {
 
             {/* Container with Illustration and Description */}
             <div className="relative">
-              {/* Illustration positioned outside */}
-              <div className="absolute left-15 -top-30 z-10">
+              {/* Illustration positioned outside - Hidden on mobile/tablet, visible on laptop+ */}
+              <div className="hidden lg:block absolute left-15 -top-30 z-10">
                 <div className="w-auto h-32 bg-[#F3F2FF] rounded-full flex items-center justify-center p-1">
                   <img 
                     src="/assest02.svg" 
@@ -30,7 +30,7 @@ export default function WhatIsVeraawell() {
               </div>
               
               {/* Description Box */}
-              <div className="bg-[#ECE3D2] rounded-3xl p-6 ml-12 scale-110 mt-10 shadow-lg shadow-black/20">
+              <div className="bg-[#ECE3D2] rounded-3xl p-6 lg:ml-12 mt-10 shadow-lg shadow-black/20">
                 <p className="text-[#B55D35] text-xl leading-6" style={{fontFamily: 'Bree Serif, serif'}}>
                   <span className="">Veraawell</span> is a platform aimed at revolutionizing the culture of mental health in India. We bridge the gap between people who seek professional help and psychologists. We give the user freedom to operate at their own pace and track their mental health journey as their own.
                 </p>
@@ -47,7 +47,7 @@ export default function WhatIsVeraawell() {
             therapist for you.
           </h3>
           
-          <button className="bg-[#E07A5F]  text-[#FFFDE9] text-[16px] sm:text-[18px] md:text-[20px] lg:text-[20px] font-bold px-10 sm:px-8 md:px-10 lg:px-20 py-2 sm:py-3 md:py-4 lg:py-3 rounded-3xl shadow-[0_4px_8px_rgba(0,0,0,0.15)] transition-all duration-300 transform hover:scale-105 hover:shadow-xl font-sans">
+          <button className="bg-[#E6847A]  text-[#FFFDE9] text-[16px] sm:text-[18px] md:text-[20px] lg:text-[20px] font-bold px-10 sm:px-8 md:px-10 lg:px-20 py-2 sm:py-3 md:py-4 lg:py-3 rounded-3xl shadow-[0_4px_8px_rgba(0,0,0,0.15)] transition-all duration-300 transform hover:scale-105 hover:shadow-xl font-sans">
             View Therapist
           </button>
         </div>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 
 interface BookingState {
   mode: 'video' | 'voice';
@@ -9,10 +9,41 @@ interface BookingState {
   timeSlot: string;
 }
 
+interface DoctorProfile {
+  _id: string;
+  userId: {
+    _id: string;
+    firstName: string;
+    lastName: string;
+    email: string;
+  };
+  specialization: string[];
+  experience: number;
+  qualification: string[];
+  languages: string[];
+  treatsFor: string[];
+  pricing: {
+    min: number;
+    max: number;
+  };
+  profileImage: string;
+  bio: string;
+  isOnline: boolean;
+  rating: {
+    average: number;
+    totalReviews: number;
+  };
+}
+
 const DoctorProfilePage: React.FC = () => {
+  const { doctorId } = useParams<{ doctorId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const { doctorId, serviceType, bookingType } = (location.state as any) || {};
+  const { serviceType, bookingType } = (location.state as any) || {};
+  
+  const [doctorProfile, setDoctorProfile] = useState<DoctorProfile | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const [booking, setBooking] = useState<BookingState>({
     mode: 'video',
@@ -32,7 +63,38 @@ const DoctorProfilePage: React.FC = () => {
 
   useEffect(() => {
     generateAvailableDates();
-  }, []);
+    if (doctorId) {
+      fetchDoctorProfile();
+    }
+  }, [doctorId]);
+
+  const fetchDoctorProfile = async () => {
+    try {
+      setLoading(true);
+      console.log('🔍 Fetching doctor profile for ID:', doctorId);
+      console.log('📡 API URL:', `${API_BASE_URL}/sessions/doctors/${doctorId}`);
+      
+      const response = await fetch(`${API_BASE_URL}/sessions/doctors/${doctorId}`);
+      
+      console.log('📥 Response status:', response.status);
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+        console.error('❌ Error response:', errorData);
+        throw new Error(errorData.message || 'Doctor not found');
+      }
+      
+      const data = await response.json();
+      console.log('✅ Doctor profile loaded:', data);
+      setDoctorProfile(data);
+      setError(null);
+    } catch (err: any) {
+      console.error('❌ Error fetching doctor profile:', err);
+      setError(err.message || 'Failed to load doctor profile');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const generateAvailableDates = () => {
     const dates: Array<{ date: string; day: string }> = [];
@@ -153,6 +215,45 @@ const DoctorProfilePage: React.FC = () => {
     }
   };
 
+  // Show loading state
+  if (loading) {
+    return (
+      <div className="bg-white min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="inline-block animate-spin rounded-full h-16 w-16 border-b-2 border-teal-600 mb-4"></div>
+          <p className="text-xl text-gray-600" style={{ fontFamily: 'Bree Serif, serif' }}>Loading doctor profile...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error state
+  if (error || !doctorProfile) {
+    return (
+      <div className="bg-white min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-xl text-red-600 mb-4" style={{ fontFamily: 'Bree Serif, serif' }}>{error || 'Doctor not found'}</p>
+          <button 
+            onClick={() => navigate('/choose-professional')}
+            className="px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
+            style={{ fontFamily: 'Bree Serif, serif' }}
+          >
+            Back to Professionals
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Extract doctor data with fallbacks
+  const doctorName = `${doctorProfile.userId.firstName} ${doctorProfile.userId.lastName}`;
+  const experienceText = doctorProfile.experience > 0 ? `${doctorProfile.experience}+ years` : 'Unknown';
+  const qualificationText = doctorProfile.qualification.join(', ');
+  const specializationText = doctorProfile.specialization.join(', ');
+  const languagesText = doctorProfile.languages.join(', ');
+  const rating = doctorProfile.rating.average;
+  const fullStars = Math.floor(rating);
+
   return (
     <div className="bg-white min-h-screen">
       {/* Hero Section with Background */}
@@ -171,25 +272,35 @@ const DoctorProfilePage: React.FC = () => {
           {/* Profile Picture */}
           <div className="w-1/3">
             <div className="rounded-2xl overflow-hidden shadow-2xl border-8 border-white">
-              <img src="/doctor-01.svg" alt="Dr. Isha Sharma" className="w-full h-full object-cover" />
+              <img 
+                src={doctorProfile.profileImage} 
+                alt={`Dr. ${doctorName}`} 
+                className="w-full h-full object-cover" 
+              />
             </div>
           </div>
 
           {/* Profile Info */}
           <div className="w-2/3 pl-12 pb-4">
             <div className="flex justify-between items-center">
-              <h1 className="text-5xl font-bold text-gray-800">Isha Sharma</h1>
+              <h1 className="text-5xl font-bold text-gray-800">{doctorName}</h1>
               <div className="flex text-yellow-500">
                 {[...Array(5)].map((_, i) => (
-                  <svg key={i} className="w-8 h-8 fill-current" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>
+                  <svg 
+                    key={i} 
+                    className={`w-8 h-8 ${i < fullStars ? 'fill-current' : 'fill-gray-300'}`} 
+                    viewBox="0 0 20 20"
+                  >
+                    <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/>
+                  </svg>
                 ))}
               </div>
             </div>
             <div className="mt-4 text-lg text-gray-700 space-y-2">
-              <p><span className="font-bold">Experience:</span> 5+ years</p>
-              <p><span className="font-bold">Qualification:</span> M. Phil, M. sc</p>
-              <p><span className="font-bold">Specialization:</span> Depressive Disorders, Dysphoric Disorder</p>
-              <p><span className="font-bold">Languages:</span> Hindi, English</p>
+              <p><span className="font-bold">Experience:</span> {experienceText}</p>
+              <p><span className="font-bold">Qualification:</span> {qualificationText}</p>
+              <p><span className="font-bold">Specialization:</span> {specializationText}</p>
+              <p><span className="font-bold">Languages:</span> {languagesText}</p>
             </div>
           </div>
         </div>
@@ -202,9 +313,15 @@ const DoctorProfilePage: React.FC = () => {
             "Who looks outside, dreams; who looks inside, awakes"
           </h2>
           <div className="text-gray-600 text-lg leading-relaxed space-y-4">
-            <p>At Veraawell, we believe mental wellness is not a luxury — it's a necessity. Our mission is simple: to make professional psychological support accessible, reliable, and timely for everyone who needs it.</p>
-            <p>We connect you with highly qualified and compassionate psychologists who specialize in understanding your unique needs. Whether you're seeking help for anxiety, depression, stress, relationship issues, or personal growth, our experts are here to guide you — right when you need them.</p>
-            <p>We know that mental health struggles can't always wait, so we ensure timely consultations, flexible scheduling, and a safe, judgment-free space for every individual.</p>
+            {doctorProfile.bio && doctorProfile.bio !== 'Profile not completed yet' ? (
+              <p>{doctorProfile.bio}</p>
+            ) : (
+              <>
+                <p>At Veraawell, we believe mental wellness is not a luxury — it's a necessity. Our mission is simple: to make professional psychological support accessible, reliable, and timely for everyone who needs it.</p>
+                <p>We connect you with highly qualified and compassionate psychologists who specialize in understanding your unique needs. Whether you're seeking help for anxiety, depression, stress, relationship issues, or personal growth, our experts are here to guide you — right when you need them.</p>
+                <p>We know that mental health struggles can't always wait, so we ensure timely consultations, flexible scheduling, and a safe, judgment-free space for every individual.</p>
+              </>
+            )}
           </div>
         </div>
       </div>
