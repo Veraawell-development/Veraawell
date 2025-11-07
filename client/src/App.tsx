@@ -62,29 +62,41 @@ function AppRoutes() {
     // If already loaded in this session, skip loader
     if (hasLoadedBefore) {
       setIsAppReady(true);
-      checkAuth();
+      // Check auth silently in background (don't block UI)
+      checkAuth().catch(() => {
+        // Ignore auth errors on reload
+      });
       return;
     }
 
     const initializeApp = async () => {
       try {
-        // Wake up backend
-        await wakeUpBackend();
-        
-        // Check auth
-        await checkAuth();
+        // Wake up backend (don't wait for it)
+        wakeUpBackend().catch(() => {
+          console.log('Backend wakeup failed, continuing anyway');
+        });
         
         // Wait for DOM to be fully ready
-        if (document.readyState === 'complete') {
-          // Mark as initialized
-          sessionStorage.setItem('appInitialized', 'true');
-          setIsAppReady(true);
-        } else {
-          window.addEventListener('load', () => {
-            sessionStorage.setItem('appInitialized', 'true');
-            setIsAppReady(true);
+        const waitForLoad = () => {
+          return new Promise<void>((resolve) => {
+            if (document.readyState === 'complete') {
+              resolve();
+            } else {
+              window.addEventListener('load', () => resolve());
+            }
           });
-        }
+        };
+        
+        await waitForLoad();
+        
+        // Try to check auth silently (don't fail if not logged in)
+        checkAuth().catch(() => {
+          // User not logged in, that's fine
+        });
+        
+        // Mark as initialized
+        sessionStorage.setItem('appInitialized', 'true');
+        setIsAppReady(true);
       } catch (error) {
         console.error('Failed to initialize app:', error);
         // Continue anyway

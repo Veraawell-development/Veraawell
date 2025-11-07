@@ -44,10 +44,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const res = await fetch(`${API_BASE_URL}/protected`, {
         credentials: 'include',
       });
+      
       if (res.ok) {
         const data = await res.json();
         
-        // Fetch profile status
+        // Fetch profile status (only if authenticated)
         const profileRes = await fetch(`${API_BASE_URL}/profile/status`, {
           credentials: 'include',
         });
@@ -66,21 +67,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         
         // Store the token from the response if available
         if (data.token) {
-          console.log('[AUTH] Token received from server, storing in localStorage');
           setToken(data.token);
-          localStorage.setItem('token', data.token); // Changed from 'authToken' to 'token'
-        } else if (!token) {
-          console.log('[AUTH] ⚠️ No token in response or localStorage');
+          localStorage.setItem('token', data.token);
         }
       } else {
+        // User not authenticated - this is normal, not an error
         setIsLoggedIn(false);
         setUser(null);
         setToken(null);
-        localStorage.removeItem('token'); // Changed from 'authToken' to 'token'
+        localStorage.removeItem('token');
       }
     } catch (error) {
+      // Network error or server down - don't log as error if it's just 401
       setIsLoggedIn(false);
       setUser(null);
+      setToken(null);
+      localStorage.removeItem('token');
     } finally {
       setLoading(false);
     }
