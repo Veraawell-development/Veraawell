@@ -50,33 +50,50 @@ import MessagesPage from './pages/MessagesPage';
 
 function AppRoutes() {
   const { isLoggedIn, user, checkAuth } = useAuth();
-  const [isBackendReady, setIsBackendReady] = useState(false);
-  const [backendError, setBackendError] = useState(false);
+  const [isAppReady, setIsAppReady] = useState(false);
 
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Wake up backend on initial mount (for Render free tier)
+  // Initialize app on first load only
   useEffect(() => {
-    const initializeBackend = async () => {
+    const hasLoadedBefore = sessionStorage.getItem('appInitialized');
+    
+    // If already loaded in this session, skip loader
+    if (hasLoadedBefore) {
+      setIsAppReady(true);
+      checkAuth();
+      return;
+    }
+
+    const initializeApp = async () => {
       try {
-        const isAwake = await wakeUpBackend();
-        setIsBackendReady(true);
+        // Wake up backend
+        await wakeUpBackend();
         
-        if (!isAwake) {
-          console.warn('Backend health check failed, but continuing anyway');
-        }
-        
-        // Check auth after backend is ready
+        // Check auth
         await checkAuth();
+        
+        // Wait for DOM to be fully ready
+        if (document.readyState === 'complete') {
+          // Mark as initialized
+          sessionStorage.setItem('appInitialized', 'true');
+          setIsAppReady(true);
+        } else {
+          window.addEventListener('load', () => {
+            sessionStorage.setItem('appInitialized', 'true');
+            setIsAppReady(true);
+          });
+        }
       } catch (error) {
-        console.error('Failed to initialize backend:', error);
-        setBackendError(true);
-        setIsBackendReady(true); // Continue anyway
+        console.error('Failed to initialize app:', error);
+        // Continue anyway
+        sessionStorage.setItem('appInitialized', 'true');
+        setIsAppReady(true);
       }
     };
     
-    initializeBackend();
+    initializeApp();
   }, [checkAuth]);
 
   useEffect(() => {
@@ -120,9 +137,9 @@ function AppRoutes() {
                      location.pathname.startsWith('/admin');
   const isVideoCallRoute = location.pathname.startsWith('/video-call');
 
-  // Show loading screen while backend is waking up
-  if (!isBackendReady) {
-    return <LoadingScreen message={backendError ? "Connecting to server..." : "Waking up server..."} />;
+  // Show loading screen only on first load
+  if (!isAppReady) {
+    return <LoadingScreen />;
   }
 
   return (
