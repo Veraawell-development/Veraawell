@@ -275,24 +275,50 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
       console.log('=== OAuth Callback Received ===');
       console.log('Query params:', req.query);
       console.log('Session:', req.session);
+      console.log('Request origin:', req.headers.origin);
+      console.log('Request referer:', req.headers.referer);
       
       // Get role from session instead of state parameter
       const role = req.session.oauthRole || 'patient';
       console.log('OAuth callback - role from session:', role);
 
+      // Determine frontend URL from environment or request origin
+      const getFrontendUrl = () => {
+        // Priority 1: Environment variable
+        if (process.env.FRONTEND_URL) {
+          return process.env.FRONTEND_URL;
+        }
+        
+        // Priority 2: Request origin (where the user came from)
+        const origin = req.headers.origin || req.headers.referer;
+        if (origin) {
+          try {
+            const url = new URL(origin);
+            return url.origin;
+          } catch (e) {
+            console.error('Error parsing origin:', e);
+          }
+        }
+        
+        // Priority 3: Default based on NODE_ENV
+        if (process.env.NODE_ENV === 'production') {
+          return 'https://veraawell.com';
+        }
+        return 'http://localhost:5173';
+      };
+
+      const frontendBaseUrl = getFrontendUrl();
+      console.log('Using frontend URL:', frontendBaseUrl);
+
       passport.authenticate('google', async (err, user) => {
         if (err) {
           console.error('Google callback error:', err);
-          const frontendUrl = process.env.NODE_ENV === 'production' 
-            ? 'https://veraawell.vercel.app/login?error=google-auth-failed'
-            : 'http://localhost:5173/login?error=google-auth-failed';
+          const frontendUrl = `${frontendBaseUrl}/login?error=google-auth-failed`;
           return res.redirect(frontendUrl);
         }
         
         if (!user) {
-          const frontendUrl = process.env.NODE_ENV === 'production' 
-            ? 'https://veraawell.vercel.app/login?error=no-user'
-            : 'http://localhost:5173/login?error=no-user';
+          const frontendUrl = `${frontendBaseUrl}/login?error=no-user`;
           return res.redirect(frontendUrl);
         }
 
@@ -310,9 +336,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         req.logIn(user, (err) => {
           if (err) {
             console.error('Login error:', err);
-            const frontendUrl = process.env.NODE_ENV === 'production' 
-              ? 'https://veraawell.vercel.app/login?error=login-failed'
-              : 'http://localhost:5173/login?error=login-failed';
+            const frontendUrl = `${frontendBaseUrl}/login?error=login-failed`;
             return res.redirect(frontendUrl);
           }
 
@@ -332,15 +356,13 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         });
 
           // Redirect to frontend with success parameters
-          const baseUrl = process.env.NODE_ENV === 'production' 
-            ? 'https://veraawell.vercel.app/'
-            : 'http://localhost:5173/';
-          const redirectUrl = new URL(baseUrl);
+          const redirectUrl = new URL(frontendBaseUrl);
           redirectUrl.searchParams.set('auth', 'success');
           redirectUrl.searchParams.set('username', user.username);
           redirectUrl.searchParams.set('role', user.role);
           redirectUrl.searchParams.set('isGoogle', 'true');
           
+          console.log('Redirecting to:', redirectUrl.toString());
           return res.redirect(redirectUrl.toString());
         });
       })(req, res, next);
