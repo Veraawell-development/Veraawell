@@ -35,10 +35,6 @@ const DoctorDashboard: React.FC = () => {
   const [recentNotes, setRecentNotes] = useState<any[]>([]);
   const [assignedTasks, setAssignedTasks] = useState<any[]>([]);
   const [recentReports, setRecentReports] = useState<any[]>([]);
-
-  const API_BASE_URL = window.location.hostname === 'localhost' 
-    ? 'http://localhost:5001/api' 
-    : 'https://veraawell-backend.onrender.com/api';
   
   // Get user name from location state or default
   let userName = "Harris";

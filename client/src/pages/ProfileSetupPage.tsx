@@ -74,8 +74,6 @@ const ProfileSetupPage: React.FC = () => {
         throw new Error(errorData.message || 'Failed to save profile');
       }
 
-      await checkAuth();
-
       // Redirect to dashboard after successful save
       navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard');
     } catch (err) {

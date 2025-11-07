@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
-import { FiMenu, FiLogOut, FiUsers, FiUserCheck, FiClock, FiTrash2, FiActivity, FiDollarSign, FiFileText, FiTrendingUp } from 'react-icons/fi';
+import { FiMenu, FiLogOut, FiUsers, FiUserCheck, FiClock } from 'react-icons/fi';
 
 interface PendingUser {
   _id: string;

@@ -22,7 +22,13 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: ['http://localhost:5173', 'http://localhost:3000'],
+    origin: [
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'https://veraawell.com',
+      'https://www.veraawell.com',
+      'https://veraawell-projects-veraawell.vercel.app' // Vercel preview URL
+    ],
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
   },
@@ -44,7 +50,13 @@ app.get('/', (req, res) => {
 
 app.use(express.json());
 app.use(cors({
-  origin: true, // Allow all origins for now
+  origin: [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'https://veraawell.com',
+    'https://www.veraawell.com',
+    'https://veraawell-projects-veraawell.vercel.app' // Vercel preview URL
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']

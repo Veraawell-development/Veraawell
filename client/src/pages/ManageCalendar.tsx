@@ -149,18 +149,19 @@ const ManageCalendar: React.FC = () => {
     }
   };
 
-  const getSessionStatusColor = (status: string) => {
-    switch (status) {
-      case 'scheduled':
-        return 'text-blue-600';
-      case 'completed':
-        return 'text-green-600';
-      case 'cancelled':
-        return 'text-red-600';
-      default:
-        return 'text-gray-600';
-    }
-  };
+  // Removed unused function - status colors handled inline in JSX
+  // const getSessionStatusColor = (status: string) => {
+  //   switch (status) {
+  //     case 'scheduled':
+  //       return 'text-blue-600';
+  //     case 'completed':
+  //       return 'text-green-600';
+  //     case 'cancelled':
+  //       return 'text-red-600';
+  //     default:
+  //       return 'text-gray-600';
+  //   }
+  // };
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#FFFFFF' }}>

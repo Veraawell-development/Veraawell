@@ -69,11 +69,12 @@ const MentalHealthTestPage: React.FC = () => {
     }
   };
 
-  const handlePrevious = () => {
-    if (currentQuestion > 0) {
-      setCurrentQuestion(currentQuestion - 1);
-    }
-  };
+  // Removed unused function - no "Previous" button in UI
+  // const handlePrevious = () => {
+  //   if (currentQuestion > 0) {
+  //     setCurrentQuestion(currentQuestion - 1);
+  //   }
+  // };
 
   const calculateScores = () => {
     const scores = {

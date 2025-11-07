@@ -27,7 +27,7 @@ const VideoCallRoom: React.FC = () => {
   const [qualityMessage, setQualityMessage] = useState<string | null>(null);
   const [showDoctorPanel, setShowDoctorPanel] = useState(false);
   const [sessionData, setSessionData] = useState<any>(null);
-  const [loadingSession, setLoadingSession] = useState(true);
+  const [_loadingSession, setLoadingSession] = useState(true);
 
   const API_BASE_URL = window.location.hostname === 'localhost' 
     ? 'http://localhost:5001' 

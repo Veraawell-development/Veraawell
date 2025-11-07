@@ -72,15 +72,16 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick }) => {
     return sessions.filter(session => session.sessionDate.startsWith(dateStr));
   };
 
-  const navigateMonth = (direction: 'prev' | 'next') => {
-    const newDate = new Date(currentDate);
-    if (direction === 'prev') {
-      newDate.setMonth(newDate.getMonth() - 1);
-    } else {
-      newDate.setMonth(newDate.getMonth() + 1);
-    }
-    setCurrentDate(newDate);
-  };
+  // Removed unused function - month navigation not currently used in UI
+  // const navigateMonth = (direction: 'prev' | 'next') => {
+  //   const newDate = new Date(currentDate);
+  //   if (direction === 'prev') {
+  //     newDate.setMonth(newDate.getMonth() - 1);
+  //   } else {
+  //     newDate.setMonth(newDate.getMonth() + 1);
+  //   }
+  //   setCurrentDate(newDate);
+  // };
 
   const monthNames = [
     'January', 'February', 'March', 'April', 'May', 'June',
@@ -200,7 +201,7 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick }) => {
                     {daysSessions.length} Sessions on this day
                   </div>
                   <div className="space-y-2">
-                    {daysSessions.map((session, idx) => (
+                    {daysSessions.map((session) => (
                       <div key={session._id} className="text-xs p-2 rounded" style={{ backgroundColor: '#F3F4F6', fontFamily: 'Inter, sans-serif' }}>
                         <div className="font-semibold" style={{ color: '#000' }}>
                           {session.sessionTime} - {session.status}
