@@ -97,6 +97,11 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick }) => {
                          currentDate.getFullYear() === today.getFullYear();
 
   const canJoinSession = (session: Session) => {
+    // Immediate sessions can be joined right away (for testing)
+    if (session.sessionType === 'immediate' && session.status === 'scheduled') {
+      return true;
+    }
+    
     const now = new Date();
     const sessionDateTime = new Date(session.sessionDate);
     const [hours, minutes] = session.sessionTime.split(':').map(Number);
