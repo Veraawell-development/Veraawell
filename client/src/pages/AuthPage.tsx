@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FcGoogle } from 'react-icons/fc';
+import { FaUserMd, FaUser } from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
 
 interface AuthPageProps {
@@ -8,9 +9,7 @@ interface AuthPageProps {
   onSuccess?: () => void;
 }
 
-const API_BASE_URL = window.location.hostname === 'localhost' 
-  ? 'http://localhost:5001/api' 
-  : 'https://veraawell-backend.onrender.com/api';
+import { API_BASE_URL } from '../config/api';
 
 export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   const [username, setUsername] = useState('');
@@ -143,11 +142,11 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   };
 
   return (
-    <div className="h-screen bg-white flex items-center justify-center px-4 overflow-hidden font-sans">
+    <div className="min-h-screen bg-gradient-to-br from-teal-50 via-white to-purple-50 flex items-center justify-center px-4 py-8 font-sans">
       {/* Back Button */}
       <button
         onClick={() => navigate('/')}
-        className="absolute top-6 left-6 flex items-center gap-2 text-gray-600 hover:text-gray-800 transition-colors font-sans"
+        className="absolute top-6 left-6 flex items-center gap-2 text-gray-600 hover:text-teal-600 transition-colors font-medium"
       >
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -155,201 +154,272 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
         <span className="text-sm">Back to Home</span>
       </button>
 
-      <div className="w-full max-w-sm">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-xl p-8">
         {/* Logo */}
-        <div className="flex justify-center mb-6">
-          <img className="w-auto h-20" src="logo.png" alt="Veraawell Logo" />
+        <div className="flex justify-center mb-4">
+          <img className="w-auto h-16" src="logo.png" alt="Veraawell Logo" />
         </div>
 
         {/* Title */}
-        <h1 className="text-2xl font-semibold text-center mb-8 text-teal-600 font-serif">
-          Welcome To Veraawell
+        <h1 className="text-3xl font-bold text-center mb-2 text-gray-800">
+          Welcome to Veraawell
         </h1>
+        <p className="text-center text-gray-600 mb-6 text-sm">
+          {registerMode ? 'Create your account' : 'Sign in to continue'}
+        </p>
 
         {/* Toggle Buttons */}
-        <div className="flex gap-2 mb-6 justify-center">
+        <div className="flex gap-3 mb-6 bg-gray-100 p-1.5 rounded-xl">
           <button
             onClick={() => setRegisterMode(false)}
-            className={`px-6 py-2.5 text-sm font-medium transition-colors rounded-full ${
+            className={`flex-1 py-2.5 text-sm font-semibold transition-all rounded-lg ${
               !registerMode 
-                ? 'bg-teal-600 text-white' 
-                : 'bg-gray-300 text-gray-700 hover:bg-gray-400'
+                ? 'bg-white text-teal-600 shadow-md' 
+                : 'text-gray-600 hover:text-gray-800'
             }`}
           >
             Sign In
           </button>
           <button
             onClick={() => setRegisterMode(true)}
-            className={`px-6 py-2.5 text-sm font-medium transition-colors rounded-full ${
+            className={`flex-1 py-2.5 text-sm font-semibold transition-all rounded-lg ${
               registerMode 
-                ? 'bg-teal-600 text-white' 
-                : 'bg-gray-300 text-gray-700 hover:bg-gray-400'
+                ? 'bg-white text-teal-600 shadow-md' 
+                : 'text-gray-600 hover:text-gray-800'
             }`}
           >
             Sign Up
           </button>
         </div>
 
-        {/* Professional Toggle */}
-        <div className="flex items-center justify-center mb-8">
-          <button
-            onClick={() => setIsProfessional(!isProfessional)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-              isProfessional 
-                ? 'bg-teal-600 text-white' 
-                : 'bg-gray-300 text-gray-700 hover:bg-gray-400'
-            }`}
-          >
-            {isProfessional && (
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-              </svg>
-            )}
-            As a Professional
-          </button>
+        {/* Role Selection Cards */}
+        <div className="mb-6">
+          <p className="text-sm font-medium text-gray-700 mb-3 text-center">
+            I am a:
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            {/* Patient Card */}
+            <button
+              onClick={() => setIsProfessional(false)}
+              className={`relative p-4 rounded-xl border-2 transition-all ${
+                !isProfessional
+                  ? 'border-teal-500 bg-teal-50 shadow-md'
+                  : 'border-gray-200 bg-white hover:border-gray-300'
+              }`}
+            >
+              <div className="flex flex-col items-center gap-2">
+                <div className={`p-3 rounded-full ${
+                  !isProfessional ? 'bg-teal-100' : 'bg-gray-100'
+                }`}>
+                  <FaUser className={`text-2xl ${
+                    !isProfessional ? 'text-teal-600' : 'text-gray-400'
+                  }`} />
+                </div>
+                <span className={`text-sm font-semibold ${
+                  !isProfessional ? 'text-teal-700' : 'text-gray-600'
+                }`}>
+                  Patient
+                </span>
+              </div>
+              {!isProfessional && (
+                <div className="absolute top-2 right-2">
+                  <svg className="w-5 h-5 text-teal-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                </div>
+              )}
+            </button>
+
+            {/* Doctor Card */}
+            <button
+              onClick={() => setIsProfessional(true)}
+              className={`relative p-4 rounded-xl border-2 transition-all ${
+                isProfessional
+                  ? 'border-purple-500 bg-purple-50 shadow-md'
+                  : 'border-gray-200 bg-white hover:border-gray-300'
+              }`}
+            >
+              <div className="flex flex-col items-center gap-2">
+                <div className={`p-3 rounded-full ${
+                  isProfessional ? 'bg-purple-100' : 'bg-gray-100'
+                }`}>
+                  <FaUserMd className={`text-2xl ${
+                    isProfessional ? 'text-purple-600' : 'text-gray-400'
+                  }`} />
+                </div>
+                <span className={`text-sm font-semibold ${
+                  isProfessional ? 'text-purple-700' : 'text-gray-600'
+                }`}>
+                  Doctor
+                </span>
+              </div>
+              {isProfessional && (
+                <div className="absolute top-2 right-2">
+                  <svg className="w-5 h-5 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                  </svg>
+                </div>
+              )}
+            </button>
+          </div>
         </div>
 
         {/* Form */}
         {registerMode ? (
-          <form onSubmit={handleRegister} className="space-y-4 font-sans">
+          <form onSubmit={handleRegister} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-900 mb-2 font-sans">Name</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">Full Name</label>
               <input
                 type="text"
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-400 rounded-sm focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 text-sm font-sans"
+                placeholder="Enter your full name"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm transition-all"
                 disabled={loading}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-900 mb-2 font-sans">Enter your email</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">Email Address</label>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-400 rounded-sm focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 text-md sm:text-sm text-sm font-sans"
+                placeholder="your.email@example.com"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm transition-all"
                 disabled={loading}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-900 mb-2 font-sans">Phone no.</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">Phone Number</label>
               <input
                 type="tel"
                 value={phoneNo}
                 onChange={(e) => setPhoneNo(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-400 rounded-sm focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 text-sm font-sans"
+                placeholder="+91 XXXXX XXXXX"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm transition-all"
                 disabled={loading}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-900 mb-2 font-sans">Enter your Password</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">Password</label>
               <input
                 type="password"
                 value={registerPassword}
                 onChange={(e) => setRegisterPassword(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-400 rounded-sm focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 text-sm font-sans"
+                placeholder="Create a strong password"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm transition-all"
                 disabled={loading}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-900 mb-2 font-sans">Re-Enter your Password</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">Confirm Password</label>
               <input
                 type="password"
                 value={registerConfirm}
                 onChange={(e) => setRegisterConfirm(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-400 rounded-sm focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 text-sm font-sans"
+                placeholder="Re-enter your password"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm transition-all"
                 disabled={loading}
               />
             </div>
-            <div className="flex justify-center mt-6">
-              <button
-                type="submit"
-                className="bg-teal-600 text-white py-2.5 px-8 rounded-full font-medium hover:bg-teal-700 transition-colors disabled:opacity-50 text-sm font-sans"
-                disabled={loading}
-              >
-                Sign Up
-              </button>
-            </div>
+            <button
+              type="submit"
+              className={`w-full py-3 rounded-lg font-semibold text-white transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed ${
+                isProfessional
+                  ? 'bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800'
+                  : 'bg-gradient-to-r from-teal-600 to-teal-700 hover:from-teal-700 hover:to-teal-800'
+              }`}
+              disabled={loading}
+            >
+              {loading ? 'Creating Account...' : `Sign Up as ${isProfessional ? 'Doctor' : 'Patient'}`}
+            </button>
           </form>
         ) : (
-          <form onSubmit={handleLogin} className="space-y-4 font-sans">
+          <form onSubmit={handleLogin} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-900 mb-2 font-sans">Enter your email/ phone no.</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">Email or Phone</label>
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-400 rounded-sm focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 text-sm font-sans"
+                placeholder="Enter your email or phone number"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm transition-all"
                 disabled={loading}
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-900 mb-2 font-sans">Enter your Password</label>
+              <label className="block text-sm font-semibold text-gray-700 mb-1.5">Password</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3 py-2.5 border border-gray-400 rounded-sm focus:outline-none focus:ring-1 focus:ring-teal-500 focus:border-teal-500 text-sm font-sans"
+                placeholder="Enter your password"
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm transition-all"
                 disabled={loading}
               />
             </div>
-            <div className="text-left">
+            <div className="text-right">
               <button
                 type="button"
-                className="text-sm text-gray-900 hover:text-gray-700 font-sans underline"
+                className="text-sm text-teal-600 hover:text-teal-700 font-medium"
                 onClick={() => navigate('/forgot-password')}
               >
-                Forgot Password
+                Forgot Password?
               </button>
             </div>
-            <div className="flex justify-center mt-6">
-              <button
-                type="submit"
-                className="bg-teal-600 text-white py-2.5 px-8 rounded-full font-medium hover:bg-teal-700 transition-colors disabled:opacity-50 text-sm font-sans"
-                disabled={loading}
-              >
-                Sign In
-              </button>
-            </div>
+            <button
+              type="submit"
+              className={`w-full py-3 rounded-lg font-semibold text-white transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed ${
+                isProfessional
+                  ? 'bg-gradient-to-r from-purple-600 to-purple-700 hover:from-purple-700 hover:to-purple-800'
+                  : 'bg-gradient-to-r from-teal-600 to-teal-700 hover:from-teal-700 hover:to-teal-800'
+              }`}
+              disabled={loading}
+            >
+              {loading ? 'Signing In...' : `Sign In as ${isProfessional ? 'Doctor' : 'Patient'}`}
+            </button>
           </form>
         )}
 
         {/* Or divider */}
         <div className="flex items-center my-6">
-          <div className="flex-1 border-t border-gray-400"></div>
-          <span className="px-4 text-sm text-gray-600 font-sans">or</span>
-          <div className="flex-1 border-t border-gray-400"></div>
+          <div className="flex-1 border-t border-gray-300"></div>
+          <span className="px-4 text-xs text-gray-500 font-medium uppercase">Or</span>
+          <div className="flex-1 border-t border-gray-300"></div>
         </div>
 
         {/* Google Sign In */}
-        <div className="flex justify-center hover:scale-105 transition-transform">
-          <button
-            onClick={handleGoogleAuth}
-            className="flex items-center justify-center gap-3 py-2.5 px-6 border border-gray-400 rounded-full hover:bg-gray-50 transition-colors text-sm font-sans"
-          >
-            <FcGoogle className="text-lg" />
-            <span className="text-gray-900 font-medium">Continue with Google</span>
-          </button>
-        </div>
+        <button
+          onClick={handleGoogleAuth}
+          className="w-full flex items-center justify-center gap-3 py-3 border-2 border-gray-300 rounded-lg hover:bg-gray-50 hover:border-gray-400 transition-all font-medium text-gray-700"
+        >
+          <FcGoogle className="text-xl" />
+          <span>Continue with Google</span>
+        </button>
 
         {/* Error Messages */}
         {error && (
-          <div className="mt-3 text-center text-red-500 text-sm">{error}</div>
+          <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-lg text-center text-red-600 text-sm font-medium">
+            {error}
+          </div>
         )}
         {registerMsg && (
-          <div className={`mt-3 text-center text-sm ${registerMsg.includes('successful') ? 'text-green-500' : 'text-red-500'}`}>
+          <div className={`mt-4 p-3 border rounded-lg text-center text-sm font-medium ${
+            registerMsg.includes('successful') 
+              ? 'bg-green-50 border-green-200 text-green-600' 
+              : 'bg-red-50 border-red-200 text-red-600'
+          }`}>
             {registerMsg}
           </div>
         )}
 
         {/* Admin Portal Link */}
-        <div className="mt-6 pt-4 border-t border-gray-300 text-center">
+        <div className="mt-6 pt-6 border-t border-gray-200 text-center">
           <button
             onClick={() => navigate('/admin-login')}
-            className="text-xs text-gray-500 hover:text-gray-700 underline font-sans"
+            className="text-xs text-gray-500 hover:text-teal-600 font-medium transition-colors"
           >
-            Admin Portal
+            Admin Portal →
           </button>
         </div>
       </div>
