@@ -27,6 +27,7 @@ const io = new Server(httpServer, {
       'http://localhost:3000',
       'https://veraawell.com',
       'https://www.veraawell.com',
+      'https://veraawell.vercel.app', // Main Vercel URL
       'https://veraawell-projects-veraawell.vercel.app' // Vercel preview URL
     ],
     credentials: true,
@@ -55,6 +56,7 @@ app.use(cors({
     'http://localhost:3000',
     'https://veraawell.com',
     'https://www.veraawell.com',
+    'https://veraawell.vercel.app', // Main Vercel URL
     'https://veraawell-projects-veraawell.vercel.app' // Vercel preview URL
   ],
   credentials: true,
