@@ -6,29 +6,44 @@ interface LoadingScreenProps {
 
 const LoadingScreen: React.FC<LoadingScreenProps> = ({ message = 'Loading...' }) => {
   return (
-    <div className="fixed inset-0 bg-white z-50 flex items-center justify-center">
-      <div className="text-center">
-        {/* Animated Logo or Spinner */}
-        <div className="mb-6">
-          <div className="inline-block animate-spin rounded-full h-16 w-16 border-b-4 border-teal-600"></div>
+    <div className="fixed inset-0 bg-gradient-to-br from-teal-50 via-white to-purple-50 z-50 flex items-center justify-center">
+      <div className="text-center px-4">
+        {/* Modern Spinner with Gradient */}
+        <div className="relative mb-8">
+          {/* Outer ring */}
+          <div className="w-20 h-20 mx-auto relative">
+            <div className="absolute inset-0 rounded-full border-4 border-gray-200"></div>
+            <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-teal-500 border-r-purple-400 animate-spin"></div>
+          </div>
+          
+          {/* Inner pulse */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            <div className="w-10 h-10 bg-gradient-to-br from-teal-400 to-purple-400 rounded-full animate-pulse opacity-20"></div>
+          </div>
         </div>
         
         {/* Loading Message */}
-        <h2 className="text-2xl font-bold text-gray-800 mb-2" style={{ fontFamily: 'Bree Serif, serif' }}>
+        <h2 className="text-xl font-semibold text-gray-800 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
           {message}
         </h2>
         
-        {/* Subtext */}
-        <p className="text-gray-600 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>
-          Please wait while we connect you...
-        </p>
-        
-        {/* Progress Dots */}
-        <div className="mt-4 flex justify-center space-x-2">
-          <div className="w-2 h-2 bg-teal-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
-          <div className="w-2 h-2 bg-teal-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
-          <div className="w-2 h-2 bg-teal-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+        {/* Animated Progress Bar */}
+        <div className="w-48 h-1 mx-auto bg-gray-200 rounded-full overflow-hidden">
+          <div className="h-full bg-gradient-to-r from-teal-500 to-purple-500 rounded-full animate-pulse" 
+               style={{ 
+                 width: '60%',
+                 animation: 'slide 1.5s ease-in-out infinite'
+               }}>
+          </div>
         </div>
+        
+        <style>{`
+          @keyframes slide {
+            0% { transform: translateX(-100%); }
+            50% { transform: translateX(100%); }
+            100% { transform: translateX(-100%); }
+          }
+        `}</style>
       </div>
     </div>
   );
