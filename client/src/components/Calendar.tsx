@@ -26,7 +26,7 @@ interface CalendarProps {
 
 const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick }) => {
   const navigate = useNavigate();
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate, _setCurrentDate] = useState(new Date());
   const [sessions, setSessions] = useState<Session[]>([]);
   const [hoveredDate, setHoveredDate] = useState<number | null>(null);
   const [showSessionSelector, setShowSessionSelector] = useState(false);
