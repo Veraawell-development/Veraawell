@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { API_BASE_URL } from '../config/api';
 
 interface BookingState {
   mode: 'video' | 'voice';
@@ -56,10 +57,6 @@ const DoctorProfilePage: React.FC = () => {
   const [availableDates, setAvailableDates] = useState<Array<{ date: string; day: string }>>([]);
   const [availableSlots] = useState(['09:00 AM', '11:00 AM', '03:00 PM', '05:00 PM']);
   const [isBooking, setIsBooking] = useState(false);
-
-  const API_BASE_URL = window.location.hostname === 'localhost' 
-    ? 'http://localhost:5001/api' 
-    : 'https://veraawell-backend.onrender.com/api';
 
   useEffect(() => {
     generateAvailableDates();
@@ -188,6 +185,10 @@ const DoctorProfilePage: React.FC = () => {
     setIsBooking(true);
 
     try {
+      console.log('🚀 Starting instant book...');
+      console.log('📡 API URL:', `${API_BASE_URL}/sessions/book-immediate`);
+      console.log('👤 Doctor ID:', doctorId);
+      
       const response = await fetch(`${API_BASE_URL}/sessions/book-immediate`, {
         method: 'POST',
         headers: {
@@ -199,17 +200,21 @@ const DoctorProfilePage: React.FC = () => {
         })
       });
 
+      console.log('📥 Response status:', response.status);
+
       if (response.ok) {
-        await response.json();
+        const data = await response.json();
+        console.log('✅ Instant booking successful:', data);
         alert('Instant session booked! You can join now from your dashboard.');
         navigate('/patient-dashboard');
       } else {
         const error = await response.json();
+        console.error('❌ Instant booking failed:', error);
         alert(`Instant booking failed: ${error.message || 'Please try again'}`);
       }
     } catch (error) {
-      console.error('Instant booking error:', error);
-      alert('Failed to book instant session. Please try again.');
+      console.error('❌ Instant booking error:', error);
+      alert('Failed to book instant session. Please check console for details.');
     } finally {
       setIsBooking(false);
     }
