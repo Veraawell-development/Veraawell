@@ -1,9 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AdminProvider } from './context/AdminContext';
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
+import LoadingScreen from './components/LoadingScreen';
+import { wakeUpBackend } from './utils/backendWakeup';
 import LandingPage from './pages/LandingPage';
 import AuthPage from './pages/AuthPage';
 import CareerPage from './pages/CareerPage';
@@ -48,14 +50,33 @@ import MessagesPage from './pages/MessagesPage';
 
 function AppRoutes() {
   const { isLoggedIn, user, checkAuth } = useAuth();
+  const [isBackendReady, setIsBackendReady] = useState(false);
+  const [backendError, setBackendError] = useState(false);
 
-  // Remove loading screen for faster app initialization
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Check auth on initial mount
+  // Wake up backend on initial mount (for Render free tier)
   useEffect(() => {
-    checkAuth();
+    const initializeBackend = async () => {
+      try {
+        const isAwake = await wakeUpBackend();
+        setIsBackendReady(true);
+        
+        if (!isAwake) {
+          console.warn('Backend health check failed, but continuing anyway');
+        }
+        
+        // Check auth after backend is ready
+        await checkAuth();
+      } catch (error) {
+        console.error('Failed to initialize backend:', error);
+        setBackendError(true);
+        setIsBackendReady(true); // Continue anyway
+      }
+    };
+    
+    initializeBackend();
   }, [checkAuth]);
 
   useEffect(() => {
@@ -98,6 +119,11 @@ function AppRoutes() {
                      location.pathname === '/forgot-password' || location.pathname === '/reset-password' ||
                      location.pathname.startsWith('/admin');
   const isVideoCallRoute = location.pathname.startsWith('/video-call');
+
+  // Show loading screen while backend is waking up
+  if (!isBackendReady) {
+    return <LoadingScreen message={backendError ? "Connecting to server..." : "Waking up server..."} />;
+  }
 
   return (
     <main className="flex-1 flex flex-col bg-black">
