@@ -277,4 +277,28 @@ router.put('/conversation/:conversationId/read', verifyToken, async (req, res) =
   }
 });
 
+// Get total unread message count for the logged-in user
+router.get('/unread-count', verifyToken, async (req, res) => {
+  try {
+    const userId = req.userId;
+    
+    // Get all conversations for this user
+    const conversations = await Conversation.find({
+      'participants.userId': userId
+    });
+    
+    // Calculate total unread count across all conversations
+    let totalUnread = 0;
+    for (const conv of conversations) {
+      const unreadCount = await Message.getUnreadCount(conv._id, userId);
+      totalUnread += unreadCount;
+    }
+    
+    res.json({ unreadCount: totalUnread });
+  } catch (error) {
+    console.error('Error fetching unread count:', error);
+    res.status(500).json({ message: 'Failed to fetch unread count', error: error.message });
+  }
+});
+
 module.exports = router;
