@@ -42,9 +42,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setLoading(true);
     console.log('[AUTH] Checking authentication status...');
     
+    // Get token from localStorage
+    const currentToken = localStorage.getItem('token');
+    console.log('[AUTH] Token from localStorage:', currentToken ? 'Present' : 'Missing');
+    
     try {
+      // Prepare headers with Authorization token
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      
+      if (currentToken) {
+        headers['Authorization'] = `Bearer ${currentToken}`;
+        console.log('[AUTH] Added Authorization header to request');
+      }
+      
       const res = await fetch(`${API_BASE_URL}/protected`, {
         credentials: 'include',
+        headers,
       });
       
       console.log('[AUTH] Protected endpoint response:', res.status);
@@ -56,6 +71,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Fetch profile status (only if authenticated)
         const profileRes = await fetch(`${API_BASE_URL}/profile/status`, {
           credentials: 'include',
+          headers,
         });
         
         let profileCompleted = false;
@@ -74,6 +90,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (data.token) {
           setToken(data.token);
           localStorage.setItem('token', data.token);
+        } else if (currentToken) {
+          // Keep the current token if no new token in response
+          setToken(currentToken);
         }
       } else {
         // User not authenticated - this is normal, not an error
@@ -94,7 +113,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, []);
 
   const logout = useCallback(async () => {
     await fetch(`${API_BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
