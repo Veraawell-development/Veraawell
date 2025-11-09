@@ -356,70 +356,42 @@ router.get('/upcoming', verifyToken, async (req, res) => {
 // IMPORTANT: Specific routes must come BEFORE parameterized routes like /:sessionId
 // Otherwise /:sessionId will match /doctors and cause 401 errors
 
-// Get all doctors with their profiles (including those without completed profiles)
+// Get all doctors with completed profiles only
 router.get('/doctors', async (req, res) => {
   try {
-    // First, get all users with role 'doctor'
-    const allDoctors = await User.find({ role: 'doctor' }).select('firstName lastName email');
+    console.log('[DOCTORS] Fetching doctors with completed profiles...');
     
-    // Then get all doctor profiles
-    const doctorProfiles = await DoctorProfile.find({})
-      .populate('userId', 'firstName lastName email');
+    // Get all users with role 'doctor' and profileCompleted = true
+    const doctorsWithCompletedProfiles = await User.find({ 
+      role: 'doctor',
+      profileCompleted: true 
+    }).select('firstName lastName email profileCompleted');
     
-    // Create a map of userId to profile
-    const profileMap = new Map();
-    doctorProfiles.forEach(profile => {
-      if (profile.userId && profile.userId._id) {
-        profileMap.set(profile.userId._id.toString(), profile);
-      }
-    });
+    console.log('[DOCTORS] Found doctors with completed profiles:', doctorsWithCompletedProfiles.length);
+    
+    // Get doctor profiles for these users
+    const doctorIds = doctorsWithCompletedProfiles.map(d => d._id);
+    const doctorProfiles = await DoctorProfile.find({ userId: { $in: doctorIds } })
+      .populate('userId', 'firstName lastName email isOnline');
+    
+    console.log('[DOCTORS] Found doctor profiles:', doctorProfiles.length);
     
     // Available doctor images for rotation
     const doctorImages = ['/doctor-01.svg', '/doctor-02.svg', '/doctor-03.svg', '/doctor-04.svg'];
     
-    // Merge doctors with their profiles (or create default profile)
-    const result = allDoctors.map((doctor, index) => {
-      const profile = profileMap.get(doctor._id.toString());
-      
-      if (profile) {
-        // If profile exists but has no image, assign one from rotation
-        if (!profile.profileImage || profile.profileImage === '/doctor-placeholder.svg') {
-          profile.profileImage = doctorImages[index % doctorImages.length];
-        }
-        return profile;
-      } else {
-        // Create a default profile structure for doctors without profiles
-        return {
-          _id: `temp_${doctor._id}`,
-          userId: {
-            _id: doctor._id,
-            firstName: doctor.firstName,
-            lastName: doctor.lastName,
-            email: doctor.email
-          },
-          specialization: ['Unknown'],
-          experience: 0,
-          qualification: ['Unknown'],
-          languages: ['Unknown'],
-          treatsFor: ['General'],
-          pricing: {
-            min: 0,
-            max: 0
-          },
-          profileImage: doctorImages[index % doctorImages.length],
-          bio: 'Profile not completed yet',
-          isOnline: false,
-          rating: {
-            average: 0,
-            totalReviews: 0
-          }
-        };
+    // Map profiles with images
+    const result = doctorProfiles.map((profile, index) => {
+      // If profile exists but has no image, assign one from rotation
+      if (!profile.profileImage || profile.profileImage === '/doctor-placeholder.svg') {
+        profile.profileImage = doctorImages[index % doctorImages.length];
       }
+      return profile;
     });
     
+    console.log('[DOCTORS] ✅ Returning', result.length, 'doctors with completed profiles');
     res.json(result);
   } catch (error) {
-    console.error('Error fetching doctors:', error);
+    console.error('[DOCTORS] ❌ Error fetching doctors:', error);
     res.status(500).json({ message: 'Failed to fetch doctors', error: error.message });
   }
 });

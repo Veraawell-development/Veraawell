@@ -126,7 +126,7 @@ const BookSessionPage: React.FC = () => {
     await proceedWithBooking();
   };
 
-  const handleEmergencyContactSubmit = async (contactName: string, contactPhone: string) => {
+  const handleEmergencyContactSubmit = async (contactName: string, contactPhone: string, contactRelationship: string) => {
     try {
       const token = localStorage.getItem('token');
       const headers: HeadersInit = {
@@ -140,7 +140,7 @@ const BookSessionPage: React.FC = () => {
         method: 'POST',
         headers,
         credentials: 'include',
-        body: JSON.stringify({ contactName, contactPhone })
+        body: JSON.stringify({ contactName, contactPhone, contactRelationship })
       });
 
       if (response.ok) {

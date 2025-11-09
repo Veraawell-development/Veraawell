@@ -40,13 +40,14 @@ router.post('/emergency-contact', verifyToken, async (req, res) => {
   try {
     const userId = req.user.userId;
     const userRole = req.user.role;
-    const { contactName, contactPhone } = req.body;
+    const { contactName, contactPhone, contactRelationship } = req.body;
 
     console.log('[EMERGENCY CONTACT] Save request:', {
       userId,
       role: userRole,
       contactName,
-      contactPhone
+      contactPhone,
+      contactRelationship
     });
 
     // Only patients can set emergency contact
@@ -54,8 +55,8 @@ router.post('/emergency-contact', verifyToken, async (req, res) => {
       return res.status(403).json({ message: 'Only patients can set emergency contact' });
     }
 
-    if (!contactName || !contactPhone) {
-      return res.status(400).json({ message: 'Contact name and phone are required' });
+    if (!contactName || !contactPhone || !contactRelationship) {
+      return res.status(400).json({ message: 'Contact name, phone, and relationship are required' });
     }
 
     const user = await User.findById(userId);
@@ -65,7 +66,8 @@ router.post('/emergency-contact', verifyToken, async (req, res) => {
 
     user.emergencyContact = {
       name: contactName,
-      phone: contactPhone
+      phone: contactPhone,
+      relationship: contactRelationship
     };
     await user.save();
 

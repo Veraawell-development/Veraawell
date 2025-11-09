@@ -104,6 +104,10 @@ const userSchema = new mongoose.Schema({
     phone: {
       type: String,
       default: null
+    },
+    relationship: {
+      type: String,
+      default: null
     }
   }
 }, {

@@ -4,7 +4,7 @@ import { IoClose } from 'react-icons/io5';
 interface EmergencyContactModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (contactName: string, contactPhone: string) => void;
+  onSubmit: (contactName: string, contactPhone: string, contactRelationship: string) => void;
 }
 
 const EmergencyContactModal: React.FC<EmergencyContactModalProps> = ({ 
@@ -14,12 +14,13 @@ const EmergencyContactModal: React.FC<EmergencyContactModalProps> = ({
 }) => {
   const [contactName, setContactName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
-  const [errors, setErrors] = useState({ name: '', phone: '' });
+  const [contactRelationship, setContactRelationship] = useState('');
+  const [errors, setErrors] = useState({ name: '', phone: '', relationship: '' });
 
   if (!isOpen) return null;
 
   const validateForm = () => {
-    const newErrors = { name: '', phone: '' };
+    const newErrors = { name: '', phone: '', relationship: '' };
     let isValid = true;
 
     if (!contactName.trim()) {
@@ -35,6 +36,11 @@ const EmergencyContactModal: React.FC<EmergencyContactModalProps> = ({
       isValid = false;
     }
 
+    if (!contactRelationship.trim()) {
+      newErrors.relationship = 'Relationship is required';
+      isValid = false;
+    }
+
     setErrors(newErrors);
     return isValid;
   };
@@ -42,10 +48,11 @@ const EmergencyContactModal: React.FC<EmergencyContactModalProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (validateForm()) {
-      onSubmit(contactName, contactPhone);
+      onSubmit(contactName, contactPhone, contactRelationship);
       setContactName('');
       setContactPhone('');
-      setErrors({ name: '', phone: '' });
+      setContactRelationship('');
+      setErrors({ name: '', phone: '', relationship: '' });
     }
   };
 
@@ -115,7 +122,7 @@ const EmergencyContactModal: React.FC<EmergencyContactModalProps> = ({
             </div>
 
             {/* Contact Phone */}
-            <div className="mb-6">
+            <div className="mb-5">
               <label 
                 htmlFor="contactPhone" 
                 className="block text-sm font-medium text-gray-700 mb-2"
@@ -135,6 +142,38 @@ const EmergencyContactModal: React.FC<EmergencyContactModalProps> = ({
               {errors.phone && (
                 <p className="text-red-500 text-sm mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>
                   {errors.phone}
+                </p>
+              )}
+            </div>
+
+            {/* Relationship */}
+            <div className="mb-6">
+              <label 
+                htmlFor="contactRelationship" 
+                className="block text-sm font-medium text-gray-700 mb-2"
+                style={{ fontFamily: 'Inter, sans-serif' }}
+              >
+                Relationship <span className="text-red-500">*</span>
+              </label>
+              <select
+                id="contactRelationship"
+                value={contactRelationship}
+                onChange={(e) => setContactRelationship(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
+                style={{ fontFamily: 'Inter, sans-serif' }}
+              >
+                <option value="">Select relationship</option>
+                <option value="Parent">Parent</option>
+                <option value="Spouse">Spouse</option>
+                <option value="Sibling">Sibling</option>
+                <option value="Friend">Friend</option>
+                <option value="Partner">Partner</option>
+                <option value="Guardian">Guardian</option>
+                <option value="Other">Other</option>
+              </select>
+              {errors.relationship && (
+                <p className="text-red-500 text-sm mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+                  {errors.relationship}
                 </p>
               )}
             </div>
