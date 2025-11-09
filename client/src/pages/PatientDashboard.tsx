@@ -56,16 +56,27 @@ const PatientDashboard: React.FC = () => {
 
   const fetchUserProfile = async () => {
     try {
+      // Get token from localStorage
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       const response = await fetch(`${API_BASE_URL}/auth/profile`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
       
       if (response.ok) {
         const userData = await response.json();
+        console.log('[PATIENT DASHBOARD] User profile:', userData);
         setUserName(userData.firstName || userData.username || 'User');
+      } else {
+        console.error('[PATIENT DASHBOARD] Profile fetch failed:', response.status);
       }
     } catch (error) {
-      console.error('Error fetching user profile:', error);
+      console.error('[PATIENT DASHBOARD] Error fetching user profile:', error);
     }
   };
 

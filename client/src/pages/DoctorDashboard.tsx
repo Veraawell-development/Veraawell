@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import Calendar from '../components/Calendar';
 import WelcomeModal from '../components/WelcomeModal';
 import { useAuth } from '../context/AuthContext';
@@ -25,7 +25,6 @@ interface Session {
 
 const DoctorDashboard: React.FC = () => {
   const navigate = useNavigate();
-  const location = useLocation();
   const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
@@ -36,20 +35,14 @@ const DoctorDashboard: React.FC = () => {
   const [assignedTasks, setAssignedTasks] = useState<any[]>([]);
   const [recentReports, setRecentReports] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
-  
-  // Get user name from location state or default
-  let userName = "Harris";
-  if (location.state && (location.state as any).username) {
-    const fullUsername = (location.state as any).username;
-    // Extract username from email (everything before @)
-    if (fullUsername.includes('@')) {
-      userName = fullUsername.split('@')[0];
-    } else {
-      userName = fullUsername;
-    }
-  }
+  const [userName, setUserName] = useState<string>('Doctor');
+
+  const API_BASE_URL = window.location.hostname === 'localhost' 
+    ? 'http://localhost:5001/api' 
+    : 'https://veraawell-backend.onrender.com/api';
 
   useEffect(() => {
+    fetchUserProfile();
     fetchDashboardData();
     fetchUnreadCount();
     
@@ -61,6 +54,32 @@ const DoctorDashboard: React.FC = () => {
       }
     }
   }, [user]);
+
+  const fetchUserProfile = async () => {
+    try {
+      // Get token from localStorage
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
+      const response = await fetch(`${API_BASE_URL}/auth/profile`, {
+        credentials: 'include',
+        headers
+      });
+      
+      if (response.ok) {
+        const userData = await response.json();
+        console.log('[DOCTOR DASHBOARD] User profile:', userData);
+        setUserName(userData.firstName || userData.username || 'Doctor');
+      } else {
+        console.error('[DOCTOR DASHBOARD] Profile fetch failed:', response.status);
+      }
+    } catch (error) {
+      console.error('[DOCTOR DASHBOARD] Error fetching user profile:', error);
+    }
+  };
 
   const fetchDashboardData = async () => {
     if (!user) return;

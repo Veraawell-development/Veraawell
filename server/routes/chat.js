@@ -7,11 +7,22 @@ const jwt = require('jsonwebtoken');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'veraawell_jwt_secret_key_2024_development_environment_secure_token_generation';
 
-// Middleware to verify JWT token
+// Middleware to verify JWT token (supports both cookie and Authorization header)
 const verifyToken = (req, res, next) => {
-  const token = req.cookies.token;
+  // Check BOTH cookie AND Authorization header
+  let token = req.cookies.token;
+  
+  // If no cookie, check Authorization header
+  if (!token && req.headers.authorization) {
+    const authHeader = req.headers.authorization;
+    if (authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+      console.log('[CHAT AUTH] Token from Authorization header');
+    }
+  }
   
   if (!token) {
+    console.log('[CHAT AUTH] No token found');
     return res.status(401).json({ message: 'No token provided' });
   }
   
@@ -21,6 +32,7 @@ const verifyToken = (req, res, next) => {
     req.userRole = decoded.role;
     next();
   } catch (error) {
+    console.error('[CHAT AUTH] JWT verification error:', error.message);
     return res.status(401).json({ message: 'Invalid token' });
   }
 };

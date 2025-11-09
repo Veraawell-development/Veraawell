@@ -10,20 +10,32 @@ const crypto = require('crypto');
 // Use the same JWT_SECRET logic as the main server
 const JWT_SECRET = process.env.JWT_SECRET || 'veraawell_jwt_secret_key_2024_development_environment_secure_token_generation';
 
-// Middleware to verify JWT token
+// Middleware to verify JWT token (supports both cookie and Authorization header)
 const verifyToken = (req, res, next) => {
-  const token = req.cookies.token;
+  // Check BOTH cookie AND Authorization header
+  let token = req.cookies.token;
+  
+  // If no cookie, check Authorization header
+  if (!token && req.headers.authorization) {
+    const authHeader = req.headers.authorization;
+    if (authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+      console.log('[AUTH] Token from Authorization header');
+    }
+  }
   
   if (!token) {
+    console.log('[AUTH] No token found in cookie or header');
     return res.status(401).json({ message: 'No token provided' });
   }
   
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
+    console.log('[AUTH] Token verified for user:', decoded.userId);
     req.user = decoded;
     next();
   } catch (error) {
-    console.error('JWT verification error:', error.message);
+    console.error('[AUTH] JWT verification error:', error.message);
     return res.status(401).json({ message: 'Invalid token' });
   }
 };

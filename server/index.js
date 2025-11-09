@@ -906,18 +906,32 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 
-// Profile route alias
+// Profile route alias (supports both cookie and Authorization header)
 app.get('/api/auth/profile', async (req, res) => {
-  const token = req.cookies.token || req.cookies.adminToken;
+  // Check BOTH cookie AND Authorization header
+  let token = req.cookies.token || req.cookies.adminToken;
+  
+  // If no cookie, check Authorization header
+  if (!token && req.headers.authorization) {
+    const authHeader = req.headers.authorization;
+    if (authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+      console.log('[PROFILE] Token from Authorization header');
+    }
+  }
+  
   if (!token) {
+    console.log('[PROFILE] No token found in cookie or header');
     return res.status(401).json({ message: 'No token provided' });
   }
 
-  const isUserToken = !!req.cookies.token;
+  // Determine which secret to use
+  const isUserToken = !!req.cookies.token || (req.headers.authorization && !req.cookies.adminToken);
   const secret = isUserToken ? JWT_SECRET : process.env.ADMIN_JWT_SECRET;
 
   try {
     const decoded = jwt.verify(token, secret);
+    console.log('[PROFILE] Token verified for user:', decoded.userId);
     
     let user;
     if (decoded.userId) {
@@ -927,6 +941,7 @@ app.get('/api/auth/profile', async (req, res) => {
     }
 
     if (!user) {
+      console.log('[PROFILE] User not found:', decoded.userId);
       const cookieName = isUserToken ? 'token' : 'adminToken';
       res.clearCookie(cookieName, { 
         httpOnly: true,
@@ -936,6 +951,7 @@ app.get('/api/auth/profile', async (req, res) => {
       return res.status(401).json({ message: 'User not found' });
     }
 
+    console.log('[PROFILE] Returning profile for:', user.firstName, user.lastName);
     res.json({
       userId: user._id,
       username: user.username || user.email,
@@ -946,7 +962,7 @@ app.get('/api/auth/profile', async (req, res) => {
       profileCompleted: user.profileCompleted
     });
   } catch (error) {
-    console.error('Token verification error:', error);
+    console.error('[PROFILE] Token verification error:', error.message);
     return res.status(401).json({ message: 'Invalid token' });
   }
 });
