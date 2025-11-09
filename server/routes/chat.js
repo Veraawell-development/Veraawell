@@ -42,18 +42,48 @@ const verifyToken = (req, res, next) => {
 router.get('/conversations', verifyToken, async (req, res) => {
   try {
     const userId = req.userId;
+    const userRole = req.userRole;
+    
+    console.log('[CHAT] 📋 Fetching conversations for user:', {
+      userId,
+      role: userRole
+    });
     
     // Get all conversations for this user
     const conversations = await Conversation.getConversationsForUser(userId);
     
+    console.log('[CHAT] 📊 Found conversations:', {
+      count: conversations.length,
+      conversationIds: conversations.map(c => c._id.toString())
+    });
+    
     // Format conversations for frontend
-    const formattedConversations = await Promise.all(conversations.map(async (conv) => {
-      // Find the other participant
+    const formattedConversations = await Promise.all(conversations.map(async (conv, index) => {
+      console.log(`[CHAT] 🔍 Processing conversation ${index + 1}/${conversations.length}:`, {
+        conversationId: conv._id,
+        participantCount: conv.participants.length,
+        participants: conv.participants.map(p => ({
+          userId: p.userId?._id || p.userId || 'null',
+          role: p.role,
+          hasUserData: !!(p.userId?.firstName)
+        }))
+      });
+      
+      // Find the other participant (skip if userId is null)
       const otherParticipant = conv.participants.find(
-        p => p.userId._id.toString() !== userId.toString()
+        p => p.userId && p.userId._id && p.userId._id.toString() !== userId.toString()
       );
       
-      if (!otherParticipant) return null;
+      if (!otherParticipant) {
+        console.log(`[CHAT] ⚠️ No valid other participant found in conversation ${conv._id} - skipping`);
+        return null;
+      }
+      
+      console.log(`[CHAT] ✅ Other participant found:`, {
+        userId: otherParticipant.userId._id,
+        name: `${otherParticipant.userId.firstName} ${otherParticipant.userId.lastName}`,
+        role: otherParticipant.role
+      });
       
       // Get unread count
       const unreadCount = await Message.getUnreadCount(conv._id, userId);

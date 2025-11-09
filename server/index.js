@@ -65,29 +65,36 @@ app.use(compression());
 // Trust proxy - CRITICAL for rate limiting behind Render proxy
 app.set('trust proxy', 1);
 
-// Security: Rate limiting
+// Security: Rate limiting (DISABLED IN DEVELOPMENT)
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
+  max: process.env.NODE_ENV === 'production' ? 100 : 10000, // High limit for dev
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
 });
 
-// Apply rate limiting to all API routes
-app.use('/api/', limiter);
+// Apply rate limiting to all API routes (only in production)
+if (process.env.NODE_ENV === 'production') {
+  app.use('/api/', limiter);
+  console.log('✅ Rate limiting enabled for production');
+} else {
+  console.log('⚠️  Rate limiting DISABLED for development');
+}
 
-// Stricter rate limiting for auth endpoints
+// Stricter rate limiting for auth endpoints (DISABLED IN DEVELOPMENT)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // Limit each IP to 5 requests per windowMs
+  max: process.env.NODE_ENV === 'production' ? 5 : 1000, // High limit for dev
   message: 'Too many authentication attempts, please try again later.',
   skipSuccessfulRequests: true // Don't count successful requests
 });
 
-app.use('/api/auth/login', authLimiter);
-app.use('/api/auth/register', authLimiter);
-app.use('/api/auth/forgot-password', authLimiter);
+if (process.env.NODE_ENV === 'production') {
+  app.use('/api/auth/login', authLimiter);
+  app.use('/api/auth/register', authLimiter);
+  app.use('/api/auth/forgot-password', authLimiter);
+}
 
 // Request timeout middleware (30 seconds)
 app.use((req, res, next) => {
@@ -358,23 +365,31 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         console.log('[OAUTH] Determining frontend URL...');
         console.log('[OAUTH] FRONTEND_URL env:', process.env.FRONTEND_URL);
         console.log('[OAUTH] NODE_ENV:', process.env.NODE_ENV);
+        console.log('[OAUTH] RENDER:', process.env.RENDER);
+        console.log('[OAUTH] Request host:', req.headers.host);
         console.log('[OAUTH] Request origin:', req.headers.origin);
         console.log('[OAUTH] Request referer:', req.headers.referer);
         
-        // Priority 1: Environment variable
+        // Priority 1: Environment variable (ALWAYS USE THIS IN PRODUCTION!)
         if (process.env.FRONTEND_URL) {
-          console.log('[OAUTH] Using FRONTEND_URL from env:', process.env.FRONTEND_URL);
+          console.log('[OAUTH] ✅ Using FRONTEND_URL from env:', process.env.FRONTEND_URL);
           return process.env.FRONTEND_URL;
         }
         
-        // Priority 2: Default based on NODE_ENV (FIXED - don't use referer!)
-        if (process.env.NODE_ENV === 'production') {
-          console.log('[OAUTH] Using production URL: https://veraawell.com');
+        // Priority 2: Detect Render environment
+        if (process.env.RENDER || req.headers.host?.includes('onrender.com')) {
+          console.log('[OAUTH] ✅ Detected Render environment, using production URL');
           return 'https://veraawell.com';
         }
         
-        // Priority 3: Development default
-        console.log('[OAUTH] Using development URL: http://localhost:5173');
+        // Priority 3: Check NODE_ENV
+        if (process.env.NODE_ENV === 'production') {
+          console.log('[OAUTH] ✅ NODE_ENV is production, using production URL');
+          return 'https://veraawell.com';
+        }
+        
+        // Priority 4: Development default
+        console.log('[OAUTH] ⚠️ Using development URL: http://localhost:5173');
         return 'http://localhost:5173';
       };
 

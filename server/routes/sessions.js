@@ -141,6 +141,13 @@ router.post('/book-immediate', verifyToken, async (req, res) => {
     // Create immediate session (starts NOW - can join immediately)
     const now = new Date();
     
+    console.log('[IMMEDIATE BOOKING] 🕐 Server time:', {
+      iso: now.toISOString(),
+      local: now.toLocaleString(),
+      utc: now.toUTCString(),
+      timestamp: now.getTime()
+    });
+    
     // Use local date to avoid timezone issues
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
@@ -152,13 +159,15 @@ router.post('/book-immediate', verifyToken, async (req, res) => {
     const minutes = String(now.getMinutes()).padStart(2, '0');
     const sessionTime = `${hours}:${minutes}`;
 
-    console.log('💾 Creating immediate session with data:', {
+    console.log('[IMMEDIATE BOOKING] 💾 Creating session with:', {
       patientId: patientId.substring(0, 8),
       doctorId: doctorId.substring(0, 8),
       sessionType: 'immediate',
       sessionDate,
       sessionTime,
-      localTime: now.toLocaleString()
+      year,
+      month,
+      day
     });
 
     const session = new Session({
@@ -192,10 +201,22 @@ router.post('/book-immediate', verifyToken, async (req, res) => {
 
     // Auto-create conversation between patient and doctor
     try {
-      await Conversation.findOrCreateConversation(patientId, doctorId, savedSession._id);
-      console.log(`Conversation created/found for patient ${patientId} and doctor ${doctorId}`);
+      console.log('[CONVERSATION] 🔄 Creating conversation...');
+      console.log('[CONVERSATION] Patient ID:', patientId);
+      console.log('[CONVERSATION] Doctor ID:', doctorId);
+      console.log('[CONVERSATION] Session ID:', savedSession._id);
+      
+      const conversation = await Conversation.findOrCreateConversation(patientId, doctorId, savedSession._id);
+      
+      console.log('[CONVERSATION] ✅ Conversation created/found:', {
+        conversationId: conversation._id,
+        participants: conversation.participants.map(p => ({
+          userId: p.userId._id || p.userId,
+          role: p.role
+        }))
+      });
     } catch (convError) {
-      console.error('Error creating conversation:', convError);
+      console.error('[CONVERSATION] ❌ Error creating conversation:', convError);
       // Don't fail the session booking if conversation creation fails
     }
 

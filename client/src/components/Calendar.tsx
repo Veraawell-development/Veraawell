@@ -228,8 +228,12 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
                         </div>
                         <div className="text-gray-600">
                           {userRole === 'patient' 
-                            ? `Dr. ${session.doctorId.firstName} ${session.doctorId.lastName}`
-                            : `${session.patientId.firstName} ${session.patientId.lastName}`
+                            ? (session.doctorId?.firstName 
+                                ? `Dr. ${session.doctorId.firstName} ${session.doctorId.lastName}`
+                                : 'Doctor')
+                            : (session.patientId?.firstName 
+                                ? `${session.patientId.firstName} ${session.patientId.lastName}`
+                                : 'Patient (Pending)')
                           }
                         </div>
                       </div>
@@ -347,8 +351,12 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
                         <div className="flex items-center gap-2 mb-1">
                           <h4 className="font-bold text-base truncate" style={{ fontFamily: 'Bree Serif, serif', color: '#1F2937' }}>
                             {userRole === 'patient' 
-                              ? `Dr. ${session.doctorId.firstName} ${session.doctorId.lastName}`
-                              : `${session.patientId.firstName} ${session.patientId.lastName}`
+                              ? (session.doctorId?.firstName 
+                                  ? `Dr. ${session.doctorId.firstName} ${session.doctorId.lastName}`
+                                  : 'Doctor')
+                              : (session.patientId?.firstName 
+                                  ? `${session.patientId.firstName} ${session.patientId.lastName}`
+                                  : 'Patient (Pending)')
                             }
                           </h4>
                         </div>
