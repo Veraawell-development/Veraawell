@@ -1224,6 +1224,42 @@ app.post('/api/admin/fix-doctor-approvals', async (req, res) => {
   }
 });
 
+// DEBUG ENDPOINT: Check pending doctors directly
+app.get('/api/admin/debug-pending-doctors', async (req, res) => {
+  try {
+    console.log('[DEBUG] Checking pending doctors in database...');
+    
+    // Get all doctors
+    const allDoctors = await User.find({ role: 'doctor' })
+      .select('firstName lastName email approvalStatus approvedBy createdAt')
+      .sort({ createdAt: -1 });
+    
+    // Get pending doctors
+    const pendingDoctors = await User.find({ 
+      role: 'doctor',
+      approvalStatus: 'pending'
+    })
+      .select('firstName lastName email approvalStatus approvedBy createdAt')
+      .sort({ createdAt: -1 });
+    
+    console.log(`[DEBUG] Total doctors: ${allDoctors.length}`);
+    console.log(`[DEBUG] Pending doctors: ${pendingDoctors.length}`);
+    
+    res.json({
+      totalDoctors: allDoctors.length,
+      pendingCount: pendingDoctors.length,
+      allDoctors: allDoctors,
+      pendingDoctors: pendingDoctors
+    });
+  } catch (error) {
+    console.error('[DEBUG] Error:', error);
+    res.status(500).json({ 
+      message: 'Error checking doctors',
+      error: error.message 
+    });
+  }
+});
+
 // Initialize Socket.IO handlers
 const socketHandler = require('./socketHandler');
 socketHandler(io);

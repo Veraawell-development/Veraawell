@@ -130,12 +130,25 @@ router.post('/admins/:adminId/reject', superAdminAuth, async (req, res) => {
 // Get all pending doctor requests
 router.get('/doctors/pending', adminAuth, async (req, res) => {
   try {
+    console.log('[ADMIN] Fetching pending doctors...');
+    console.log('[ADMIN] Admin user:', req.admin);
+    
     const pendingDoctors = await User.find({
       role: 'doctor',
       approvalStatus: 'pending'
     })
     .select('-password')
     .sort({ createdAt: -1 });
+
+    console.log(`[ADMIN] Found ${pendingDoctors.length} pending doctors`);
+    if (pendingDoctors.length > 0) {
+      console.log('[ADMIN] First doctor:', {
+        id: pendingDoctors[0]._id,
+        email: pendingDoctors[0].email,
+        firstName: pendingDoctors[0].firstName,
+        approvalStatus: pendingDoctors[0].approvalStatus
+      });
+    }
 
     // Also get their doctor profiles if they exist
     const doctorsWithProfiles = await Promise.all(
@@ -148,9 +161,10 @@ router.get('/doctors/pending', adminAuth, async (req, res) => {
       })
     );
 
+    console.log('[ADMIN] Returning doctors with profiles');
     res.json(doctorsWithProfiles);
   } catch (error) {
-    console.error('Error fetching pending doctors:', error);
+    console.error('[ADMIN] Error fetching pending doctors:', error);
     res.status(500).json({ message: 'Failed to fetch pending doctors' });
   }
 });
