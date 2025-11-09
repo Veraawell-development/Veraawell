@@ -115,8 +115,10 @@ function AppRoutes() {
     if (urlParams.has('auth') && urlParams.get('auth') === 'success') {
       console.log('[OAuth] Auth success detected, processing authentication...');
       
-      // Get token from URL if present (fallback for immediate auth)
+      // Get token and role from URL
       const tokenFromUrl = urlParams.get('token');
+      const roleFromUrl = urlParams.get('role');
+      
       if (tokenFromUrl) {
         console.log('[OAuth] Token found in URL, storing in localStorage');
         localStorage.setItem('token', tokenFromUrl);
@@ -133,8 +135,18 @@ function AppRoutes() {
           console.log(`[OAuth] Auth check attempt ${attempt}/${maxAttempts}`);
           await checkAuth();
           console.log('[OAuth] Auth check completed successfully');
-          // Clean the URL after successful auth
-          navigate(location.pathname, { replace: true });
+          
+          // Redirect to appropriate dashboard based on role
+          if (roleFromUrl === 'patient') {
+            console.log('[OAuth] Redirecting to patient dashboard');
+            navigate('/patient-dashboard', { replace: true });
+          } else if (roleFromUrl === 'doctor') {
+            console.log('[OAuth] Redirecting to doctor dashboard');
+            navigate('/doctor-dashboard', { replace: true });
+          } else {
+            // Fallback: clean URL and let the redirect effect handle it
+            navigate('/', { replace: true });
+          }
         } catch (error) {
           console.error(`[OAuth] Auth check attempt ${attempt} failed:`, error);
           
@@ -147,7 +159,7 @@ function AppRoutes() {
           } else {
             console.error('[OAuth] All auth check attempts failed');
             // Clean the URL even if all attempts fail
-            navigate(location.pathname, { replace: true });
+            navigate('/', { replace: true });
           }
         }
       };
