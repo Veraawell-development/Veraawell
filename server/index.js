@@ -62,6 +62,9 @@ app.use(helmet({
 // Performance: Compression middleware
 app.use(compression());
 
+// Trust proxy - CRITICAL for rate limiting behind Render proxy
+app.set('trust proxy', 1);
+
 // Security: Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -331,13 +334,24 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
     (req, res, next) => {
       console.log('=== OAuth Callback Received ===');
       console.log('Query params:', req.query);
-      console.log('Session:', req.session);
+      console.log('Session ID before:', req.sessionID);
       console.log('Request origin:', req.headers.origin);
       console.log('Request referer:', req.headers.referer);
       
-      // Get role from session instead of state parameter
+      // CRITICAL: Save role before regenerating session
       const role = req.session.oauthRole || 'patient';
       console.log('OAuth callback - role from session:', role);
+      
+      // CRITICAL: Regenerate session to prevent reusing old session
+      req.session.regenerate((err) => {
+        if (err) {
+          console.error('Session regeneration error:', err);
+          return next(err);
+        }
+        console.log('[OAUTH] Session regenerated, new ID:', req.sessionID);
+        
+        // Restore role after regeneration
+        req.session.oauthRole = role;
 
       // Determine frontend URL from environment or request origin
       const getFrontendUrl = () => {
@@ -428,6 +442,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           return res.redirect(redirectUrl.toString());
         });
       })(req, res, next);
+      }); // Close session.regenerate callback
     }
   );
 } else {
@@ -851,12 +866,14 @@ app.post('/api/auth/login', async (req, res) => {
       { expiresIn: '30d' }
     );
 
-    // Set cookie
+    // Set cookie with domain for consistency
     res.cookie('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-      maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      domain: process.env.NODE_ENV === 'production' ? '.veraawell.com' : undefined,
+      path: '/'
     });
 
     res.json({ 
@@ -923,15 +940,26 @@ app.get('/api/auth/profile', async (req, res) => {
   }
 });
 
-// Unified protected route (checks JWT from either cookie)
+// Unified protected route (checks JWT from either cookie OR Authorization header)
 app.get('/api/protected', async (req, res) => {
-  const token = req.cookies.token || req.cookies.adminToken;
+  // Check BOTH cookie AND Authorization header
+  let token = req.cookies.token || req.cookies.adminToken;
+  
+  // If no cookie, check Authorization header
+  if (!token && req.headers.authorization) {
+    const authHeader = req.headers.authorization;
+    if (authHeader.startsWith('Bearer ')) {
+      token = authHeader.substring(7);
+      console.log('[AUTH] Token from Authorization header');
+    }
+  }
+  
   if (!token) {
     return res.status(401).json({ message: 'No token provided' });
   }
 
   // Determine which secret to use for verification
-  const isUserToken = !!req.cookies.token;
+  const isUserToken = !!req.cookies.token || (req.headers.authorization && !req.cookies.adminToken);
   const secret = isUserToken ? JWT_SECRET : process.env.ADMIN_JWT_SECRET;
 
   try {
@@ -981,15 +1009,29 @@ app.get('/api/protected', async (req, res) => {
   }
 });
 
-// Logout (clears all auth cookies)
+// Logout (clears all auth cookies AND destroys session)
 app.post('/api/auth/logout', (req, res) => {
   const cookieOptions = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
   };
+  
+  // Clear cookies
   res.clearCookie('token', cookieOptions);
   res.clearCookie('adminToken', cookieOptions);
+  
+  // CRITICAL: Destroy session to prevent OAuth reuse
+  if (req.session) {
+    req.session.destroy((err) => {
+      if (err) {
+        console.error('Session destroy error:', err);
+      } else {
+        console.log('[LOGOUT] Session destroyed successfully');
+      }
+    });
+  }
+  
   res.json({ message: 'Logged out successfully' });
 });
 
@@ -1114,6 +1156,28 @@ app.use('/api/patients', patientRoutes);
 
 // Session Tools routes (Notes, Tasks, Reports)
 app.use('/api/session-tools', sessionToolsRoutes);
+
+// ADMIN ENDPOINT: Clean up all sessions (for debugging OAuth issues)
+app.post('/api/admin/cleanup-sessions', async (req, res) => {
+  try {
+    // Get MongoDB session collection
+    const sessionCollection = mongoose.connection.db.collection('sessions');
+    const result = await sessionCollection.deleteMany({});
+    
+    console.log(`[ADMIN] Deleted ${result.deletedCount} sessions from MongoDB`);
+    
+    res.json({ 
+      message: 'All sessions cleaned up successfully',
+      deletedCount: result.deletedCount
+    });
+  } catch (error) {
+    console.error('[ADMIN] Session cleanup error:', error);
+    res.status(500).json({ 
+      message: 'Error cleaning up sessions',
+      error: error.message 
+    });
+  }
+});
 
 // Initialize Socket.IO handlers
 const socketHandler = require('./socketHandler');

@@ -53,6 +53,13 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
         // Store the token for WebSocket authentication
         if (data.token) {
           setAuthToken(data.token);
+          
+          // CRITICAL: Also store in cookie for backend API calls
+          const maxAge = 30 * 24 * 60 * 60; // 30 days in seconds
+          const secure = window.location.protocol === 'https:';
+          const sameSite = secure ? 'none' : 'lax';
+          document.cookie = `token=${data.token}; path=/; max-age=${maxAge}; ${secure ? 'secure; ' : ''}samesite=${sameSite}`;
+          console.log('[LOGIN] Token stored in localStorage AND cookie');
         }
         if (onSuccess) onSuccess();
       } else {
