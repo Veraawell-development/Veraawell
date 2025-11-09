@@ -747,17 +747,28 @@ app.post('/api/auth/register', async (req, res) => {
       return res.status(409).json({ message: 'User already exists' });
     }
 
-    const newUser = new User({
-      firstName,
-      lastName: lastName || '',
-      email,
-      username: username || email,
+    // Create user with explicit approvalStatus
+    const userData = {
+      firstName: firstName.trim(),
+      lastName: (lastName || '').trim(),
+      email: email.toLowerCase().trim(),
+      username: (username || email).toLowerCase().trim(),
       password,
       phoneNo: phoneNo || '',
       role,
       resetToken: null,
       resetTokenExpiry: null
-    });
+    };
+    
+    // CRITICAL: Explicitly set approvalStatus for doctors
+    if (role === 'doctor') {
+      userData.approvalStatus = 'pending';
+      console.log('[REGISTER] Doctor registration - setting approvalStatus to pending');
+    } else {
+      userData.approvalStatus = 'approved';
+    }
+    
+    const newUser = new User(userData);
 
     await newUser.save();
     
@@ -1174,6 +1185,40 @@ app.post('/api/admin/cleanup-sessions', async (req, res) => {
     console.error('[ADMIN] Session cleanup error:', error);
     res.status(500).json({ 
       message: 'Error cleaning up sessions',
+      error: error.message 
+    });
+  }
+});
+
+// ADMIN ENDPOINT: Fix doctor approval status (for existing doctors)
+app.post('/api/admin/fix-doctor-approvals', async (req, res) => {
+  try {
+    // Find all doctors with 'approved' status who shouldn't be auto-approved
+    const result = await User.updateMany(
+      { 
+        role: 'doctor',
+        approvalStatus: 'approved',
+        approvedBy: null, // Not manually approved by admin
+        googleId: { $exists: false } // Not Google OAuth users
+      },
+      { 
+        $set: { 
+          approvalStatus: 'pending',
+          approvedAt: null
+        }
+      }
+    );
+    
+    console.log(`[ADMIN] Fixed ${result.modifiedCount} doctor approval statuses`);
+    
+    res.json({ 
+      message: 'Doctor approval statuses fixed successfully',
+      modifiedCount: result.modifiedCount
+    });
+  } catch (error) {
+    console.error('[ADMIN] Fix doctor approvals error:', error);
+    res.status(500).json({ 
+      message: 'Error fixing doctor approvals',
       error: error.message 
     });
   }
