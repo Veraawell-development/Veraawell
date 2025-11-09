@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const session = require('express-session');
+const MongoStore = require('connect-mongo');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const { Resend } = require('resend');
@@ -69,15 +70,24 @@ app.use(cookieParser());
 const JWT_SECRET = process.env.JWT_SECRET || 'veraawell_jwt_secret_key_2024_development_environment_secure_token_generation';
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(64).toString('hex');
 
-// Session middleware with secure configuration
+// Session middleware with MongoDB store for persistence
 app.use(session({
   secret: SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
+  store: MongoStore.create({
+    mongoUrl: process.env.MONGO_URI || 'mongodb://localhost:27017/verocare',
+    ttl: 30 * 24 * 60 * 60, // 30 days in seconds
+    touchAfter: 24 * 3600, // Lazy session update (24 hours)
+    crypto: {
+      secret: SESSION_SECRET
+    }
+  }),
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-    maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    domain: process.env.NODE_ENV === 'production' ? '.veraawell.com' : undefined
   }
 }));
 
@@ -347,22 +357,27 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           { expiresIn: '30d' }
         );
 
-        // Set cookie
+        // Set cookie with proper domain configuration
         res.cookie('token', token, {
           httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
-          maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+          maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+          domain: process.env.NODE_ENV === 'production' ? '.veraawell.com' : undefined,
+          path: '/'
         });
 
-          // Redirect to frontend with success parameters
+          // Redirect to frontend with success parameters AND token
+          // Include token in URL as fallback for immediate auth
           const redirectUrl = new URL(frontendBaseUrl);
           redirectUrl.searchParams.set('auth', 'success');
+          redirectUrl.searchParams.set('token', token);
           redirectUrl.searchParams.set('username', user.username);
           redirectUrl.searchParams.set('role', user.role);
           redirectUrl.searchParams.set('isGoogle', 'true');
           
           console.log('Redirecting to:', redirectUrl.toString());
+          console.log('Token set in cookie and URL for immediate auth');
           return res.redirect(redirectUrl.toString());
         });
       })(req, res, next);

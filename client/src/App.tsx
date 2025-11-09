@@ -113,20 +113,46 @@ function AppRoutes() {
     // we trigger a re-check of authentication status.
     const urlParams = new URLSearchParams(location.search);
     if (urlParams.has('auth') && urlParams.get('auth') === 'success') {
-      console.log('[OAuth] Auth success detected, checking authentication...');
+      console.log('[OAuth] Auth success detected, processing authentication...');
       
-      // Force auth check and wait for it to complete
-      checkAuth()
-        .then(() => {
+      // Get token from URL if present (fallback for immediate auth)
+      const tokenFromUrl = urlParams.get('token');
+      if (tokenFromUrl) {
+        console.log('[OAuth] Token found in URL, storing in localStorage');
+        localStorage.setItem('token', tokenFromUrl);
+        
+        // Also set in cookie for consistency
+        document.cookie = `token=${tokenFromUrl}; path=/; max-age=${30 * 24 * 60 * 60}; ${
+          window.location.protocol === 'https:' ? 'secure; samesite=none' : 'samesite=lax'
+        }`;
+      }
+      
+      // Retry auth check with exponential backoff
+      const retryAuthCheck = async (attempt = 1, maxAttempts = 3) => {
+        try {
+          console.log(`[OAuth] Auth check attempt ${attempt}/${maxAttempts}`);
+          await checkAuth();
           console.log('[OAuth] Auth check completed successfully');
-          // Clean the URL after checking auth
+          // Clean the URL after successful auth
           navigate(location.pathname, { replace: true });
-        })
-        .catch((error) => {
-          console.error('[OAuth] Auth check failed:', error);
-          // Still clean the URL even if auth fails
-          navigate(location.pathname, { replace: true });
-        });
+        } catch (error) {
+          console.error(`[OAuth] Auth check attempt ${attempt} failed:`, error);
+          
+          if (attempt < maxAttempts) {
+            // Wait before retrying (exponential backoff: 500ms, 1000ms, 2000ms)
+            const delay = 500 * Math.pow(2, attempt - 1);
+            console.log(`[OAuth] Retrying in ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return retryAuthCheck(attempt + 1, maxAttempts);
+          } else {
+            console.error('[OAuth] All auth check attempts failed');
+            // Clean the URL even if all attempts fail
+            navigate(location.pathname, { replace: true });
+          }
+        }
+      };
+      
+      retryAuthCheck();
     }
   }, [location, checkAuth, navigate]);
 
