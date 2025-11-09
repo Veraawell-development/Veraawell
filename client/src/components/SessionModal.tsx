@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import EmergencyContactModal from './EmergencyContactModal';
+import FeedbackModal from './FeedbackModal';
 
 interface Session {
   _id: string;
@@ -34,6 +35,8 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
   const [hasEmergencyContact, setHasEmergencyContact] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [hasReview, setHasReview] = useState(false);
 
   const API_BASE_URL = window.location.hostname === 'localhost' 
     ? 'http://localhost:5001/api' 
@@ -42,6 +45,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
   useEffect(() => {
     if (isOpen && userRole === 'patient') {
       checkEmergencyContact();
+      checkReviewStatus();
     }
   }, [isOpen, userRole]);
 
@@ -64,6 +68,68 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
       }
     } catch (error) {
       console.error('Error checking emergency contact:', error);
+    }
+  };
+
+  const checkReviewStatus = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/reviews/check/${session._id}`, {
+        credentials: 'include',
+        headers
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setHasReview(data.hasReview);
+      }
+    } catch (error) {
+      console.error('Error checking review status:', error);
+    }
+  };
+
+  const handleFeedbackSubmit = async (feedbackData: {
+    rating: number;
+    feedback: string;
+    positives: string;
+    improvements: string;
+    wouldRecommend: boolean;
+  }) => {
+    try {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/reviews/submit`, {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({
+          sessionId: session._id,
+          ...feedbackData
+        })
+      });
+
+      if (response.ok) {
+        setHasReview(true);
+        setShowFeedbackModal(false);
+        alert('Thank you for your feedback!');
+      } else {
+        const data = await response.json();
+        alert(data.message || 'Failed to submit feedback');
+      }
+    } catch (error) {
+      console.error('Error submitting feedback:', error);
+      alert('Failed to submit feedback');
     }
   };
 
@@ -435,10 +501,33 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
             )}
             
             {session.status === 'completed' && (
-              <div className="text-center py-4 px-8 rounded-2xl" style={{ backgroundColor: '#D1FAE5', fontFamily: 'Bree Serif, serif' }}>
-                <p className="text-lg font-semibold" style={{ color: '#065F46' }}>
-                  ✓ Session Completed
-                </p>
+              <div className="space-y-4">
+                <div className="text-center py-4 px-8 rounded-2xl" style={{ backgroundColor: '#D1FAE5', fontFamily: 'Bree Serif, serif' }}>
+                  <p className="text-lg font-semibold" style={{ color: '#065F46' }}>
+                    ✓ Session Completed
+                  </p>
+                </div>
+                {userRole === 'patient' && !hasReview && (
+                  <button
+                    onClick={() => setShowFeedbackModal(true)}
+                    className="w-full px-8 py-4 rounded-full text-xl font-bold transition-all hover:scale-105"
+                    style={{ 
+                      backgroundColor: '#38ABAE',
+                      color: '#FFFFFF',
+                      fontFamily: 'Bree Serif, serif',
+                      boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+                    }}
+                  >
+                    ⭐ Leave Feedback
+                  </button>
+                )}
+                {userRole === 'patient' && hasReview && (
+                  <div className="text-center py-3 px-6 rounded-2xl" style={{ backgroundColor: '#E0F2FE', fontFamily: 'Inter, sans-serif' }}>
+                    <p className="text-sm font-medium" style={{ color: '#075985' }}>
+                      ✓ You have already reviewed this session
+                    </p>
+                  </div>
+                )}
               </div>
             )}
             
@@ -466,6 +555,14 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
         isOpen={showEmergencyModal}
         onClose={() => setShowEmergencyModal(false)}
         onSubmit={handleEmergencyContactSubmit}
+      />
+
+      {/* Feedback Modal */}
+      <FeedbackModal
+        isOpen={showFeedbackModal}
+        onClose={() => setShowFeedbackModal(false)}
+        onSubmit={handleFeedbackSubmit}
+        doctorName={`${session.doctorId.firstName} ${session.doctorId.lastName}`}
       />
     </div>
   );

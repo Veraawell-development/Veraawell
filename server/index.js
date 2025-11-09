@@ -1211,6 +1211,7 @@ const sessionRoutes = require('./routes/sessions');
 const availabilityRoutes = require('./routes/availability');
 const chatRoutes = require('./routes/chat');
 const patientRoutes = require('./routes/patients');
+const reviewRoutes = require('./routes/reviews');
 const sessionToolsRoutes = require('./routes/sessionTools');
 const doctorStatusRoutes = require('./routes/doctor-status');
 
@@ -1223,6 +1224,9 @@ app.use('/api/sessions', sessionRoutes);
 
 // Availability routes
 app.use('/api/availability', availabilityRoutes);
+
+// Review routes
+app.use('/api/reviews', reviewRoutes);
 
 // Chat routes
 app.use('/api/chat', chatRoutes);
