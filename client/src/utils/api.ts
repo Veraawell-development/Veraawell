@@ -90,6 +90,29 @@ export const authenticatedDelete = async (endpoint: string): Promise<Response> =
 };
 
 /**
+ * Generic authenticated fetch - supports all HTTP methods and custom options
+ */
+export const authenticatedFetch = async (
+  url: string,
+  options: RequestInit = {}
+): Promise<Response> => {
+  const token = getAuthToken();
+  const headers: Record<string, string> = {
+    ...(options.headers as Record<string, string>),
+  };
+  
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  
+  return fetch(url, {
+    ...options,
+    credentials: 'include',
+    headers
+  });
+};
+
+/**
  * Handle API errors consistently
  */
 export const handleApiError = async (response: Response): Promise<never> => {

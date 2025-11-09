@@ -91,8 +91,17 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
       setLoading(true);
       setError(null);
       
+      // Get token from localStorage
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+        console.log('[SESSION MODAL] Authorization header added for join');
+      }
+      
       const response = await fetch(`${API_BASE_URL}/sessions/join/${session._id}`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
       
       if (!response.ok) {
@@ -128,9 +137,18 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
       setError(null);
       setShowCancelConfirm(false);
       
+      // Get token from localStorage
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+        console.log('[SESSION MODAL] Authorization header added for cancel');
+      }
+      
       const response = await fetch(`${API_BASE_URL}/sessions/cancel/${session._id}`, {
         method: 'PUT',
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
       
       if (!response.ok) {
