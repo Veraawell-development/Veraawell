@@ -192,6 +192,7 @@ router.post('/login', async (req, res) => {
 
       return res.json({
         message: 'Super admin login successful',
+        token: token, // Send token in response for localStorage
         admin: {
           id: superAdmin._id,
           email: superAdmin.email,
@@ -253,6 +254,7 @@ router.post('/login', async (req, res) => {
 
     res.json({
       message: 'Login successful',
+      token: token, // Send token in response for localStorage
       admin: {
         id: admin._id,
         email: admin.email,

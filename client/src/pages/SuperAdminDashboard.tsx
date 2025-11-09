@@ -63,10 +63,20 @@ const SuperAdminDashboard: React.FC = () => {
       setLoading(true);
       console.log('[SUPER ADMIN] Starting to fetch data...');
       
+      // Get token from localStorage
+      const token = localStorage.getItem('adminToken');
+      console.log('[SUPER ADMIN] Token from localStorage:', token ? 'Present' : 'Missing');
+      
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       // Fetch statistics
       console.log('[SUPER ADMIN] Fetching statistics...');
       const statsRes = await fetch(`${API_BASE_URL}/admin/approvals/statistics`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
       console.log('[SUPER ADMIN] Statistics response status:', statsRes.status);
       if (statsRes.ok) {
@@ -82,7 +92,8 @@ const SuperAdminDashboard: React.FC = () => {
       // Fetch pending admins
       console.log('[SUPER ADMIN] Fetching pending admins...');
       const adminsRes = await fetch(`${API_BASE_URL}/admin/approvals/admins/pending`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
       console.log('[SUPER ADMIN] Admins response status:', adminsRes.status);
       if (adminsRes.ok) {
@@ -98,7 +109,8 @@ const SuperAdminDashboard: React.FC = () => {
       // Fetch pending doctors
       console.log('[SUPER ADMIN] Fetching pending doctors...');
       const doctorsRes = await fetch(`${API_BASE_URL}/admin/approvals/doctors/pending`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
       console.log('[SUPER ADMIN] Doctors response status:', doctorsRes.status);
       if (doctorsRes.ok) {
@@ -122,13 +134,20 @@ const SuperAdminDashboard: React.FC = () => {
 
   const handleApprove = async (userId: string, type: 'admin' | 'doctor') => {
     try {
+      const token = localStorage.getItem('adminToken');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       const endpoint = type === 'admin' 
         ? `/admin/approvals/admins/${userId}/approve`
         : `/admin/approvals/doctors/${userId}/approve`;
 
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'POST',
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
 
       if (response.ok) {
@@ -148,13 +167,19 @@ const SuperAdminDashboard: React.FC = () => {
     const reason = prompt('Enter rejection reason (optional):');
     
     try {
+      const token = localStorage.getItem('adminToken');
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       const endpoint = type === 'admin' 
         ? `/admin/approvals/admins/${userId}/reject`
         : `/admin/approvals/doctors/${userId}/reject`;
 
       const response = await fetch(`${API_BASE_URL}${endpoint}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         credentials: 'include',
         body: JSON.stringify({ reason: reason || 'No reason provided' })
       });

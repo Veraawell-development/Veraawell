@@ -4,36 +4,52 @@ const User = require('../models/user');
 // Verify admin JWT token
 const adminAuth = async (req, res, next) => {
   try {
-    // Get token from cookie
-    const token = req.cookies.adminToken;
+    // Get token from cookie OR Authorization header
+    let token = req.cookies.adminToken;
+    
+    // If no cookie, check Authorization header
+    if (!token && req.headers.authorization) {
+      const authHeader = req.headers.authorization;
+      if (authHeader.startsWith('Bearer ')) {
+        token = authHeader.substring(7);
+        console.log('[ADMIN AUTH] Token from Authorization header');
+      }
+    }
+    
     if (!token) {
+      console.log('[ADMIN AUTH] No token found in cookie or header');
       return res.status(401).json({ message: 'Admin authentication required' });
     }
 
     // Verify token
     const decoded = jwt.verify(token, process.env.ADMIN_JWT_SECRET);
+    console.log('[ADMIN AUTH] Token verified for user:', decoded.userId, 'role:', decoded.role);
 
     // Check for admin roles
     if (!decoded.role || !['admin', 'super_admin'].includes(decoded.role)) {
+      console.log('[ADMIN AUTH] Invalid role:', decoded.role);
       return res.status(403).json({ message: 'Access denied' });
     }
     
     // Find admin
     const admin = await User.findById(decoded.userId);
     if (!admin) {
+      console.log('[ADMIN AUTH] Admin not found:', decoded.userId);
       return res.status(401).json({ message: 'Admin not found' });
     }
 
     // Check if admin is active
     if (admin.status !== 'active') {
+      console.log('[ADMIN AUTH] Admin account suspended:', admin.email);
       return res.status(403).json({ message: 'Admin account is suspended' });
     }
 
+    console.log('[ADMIN AUTH] ✅ Authentication successful for:', admin.email);
     // Add admin to request
     req.admin = admin;
     next();
   } catch (error) {
-    console.error('Admin auth error:', error);
+    console.error('[ADMIN AUTH] Error:', error.message);
     res.status(401).json({ message: 'Invalid admin token' });
   }
 };

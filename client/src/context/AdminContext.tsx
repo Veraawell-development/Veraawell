@@ -28,8 +28,21 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const checkAuth = async () => {
     try {
+      // Get token from localStorage
+      const token = localStorage.getItem('adminToken');
+      
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json'
+      };
+      
+      // Add Authorization header if token exists
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       const response = await fetch(`${API_BASE_URL}/admin/auth/status`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
 
       if (response.ok) {
@@ -43,10 +56,12 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         });
       } else {
         setAdmin(null);
+        localStorage.removeItem('adminToken'); // Clear invalid token
       }
     } catch (error) {
       console.error('Auth check failed:', error);
       setAdmin(null);
+      localStorage.removeItem('adminToken');
     } finally {
       setLoading(false);
     }
@@ -66,6 +81,13 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     const data = await response.json();
+    
+    // Store token in localStorage for Authorization header
+    if (data.token) {
+      localStorage.setItem('adminToken', data.token);
+      console.log('[ADMIN] Token stored in localStorage');
+    }
+    
     setAdmin({
       id: data.admin.id,
       email: data.admin.email,
@@ -77,13 +99,21 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const logout = async () => {
     try {
+      const token = localStorage.getItem('adminToken');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       await fetch(`${API_BASE_URL}/admin/auth/logout`, {
         method: 'POST',
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
+      localStorage.removeItem('adminToken'); // Clear token
       setAdmin(null);
     }
   };
