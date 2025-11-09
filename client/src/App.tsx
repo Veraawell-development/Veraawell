@@ -27,7 +27,6 @@ import AdminDashboard from './pages/AdminDashboard';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import PartnerPage from './pages/PartnerPage';
 import ResourcesPage from './pages/ResourcesPage';
-import BookingPreferencePage from './pages/BookingPreferencePage';
 import BookSessionPage from './pages/BookSessionPage';
 import ReportsPage from './pages/ReportsPage';
 import MentalHealthTestPage from './pages/MentalHealthTestPage';
@@ -236,7 +235,6 @@ function AppRoutes() {
         <Route path="/super-admin-dashboard" element={<SuperAdminDashboard />} />
         <Route path="/partner" element={<PartnerPage />} />
         <Route path="/resources" element={<ResourcesPage />} />
-        <Route path="/booking-preference" element={<BookingPreferencePage />} />
         <Route path="/book-session/:doctorId" element={<BookSessionPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/mental-health-test" element={<MentalHealthTestPage />} />

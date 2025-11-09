@@ -1,6 +1,6 @@
-import React from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState } from 'react';
 import ServiceCard from '../components/ServiceCard';
+import BookingPreferenceModal from '../components/BookingPreferenceModal';
 
 const services = [
   {
@@ -60,10 +60,12 @@ const services = [
 ];
 
 const ServicesPage: React.FC = () => {
-  const navigate = useNavigate();
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedService, setSelectedService] = useState('General');
 
   const handleViewTherapist = (serviceType: string) => {
-    navigate('/booking-preference', { state: { serviceType } });
+    setSelectedService(serviceType);
+    setIsModalOpen(true);
   };
 
   return (
@@ -95,6 +97,13 @@ const ServicesPage: React.FC = () => {
           ))}
         </div>
       </div>
+
+      {/* Booking Preference Modal */}
+      <BookingPreferenceModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        serviceType={selectedService}
+      />
     </div>
   );
 };

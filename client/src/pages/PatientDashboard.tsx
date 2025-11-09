@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import Calendar from '../components/Calendar';
 import SessionModal from '../components/SessionModal';
 import WelcomeModal from '../components/WelcomeModal';
+import BookingPreferenceModal from '../components/BookingPreferenceModal';
 import { useAuth } from '../context/AuthContext';
 
 interface Session {
@@ -36,6 +37,7 @@ const PatientDashboard: React.FC = () => {
   const [pendingTasks, setPendingTasks] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState<number>(0);
+  const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
 
   const API_BASE_URL = window.location.hostname === 'localhost' 
     ? 'http://localhost:5001/api' 
@@ -370,7 +372,7 @@ const PatientDashboard: React.FC = () => {
               </button>
               
               <button 
-                onClick={() => navigate('/booking-preference')}
+                onClick={() => setIsBookingModalOpen(true)}
                 className="px-6 py-2.5 text-white rounded-full font-medium transition-colors hover:opacity-90 text-base"
                 style={{ backgroundColor: '#38ABAE', fontFamily: 'Inter, sans-serif' }}
               >
@@ -563,6 +565,13 @@ const PatientDashboard: React.FC = () => {
           setIsSessionModalOpen(false);
           setSelectedSession(null);
         }}
+      />
+
+      {/* Booking Preference Modal */}
+      <BookingPreferenceModal
+        isOpen={isBookingModalOpen}
+        onClose={() => setIsBookingModalOpen(false)}
+        serviceType="General"
       />
     </div>
   );
