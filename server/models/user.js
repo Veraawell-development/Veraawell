@@ -85,6 +85,15 @@ const userSchema = new mongoose.Schema({
   rejectionReason: {
     type: String,
     default: null
+  },
+  // Online status fields (for doctors)
+  isOnline: {
+    type: Boolean,
+    default: false
+  },
+  lastActiveAt: {
+    type: Date,
+    default: null
   }
 }, {
   timestamps: true,

@@ -46,6 +46,7 @@ const DoctorDashboard: React.FC = () => {
     fetchUserProfile();
     fetchDashboardData();
     fetchUnreadCount();
+    fetchOnlineStatus();
     // Refresh calendar when returning to dashboard
     setCalendarRefreshTrigger(prev => prev + 1);
     
@@ -161,6 +162,57 @@ const DoctorDashboard: React.FC = () => {
     } catch (error) {
       console.error('Error fetching unread count:', error);
       setUnreadCount(0);
+    }
+  };
+
+  const fetchOnlineStatus = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
+      const response = await fetch(`${API_BASE_URL}/doctor-status/status`, {
+        credentials: 'include',
+        headers
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setIsActive(data.isOnline || false);
+        console.log('[DOCTOR STATUS] Current online status:', data.isOnline);
+      }
+    } catch (error) {
+      console.error('[DOCTOR STATUS] Error fetching online status:', error);
+    }
+  };
+
+  const toggleOnlineStatus = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json'
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
+      const response = await fetch(`${API_BASE_URL}/doctor-status/toggle-online`, {
+        method: 'POST',
+        credentials: 'include',
+        headers
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setIsActive(data.isOnline);
+        console.log('[DOCTOR STATUS] ✅ Status toggled:', data.isOnline ? 'Online' : 'Offline');
+      } else {
+        console.error('[DOCTOR STATUS] Failed to toggle status');
+      }
+    } catch (error) {
+      console.error('[DOCTOR STATUS] Error toggling online status:', error);
     }
   };
 
@@ -373,11 +425,11 @@ const DoctorDashboard: React.FC = () => {
               
               {/* Active/OFF Toggle Button */}
               <button
-                onClick={() => setIsActive(!isActive)}
-                className="px-6 py-2 rounded-full font-serif font-semibold text-white transition-colors"
+                onClick={toggleOnlineStatus}
+                className="px-6 py-2 rounded-full font-serif font-semibold text-white transition-all duration-300 hover:scale-105"
                 style={{ backgroundColor: isActive ? '#10B981' : '#EF4444' }}
               >
-                {isActive ? 'Active' : 'OFF'}
+                {isActive ? '🟢 Online' : '🔴 Offline'}
               </button>
             </div>
           </div>

@@ -1065,12 +1065,32 @@ app.get('/api/protected', async (req, res) => {
 });
 
 // Logout (clears all auth cookies AND destroys session)
-app.post('/api/auth/logout', (req, res) => {
+app.post('/api/auth/logout', async (req, res) => {
   const cookieOptions = {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
   };
+  
+  // Set doctor offline if they're logging out
+  try {
+    const token = req.cookies.token;
+    if (token) {
+      const decoded = jwt.verify(token, JWT_SECRET);
+      if (decoded.role === 'doctor') {
+        const doctor = await User.findById(decoded.userId);
+        if (doctor) {
+          doctor.isOnline = false;
+          doctor.lastActiveAt = new Date();
+          await doctor.save();
+          console.log('[LOGOUT] Doctor set offline:', decoded.userId);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[LOGOUT] Error setting doctor offline:', error);
+    // Continue with logout even if this fails
+  }
   
   // Clear cookies
   res.clearCookie('token', cookieOptions);
@@ -1192,6 +1212,7 @@ const availabilityRoutes = require('./routes/availability');
 const chatRoutes = require('./routes/chat');
 const patientRoutes = require('./routes/patients');
 const sessionToolsRoutes = require('./routes/sessionTools');
+const doctorStatusRoutes = require('./routes/doctor-status');
 
 // Admin routes
 app.use('/api/admin/auth', adminAuthRoutes);
@@ -1211,6 +1232,9 @@ app.use('/api/patients', patientRoutes);
 
 // Session Tools routes (Notes, Tasks, Reports)
 app.use('/api/session-tools', sessionToolsRoutes);
+
+// Doctor Status routes (Online/Offline toggle)
+app.use('/api/doctor-status', doctorStatusRoutes);
 
 // ADMIN ENDPOINT: Clean up all sessions (for debugging OAuth issues)
 app.post('/api/admin/cleanup-sessions', async (req, res) => {
