@@ -147,11 +147,18 @@ const DoctorProfilePage: React.FC = () => {
       const paymentSuccess = true;
 
       if (paymentSuccess) {
+        // Get token from localStorage
+        const token = localStorage.getItem('token');
+        const headers: HeadersInit = {
+          'Content-Type': 'application/json',
+        };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        
         const response = await fetch(`${API_BASE_URL}/sessions/book`, {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
+          headers,
           credentials: 'include',
           body: JSON.stringify({
             doctorId,
@@ -189,11 +196,23 @@ const DoctorProfilePage: React.FC = () => {
       console.log('📡 API URL:', `${API_BASE_URL}/sessions/book-immediate`);
       console.log('👤 Doctor ID:', doctorId);
       
+      // Get token from localStorage
+      const token = localStorage.getItem('token');
+      console.log('🔑 Token from localStorage:', token ? 'Present' : 'Missing');
+      
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+        console.log('✅ Authorization header added');
+      } else {
+        console.warn('⚠️ No token found in localStorage!');
+      }
+      
       const response = await fetch(`${API_BASE_URL}/sessions/book-immediate`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         credentials: 'include',
         body: JSON.stringify({
           doctorId: doctorId || 'test-doctor-id'

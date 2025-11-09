@@ -96,11 +96,18 @@ const BookSessionPage: React.FC = () => {
 
       const price = sessionType === 'discovery' ? 0 : doctor.pricing.min;
 
+      // Get token from localStorage
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch(`${API_BASE_URL}/sessions/book`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         credentials: 'include',
         body: JSON.stringify({
           doctorId: doctor.userId._id,
