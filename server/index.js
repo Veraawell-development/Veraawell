@@ -355,31 +355,31 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
 
       // Determine frontend URL from environment or request origin
       const getFrontendUrl = () => {
+        console.log('[OAUTH] Determining frontend URL...');
+        console.log('[OAUTH] FRONTEND_URL env:', process.env.FRONTEND_URL);
+        console.log('[OAUTH] NODE_ENV:', process.env.NODE_ENV);
+        console.log('[OAUTH] Request origin:', req.headers.origin);
+        console.log('[OAUTH] Request referer:', req.headers.referer);
+        
         // Priority 1: Environment variable
         if (process.env.FRONTEND_URL) {
+          console.log('[OAUTH] Using FRONTEND_URL from env:', process.env.FRONTEND_URL);
           return process.env.FRONTEND_URL;
         }
         
-        // Priority 2: Request origin (where the user came from)
-        const origin = req.headers.origin || req.headers.referer;
-        if (origin) {
-          try {
-            const url = new URL(origin);
-            return url.origin;
-          } catch (e) {
-            console.error('Error parsing origin:', e);
-          }
-        }
-        
-        // Priority 3: Default based on NODE_ENV
+        // Priority 2: Default based on NODE_ENV (FIXED - don't use referer!)
         if (process.env.NODE_ENV === 'production') {
+          console.log('[OAUTH] Using production URL: https://veraawell.com');
           return 'https://veraawell.com';
         }
+        
+        // Priority 3: Development default
+        console.log('[OAUTH] Using development URL: http://localhost:5173');
         return 'http://localhost:5173';
       };
 
       const frontendBaseUrl = getFrontendUrl();
-      console.log('Using frontend URL:', frontendBaseUrl);
+      console.log('[OAUTH] ✅ Final frontend URL:', frontendBaseUrl);
 
       passport.authenticate('google', async (err, user) => {
         if (err) {
@@ -393,11 +393,17 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           return res.redirect(frontendUrl);
         }
 
+        console.log('[OAUTH] ✅ User authenticated:', user.email);
+        console.log('[OAUTH] User ID:', user._id);
+        console.log('[OAUTH] Current role:', user.role);
+        console.log('[OAUTH] Requested role:', role);
+        
         // Update user's role if it's different
         if (role !== user.role) {
+          console.log(`[OAUTH] 🔄 Updating user role from ${user.role} to ${role}`);
           user.role = role;
           await user.save();
-          console.log(`Updated user role to: ${role}`);
+          console.log(`[OAUTH] ✅ User role updated to: ${role}`);
         }
 
         // Clear the OAuth role from session
@@ -406,17 +412,22 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         // Log the user in
         req.logIn(user, (err) => {
           if (err) {
-            console.error('Login error:', err);
+            console.error('[OAUTH] ❌ Login error:', err);
             const frontendUrl = `${frontendBaseUrl}/login?error=login-failed`;
             return res.redirect(frontendUrl);
           }
 
+          console.log('[OAUTH] ✅ User logged in successfully');
+          
           // Create JWT token for the user
         const token = jwt.sign(
             { userId: user._id, username: user.username, role: user.role },
             JWT_SECRET,
           { expiresIn: '30d' }
         );
+
+        console.log('[OAUTH] 🔑 JWT token generated');
+        console.log('[OAUTH] Token payload:', { userId: user._id.toString().substring(0, 8) + '...', username: user.username, role: user.role });
 
         // Set cookie with proper domain configuration
         res.cookie('token', token, {
@@ -428,6 +439,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           path: '/'
         });
 
+          console.log('[OAUTH] 🍪 Cookie set with token');
+          
           // Redirect to frontend with success parameters AND token
           // Include token in URL as fallback for immediate auth
           const redirectUrl = new URL(frontendBaseUrl);
@@ -437,8 +450,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           redirectUrl.searchParams.set('role', user.role);
           redirectUrl.searchParams.set('isGoogle', 'true');
           
-          console.log('Redirecting to:', redirectUrl.toString());
-          console.log('Token set in cookie and URL for immediate auth');
+          console.log('[OAUTH] 🚀 Redirecting to:', redirectUrl.toString());
+          console.log('[OAUTH] ✅ OAuth flow completed successfully!');
           return res.redirect(redirectUrl.toString());
         });
       })(req, res, next);

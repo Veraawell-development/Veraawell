@@ -520,13 +520,26 @@ router.get('/join/:sessionId', verifyToken, async (req, res) => {
     const { sessionId } = req.params;
     const userId = req.user.userId;
 
+    console.log('[SESSION JOIN] 🎯 Join request received');
+    console.log('[SESSION JOIN] Session ID:', sessionId);
+    console.log('[SESSION JOIN] User ID:', userId);
+
     const session = await Session.findById(sessionId)
       .populate('patientId', 'firstName lastName email')
       .populate('doctorId', 'firstName lastName email');
 
     if (!session) {
+      console.log('[SESSION JOIN] ❌ Session not found:', sessionId);
       return res.status(404).json({ message: 'Session not found' });
     }
+    
+    console.log('[SESSION JOIN] ✅ Session found:', {
+      id: sessionId,
+      type: session.sessionType,
+      status: session.status,
+      date: session.sessionDate,
+      time: session.sessionTime
+    });
 
     // Check if user is authorized to join this session
     const patientIdStr = session.patientId?._id?.toString() || session.patientId?.toString();
