@@ -423,13 +423,14 @@ const DoctorDashboard: React.FC = () => {
                 )}
               </button>
               
-              {/* Active/OFF Toggle Button */}
+              {/* Online Status Toggle Button */}
               <button
                 onClick={toggleOnlineStatus}
-                className="px-6 py-2 rounded-full font-serif font-semibold text-white transition-all duration-300 hover:scale-105"
-                style={{ backgroundColor: isActive ? '#10B981' : '#EF4444' }}
+                className="flex items-center gap-2 px-6 py-2 rounded-full font-serif font-semibold text-white transition-all duration-300 hover:opacity-90"
+                style={{ backgroundColor: isActive ? '#10B981' : '#6B7280' }}
               >
-                {isActive ? '🟢 Online' : '🔴 Offline'}
+                <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-white animate-pulse' : 'bg-gray-300'}`}></div>
+                {isActive ? 'Online' : 'Offline'}
               </button>
             </div>
           </div>
