@@ -37,9 +37,16 @@ const PendingTasksPage: React.FC = () => {
       setLoading(true);
       if (!user) return;
 
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       console.log('✅ Fetching pending tasks for patient:', user.userId);
       const response = await fetch(`${API_BASE_URL}/session-tools/tasks/patient/${user.userId}?status=pending`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
 
       if (!response.ok) {
@@ -78,9 +85,15 @@ const PendingTasksPage: React.FC = () => {
 
   const handleMarkComplete = async (taskId: string) => {
     try {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       const response = await fetch(`${API_BASE_URL}/session-tools/tasks/${taskId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         credentials: 'include',
         body: JSON.stringify({ status: 'completed' })
       });

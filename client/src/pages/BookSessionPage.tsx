@@ -123,11 +123,17 @@ const BookSessionPage: React.FC = () => {
         throw new Error(errorData.message || 'Failed to book session');
       }
 
-      await response.json();
+      const data = await response.json();
+      console.log('✅ Booking successful:', data);
       
-      // Show success message and redirect to dashboard
-      alert('Session booked successfully! You can view it in your dashboard.');
-      navigate('/patient-dashboard');
+      // Show success message with better visibility
+      const successMessage = '✅ Session booked successfully! Redirecting to your dashboard...';
+      alert(successMessage);
+      
+      // Small delay to ensure alert is seen
+      setTimeout(() => {
+        navigate('/patient-dashboard');
+      }, 500);
     } catch (error: any) {
       console.error('Error booking session:', error);
       setError(error.message || 'Failed to book session');

@@ -33,13 +33,22 @@ const MyJournalPage: React.FC = () => {
   }, []);
 
   const fetchJournalEntries = async () => {
+    if (!user) return;
+
     try {
       setLoading(true);
       if (!user) return;
 
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       console.log('📔 Fetching journal entries for patient:', user.userId);
       const response = await fetch(`${API_BASE_URL}/session-tools/journal/patient/${user.userId}`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
 
       if (!response.ok) {
@@ -62,9 +71,15 @@ const MyJournalPage: React.FC = () => {
 
   const handleAddEntry = async () => {
     try {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       const response = await fetch(`${API_BASE_URL}/session-tools/journal`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         credentials: 'include',
         body: JSON.stringify(formData)
       });
@@ -85,9 +100,15 @@ const MyJournalPage: React.FC = () => {
     if (!editingEntry) return;
 
     try {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       const response = await fetch(`${API_BASE_URL}/session-tools/journal/${editingEntry._id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         credentials: 'include',
         body: JSON.stringify(formData)
       });
@@ -108,9 +129,16 @@ const MyJournalPage: React.FC = () => {
     if (!confirm('Are you sure you want to delete this entry?')) return;
 
     try {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       const response = await fetch(`${API_BASE_URL}/session-tools/journal/${entryId}`, {
         method: 'DELETE',
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
 
       if (!response.ok) throw new Error('Failed to delete entry');

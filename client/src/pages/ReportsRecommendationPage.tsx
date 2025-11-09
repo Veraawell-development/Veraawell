@@ -39,9 +39,16 @@ const ReportsRecommendationPage: React.FC = () => {
       setLoading(true);
       if (!user) return;
 
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       console.log('📊 Fetching reports for patient:', user.userId);
       const response = await fetch(`${API_BASE_URL}/session-tools/reports/patient/${user.userId}`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
 
       if (!response.ok) {
@@ -80,9 +87,16 @@ const ReportsRecommendationPage: React.FC = () => {
 
   const markAsViewed = async (reportId: string) => {
     try {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       await fetch(`${API_BASE_URL}/session-tools/reports/${reportId}/view`, {
         method: 'PUT',
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
     } catch (error) {
       console.error('Error marking report as viewed:', error);

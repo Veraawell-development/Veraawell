@@ -49,9 +49,16 @@ const MessagesPage: React.FC = () => {
   // Fetch conversations from API
   const fetchConversations = async () => {
     try {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       console.log('Fetching conversations from:', `${API_BASE_URL}/chat/conversations`);
       const response = await fetch(`${API_BASE_URL}/chat/conversations`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
       
       console.log('Response status:', response.status);
@@ -208,8 +215,15 @@ const MessagesPage: React.FC = () => {
   // Load messages for selected conversation
   const loadMessages = async (conversation: Conversation) => {
     try {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       const response = await fetch(`${API_BASE_URL}/chat/messages/${conversation._id}`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
       
       if (response.ok) {

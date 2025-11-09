@@ -22,9 +22,10 @@ interface Session {
 interface CalendarProps {
   userRole: 'patient' | 'doctor';
   onSessionClick?: (session: Session) => void;
+  refreshTrigger?: number; // Add refresh trigger prop
 }
 
-const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick }) => {
+const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTrigger }) => {
   const navigate = useNavigate();
   const [currentDate, _setCurrentDate] = useState(new Date());
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -39,23 +40,37 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick }) => {
 
   useEffect(() => {
     fetchCalendarSessions();
-  }, [currentDate]);
+  }, [currentDate, refreshTrigger]); // Re-fetch when refreshTrigger changes
 
   const fetchCalendarSessions = async () => {
     try {
       const year = currentDate.getFullYear();
       const month = currentDate.getMonth() + 1;
       
+      // Get token from localStorage
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+        console.log('[CALENDAR] Authorization header added');
+      }
+      
+      console.log('[CALENDAR] Fetching sessions for:', `${year}-${month}`);
       const response = await fetch(`${API_BASE_URL}/sessions/calendar/${year}/${month}`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
       
+      console.log('[CALENDAR] Response status:', response.status);
       if (response.ok) {
         const sessionsData = await response.json();
+        console.log('[CALENDAR] Sessions loaded:', sessionsData.length);
         setSessions(sessionsData);
+      } else {
+        console.error('[CALENDAR] Failed to fetch sessions:', response.status);
       }
     } catch (error) {
-      console.error('Error fetching calendar sessions:', error);
+      console.error('[CALENDAR] Error fetching calendar sessions:', error);
     }
   };
 

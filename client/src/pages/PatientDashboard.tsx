@@ -35,6 +35,7 @@ const PatientDashboard: React.FC = () => {
   const [recentJournal, setRecentJournal] = useState<any[]>([]);
   const [pendingTasks, setPendingTasks] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
+  const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState<number>(0);
 
   const API_BASE_URL = window.location.hostname === 'localhost' 
     ? 'http://localhost:5001/api' 
@@ -44,6 +45,8 @@ const PatientDashboard: React.FC = () => {
     fetchUserProfile();
     fetchDashboardData();
     fetchUnreadCount();
+    // Refresh calendar when returning to dashboard
+    setCalendarRefreshTrigger(prev => prev + 1);
     
     // Show welcome modal only once - check localStorage
     if (user) {
@@ -83,10 +86,18 @@ const PatientDashboard: React.FC = () => {
   const fetchDashboardData = async () => {
     if (!user) return;
 
+    // Get token for all requests
+    const token = localStorage.getItem('token');
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     try {
       // Fetch recent reports
       const reportsRes = await fetch(`${API_BASE_URL}/session-tools/reports/patient/${user.userId}`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
       if (reportsRes.ok) {
         const reports = await reportsRes.json();
@@ -95,7 +106,8 @@ const PatientDashboard: React.FC = () => {
 
       // Fetch pending tasks
       const tasksRes = await fetch(`${API_BASE_URL}/session-tools/tasks/patient/${user.userId}?status=pending`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
       if (tasksRes.ok) {
         const tasks = await tasksRes.json();
@@ -104,7 +116,8 @@ const PatientDashboard: React.FC = () => {
 
       // Fetch journal entries
       const journalRes = await fetch(`${API_BASE_URL}/session-tools/journal/patient/${user.userId}`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
       if (journalRes.ok) {
         const journals = await journalRes.json();
@@ -117,8 +130,15 @@ const PatientDashboard: React.FC = () => {
 
   const fetchUnreadCount = async () => {
     try {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       const response = await fetch(`${API_BASE_URL}/chat/unread-count`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
       if (response.ok) {
         const data = await response.json();
@@ -454,6 +474,7 @@ const PatientDashboard: React.FC = () => {
             <Calendar 
               userRole="patient" 
               onSessionClick={handleSessionClick}
+              refreshTrigger={calendarRefreshTrigger}
             />
           </div>
 

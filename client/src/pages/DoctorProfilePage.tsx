@@ -173,11 +173,21 @@ const DoctorProfilePage: React.FC = () => {
         });
 
         if (response.ok) {
-          alert('Session booked successfully!');
-          navigate('/patient-dashboard');
+          const data = await response.json();
+          console.log('✅ Booking successful:', data);
+          
+          // Show success message with better visibility
+          const successMessage = '✅ Session booked successfully! Redirecting to your dashboard...';
+          alert(successMessage);
+          
+          // Small delay to ensure alert is seen
+          setTimeout(() => {
+            navigate('/patient-dashboard');
+          }, 500);
         } else {
           const error = await response.json();
-          alert(`Booking failed: ${error.message || 'Please try again'}`);
+          console.error('❌ Booking failed:', error);
+          alert(`❌ Booking failed: ${error.message || 'Please try again'}`);
         }
       }
     } catch (error) {
@@ -224,12 +234,19 @@ const DoctorProfilePage: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         console.log('✅ Instant booking successful:', data);
-        alert('Instant session booked! You can join now from your dashboard.');
-        navigate('/patient-dashboard');
+        
+        // Show success message with better visibility
+        const successMessage = '✅ Instant session booked successfully! You can join now from your dashboard.';
+        alert(successMessage);
+        
+        // Small delay to ensure alert is seen
+        setTimeout(() => {
+          navigate('/patient-dashboard');
+        }, 500);
       } else {
         const error = await response.json();
         console.error('❌ Instant booking failed:', error);
-        alert(`Instant booking failed: ${error.message || 'Please try again'}`);
+        alert(`❌ Instant booking failed: ${error.message || 'Please try again'}`);
       }
     } catch (error) {
       console.error('❌ Instant booking error:', error);

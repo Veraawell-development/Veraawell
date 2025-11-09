@@ -36,6 +36,7 @@ const DoctorDashboard: React.FC = () => {
   const [recentReports, setRecentReports] = useState<any[]>([]);
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [userName, setUserName] = useState<string>('Doctor');
+  const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState<number>(0);
 
   const API_BASE_URL = window.location.hostname === 'localhost' 
     ? 'http://localhost:5001/api' 
@@ -45,6 +46,8 @@ const DoctorDashboard: React.FC = () => {
     fetchUserProfile();
     fetchDashboardData();
     fetchUnreadCount();
+    // Refresh calendar when returning to dashboard
+    setCalendarRefreshTrigger(prev => prev + 1);
     
     // Show welcome modal only once - check localStorage
     if (user) {
@@ -88,12 +91,20 @@ const DoctorDashboard: React.FC = () => {
       ? 'http://localhost:5001/api' 
       : 'https://veraawell-backend.onrender.com/api';
 
+    // Get token for all requests
+    const token = localStorage.getItem('token');
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     try {
       console.log('📊 Fetching doctor dashboard data...');
 
       // Fetch session notes created by this doctor
       const notesResponse = await fetch(`${API_BASE_URL}/session-tools/notes/doctor/${user.userId}`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
       if (notesResponse.ok) {
         const notes = await notesResponse.json();
@@ -103,7 +114,8 @@ const DoctorDashboard: React.FC = () => {
 
       // Fetch tasks assigned by this doctor
       const tasksResponse = await fetch(`${API_BASE_URL}/session-tools/tasks/doctor/${user.userId}`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
       if (tasksResponse.ok) {
         const tasks = await tasksResponse.json();
@@ -113,7 +125,8 @@ const DoctorDashboard: React.FC = () => {
 
       // Fetch reports created by this doctor
       const reportsResponse = await fetch(`${API_BASE_URL}/session-tools/reports/doctor/${user.userId}`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
       if (reportsResponse.ok) {
         const reports = await reportsResponse.json();
@@ -131,8 +144,15 @@ const DoctorDashboard: React.FC = () => {
       : 'https://veraawell-backend.onrender.com/api';
 
     try {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       const response = await fetch(`${API_BASE_URL}/chat/unread-count`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
       if (response.ok) {
         const data = await response.json();
@@ -434,6 +454,7 @@ const DoctorDashboard: React.FC = () => {
             <Calendar 
               userRole="doctor" 
               onSessionClick={handleSessionClick}
+              refreshTrigger={calendarRefreshTrigger}
             />
           </div>
 

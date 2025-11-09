@@ -32,8 +32,15 @@ const DoctorSessionNotesPage: React.FC = () => {
       setLoading(true);
       console.log('📝 Fetching session notes for doctor:', user.userId);
       
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+      
       const response = await fetch(`${API_BASE_URL}/session-tools/notes/doctor/${user.userId}`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers
       });
 
       if (!response.ok) {
