@@ -40,13 +40,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const checkAuth = useCallback(async () => {
     setLoading(true);
+    console.log('[AUTH] Checking authentication status...');
+    
     try {
       const res = await fetch(`${API_BASE_URL}/protected`, {
         credentials: 'include',
       });
       
+      console.log('[AUTH] Protected endpoint response:', res.status);
+      
       if (res.ok) {
         const data = await res.json();
+        console.log('[AUTH] User authenticated:', data.user?.username);
         
         // Fetch profile status (only if authenticated)
         const profileRes = await fetch(`${API_BASE_URL}/profile/status`, {
@@ -72,17 +77,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       } else {
         // User not authenticated - this is normal, not an error
+        console.log('[AUTH] User not authenticated (status:', res.status + ')');
         setIsLoggedIn(false);
         setUser(null);
         setToken(null);
         localStorage.removeItem('token');
       }
     } catch (error) {
-      // Network error or server down - don't log as error if it's just 401
+      // Network error or server down
+      console.error('[AUTH] Error checking auth:', error);
       setIsLoggedIn(false);
       setUser(null);
       setToken(null);
       localStorage.removeItem('token');
+      throw error; // Re-throw so OAuth handler can catch it
     } finally {
       setLoading(false);
     }

@@ -63,8 +63,8 @@ function AppRoutes() {
     if (hasLoadedBefore) {
       setIsAppReady(true);
       // Check auth silently in background (don't block UI)
-      checkAuth().catch(() => {
-        // Ignore auth errors on reload
+      checkAuth().catch((error) => {
+        console.log('[App] Auth check failed on reload:', error?.message || 'Unknown error');
       });
       return;
     }
@@ -90,8 +90,8 @@ function AppRoutes() {
         await waitForLoad();
         
         // Try to check auth silently (don't fail if not logged in)
-        checkAuth().catch(() => {
-          // User not logged in, that's fine
+        checkAuth().catch((error) => {
+          console.log('[App] Auth check failed on first load:', error?.message || 'User not logged in');
         });
         
         // Mark as initialized
@@ -113,10 +113,20 @@ function AppRoutes() {
     // we trigger a re-check of authentication status.
     const urlParams = new URLSearchParams(location.search);
     if (urlParams.has('auth') && urlParams.get('auth') === 'success') {
-      checkAuth().then(() => {
-        // Clean the URL after checking auth
-        navigate(location.pathname, { replace: true });
-      });
+      console.log('[OAuth] Auth success detected, checking authentication...');
+      
+      // Force auth check and wait for it to complete
+      checkAuth()
+        .then(() => {
+          console.log('[OAuth] Auth check completed successfully');
+          // Clean the URL after checking auth
+          navigate(location.pathname, { replace: true });
+        })
+        .catch((error) => {
+          console.error('[OAuth] Auth check failed:', error);
+          // Still clean the URL even if auth fails
+          navigate(location.pathname, { replace: true });
+        });
     }
   }, [location, checkAuth, navigate]);
 
