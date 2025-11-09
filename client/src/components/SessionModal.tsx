@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import EmergencyContactModal from './EmergencyContactModal';
 
 interface Session {
   _id: string;
@@ -31,10 +32,40 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [showEmergencyModal, setShowEmergencyModal] = useState(false);
+  const [hasEmergencyContact, setHasEmergencyContact] = useState(false);
 
   const API_BASE_URL = window.location.hostname === 'localhost' 
     ? 'http://localhost:5001/api' 
     : 'https://veraawell-backend.onrender.com/api';
+
+  useEffect(() => {
+    if (isOpen && userRole === 'patient') {
+      checkEmergencyContact();
+    }
+  }, [isOpen, userRole]);
+
+  const checkEmergencyContact = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/patients/emergency-contact`, {
+        credentials: 'include',
+        headers
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setHasEmergencyContact(!!(data.emergencyContact?.name && data.emergencyContact?.phone));
+      }
+    } catch (error) {
+      console.error('Error checking emergency contact:', error);
+    }
+  };
 
   if (!isOpen || !session) return null;
 
@@ -87,6 +118,45 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
   };
 
   const handleJoinSession = async () => {
+    // Check if patient has emergency contact before joining
+    if (userRole === 'patient' && !hasEmergencyContact) {
+      setShowEmergencyModal(true);
+      return;
+    }
+
+    await proceedWithJoin();
+  };
+
+  const handleEmergencyContactSubmit = async (contactName: string, contactPhone: string, contactRelationship: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/patients/emergency-contact`, {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({ contactName, contactPhone, contactRelationship })
+      });
+
+      if (response.ok) {
+        setHasEmergencyContact(true);
+        setShowEmergencyModal(false);
+        // Now proceed with joining
+        await proceedWithJoin();
+      }
+    } catch (error) {
+      console.error('Error saving emergency contact:', error);
+      setError('Failed to save emergency contact');
+    }
+  };
+
+  const proceedWithJoin = async () => {
     try {
       setLoading(true);
       setError(null);
@@ -390,6 +460,13 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
           </div>
         </div>
       </div>
+
+      {/* Emergency Contact Modal */}
+      <EmergencyContactModal
+        isOpen={showEmergencyModal}
+        onClose={() => setShowEmergencyModal(false)}
+        onSubmit={handleEmergencyContactSubmit}
+      />
     </div>
   );
 };

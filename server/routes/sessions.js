@@ -356,31 +356,33 @@ router.get('/upcoming', verifyToken, async (req, res) => {
 // IMPORTANT: Specific routes must come BEFORE parameterized routes like /:sessionId
 // Otherwise /:sessionId will match /doctors and cause 401 errors
 
-// Get all doctors with completed profiles only
+// Get all doctors with profiles
 router.get('/doctors', async (req, res) => {
   try {
-    console.log('[DOCTORS] Fetching doctors with completed profiles...');
+    console.log('[DOCTORS] Fetching doctors with profiles...');
     
-    // Get all users with role 'doctor' and profileCompleted = true
-    const doctorsWithCompletedProfiles = await User.find({ 
-      role: 'doctor',
-      profileCompleted: true 
-    }).select('firstName lastName email profileCompleted');
-    
-    console.log('[DOCTORS] Found doctors with completed profiles:', doctorsWithCompletedProfiles.length);
-    
-    // Get doctor profiles for these users
-    const doctorIds = doctorsWithCompletedProfiles.map(d => d._id);
-    const doctorProfiles = await DoctorProfile.find({ userId: { $in: doctorIds } })
-      .populate('userId', 'firstName lastName email isOnline');
+    // Get all doctor profiles (only doctors with profiles will appear)
+    const doctorProfiles = await DoctorProfile.find({})
+      .populate('userId', 'firstName lastName email isOnline profileCompleted');
     
     console.log('[DOCTORS] Found doctor profiles:', doctorProfiles.length);
+    
+    // Filter out profiles where userId doesn't exist or role is not doctor
+    const validProfiles = doctorProfiles.filter(profile => {
+      if (!profile.userId) {
+        console.log('[DOCTORS] Skipping profile with no userId');
+        return false;
+      }
+      return true;
+    });
+    
+    console.log('[DOCTORS] Valid profiles after filtering:', validProfiles.length);
     
     // Available doctor images for rotation
     const doctorImages = ['/doctor-01.svg', '/doctor-02.svg', '/doctor-03.svg', '/doctor-04.svg'];
     
     // Map profiles with images
-    const result = doctorProfiles.map((profile, index) => {
+    const result = validProfiles.map((profile, index) => {
       // If profile exists but has no image, assign one from rotation
       if (!profile.profileImage || profile.profileImage === '/doctor-placeholder.svg') {
         profile.profileImage = doctorImages[index % doctorImages.length];
@@ -388,7 +390,7 @@ router.get('/doctors', async (req, res) => {
       return profile;
     });
     
-    console.log('[DOCTORS] ✅ Returning', result.length, 'doctors with completed profiles');
+    console.log('[DOCTORS] ✅ Returning', result.length, 'doctors');
     res.json(result);
   } catch (error) {
     console.error('[DOCTORS] ❌ Error fetching doctors:', error);
