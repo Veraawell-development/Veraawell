@@ -94,6 +94,17 @@ const userSchema = new mongoose.Schema({
   lastActiveAt: {
     type: Date,
     default: null
+  },
+  // Emergency contact (for patients)
+  emergencyContact: {
+    name: {
+      type: String,
+      default: null
+    },
+    phone: {
+      type: String,
+      default: null
+    }
   }
 }, {
   timestamps: true,

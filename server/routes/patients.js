@@ -35,6 +35,77 @@ const verifyToken = (req, res, next) => {
   }
 };
 
+// Save emergency contact for patient
+router.post('/emergency-contact', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userRole = req.user.role;
+    const { contactName, contactPhone } = req.body;
+
+    console.log('[EMERGENCY CONTACT] Save request:', {
+      userId,
+      role: userRole,
+      contactName,
+      contactPhone
+    });
+
+    // Only patients can set emergency contact
+    if (userRole !== 'patient') {
+      return res.status(403).json({ message: 'Only patients can set emergency contact' });
+    }
+
+    if (!contactName || !contactPhone) {
+      return res.status(400).json({ message: 'Contact name and phone are required' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    user.emergencyContact = {
+      name: contactName,
+      phone: contactPhone
+    };
+    await user.save();
+
+    console.log('[EMERGENCY CONTACT] ✅ Saved successfully');
+
+    res.json({
+      success: true,
+      message: 'Emergency contact saved successfully',
+      emergencyContact: user.emergencyContact
+    });
+  } catch (error) {
+    console.error('[EMERGENCY CONTACT] ❌ Error:', error);
+    res.status(500).json({ message: 'Failed to save emergency contact' });
+  }
+});
+
+// Get emergency contact for patient
+router.get('/emergency-contact', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.userId;
+    const userRole = req.user.role;
+
+    if (userRole !== 'patient') {
+      return res.status(403).json({ message: 'Only patients can view emergency contact' });
+    }
+
+    const user = await User.findById(userId).select('emergencyContact');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.json({
+      emergencyContact: user.emergencyContact || null
+    });
+  } catch (error) {
+    console.error('[EMERGENCY CONTACT] Error fetching:', error);
+    res.status(500).json({ message: 'Failed to fetch emergency contact' });
+  }
+});
+
 // Get all patients for a doctor with their session details
 router.get('/doctor-patients', verifyToken, async (req, res) => {
   try {

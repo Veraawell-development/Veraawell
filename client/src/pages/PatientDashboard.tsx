@@ -4,6 +4,7 @@ import Calendar from '../components/Calendar';
 import SessionModal from '../components/SessionModal';
 import WelcomeModal from '../components/WelcomeModal';
 import BookingPreferenceModal from '../components/BookingPreferenceModal';
+import EmergencyHotlineModal from '../components/EmergencyHotlineModal';
 import { useAuth } from '../context/AuthContext';
 
 interface Session {
@@ -38,6 +39,7 @@ const PatientDashboard: React.FC = () => {
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState<number>(0);
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
+  const [isHotlineModalOpen, setIsHotlineModalOpen] = useState(false);
 
   const API_BASE_URL = window.location.hostname === 'localhost' 
     ? 'http://localhost:5001/api' 
@@ -355,6 +357,17 @@ const PatientDashboard: React.FC = () => {
 
             {/* Right side - Chat, Book Session and Balance */}
             <div className="flex items-center space-x-3">
+              {/* Emergency Hotline Button */}
+              <button
+                onClick={() => setIsHotlineModalOpen(true)}
+                className="relative p-2 hover:bg-red-50 rounded-full transition-colors group"
+                title="Emergency Helplines"
+              >
+                <svg className="w-6 h-6 text-red-500 group-hover:text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                </svg>
+              </button>
+
               {/* Chat Icon with Badge */}
               <button
                 onClick={() => navigate('/messages')}
@@ -572,6 +585,12 @@ const PatientDashboard: React.FC = () => {
         isOpen={isBookingModalOpen}
         onClose={() => setIsBookingModalOpen(false)}
         serviceType="General"
+      />
+
+      {/* Emergency Hotline Modal */}
+      <EmergencyHotlineModal
+        isOpen={isHotlineModalOpen}
+        onClose={() => setIsHotlineModalOpen(false)}
       />
     </div>
   );

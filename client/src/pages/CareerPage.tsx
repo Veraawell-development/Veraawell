@@ -1,6 +1,18 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { API_BASE_URL } from '../config/api';
 
 const CareerPage: React.FC = () => {
+  const [formData, setFormData] = useState({
+    firstName: '',
+    email: '',
+    phoneNo: '',
+    password: '',
+    confirmPassword: ''
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
+
   const scrollToForm = () => {
     const formElement = document.getElementById('join-us-form');
     if (formElement) {
@@ -8,6 +20,65 @@ const CareerPage: React.FC = () => {
         behavior: 'smooth',
         block: 'start'
       });
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setSuccess('');
+
+    // Validation
+    if (!formData.firstName || !formData.email || !formData.phoneNo || !formData.password) {
+      setError('Please fill in all required fields');
+      return;
+    }
+
+    if (formData.password !== formData.confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+
+    if (formData.password.length < 6) {
+      setError('Password must be at least 6 characters');
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          firstName: formData.firstName,
+          email: formData.email,
+          username: formData.email,
+          phoneNo: formData.phoneNo,
+          password: formData.password,
+          role: 'doctor'
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setSuccess('Registration successful! Please wait for admin approval. You will receive an email once approved.');
+        setFormData({
+          firstName: '',
+          email: '',
+          phoneNo: '',
+          password: '',
+          confirmPassword: ''
+        });
+      } else {
+        setError(data.message || 'Registration failed');
+      }
+    } catch (err) {
+      setError('An error occurred. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -153,34 +224,37 @@ const CareerPage: React.FC = () => {
       <div id="join-us-form" className="w-full bg-white px-4 md:px-[37px] py-4 md:py-8">
         <div className="max-w-4xl mx-auto rounded-[10px] p-6 md:p-12" style={{ backgroundColor: 'rgba(248,219,185,0.49)', border: '1px solid rgba(0,0,0,0.16)' }}>
           <h2 className="text-[#BE7959] font-extrabold text-[32px] md:text-[52px] text-center mb-6 md:mb-8" style={{ fontFamily: 'Inter, sans-serif' }}>
-            Join Us Now
+            Join Us as a Professional
           </h2>
           
-          {/* Tab Buttons */}
-          <div className="flex flex-col sm:flex-row justify-center gap-3 md:gap-4 mb-6 md:mb-8">
-            <button className="rounded-full border-2 font-medium px-6 py-2 text-[14px] md:text-[18px] hover:bg-[#C17B5C] hover:text-white transition-colors" 
-                    style={{ borderColor: '#C17B5C', color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-              Partner with us
-            </button>
-            <button className="rounded-full border-2 font-medium px-6 py-2 text-[14px] md:text-[18px] hover:bg-[#C17B5C] hover:text-white transition-colors" 
-                    style={{ borderColor: '#C17B5C', color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-              Join us as a professionals
-            </button>
-            <button className="rounded-full border-2 font-medium px-6 py-2 text-[14px] md:text-[18px] hover:bg-[#C17B5C] hover:text-white transition-colors" 
-                    style={{ borderColor: '#C17B5C', color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-              Other queries
-            </button>
-          </div>
+          <p className="text-center text-gray-700 mb-6" style={{ fontFamily: 'Inter, sans-serif' }}>
+            Register to become a mental health professional on our platform
+          </p>
+
+          {/* Success/Error Messages */}
+          {success && (
+            <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
+              <p className="text-green-700 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>{success}</p>
+            </div>
+          )}
+          {error && (
+            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-red-700 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>{error}</p>
+            </div>
+          )}
 
           {/* Form */}
-          <form className="space-y-4 md:space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-4 md:space-y-6">
             {/* Full Name */}
             <div>
               <label className="block font-medium mb-2 text-[14px] md:text-[18px]" style={{ color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-                Full Name:
+                Full Name: <span className="text-red-500">*</span>
               </label>
               <input 
-                type="text" 
+                type="text"
+                value={formData.firstName}
+                onChange={(e) => setFormData({...formData, firstName: e.target.value})}
+                required
                 className="w-full rounded-lg border px-4 py-3 text-[14px] md:text-[16px] focus:outline-none focus:border-[#C17B5C]"
                 style={{ borderColor: '#E5E5E5', backgroundColor: 'white', fontFamily: 'Inter, sans-serif' }}
               />
@@ -190,90 +264,79 @@ const CareerPage: React.FC = () => {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block font-medium mb-2 text-[14px] md:text-[18px]" style={{ color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-                  E-mail:
+                  E-mail: <span className="text-red-500">*</span>
                 </label>
                 <input 
-                  type="email" 
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({...formData, email: e.target.value})}
+                  required
                   className="w-full rounded-lg border px-4 py-3 text-[14px] md:text-[16px] focus:outline-none focus:border-[#C17B5C]"
                   style={{ borderColor: '#E5E5E5', backgroundColor: 'white', fontFamily: 'Inter, sans-serif' }}
                 />
               </div>
               <div>
                 <label className="block font-medium mb-2 text-[14px] md:text-[18px]" style={{ color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-                  Phone no.:
+                  Phone no.: <span className="text-red-500">*</span>
                 </label>
                 <input 
-                  type="tel" 
+                  type="tel"
+                  value={formData.phoneNo}
+                  onChange={(e) => setFormData({...formData, phoneNo: e.target.value})}
+                  required
                   className="w-full rounded-lg border px-4 py-3 text-[14px] md:text-[16px] focus:outline-none focus:border-[#C17B5C]"
                   style={{ borderColor: '#E5E5E5', backgroundColor: 'white', fontFamily: 'Inter, sans-serif' }}
                 />
               </div>
             </div>
 
-            {/* Job Role and Upload Documents */}
+            {/* Password Fields */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block font-medium mb-2 text-[14px] md:text-[18px]" style={{ color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-                  Job role:
+                  Password: <span className="text-red-500">*</span>
                 </label>
-                <select 
+                <input 
+                  type="password"
+                  value={formData.password}
+                  onChange={(e) => setFormData({...formData, password: e.target.value})}
+                  required
+                  minLength={6}
                   className="w-full rounded-lg border px-4 py-3 text-[14px] md:text-[16px] focus:outline-none focus:border-[#C17B5C]"
                   style={{ borderColor: '#E5E5E5', backgroundColor: 'white', fontFamily: 'Inter, sans-serif' }}
-                >
-                  <option value="">Select role</option>
-                  <option value="therapist">Therapist</option>
-                  <option value="psychologist">Psychologist</option>
-                  <option value="counselor">Counselor</option>
-                </select>
+                  placeholder="Min. 6 characters"
+                />
               </div>
               <div>
                 <label className="block font-medium mb-2 text-[14px] md:text-[18px]" style={{ color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-                  Upload Documents:
+                  Confirm Password: <span className="text-red-500">*</span>
                 </label>
-                <div className="relative">
-                  <input 
-                    type="file" 
-                    className="hidden" 
-                    id="documents"
-                    multiple
-                  />
-                  <label 
-                    htmlFor="documents"
-                    className="w-full rounded-lg border cursor-pointer flex items-center justify-between px-4 py-3 text-[14px] md:text-[16px]"
-                    style={{ borderColor: '#E5E5E5', backgroundColor: 'white', fontFamily: 'Inter, sans-serif' }}
-                  >
-                    <span className="text-gray-500">Choose files</span>
-                    <span className="rounded text-white px-3 py-1 text-[12px] md:text-[14px]" style={{ backgroundColor: '#C17B5C' }}>
-                      Choose file
-                    </span>
-                  </label>
-                </div>
+                <input 
+                  type="password"
+                  value={formData.confirmPassword}
+                  onChange={(e) => setFormData({...formData, confirmPassword: e.target.value})}
+                  required
+                  className="w-full rounded-lg border px-4 py-3 text-[14px] md:text-[16px] focus:outline-none focus:border-[#C17B5C]"
+                  style={{ borderColor: '#E5E5E5', backgroundColor: 'white', fontFamily: 'Inter, sans-serif' }}
+                />
               </div>
-            </div>
-
-            {/* How can we help you */}
-            <div>
-              <label className="block font-medium mb-2 text-center text-[14px] md:text-[18px]" style={{ color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-                How can we help you?
-              </label>
-              <textarea 
-                rows={4}
-                className="w-full rounded-lg border resize-none px-4 py-3 text-[14px] md:text-[16px] focus:outline-none focus:border-[#C17B5C]"
-                style={{ borderColor: '#E5E5E5', backgroundColor: 'white', fontFamily: 'Inter, sans-serif' }}
-                placeholder="Tell us how we can assist you..."
-              />
             </div>
 
             {/* Submit Button */}
             <div className="text-center pt-4">
               <button 
                 type="submit"
-                className="rounded-lg text-white font-bold shadow-lg hover:opacity-90 transition-opacity px-12 py-3 text-[18px] md:text-[24px]"
+                disabled={loading}
+                className="rounded-lg text-white font-bold shadow-lg hover:opacity-90 transition-opacity px-12 py-3 text-[18px] md:text-[24px] disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ backgroundColor: '#C17B5C', fontFamily: 'Inter, sans-serif' }}
               >
-                Submit
+                {loading ? 'Registering...' : 'Register as Doctor'}
               </button>
             </div>
+            
+            <p className="text-center text-sm text-gray-600 mt-4" style={{ fontFamily: 'Inter, sans-serif' }}>
+              Already have an account? <a href="/auth" className="text-[#C17B5C] hover:underline font-semibold">Sign in here</a>
+            </p>
           </form>
         </div>
       </div>

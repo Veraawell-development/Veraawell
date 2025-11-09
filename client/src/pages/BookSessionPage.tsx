@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import EmergencyContactModal from '../components/EmergencyContactModal';
 
 interface Doctor {
   _id: string;
@@ -34,6 +35,8 @@ const BookSessionPage: React.FC = () => {
   // Removed loading state for faster page load
   const [bookingLoading, setBookingLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showEmergencyModal, setShowEmergencyModal] = useState(false);
+  const [hasEmergencyContact, setHasEmergencyContact] = useState(false);
 
   const API_BASE_URL = window.location.hostname === 'localhost' 
     ? 'http://localhost:5001/api' 
@@ -42,6 +45,7 @@ const BookSessionPage: React.FC = () => {
   useEffect(() => {
     if (doctorId) {
       fetchDoctorDetails();
+      checkEmergencyContact();
     }
   }, [doctorId]);
 
@@ -50,6 +54,28 @@ const BookSessionPage: React.FC = () => {
       fetchAvailableSlots();
     }
   }, [selectedDate, doctorId]);
+
+  const checkEmergencyContact = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/patients/emergency-contact`, {
+        credentials: 'include',
+        headers
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setHasEmergencyContact(!!(data.emergencyContact?.name && data.emergencyContact?.phone));
+      }
+    } catch (error) {
+      console.error('Error checking emergency contact:', error);
+    }
+  };
 
   const fetchDoctorDetails = async () => {
     try {
@@ -90,11 +116,51 @@ const BookSessionPage: React.FC = () => {
       return;
     }
 
+    // Check if emergency contact is set, if not show modal
+    if (!hasEmergencyContact) {
+      setShowEmergencyModal(true);
+      return;
+    }
+
+    // Proceed with booking
+    await proceedWithBooking();
+  };
+
+  const handleEmergencyContactSubmit = async (contactName: string, contactPhone: string) => {
+    try {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/patients/emergency-contact`, {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({ contactName, contactPhone })
+      });
+
+      if (response.ok) {
+        setHasEmergencyContact(true);
+        setShowEmergencyModal(false);
+        // Now proceed with booking
+        await proceedWithBooking();
+      }
+    } catch (error) {
+      console.error('Error saving emergency contact:', error);
+      setError('Failed to save emergency contact');
+    }
+  };
+
+  const proceedWithBooking = async () => {
     try {
       setBookingLoading(true);
       setError(null);
 
-      const price = sessionType === 'discovery' ? 0 : doctor.pricing.min;
+      const price = sessionType === 'discovery' ? 0 : doctor!.pricing.min;
 
       // Get token from localStorage
       const token = localStorage.getItem('token');
@@ -110,7 +176,7 @@ const BookSessionPage: React.FC = () => {
         headers,
         credentials: 'include',
         body: JSON.stringify({
-          doctorId: doctor.userId._id,
+          doctorId: doctor!.userId._id,
           sessionDate: selectedDate,
           sessionTime: selectedTime,
           sessionType,
@@ -348,6 +414,13 @@ const BookSessionPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Emergency Contact Modal */}
+      <EmergencyContactModal
+        isOpen={showEmergencyModal}
+        onClose={() => setShowEmergencyModal(false)}
+        onSubmit={handleEmergencyContactSubmit}
+      />
     </div>
   );
 };

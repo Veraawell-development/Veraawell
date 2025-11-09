@@ -204,7 +204,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
           <p className="text-sm font-medium text-gray-700 mb-3 text-center">
             I am a:
           </p>
-          <div className="grid grid-cols-2 gap-3">
+          <div className={`grid ${registerMode ? 'grid-cols-1' : 'grid-cols-2'} gap-3`}>
             {/* Patient Card */}
             <button
               onClick={() => setIsProfessional(false)}
@@ -237,38 +237,47 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
               )}
             </button>
 
-            {/* Doctor Card */}
-            <button
-              onClick={() => setIsProfessional(true)}
-              className={`relative p-4 rounded-xl border-2 transition-all ${
-                isProfessional
-                  ? 'border-purple-500 bg-purple-50 shadow-md'
-                  : 'border-gray-200 bg-white hover:border-gray-300'
-              }`}
-            >
-              <div className="flex flex-col items-center gap-2">
-                <div className={`p-3 rounded-full ${
-                  isProfessional ? 'bg-purple-100' : 'bg-gray-100'
-                }`}>
-                  <FaUserMd className={`text-2xl ${
-                    isProfessional ? 'text-purple-600' : 'text-gray-400'
-                  }`} />
+            {/* Doctor Card - Only show in login mode */}
+            {!registerMode && (
+              <button
+                onClick={() => setIsProfessional(true)}
+                className={`relative p-4 rounded-xl border-2 transition-all ${
+                  isProfessional
+                    ? 'border-purple-500 bg-purple-50 shadow-md'
+                    : 'border-gray-200 bg-white hover:border-gray-300'
+                }`}
+              >
+                <div className="flex flex-col items-center gap-2">
+                  <div className={`p-3 rounded-full ${
+                    isProfessional ? 'bg-purple-100' : 'bg-gray-100'
+                  }`}>
+                    <FaUserMd className={`text-2xl ${
+                      isProfessional ? 'text-purple-600' : 'text-gray-400'
+                    }`} />
+                  </div>
+                  <span className={`text-sm font-semibold ${
+                    isProfessional ? 'text-purple-700' : 'text-gray-600'
+                  }`}>
+                    Doctor
+                  </span>
                 </div>
-                <span className={`text-sm font-semibold ${
-                  isProfessional ? 'text-purple-700' : 'text-gray-600'
-                }`}>
-                  Doctor
-                </span>
-              </div>
-              {isProfessional && (
-                <div className="absolute top-2 right-2">
-                  <svg className="w-5 h-5 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                  </svg>
-                </div>
-              )}
-            </button>
+                {isProfessional && (
+                  <div className="absolute top-2 right-2">
+                    <svg className="w-5 h-5 text-purple-600" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+                    </svg>
+                  </div>
+                )}
+              </button>
+            )}
           </div>
+          
+          {/* Doctor Registration Message */}
+          {registerMode && (
+            <p className="text-sm text-gray-600 mt-3 text-center">
+              Are you a doctor? <a href="/career" className="text-teal-600 hover:text-teal-700 font-semibold">Join us here</a>
+            </p>
+          )}
         </div>
 
         {/* Form */}
