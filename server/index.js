@@ -15,6 +15,9 @@ const nodemailer = require('nodemailer');
 const bcrypt = require('bcryptjs');
 const { createServer } = require('http');
 const { Server } = require('socket.io');
+const rateLimit = require('express-rate-limit');
+const helmet = require('helmet');
+const compression = require('compression');
 
 // Import User model early to avoid circular dependency
 const User = require('./models/user');
@@ -48,6 +51,50 @@ const PORT = process.env.PORT || 8000;
 // Basic route to test if server is running
 app.get('/', (req, res) => {
   res.json({ message: 'Veraawell Backend is running!', timestamp: new Date().toISOString() });
+});
+
+// Security: Helmet for security headers
+app.use(helmet({
+  contentSecurityPolicy: false, // Disable for now to avoid breaking existing functionality
+  crossOriginEmbedderPolicy: false
+}));
+
+// Performance: Compression middleware
+app.use(compression());
+
+// Security: Rate limiting
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply rate limiting to all API routes
+app.use('/api/', limiter);
+
+// Stricter rate limiting for auth endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 requests per windowMs
+  message: 'Too many authentication attempts, please try again later.',
+  skipSuccessfulRequests: true // Don't count successful requests
+});
+
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/forgot-password', authLimiter);
+
+// Request timeout middleware (30 seconds)
+app.use((req, res, next) => {
+  req.setTimeout(30000, () => {
+    res.status(408).json({ error: 'Request timeout' });
+  });
+  res.setTimeout(30000, () => {
+    res.status(408).json({ error: 'Response timeout' });
+  });
+  next();
 });
 
 app.use(express.json());
@@ -1099,18 +1146,27 @@ process.on('unhandledRejection', (reason, promise) => {
   console.log('Server will continue running...');
 });
 
-process.on('SIGTERM', () => {
+// Graceful shutdown handlers
+process.on('SIGTERM', async () => {
   console.log('SIGTERM received, shutting down gracefully...');
-  mongoose.connection.close(() => {
+  try {
+    await mongoose.connection.close();
     console.log('MongoDB connection closed.');
     process.exit(0);
-  });
+  } catch (error) {
+    console.error('Error closing MongoDB connection:', error);
+    process.exit(1);
+  }
 });
 
-process.on('SIGINT', () => {
+process.on('SIGINT', async () => {
   console.log('SIGINT received, shutting down gracefully...');
-  mongoose.connection.close(() => {
+  try {
+    await mongoose.connection.close();
     console.log('MongoDB connection closed.');
     process.exit(0);
-  });
+  } catch (error) {
+    console.error('Error closing MongoDB connection:', error);
+    process.exit(1);
+  }
 }); 
