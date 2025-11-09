@@ -61,35 +61,60 @@ const SuperAdminDashboard: React.FC = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
+      console.log('[SUPER ADMIN] Starting to fetch data...');
       
       // Fetch statistics
+      console.log('[SUPER ADMIN] Fetching statistics...');
       const statsRes = await fetch(`${API_BASE_URL}/admin/approvals/statistics`, {
         credentials: 'include'
       });
+      console.log('[SUPER ADMIN] Statistics response status:', statsRes.status);
       if (statsRes.ok) {
         const stats = await statsRes.json();
+        console.log('[SUPER ADMIN] Statistics received:', stats);
         setStatistics(stats);
+      } else {
+        const error = await statsRes.text();
+        console.error('[SUPER ADMIN] Statistics error:', statsRes.status, error);
+        alert(`Failed to fetch statistics: ${statsRes.status} ${error}`);
       }
 
       // Fetch pending admins
+      console.log('[SUPER ADMIN] Fetching pending admins...');
       const adminsRes = await fetch(`${API_BASE_URL}/admin/approvals/admins/pending`, {
         credentials: 'include'
       });
+      console.log('[SUPER ADMIN] Admins response status:', adminsRes.status);
       if (adminsRes.ok) {
         const admins = await adminsRes.json();
+        console.log('[SUPER ADMIN] Pending admins received:', admins.length, admins);
         setPendingAdmins(admins);
+      } else {
+        const error = await adminsRes.text();
+        console.error('[SUPER ADMIN] Admins error:', adminsRes.status, error);
+        alert(`Failed to fetch pending admins: ${adminsRes.status} ${error}`);
       }
 
       // Fetch pending doctors
+      console.log('[SUPER ADMIN] Fetching pending doctors...');
       const doctorsRes = await fetch(`${API_BASE_URL}/admin/approvals/doctors/pending`, {
         credentials: 'include'
       });
+      console.log('[SUPER ADMIN] Doctors response status:', doctorsRes.status);
       if (doctorsRes.ok) {
         const doctors = await doctorsRes.json();
+        console.log('[SUPER ADMIN] Pending doctors received:', doctors.length, doctors);
         setPendingDoctors(doctors);
+      } else {
+        const error = await doctorsRes.text();
+        console.error('[SUPER ADMIN] Doctors error:', doctorsRes.status, error);
+        alert(`Failed to fetch pending doctors: ${doctorsRes.status} ${error}`);
       }
+      
+      console.log('[SUPER ADMIN] All data fetched successfully');
     } catch (error) {
-      console.error('Error fetching data:', error);
+      console.error('[SUPER ADMIN] Fatal error fetching data:', error);
+      alert(`Fatal error: ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       setLoading(false);
     }
