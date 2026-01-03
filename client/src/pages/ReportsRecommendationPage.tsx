@@ -2,22 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { FiDownload, FiMenu } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-
-interface Report {
-  _id: string;
-  title: string;
-  reportType: string;
-  content: string;
-  createdAt: string;
-  doctorId: {
-    firstName: string;
-    lastName: string;
-  };
-  sessionId: {
-    sessionDate: string;
-    sessionTime: string;
-  };
-}
+import { API_CONFIG } from '../config/api';
+import { formatDate } from '../utils/dateUtils';
+import logger from '../utils/logger';
+import type { Report } from '../types';
 
 const ReportsRecommendationPage: React.FC = () => {
   const [reports, setReports] = useState<Report[]>([]);
@@ -25,10 +13,6 @@ const ReportsRecommendationPage: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const { user } = useAuth();
-
-  const API_BASE_URL = window.location.hostname === 'localhost' 
-    ? 'http://localhost:5001/api' 
-    : 'https://veraawell-backend.onrender.com/api';
 
   useEffect(() => {
     fetchReports();
@@ -39,16 +23,8 @@ const ReportsRecommendationPage: React.FC = () => {
       setLoading(true);
       if (!user) return;
 
-      const token = localStorage.getItem('token');
-      const headers: HeadersInit = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      console.log('📊 Fetching reports for patient:', user.userId);
-      const response = await fetch(`${API_BASE_URL}/session-tools/reports/patient/${user.userId}`, {
-        credentials: 'include',
-        headers
+      const response = await fetch(`${API_CONFIG.BASE_URL}/session-tools/reports/patient/${user.userId}`, {
+        credentials: 'include'
       });
 
       if (!response.ok) {
@@ -56,50 +32,24 @@ const ReportsRecommendationPage: React.FC = () => {
       }
 
       const data = await response.json();
-      console.log('📊 Reports received:', data.length);
+      logger.info('Reports received:', data.length);
       setReports(data);
     } catch (error) {
-      console.error('Error fetching reports:', error);
+      logger.error('Error fetching reports:', error);
       setReports([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const day = date.getDate();
-    const month = date.toLocaleString('en-US', { month: 'long' });
-    const year = date.getFullYear();
-    
-    const suffix = (day: number) => {
-      if (day > 3 && day < 21) return 'th';
-      switch (day % 10) {
-        case 1: return 'st';
-        case 2: return 'nd';
-        case 3: return 'rd';
-        default: return 'th';
-      }
-    };
-    
-    return `${day}${suffix(day)} ${month} ${year}`;
-  };
-
   const markAsViewed = async (reportId: string) => {
     try {
-      const token = localStorage.getItem('token');
-      const headers: HeadersInit = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-      
-      await fetch(`${API_BASE_URL}/session-tools/reports/${reportId}/view`, {
+      await fetch(`${API_CONFIG.BASE_URL}/session-tools/reports/${reportId}/view`, {
         method: 'PUT',
-        credentials: 'include',
-        headers
+        credentials: 'include'
       });
     } catch (error) {
-      console.error('Error marking report as viewed:', error);
+      logger.error('Error marking report as viewed:', error);
     }
   };
 

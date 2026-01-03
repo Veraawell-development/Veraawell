@@ -1,56 +1,74 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const router = express.Router();
 const Session = require('../models/session');
 const Conversation = require('../models/conversation');
 const User = require('../models/user');
 const DoctorProfile = require('../models/doctorProfile');
-const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
+const { verifyToken } = require('../middleware/auth.middleware');
+const { updateSessionStatuses } = require('../utils/sessionUpdater');
 
-// Use the same JWT_SECRET logic as the main server
-const JWT_SECRET = process.env.JWT_SECRET || 'veraawell_jwt_secret_key_2024_development_environment_secure_token_generation';
 
-// Middleware to verify JWT token (supports both cookie and Authorization header)
-const verifyToken = (req, res, next) => {
-  // Check BOTH cookie AND Authorization header
-  let token = req.cookies.token;
-  
-  // If no cookie, check Authorization header
-  if (!token && req.headers.authorization) {
-    const authHeader = req.headers.authorization;
-    if (authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-      console.log('[AUTH] Token from Authorization header');
-    }
-  }
-  
-  if (!token) {
-    console.log('[AUTH] No token found in cookie or header');
-    return res.status(401).json({ message: 'No token provided' });
-  }
-  
+// Get session statistics for doctor
+router.get('/stats', verifyToken, async (req, res) => {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    console.log('[AUTH] Token verified for user:', decoded.userId);
-    req.user = decoded;
-    next();
-  } catch (error) {
-    console.error('[AUTH] JWT verification error:', error.message);
-    return res.status(401).json({ message: 'Invalid token' });
-  }
-};
+    const userId = req.user._id.toString();
+    const userRole = req.user.role;
 
+    if (userRole !== 'doctor') {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    // Update statuses before calculating stats
+    await updateSessionStatuses();
+
+    const stats = await Session.aggregate([
+      {
+        $match: {
+          doctorId: new mongoose.Types.ObjectId(userId),
+          status: 'completed'
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalRevenue: { $sum: '$price' },
+          totalSessions: { $count: {} },
+          totalDurationMinutes: { $sum: '$duration' }
+        }
+      }
+    ]);
+
+    const result = stats.length > 0 ? stats[0] : { totalRevenue: 0, totalSessions: 0, totalDurationMinutes: 0 };
+
+    // Convert minutes to hours
+    const totalHours = Math.round(result.totalDurationMinutes / 60);
+
+    res.json({
+      totalRevenue: result.totalRevenue,
+      totalSessions: result.totalSessions,
+      totalHours: totalHours
+    });
+
+  } catch (error) {
+    console.error('Error fetching session stats:', error);
+    res.status(500).json({ message: 'Failed to fetch session stats' });
+  }
+});
 
 // Get call history for the authenticated user
 router.get('/call-history', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
     const userRole = req.user.role;
 
     console.log('📞 Fetching call history for:', { userId: userId.substring(0, 8), role: userRole });
 
+    // Update statuses before fetching history
+    await updateSessionStatuses();
+
     // Build query based on user role
-    const query = userRole === 'patient' 
+    const query = userRole === 'patient'
       ? { patientId: userId }
       : { doctorId: userId };
 
@@ -112,10 +130,35 @@ router.get('/call-history', verifyToken, async (req, res) => {
 });
 
 // Get available slots for a doctor on a specific date
+// Get available slots for a doctor on a specific date
 router.get('/doctors/:doctorId/slots/:date', async (req, res) => {
   try {
     const { doctorId, date } = req.params;
-    const availableSlots = await Session.getAvailableSlots(doctorId, new Date(date));
+
+    // Find doctor's availability settings
+    let availability = await require('../models/doctorAvailability').findOne({ doctorId });
+
+    // If no availability settings found, create default one (same as in availability routes)
+    if (!availability) {
+      const DoctorAvailability = require('../models/doctorAvailability');
+      availability = new DoctorAvailability({
+        doctorId,
+        availabilityType: 'same_slots',
+        defaultSlots: ['09:00 AM', '11:00 AM', '03:00 PM', '05:00 PM'],
+        activeDates: [],
+        bookedSlots: []
+      });
+      await availability.save();
+    }
+
+    // Get slots using the model method which now handles bookedSlots
+    const slots = availability.getAvailableSlotsForDate(date);
+
+    // Filter out booked slots and map to expected format
+    const availableSlots = slots
+      .filter(slot => !slot.isBooked)
+      .map(slot => slot.time); // Client expects array of strings ["09:00 AM", ...]
+
     res.json({ availableSlots });
   } catch (error) {
     console.error('Error fetching available slots:', error);
@@ -127,39 +170,39 @@ router.get('/doctors/:doctorId/slots/:date', async (req, res) => {
 router.post('/book-immediate', verifyToken, async (req, res) => {
   try {
     let { doctorId } = req.body;
-    const patientId = req.user.userId;
+    const patientId = req.user._id.toString();
 
     // If no doctorId provided or it's a test ID, use the current user as doctor
     // This allows testing by booking a session with yourself
     if (!doctorId || doctorId === 'test-doctor-id') {
       doctorId = patientId; // Use same user as both patient and doctor for testing
-      console.log('🔄 Using same user as both patient and doctor for testing:', {
+      console.log('Using same user as both patient and doctor for testing:', {
         userId: patientId.substring(0, 8)
       });
     }
 
     // Create immediate session (starts NOW - can join immediately)
     const now = new Date();
-    
-    console.log('[IMMEDIATE BOOKING] 🕐 Server time:', {
+
+    console.log('[IMMEDIATE BOOKING] Server time:', {
       iso: now.toISOString(),
       local: now.toLocaleString(),
       utc: now.toUTCString(),
       timestamp: now.getTime()
     });
-    
+
     // Use local date to avoid timezone issues
     const year = now.getFullYear();
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const day = String(now.getDate()).padStart(2, '0');
     const sessionDate = `${year}-${month}-${day}`;
-    
+
     // Current time for immediate joining
     const hours = String(now.getHours()).padStart(2, '0');
     const minutes = String(now.getMinutes()).padStart(2, '0');
     const sessionTime = `${hours}:${minutes}`;
 
-    console.log('[IMMEDIATE BOOKING] 💾 Creating session with:', {
+    console.log('[IMMEDIATE BOOKING] Creating session with:', {
       patientId: patientId.substring(0, 8),
       doctorId: doctorId.substring(0, 8),
       sessionType: 'immediate',
@@ -184,7 +227,7 @@ router.post('/book-immediate', verifyToken, async (req, res) => {
     });
 
     const savedSession = await session.save();
-    console.log('✅ Session saved:', {
+    console.log('Session saved:', {
       id: savedSession._id.toString().substring(0, 8),
       patientId: savedSession.patientId?.toString().substring(0, 8) || 'null',
       doctorId: savedSession.doctorId?.toString().substring(0, 8) || 'null'
@@ -201,14 +244,14 @@ router.post('/book-immediate', verifyToken, async (req, res) => {
 
     // Auto-create conversation between patient and doctor
     try {
-      console.log('[CONVERSATION] 🔄 Creating conversation...');
+      console.log('[CONVERSATION] Creating conversation...');
       console.log('[CONVERSATION] Patient ID:', patientId);
       console.log('[CONVERSATION] Doctor ID:', doctorId);
       console.log('[CONVERSATION] Session ID:', savedSession._id);
-      
+
       const conversation = await Conversation.findOrCreateConversation(patientId, doctorId, savedSession._id);
-      
-      console.log('[CONVERSATION] ✅ Conversation created/found:', {
+
+      console.log('[CONVERSATION] Conversation created/found:', {
         conversationId: conversation._id,
         participants: conversation.participants.map(p => ({
           userId: p.userId._id || p.userId,
@@ -216,7 +259,7 @@ router.post('/book-immediate', verifyToken, async (req, res) => {
         }))
       });
     } catch (convError) {
-      console.error('[CONVERSATION] ❌ Error creating conversation:', convError);
+      console.error('[CONVERSATION] Error creating conversation:', convError);
       // Don't fail the session booking if conversation creation fails
     }
 
@@ -234,7 +277,7 @@ router.post('/book-immediate', verifyToken, async (req, res) => {
 router.post('/book', verifyToken, async (req, res) => {
   try {
     const { doctorId, sessionDate, sessionTime, sessionType, price, mode, duration, serviceType } = req.body;
-    const patientId = req.user.userId;
+    const patientId = req.user._id.toString();
 
     // Validate required fields
     if (!doctorId || !sessionDate || !sessionTime || price === undefined) {
@@ -251,6 +294,29 @@ router.post('/book', verifyToken, async (req, res) => {
 
     if (existingSession) {
       return res.status(400).json({ message: 'This time slot is no longer available' });
+    }
+
+    // Check against DoctorAvailability model
+    const DoctorAvailability = require('../models/doctorAvailability');
+    let availability = await DoctorAvailability.findOne({ doctorId });
+
+    // Create default availability if needed
+    if (!availability) {
+      availability = new DoctorAvailability({
+        doctorId,
+        availabilityType: 'same_slots',
+        defaultSlots: ['09:00 AM', '11:00 AM', '03:00 PM', '05:00 PM'],
+        activeDates: [],
+        bookedSlots: []
+      });
+      await availability.save();
+    }
+
+    // Check if slot is available in availability settings
+    // Note: sessionDate from client is YYYY-MM-DD string
+    const isAvailable = availability.isSlotAvailable(sessionDate, sessionTime);
+    if (!isAvailable) {
+      return res.status(400).json({ message: 'This time slot is not available in doctor\'s calendar' });
     }
 
     // Generate unique meeting link for video call
@@ -271,6 +337,15 @@ router.post('/book', verifyToken, async (req, res) => {
       meetingLink,
       sessionNotes: `Service Type: ${serviceType || 'General'}, Mode: ${mode || 'video'}`
     });
+
+    // Save availability booking FIRST
+    // usage: bookSlot(dateStr, timeStr, sessionId)
+    // We pass the session._id even before saving session (typical Mongoose pattern)
+    const bookingSuccess = await availability.bookSlot(sessionDate, sessionTime, session._id);
+
+    if (!bookingSuccess) {
+      return res.status(400).json({ message: 'Failed to book slot. It may have just been taken.' });
+    }
 
     await session.save();
 
@@ -301,15 +376,18 @@ router.post('/book', verifyToken, async (req, res) => {
 // Get user's sessions (patient or doctor)
 router.get('/my-sessions', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
     const userRole = req.user.role;
-    
+
     let query = {};
     if (userRole === 'patient') {
       query.patientId = userId;
     } else if (userRole === 'doctor') {
       query.doctorId = userId;
     }
+
+    // Update statuses before fetching user sessions
+    await updateSessionStatuses();
 
     const sessions = await Session.find(query)
       .populate('patientId', 'firstName lastName email')
@@ -326,19 +404,22 @@ router.get('/my-sessions', verifyToken, async (req, res) => {
 // Get upcoming sessions
 router.get('/upcoming', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
     const userRole = req.user.role;
-    
+
     let query = {
       status: 'scheduled',
       sessionDate: { $gte: new Date() }
     };
-    
+
     if (userRole === 'patient') {
       query.patientId = userId;
     } else if (userRole === 'doctor') {
       query.doctorId = userId;
     }
+
+    // Update statuses before fetching upcoming
+    await updateSessionStatuses();
 
     const sessions = await Session.find(query)
       .populate('patientId', 'firstName lastName email')
@@ -360,13 +441,13 @@ router.get('/upcoming', verifyToken, async (req, res) => {
 router.get('/doctors', async (req, res) => {
   try {
     console.log('[DOCTORS] Fetching doctors with profiles...');
-    
+
     // Get all doctor profiles (only doctors with profiles will appear)
     const doctorProfiles = await DoctorProfile.find({})
       .populate('userId', 'firstName lastName email isOnline profileCompleted');
-    
+
     console.log('[DOCTORS] Found doctor profiles:', doctorProfiles.length);
-    
+
     // Filter out profiles where userId doesn't exist or role is not doctor
     const validProfiles = doctorProfiles.filter(profile => {
       if (!profile.userId) {
@@ -375,12 +456,12 @@ router.get('/doctors', async (req, res) => {
       }
       return true;
     });
-    
+
     console.log('[DOCTORS] Valid profiles after filtering:', validProfiles.length);
-    
+
     // Available doctor images for rotation
     const doctorImages = ['/doctor-01.svg', '/doctor-02.svg', '/doctor-03.svg', '/doctor-04.svg'];
-    
+
     // Map profiles with images
     const result = validProfiles.map((profile, index) => {
       // If profile exists but has no image, assign one from rotation
@@ -389,11 +470,11 @@ router.get('/doctors', async (req, res) => {
       }
       return profile;
     });
-    
-    console.log('[DOCTORS] ✅ Returning', result.length, 'doctors');
+
+    console.log('[DOCTORS] Returning', result.length, 'doctors');
     res.json(result);
   } catch (error) {
-    console.error('[DOCTORS] ❌ Error fetching doctors:', error);
+    console.error('[DOCTORS] Error fetching doctors:', error);
     res.status(500).json({ message: 'Failed to fetch doctors', error: error.message });
   }
 });
@@ -402,52 +483,52 @@ router.get('/doctors', async (req, res) => {
 router.get('/doctors/:doctorId', async (req, res) => {
   try {
     const { doctorId } = req.params;
-    
-    console.log('🔍 Fetching doctor profile for ID:', doctorId);
-    
+
+    console.log('Fetching doctor profile for ID:', doctorId);
+
     // Validate MongoDB ObjectId format
     if (!doctorId.match(/^[0-9a-fA-F]{24}$/)) {
-      console.error('❌ Invalid doctor ID format:', doctorId);
+      console.error('Invalid doctor ID format:', doctorId);
       return res.status(400).json({ message: 'Invalid doctor ID format' });
     }
-    
+
     // First, check if this is a valid doctor user
     const doctor = await User.findOne({ _id: doctorId, role: 'doctor' }).select('firstName lastName email');
-    
-    console.log('👤 Doctor found:', doctor ? `${doctor.firstName} ${doctor.lastName}` : 'Not found');
-    
+
+    console.log('Doctor found:', doctor ? `${doctor.firstName} ${doctor.lastName}` : 'Not found');
+
     if (!doctor) {
       return res.status(404).json({ message: 'Doctor not found' });
     }
-    
+
     // Try to get the doctor's profile
     const profile = await DoctorProfile.findOne({ userId: doctorId });
-    
-    console.log('📋 Profile found:', profile ? 'Yes' : 'No (using defaults)');
-    
+
+    console.log('Profile found:', profile ? 'Yes' : 'No (using defaults)');
+
     // Available doctor images for rotation
     const doctorImages = ['/doctor-01.svg', '/doctor-02.svg', '/doctor-03.svg', '/doctor-04.svg'];
-    
+
     // Get all doctors to determine index for image rotation
     const allDoctors = await User.find({ role: 'doctor' }).select('_id').sort({ createdAt: 1 });
     const doctorIndex = allDoctors.findIndex(d => d._id.toString() === doctorId);
     const assignedImage = doctorImages[doctorIndex >= 0 ? doctorIndex % doctorImages.length : 0];
-    
+
     if (profile) {
       // Return existing profile with populated user data
       const populatedProfile = await DoctorProfile.findById(profile._id)
         .populate('userId', 'firstName lastName email');
-      
+
       // If profile has no image or placeholder, assign one from rotation
       if (!populatedProfile.profileImage || populatedProfile.profileImage === '/doctor-placeholder.svg') {
         populatedProfile.profileImage = assignedImage;
       }
-      
-      console.log('✅ Returning populated profile with image:', populatedProfile.profileImage);
+
+      console.log('Returning populated profile with image:', populatedProfile.profileImage);
       return res.json(populatedProfile);
     } else {
       // Return default profile structure for doctors without profiles
-      console.log('✅ Returning default profile with image:', assignedImage);
+      console.log('Returning default profile with image:', assignedImage);
       return res.json({
         _id: `temp_${doctor._id}`,
         userId: {
@@ -475,7 +556,7 @@ router.get('/doctors/:doctorId', async (req, res) => {
       });
     }
   } catch (error) {
-    console.error('❌ Error fetching doctor:', error);
+    console.error('Error fetching doctor:', error);
     res.status(500).json({ message: 'Failed to fetch doctor details', error: error.message });
   }
 });
@@ -484,7 +565,7 @@ router.get('/doctors/:doctorId', async (req, res) => {
 router.get('/:sessionId', verifyToken, async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
 
     const session = await Session.findById(sessionId)
       .populate('patientId', 'firstName lastName email')
@@ -497,7 +578,7 @@ router.get('/:sessionId', verifyToken, async (req, res) => {
     // Check if user is authorized to view this session
     const patientIdStr = session.patientId?._id?.toString() || session.patientId?.toString();
     const doctorIdStr = session.doctorId?._id?.toString() || session.doctorId?.toString();
-    
+
     if (patientIdStr !== userId && doctorIdStr !== userId) {
       return res.status(403).json({ message: 'Unauthorized to view this session' });
     }
@@ -513,9 +594,9 @@ router.get('/:sessionId', verifyToken, async (req, res) => {
 router.get('/join/:sessionId', verifyToken, async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
 
-    console.log('[SESSION JOIN] 🎯 Join request received');
+    console.log('[SESSION JOIN] Join request received');
     console.log('[SESSION JOIN] Session ID:', sessionId);
     console.log('[SESSION JOIN] User ID:', userId);
 
@@ -524,11 +605,11 @@ router.get('/join/:sessionId', verifyToken, async (req, res) => {
       .populate('doctorId', 'firstName lastName email');
 
     if (!session) {
-      console.log('[SESSION JOIN] ❌ Session not found:', sessionId);
+      console.log('[SESSION JOIN] Session not found:', sessionId);
       return res.status(404).json({ message: 'Session not found' });
     }
-    
-    console.log('[SESSION JOIN] ✅ Session found:', {
+
+    console.log('[SESSION JOIN] Session found:', {
       id: sessionId,
       type: session.sessionType,
       status: session.status,
@@ -539,7 +620,7 @@ router.get('/join/:sessionId', verifyToken, async (req, res) => {
     // Check if user is authorized to join this session
     const patientIdStr = session.patientId?._id?.toString() || session.patientId?.toString();
     const doctorIdStr = session.doctorId?._id?.toString() || session.doctorId?.toString();
-    
+
     console.log('Join session debug:', {
       userId,
       patientIdStr,
@@ -547,24 +628,24 @@ router.get('/join/:sessionId', verifyToken, async (req, res) => {
       sessionId: sessionId.substring(0, 8),
       sessionType: session.sessionType
     });
-    
+
     const isPatient = patientIdStr === userId;
     const isDoctor = doctorIdStr === userId;
-    
+
     // Strict authorization - user must be either the patient or the doctor
     const isAuthorized = isPatient || isDoctor;
 
     if (!isAuthorized) {
-      console.error('Authorization failed:', { 
-        userId: userId.substring(0, 8), 
-        patientId: patientIdStr?.substring(0, 8), 
+      console.error('Authorization failed:', {
+        userId: userId.substring(0, 8),
+        patientId: patientIdStr?.substring(0, 8),
         doctorId: doctorIdStr?.substring(0, 8),
         sessionType: session.sessionType
       });
       return res.status(403).json({ message: 'Not authorized to join this session' });
     }
-    
-    console.log('✅ User authorized to join session:', {
+
+    console.log('User authorized to join session:', {
       userId: userId.substring(0, 8),
       role: isPatient ? 'patient' : 'doctor',
       sessionType: session.sessionType
@@ -572,7 +653,7 @@ router.get('/join/:sessionId', verifyToken, async (req, res) => {
 
     // For immediate sessions or sessions within join window, allow joining
     const canJoin = session.sessionType === 'immediate' || session.canJoin();
-    
+
     if (!canJoin) {
       return res.status(400).json({ message: 'Session cannot be joined at this time. Please wait until 15 minutes before the scheduled time.' });
     }
@@ -592,7 +673,7 @@ router.get('/join/:sessionId', verifyToken, async (req, res) => {
 router.put('/cancel/:sessionId', verifyToken, async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
 
     const session = await Session.findById(sessionId);
 
@@ -612,7 +693,7 @@ router.put('/cancel/:sessionId', verifyToken, async (req, res) => {
     const sessionDateTime = new Date(session.sessionDate);
     const [hours, minutes] = session.sessionTime.split(':').map(Number);
     sessionDateTime.setHours(hours, minutes, 0, 0);
-    
+
     const now = new Date();
     const timeDiff = sessionDateTime.getTime() - now.getTime();
     const hoursDiff = timeDiff / (1000 * 60 * 60);
@@ -625,6 +706,21 @@ router.put('/cancel/:sessionId', verifyToken, async (req, res) => {
     session.paymentStatus = 'refunded';
     await session.save();
 
+    // Release the slot in DoctorAvailability
+    try {
+      const DoctorAvailability = require('../models/doctorAvailability');
+      const availability = await DoctorAvailability.findOne({ doctorId: session.doctorId });
+
+      if (availability) {
+        // Convert session date to YYYY-MM-DD string
+        const dateStr = session.sessionDate.toISOString().split('T')[0];
+        await availability.releaseSlot(dateStr, session.sessionTime);
+      }
+    } catch (releaseError) {
+      console.error('Error releasing slot during cancellation:', releaseError);
+      // Don't fail the request if release fails, just log it
+    }
+
     res.json({ message: 'Session cancelled successfully' });
   } catch (error) {
     console.error('Error cancelling session:', error);
@@ -636,7 +732,7 @@ router.put('/cancel/:sessionId', verifyToken, async (req, res) => {
 router.get('/calendar/:year/:month', verifyToken, async (req, res) => {
   try {
     const { year, month } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
     const userRole = req.user.role;
 
     const startDate = new Date(year, month - 1, 1);
@@ -663,6 +759,9 @@ router.get('/calendar/:year/:month', verifyToken, async (req, res) => {
       month: `${year}-${month}`,
       dateRange: `${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`
     });
+
+    // Update statuses before fetching calendar
+    await updateSessionStatuses();
 
     const sessions = await Session.find(query)
       .populate('patientId', 'firstName lastName email')

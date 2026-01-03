@@ -28,7 +28,6 @@ const PatientDetailsPage: React.FC = () => {
   const fetchPatients = async () => {
     try {
       setLoading(true);
-      console.log('📋 Fetching patients from:', `${API_BASE_URL}/patients/doctor-patients`);
       
       const response = await fetch(`${API_BASE_URL}/patients/doctor-patients`, {
         credentials: 'include'
@@ -39,7 +38,6 @@ const PatientDetailsPage: React.FC = () => {
       }
 
       const data = await response.json();
-      console.log('📋 Patients received:', data.length);
       setPatients(data);
     } catch (error) {
       console.error('Error fetching patients:', error);

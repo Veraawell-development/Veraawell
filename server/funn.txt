@@ -1,0 +1,53 @@
+FUNCTIONAL IMPACT REPORT - BACKEND
+==================================
+Analysis Date: 2026-01-03
+Scope: Functional consequences of identified technical issues
+
+The following log details how the technical flaws found in the backend will manifest as real-world problems for users, doctors, and the business.
+
+1. USER AUTHENTICATION & SECURITY IMPACTS
+=========================================
+- ACCOUNT HIJACKING RISK: Due to exposed debug endpoints (Issue 41), an attacker can retrieve password reset tokens for any user and take over their account without their knowledge.
+- BRUTE FORCE VULNERABILITY: Weak password requirements (Issue 15) and lack of complexity checks mean user accounts are highly susceptible to automated password guessing attacks.
+- RANDOM LOGOUTS: Because session secrets are randomly generated on every server restart in production (Issue 7), every logged-in user will be abruptly kicked out whenever the server updates or restarts.
+- GOOGLE AUTHENTICATION FAILURES: Inconsistent JWT secret management (Issue 2, 3) between the main app and the chat/socket systems will cause users who log in via Google to find their chat or video call features "unauthorized" or broken.
+- CSRF ATTACKS: The lack of active CSRF protection (Issue 42) means a user could be tricked into performing actions (like changing their password or booking a session) just by visiting a malicious website while logged into Veraawell.
+
+2. SESSION BOOKING & APPOINTMENT IMPACTS
+========================================
+- BOOKING SYSTEM FAILURE: The missing 'crypto' library in the sessions route (Issue 4) will cause the server to crash or return an error whenever a user tries to book a regular session. Users will be unable to schedule appointments.
+- PARTIAL DATA LOSS (ZOMBIE SESSIONS): Without database transactions (Issue 14), a session might be successfully booked, but the corresponding chat conversation fails to be created. Result: The user pays for a session but has no way to message their doctor.
+- MISSED APPOINTMENTS: Inconsistent timezone handling (Issue 20) using server-local time instead of UTC will lead to "ghost appointments" where the doctor and patient see different times for the same meeting, resulting in no-shows and refund disputes.
+- REFUND & PAYMENT INCONSISTENCY: Lack of audit trails (Issue 22) and soft-delete (Issue 21) means if a session is accidentally deleted or modified, there is no record of who did it or what the original status was, making financial reconciliation impossible.
+
+3. VIDEO CALLING & REAL-TIME COMMUNICATION
+===========================================
+- CALL DROPS & STABILITY: The lack of error handling in Socket.IO initialization (Issue 6) means if the socket system fails, the entire server might crash, bringing down the whole platform.
+- SERVICE DISRUPTION (DoS): No rate limiting on socket connections (Issue 12) allows a single user to open thousands of connections, potentially crashing the signaling server and preventing all other patients from starting their video calls.
+- UNAUTHORIZED CALL ACCESS: Lack of input validation on socket events (Issue 11) could allow malicious users to spoof session IDs and potentially join or disrupt private video rooms they are not invited to.
+- RESOURCE EXHAUSTION: Unbounded maps for active rooms (Issue 13) will cause the server to consume more and more memory over time (Memory Leak), eventually leading to slow performance and "Out of Memory" crashes during peak hours.
+
+4. CHAT & MESSAGING IMPACTS
+===========================
+- MESSAGE NOTIFICATIONS FAILURE: Inconsistent JWT secret usage in the chat socket (Issue 3) will lead to authentication errors, meaning users won't receive real-time message notifications while they are on the site.
+- SLOW CONVERSATION LOADING: Lack of indexes on conversation participants and timestamps (Issue 18) will cause the chat list to take several seconds to load once a user has more than a dozen conversations.
+
+5. PERFORMANCE & SCALABILITY IMPACTS
+====================================
+- SLOW DOCTOR SEARCH: The N+1 query problem when fetching doctors (Issue 17) means the "Find a Doctor" page will get exponentially slower as the network grows. With 100+ doctors, the page may time out before loading.
+- MOBILE APP LAG: The lack of pagination in call history (Issue 19) will cause the mobile/web app to freeze or crash for long-term users who have to download hundreds of records every time they open their history page.
+- RESPONSE TIMEOUTS: Without request-level timeouts and monitoring (Issue 23, 25), slow database queries will hang the server threads, making the entire platform unresponsive for all users during busy periods.
+
+6. MAINTAINABILITY & OPERATIONAL IMPACTS
+========================================
+- DEVELOPMENT BUGS: The existence of the duplicate 'index.js' (Issue 1) creates a massive risk where developers might fix a bug in 'index.js' but the live server (running 'server.js') remains broken, or vice versa.
+- IMPOSSIBLE DEBUGGING: Because many parts of the system use console.log instead of a structured logger (Issue 10) and lack Request IDs (Issue 23), it is impossible for support staff to trace why a specific user's session failed among thousands of logs.
+- DEPLOYMENT RISKS: The lack of any unit or integration tests (Issue 40) means any small change or "fix" in the future has a high probability of breaking existing critical features like payments or video calls.
+
+SUMMARY OF USER EXPERIENCE (UX) CONSEQUENCES
+============================================
+- Trust Issues: Users may be charged for sessions they can't access.
+- Professionalism: Doctors might miss calls due to timezone bugs.
+- Security: User health data could be at risk due to account takeover flaws.
+- Reliability: The platform is prone to "random" crashes and slowdowns.
+- Frustration: Users will face random logouts and unresponsive pages.

@@ -29,49 +29,38 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+  const [token, setToken] = useState<string | null>(null); // Removed localStorage - using cookies only
   const [loading, setLoading] = useState<boolean>(false);
 
   const setAuthToken = useCallback((newToken: string) => {
-    console.log('[AUTH] Setting token:', newToken ? 'Token received' : 'No token');
+    // Token is now only stored in HTTP-only cookies by backend
+    // We keep it in state for WebSocket auth only (temporary)
     setToken(newToken);
-    localStorage.setItem('token', newToken);
+    // NO localStorage storage - security risk
   }, []);
 
   const checkAuth = useCallback(async () => {
     setLoading(true);
-    console.log('[AUTH] Checking authentication status...');
-    
-    // Get token from localStorage
-    const currentToken = localStorage.getItem('token');
-    console.log('[AUTH] Token from localStorage:', currentToken ? 'Present' : 'Missing');
     
     try {
-      // Prepare headers with Authorization token
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-      
-      if (currentToken) {
-        headers['Authorization'] = `Bearer ${currentToken}`;
-        console.log('[AUTH] Added Authorization header to request');
-      }
-      
+      // Use cookies only - no localStorage or Authorization header needed
+      // Backend will read token from HTTP-only cookie
       const res = await fetch(`${API_BASE_URL}/protected`, {
         credentials: 'include',
-        headers,
+        headers: {
+          'Content-Type': 'application/json',
+        },
       });
-      
-      console.log('[AUTH] Protected endpoint response:', res.status);
       
       if (res.ok) {
         const data = await res.json();
-        console.log('[AUTH] User authenticated:', data.user?.username);
         
         // Fetch profile status (only if authenticated)
         const profileRes = await fetch(`${API_BASE_URL}/profile/status`, {
           credentials: 'include',
-          headers,
+          headers: {
+            'Content-Type': 'application/json',
+          },
         });
         
         let profileCompleted = false;
@@ -86,29 +75,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           profileCompleted
         });
         
-        // Store the token from the response if available
+        // Store token in state only for WebSocket auth (temporary)
+        // Token is already in HTTP-only cookie set by backend
         if (data.token) {
           setToken(data.token);
-          localStorage.setItem('token', data.token);
-        } else if (currentToken) {
-          // Keep the current token if no new token in response
-          setToken(currentToken);
         }
       } else {
-        // User not authenticated - this is normal, not an error
-        console.log('[AUTH] User not authenticated (status:', res.status + ')');
+        // User not authenticated
         setIsLoggedIn(false);
         setUser(null);
         setToken(null);
-        localStorage.removeItem('token');
       }
     } catch (error) {
       // Network error or server down
-      console.error('[AUTH] Error checking auth:', error);
       setIsLoggedIn(false);
       setUser(null);
       setToken(null);
-      localStorage.removeItem('token');
       throw error; // Re-throw so OAuth handler can catch it
     } finally {
       setLoading(false);
@@ -120,7 +102,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsLoggedIn(false);
     setUser(null);
     setToken(null);
-    localStorage.removeItem('token'); // Changed from 'authToken' to 'token'
+    // No localStorage to clear - using cookies only
   }, []);
 
   return (

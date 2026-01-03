@@ -38,6 +38,20 @@ const sessionSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
+  doctorJoined: {
+    type: Boolean,
+    default: false
+  },
+  patientJoined: {
+    type: Boolean,
+    default: false
+  },
+  doctorJoinedAt: {
+    type: Date
+  },
+  patientJoinedAt: {
+    type: Date
+  },
   paymentStatus: {
     type: String,
     enum: ['pending', 'paid', 'refunded'],
@@ -90,52 +104,56 @@ const sessionSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Index for efficient queries
-sessionSchema.index({ patientId: 1, sessionDate: 1 });
-sessionSchema.index({ doctorId: 1, sessionDate: 1 });
-sessionSchema.index({ sessionDate: 1, status: 1 });
+// Indexes for efficient queries
+sessionSchema.index({ patientId: 1, sessionDate: 1 }); // Patient session history
+sessionSchema.index({ doctorId: 1, sessionDate: 1 }); // Doctor session history
+sessionSchema.index({ sessionDate: 1, status: 1 }); // Calendar queries
+sessionSchema.index({ status: 1, callStatus: 1 }); // Status-based queries
+sessionSchema.index({ doctorId: 1, status: 1 }); // Doctor active sessions
+sessionSchema.index({ patientId: 1, status: 1 }); // Patient active sessions
+sessionSchema.index({ createdAt: -1 }); // Recent sessions
 
 // Virtual for session end time
-sessionSchema.virtual('sessionEndTime').get(function() {
+sessionSchema.virtual('sessionEndTime').get(function () {
   const [hours, minutes] = this.sessionTime.split(':').map(Number);
   const startTime = new Date(this.sessionDate);
   startTime.setHours(hours, minutes, 0, 0);
-  
+
   const endTime = new Date(startTime.getTime() + (this.duration * 60000));
   return endTime.toTimeString().slice(0, 5);
 });
 
 // Method to check if session is upcoming
-sessionSchema.methods.isUpcoming = function() {
+sessionSchema.methods.isUpcoming = function () {
   const now = new Date();
   const sessionDateTime = new Date(this.sessionDate);
   const [hours, minutes] = this.sessionTime.split(':').map(Number);
   sessionDateTime.setHours(hours, minutes, 0, 0);
-  
+
   return sessionDateTime > now && this.status === 'scheduled';
 };
 
 // Method to check if session can be joined (within 15 minutes of start time)
-sessionSchema.methods.canJoin = function() {
+sessionSchema.methods.canJoin = function () {
   const now = new Date();
   const sessionDateTime = new Date(this.sessionDate);
   const [hours, minutes] = this.sessionTime.split(':').map(Number);
   sessionDateTime.setHours(hours, minutes, 0, 0);
-  
+
   const timeDiff = sessionDateTime.getTime() - now.getTime();
   const minutesDiff = timeDiff / (1000 * 60);
-  
+
   return minutesDiff <= 15 && minutesDiff >= -60 && this.status === 'scheduled';
 };
 
 // Static method to get available slots for a doctor on a specific date
-sessionSchema.statics.getAvailableSlots = async function(doctorId, date) {
+sessionSchema.statics.getAvailableSlots = async function (doctorId, date) {
   const startOfDay = new Date(date);
   startOfDay.setHours(0, 0, 0, 0);
-  
+
   const endOfDay = new Date(date);
   endOfDay.setHours(23, 59, 59, 999);
-  
+
   const bookedSessions = await this.find({
     doctorId,
     sessionDate: {
@@ -144,16 +162,16 @@ sessionSchema.statics.getAvailableSlots = async function(doctorId, date) {
     },
     status: { $ne: 'cancelled' }
   }).select('sessionTime duration');
-  
+
   // Default available slots (9 AM to 6 PM)
   const allSlots = [
-    '09:00', '10:00', '11:00', '12:00', '13:00', '14:00', 
+    '09:00', '10:00', '11:00', '12:00', '13:00', '14:00',
     '15:00', '16:00', '17:00', '18:00'
   ];
-  
+
   const bookedTimes = bookedSessions.map(session => session.sessionTime);
   const availableSlots = allSlots.filter(slot => !bookedTimes.includes(slot));
-  
+
   return availableSlots;
 };
 

@@ -22,13 +22,15 @@ const userSchema = new mongoose.Schema({
     required: true,
     unique: true,
     trim: true,
-    lowercase: true
+    lowercase: true,
+    index: true
   },
   username: {
     type: String,
     required: true,
     unique: true,
-    trim: true
+    trim: true,
+    index: true
   },
   password: {
     type: String,
@@ -47,7 +49,8 @@ const userSchema = new mongoose.Schema({
   googleId: {
     type: String,
     unique: true,
-    sparse: true
+    sparse: true,
+    index: true
   },
   resetToken: {
     type: String,
@@ -116,8 +119,12 @@ const userSchema = new mongoose.Schema({
   strictQuery: true
 });
 
-// Add compound index for reset token fields
-userSchema.index({ resetToken: 1, resetTokenExpiry: 1 });
+// Indexes for efficient queries
+// Note: email, username, and googleId already have unique indexes defined in schema
+// Only add compound and non-unique indexes here
+userSchema.index({ role: 1, approvalStatus: 1 }); // For doctor/admin queries
+userSchema.index({ role: 1, isOnline: 1 }); // For online doctors query
+userSchema.index({ resetToken: 1, resetTokenExpiry: 1 }); // Compound index for password reset
 
 // Virtual to check if password reset is active
 userSchema.virtual('isResetActive').get(function() {
@@ -213,7 +220,10 @@ userSchema.methods.updatePassword = async function(newPassword) {
 // Static method to migrate existing documents
 userSchema.statics.migrateResetTokens = async function() {
   try {
-    console.log('Starting reset token migration...');
+    const { createLogger } = require('../utils/logger');
+    const logger = createLogger('USER-MIGRATION');
+    
+    logger.info('Starting reset token migration...');
 
     // Find users with expired or inconsistent tokens
     const query = {
@@ -225,10 +235,10 @@ userSchema.statics.migrateResetTokens = async function() {
     };
 
     const usersToUpdate = await this.find(query).countDocuments();
-    console.log(`Found ${usersToUpdate} users needing reset token cleanup.`);
+    logger.info(`Found ${usersToUpdate} users needing reset token cleanup.`);
 
     if (usersToUpdate === 0) {
-      console.log('No users need reset token migration.');
+      logger.info('No users need reset token migration.');
       return 0;
     }
 
@@ -239,10 +249,12 @@ userSchema.statics.migrateResetTokens = async function() {
       }
     });
 
-    console.log(`Reset token migration completed successfully. Updated ${result.modifiedCount} users.`);
+    logger.info(`Reset token migration completed successfully. Updated ${result.modifiedCount} users.`);
     return result.modifiedCount;
   } catch (error) {
-    console.error('Migration failed:', error);
+    const { createLogger } = require('../utils/logger');
+    const logger = createLogger('USER-MIGRATION');
+    logger.error('Migration failed', { error: error.message });
     throw error;
   }
 };

@@ -2,43 +2,12 @@ const express = require('express');
 const router = express.Router();
 const Session = require('../models/session');
 const User = require('../models/user');
-const jwt = require('jsonwebtoken');
-
-const JWT_SECRET = process.env.JWT_SECRET || 'veraawell_jwt_secret_key_2024_development_environment_secure_token_generation';
-
-// Middleware to verify JWT token (supports both cookie and Authorization header)
-const verifyToken = (req, res, next) => {
-  // Check BOTH cookie AND Authorization header
-  let token = req.cookies.token;
-  
-  // If no cookie, check Authorization header
-  if (!token && req.headers.authorization) {
-    const authHeader = req.headers.authorization;
-    if (authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-      console.log('[PATIENTS AUTH] Token from Authorization header');
-    }
-  }
-  
-  if (!token) {
-    console.log('[PATIENTS AUTH] No token found');
-    return res.status(401).json({ message: 'No token provided' });
-  }
-  
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (error) {
-    console.error('[PATIENTS AUTH] JWT verification error:', error.message);
-    return res.status(401).json({ message: 'Invalid token' });
-  }
-};
+const { verifyToken } = require('../middleware/auth.middleware');
 
 // Save emergency contact for patient
 router.post('/emergency-contact', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
     const userRole = req.user.role;
     const { contactName, contactPhone, contactRelationship } = req.body;
 
@@ -71,7 +40,7 @@ router.post('/emergency-contact', verifyToken, async (req, res) => {
     };
     await user.save();
 
-    console.log('[EMERGENCY CONTACT] ✅ Saved successfully');
+    console.log('[EMERGENCY CONTACT] Saved successfully');
 
     res.json({
       success: true,
@@ -79,7 +48,7 @@ router.post('/emergency-contact', verifyToken, async (req, res) => {
       emergencyContact: user.emergencyContact
     });
   } catch (error) {
-    console.error('[EMERGENCY CONTACT] ❌ Error:', error);
+    console.error('[EMERGENCY CONTACT] Error:', error);
     res.status(500).json({ message: 'Failed to save emergency contact' });
   }
 });
@@ -87,7 +56,7 @@ router.post('/emergency-contact', verifyToken, async (req, res) => {
 // Get emergency contact for patient
 router.get('/emergency-contact', verifyToken, async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
     const userRole = req.user.role;
 
     if (userRole !== 'patient') {
@@ -111,7 +80,7 @@ router.get('/emergency-contact', verifyToken, async (req, res) => {
 // Get all patients for a doctor with their session details
 router.get('/doctor-patients', verifyToken, async (req, res) => {
   try {
-    const doctorId = req.user.userId;
+    const doctorId = req.user._id.toString();
     const userRole = req.user.role;
 
     // Only doctors can access this endpoint
@@ -119,14 +88,14 @@ router.get('/doctor-patients', verifyToken, async (req, res) => {
       return res.status(403).json({ message: 'Access denied. Only doctors can view patient details.' });
     }
 
-    console.log('📋 Fetching patients for doctor:', doctorId.substring(0, 8));
+    console.log('Fetching patients for doctor:', doctorId.substring(0, 8));
 
     // Get all sessions for this doctor
     const sessions = await Session.find({ doctorId })
       .populate('patientId', 'firstName lastName email')
       .lean();
 
-    console.log('📋 Found sessions:', sessions.length);
+    console.log('Found sessions:', sessions.length);
 
     // Group sessions by patient and aggregate data
     const patientMap = new Map();
@@ -188,7 +157,7 @@ router.get('/doctor-patients', verifyToken, async (req, res) => {
       };
     });
 
-    console.log('📋 Returning patients:', patients.length);
+    console.log('Returning patients:', patients.length);
     res.json(patients);
   } catch (error) {
     console.error('Error fetching doctor patients:', error);

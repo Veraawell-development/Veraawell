@@ -37,9 +37,14 @@ const DoctorDashboard: React.FC = () => {
   const [unreadCount, setUnreadCount] = useState<number>(0);
   const [userName, setUserName] = useState<string>('Doctor');
   const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState<number>(0);
+  const [stats, setStats] = useState({
+    revenue: 0,
+    sessions: 0,
+    hours: 0
+  });
 
-  const API_BASE_URL = window.location.hostname === 'localhost' 
-    ? 'http://localhost:5001/api' 
+  const API_BASE_URL = window.location.hostname === 'localhost'
+    ? 'http://localhost:5001/api'
     : 'https://veraawell-backend.onrender.com/api';
 
   useEffect(() => {
@@ -49,7 +54,7 @@ const DoctorDashboard: React.FC = () => {
     fetchOnlineStatus();
     // Refresh calendar when returning to dashboard
     setCalendarRefreshTrigger(prev => prev + 1);
-    
+
     // Show welcome modal only once - check localStorage
     if (user) {
       const hasSeenWelcome = localStorage.getItem(`welcomeModal_${user.userId}`);
@@ -67,29 +72,26 @@ const DoctorDashboard: React.FC = () => {
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
-      
+
       const response = await fetch(`${API_BASE_URL}/auth/profile`, {
         credentials: 'include',
         headers
       });
-      
+
       if (response.ok) {
         const userData = await response.json();
-        console.log('[DOCTOR DASHBOARD] User profile:', userData);
         setUserName(userData.firstName || userData.username || 'Doctor');
-      } else {
-        console.error('[DOCTOR DASHBOARD] Profile fetch failed:', response.status);
       }
     } catch (error) {
-      console.error('[DOCTOR DASHBOARD] Error fetching user profile:', error);
+      console.error('Error fetching user profile:', error);
     }
   };
 
   const fetchDashboardData = async () => {
     if (!user) return;
 
-    const API_BASE_URL = window.location.hostname === 'localhost' 
-      ? 'http://localhost:5001/api' 
+    const API_BASE_URL = window.location.hostname === 'localhost'
+      ? 'http://localhost:5001/api'
       : 'https://veraawell-backend.onrender.com/api';
 
     // Get token for all requests
@@ -100,8 +102,6 @@ const DoctorDashboard: React.FC = () => {
     }
 
     try {
-      console.log('📊 Fetching doctor dashboard data...');
-
       // Fetch session notes created by this doctor
       const notesResponse = await fetch(`${API_BASE_URL}/session-tools/notes/doctor/${user.userId}`, {
         credentials: 'include',
@@ -109,8 +109,7 @@ const DoctorDashboard: React.FC = () => {
       });
       if (notesResponse.ok) {
         const notes = await notesResponse.json();
-        console.log('📝 Notes fetched:', notes.length);
-        setRecentNotes(notes.slice(0, 5)); // Show latest 5
+        setRecentNotes(notes.slice(0, 5));
       }
 
       // Fetch tasks assigned by this doctor
@@ -120,8 +119,7 @@ const DoctorDashboard: React.FC = () => {
       });
       if (tasksResponse.ok) {
         const tasks = await tasksResponse.json();
-        console.log('✅ Tasks fetched:', tasks.length);
-        setAssignedTasks(tasks.slice(0, 5)); // Show latest 5
+        setAssignedTasks(tasks.slice(0, 5));
       }
 
       // Fetch reports created by this doctor
@@ -131,8 +129,22 @@ const DoctorDashboard: React.FC = () => {
       });
       if (reportsResponse.ok) {
         const reports = await reportsResponse.json();
-        console.log('📄 Reports fetched:', reports.length);
-        setRecentReports(reports.slice(0, 5)); // Show latest 5
+        setRecentReports(reports.slice(0, 5));
+      }
+
+      // Fetch stats
+      const statsResponse = await fetch(`${API_BASE_URL}/sessions/stats`, {
+        credentials: 'include',
+        headers
+      });
+
+      if (statsResponse.ok) {
+        const data = await statsResponse.json();
+        setStats({
+          revenue: data.totalRevenue || 0,
+          sessions: data.totalSessions || 0,
+          hours: data.totalHours || 0
+        });
       }
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -140,8 +152,8 @@ const DoctorDashboard: React.FC = () => {
   };
 
   const fetchUnreadCount = async () => {
-    const API_BASE_URL = window.location.hostname === 'localhost' 
-      ? 'http://localhost:5001/api' 
+    const API_BASE_URL = window.location.hostname === 'localhost'
+      ? 'http://localhost:5001/api'
       : 'https://veraawell-backend.onrender.com/api';
 
     try {
@@ -150,7 +162,7 @@ const DoctorDashboard: React.FC = () => {
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
-      
+
       const response = await fetch(`${API_BASE_URL}/chat/unread-count`, {
         credentials: 'include',
         headers
@@ -160,7 +172,6 @@ const DoctorDashboard: React.FC = () => {
         setUnreadCount(data.unreadCount || 0);
       }
     } catch (error) {
-      console.error('Error fetching unread count:', error);
       setUnreadCount(0);
     }
   };
@@ -172,19 +183,18 @@ const DoctorDashboard: React.FC = () => {
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
-      
+
       const response = await fetch(`${API_BASE_URL}/doctor-status/status`, {
         credentials: 'include',
         headers
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         setIsActive(data.isOnline || false);
-        console.log('[DOCTOR STATUS] Current online status:', data.isOnline);
       }
     } catch (error) {
-      console.error('[DOCTOR STATUS] Error fetching online status:', error);
+      console.error('Error fetching online status:', error);
     }
   };
 
@@ -197,22 +207,19 @@ const DoctorDashboard: React.FC = () => {
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
-      
+
       const response = await fetch(`${API_BASE_URL}/doctor-status/toggle-online`, {
         method: 'POST',
         credentials: 'include',
         headers
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         setIsActive(data.isOnline);
-        console.log('[DOCTOR STATUS] ✅ Status toggled:', data.isOnline ? 'Online' : 'Offline');
-      } else {
-        console.error('[DOCTOR STATUS] Failed to toggle status');
       }
     } catch (error) {
-      console.error('[DOCTOR STATUS] Error toggling online status:', error);
+      console.error('Error toggling online status:', error);
     }
   };
 
@@ -221,7 +228,7 @@ const DoctorDashboard: React.FC = () => {
     const day = date.getDate();
     const month = date.toLocaleString('en-US', { month: 'long' });
     const year = date.getFullYear();
-    
+
     const suffix = (day: number) => {
       if (day > 3 && day < 21) return 'th';
       switch (day % 10) {
@@ -231,23 +238,22 @@ const DoctorDashboard: React.FC = () => {
         default: return 'th';
       }
     };
-    
+
     return `${day}${suffix(day)} ${month}, ${year}`;
   };
 
   const handleLogout = async () => {
     try {
-      const API_BASE_URL = window.location.hostname === 'localhost' 
-        ? 'http://localhost:5001/api' 
+      const API_BASE_URL = window.location.hostname === 'localhost'
+        ? 'http://localhost:5001/api'
         : 'https://veraawell-backend.onrender.com/api';
-        
+
       await fetch(`${API_BASE_URL}/auth/logout`, {
         method: 'POST',
         credentials: 'include',
       });
       window.location.href = '/';
     } catch (error) {
-      console.error('Logout error:', error);
       window.location.href = '/';
     }
   };
@@ -258,42 +264,41 @@ const DoctorDashboard: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#F5F5F5' }}>
+    <div className="min-h-screen" style={{ backgroundColor: '#FFFFFF' }}>
       {/* Welcome Modal */}
-      <WelcomeModal 
-        isOpen={showWelcomeModal} 
+      <WelcomeModal
+        isOpen={showWelcomeModal}
         onClose={() => {
           setShowWelcomeModal(false);
           // Mark that user has seen the welcome modal
           if (user) {
             localStorage.setItem(`welcomeModal_${user.userId}`, 'true');
           }
-        }} 
+        }}
       />
-      
+
       {/* Sidebar Overlay - Transparent */}
       {sidebarOpen && (
-        <div 
+        <div
           className="fixed inset-0 z-40"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar */}
-      <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${
-        sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-      }`} style={{ backgroundColor: '#7DA9A8' }}>
+      {/* Sidebar - Updated Color to match new theme */}
+      <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`} style={{ backgroundColor: '#4DBAB2' }}>
         <div className="h-full flex flex-col p-4 text-white font-serif">
           {/* Main Menu Items */}
           <div className="space-y-3 mb-6">
-            <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors">
+            <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors bg-white/10">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
               </svg>
               <span className="text-base font-medium">My Dashboard</span>
             </div>
-            
-            <div 
+
+            <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
               onClick={() => navigate('/profile-setup')}
             >
@@ -302,8 +307,8 @@ const DoctorDashboard: React.FC = () => {
               </svg>
               <span className="text-base font-medium">My Profile</span>
             </div>
-            
-            <div 
+
+            <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
               onClick={() => navigate('/call-history')}
             >
@@ -312,8 +317,8 @@ const DoctorDashboard: React.FC = () => {
               </svg>
               <span className="text-base font-medium">My Calls</span>
             </div>
-            
-            <div 
+
+            <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
               onClick={() => { navigate('/patient-details'); setSidebarOpen(false); }}
             >
@@ -322,8 +327,8 @@ const DoctorDashboard: React.FC = () => {
               </svg>
               <span className="text-base font-medium">My Patients</span>
             </div>
-            
-            <div 
+
+            <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
               onClick={() => { navigate('/doctor-session-notes'); setSidebarOpen(false); }}
             >
@@ -332,8 +337,8 @@ const DoctorDashboard: React.FC = () => {
               </svg>
               <span className="text-base font-medium">Session Notes</span>
             </div>
-            
-            <div 
+
+            <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
               onClick={() => { navigate('/doctor-tasks'); setSidebarOpen(false); }}
             >
@@ -342,8 +347,8 @@ const DoctorDashboard: React.FC = () => {
               </svg>
               <span className="text-base font-medium">Tasks Assigned</span>
             </div>
-            
-            <div 
+
+            <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
               onClick={() => { navigate('/doctor-reports'); setSidebarOpen(false); }}
             >
@@ -363,8 +368,8 @@ const DoctorDashboard: React.FC = () => {
               </svg>
               <span className="text-base font-medium">Settings</span>
             </div>
-            
-            <div 
+
+            <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2"
               onClick={handleLogout}
             >
@@ -377,21 +382,18 @@ const DoctorDashboard: React.FC = () => {
         </div>
       </div>
 
-      {/* Top Navigation Bar */}
-      <nav className="bg-white shadow-sm">
+      {/* Top Navigation Bar - Keeping it clean & white */}
+      <nav className="bg-white shadow-[0_2px_15px_-3px_rgba(0,0,0,0.07)]">
         <div className="px-6">
           <div className="flex justify-between items-center h-16">
             {/* Left side - Hamburger Menu */}
             <div className="flex items-center">
-              <button 
-                onClick={() => {
-                  console.log('Hamburger clicked, current state:', sidebarOpen);
-                  setSidebarOpen(true);
-                }}
-                className="p-2 hover:bg-gray-100 rounded-md transition-colors z-10 relative"
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="p-2 hover:bg-teal-50 rounded-md transition-colors z-10 relative text-gray-600"
                 type="button"
               >
-                <svg className="w-6 h-6 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
               </button>
@@ -422,7 +424,7 @@ const DoctorDashboard: React.FC = () => {
                   </div>
                 )}
               </button>
-              
+
               {/* Online Status Toggle Button */}
               <button
                 onClick={toggleOnlineStatus}
@@ -441,105 +443,122 @@ const DoctorDashboard: React.FC = () => {
       <div className="p-6">
         {/* 2x2 Grid Layout */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          
-          {/* Session Notes Card */}
-          <div className="rounded-lg text-white flex flex-col overflow-hidden" style={{ backgroundColor: '#5DBEBD' }}>
-            <h3 className="text-xl font-bold text-center py-4" style={{ backgroundColor: '#5DBEBD', fontFamily: 'Bree Serif, serif' }}>Session Notes</h3>
-            <div className="px-6 pb-4 space-y-3 flex-1">
+
+          {/* Session Notes Card - Teal Theme */}
+          <div className="rounded-xl text-white flex flex-col overflow-hidden shadow-lg" style={{ backgroundColor: '#4DBAB2' }}>
+            <h3 className="text-xl font-bold text-center py-4 bg-[#3AA79F]" style={{ fontFamily: 'Bree Serif, serif' }}>Session Notes</h3>
+            <div className="px-6 pb-4 space-y-3 flex-1 pt-4">
               {recentNotes.length > 0 ? (
                 recentNotes.map((note: any) => (
-                  <div key={note._id} className="border-b border-white/30 py-3">
-                    <p className="text-base" style={{ fontFamily: 'Bree Serif, serif' }}>
+                  <div key={note._id} className="border-b border-white/30 py-3 last:border-0">
+                    <p className="text-base font-medium" style={{ fontFamily: 'Bree Serif, serif' }}>
                       {formatDate(note.createdAt)} - {note.patientId.firstName} {note.patientId.lastName}
                     </p>
                   </div>
                 ))
               ) : (
                 <div className="text-center py-8">
-                  <p className="text-white opacity-70" style={{ fontFamily: 'Bree Serif, serif' }}>No session notes yet</p>
-                  <p className="text-white opacity-50 text-sm mt-2" style={{ fontFamily: 'Bree Serif, serif' }}>Add notes during video sessions</p>
+                  <p className="text-white opacity-80" style={{ fontFamily: 'Bree Serif, serif' }}>No session notes yet</p>
+                  <p className="text-white opacity-60 text-sm mt-2" style={{ fontFamily: 'Bree Serif, serif' }}>Add notes during video sessions</p>
                 </div>
               )}
             </div>
             <div className="px-6 pb-6 flex justify-center">
-              <button 
-                onClick={() => navigate('/doctor-session-notes')} 
-                className="bg-white px-8 py-2 font-medium hover:opacity-90 transition-opacity rounded-full"
-                style={{ color: '#5DBEBD', fontFamily: 'Bree Serif, serif' }}
+              <button
+                onClick={() => navigate('/doctor-session-notes')}
+                className="bg-white px-8 py-2 font-bold hover:opacity-90 transition-opacity rounded-full text-[#4DBAB2] shadow-sm"
+                style={{ fontFamily: 'Bree Serif, serif' }}
               >
                 View All
               </button>
             </div>
           </div>
 
-          {/* Key Metrics Card */}
-          <div className="rounded-lg text-white flex flex-col overflow-hidden" style={{ backgroundColor: '#ABA5D1' }}>
-            <h3 className="text-xl font-bold text-center py-4" style={{ backgroundColor: '#ABA5D1', fontFamily: 'Bree Serif, serif' }}>Key Metrics</h3>
-            <div className="px-6 pb-6">
-              <div className="grid grid-cols-4 gap-4">
-                <div className="bg-white rounded-lg p-4 text-center">
-                  <p className="text-gray-500 text-xs mb-2" style={{ fontFamily: 'Bree Serif, serif' }}>Total Revenue</p>
-                  <p className="text-xl font-bold" style={{ color: '#ABA5D1', fontFamily: 'Bree Serif, serif' }}>5,00,000</p>
+          {/* Key Metrics Card - Updated to Teal Theme with Pills */}
+          <div className="rounded-xl text-white flex flex-col overflow-hidden shadow-lg" style={{ backgroundColor: '#4DBAB2' }}>
+            <h3 className="text-xl font-bold text-center py-4 bg-[#3AA79F]" style={{ fontFamily: 'Bree Serif, serif' }}>Key Metrics</h3>
+            <div className="px-6 pb-6 pt-6 flex flex-col justify-center h-full">
+              <div className="grid grid-cols-2 gap-x-8 gap-y-8">
+                {/* Metric 1 */}
+                <div className="flex flex-col items-start space-y-2">
+                  <p className="text-lg font-bold pl-1" style={{ fontFamily: 'Bree Serif, serif' }}>Total Revenue:</p>
+                  <div className="bg-white rounded-full px-6 py-3 w-full text-center shadow-md">
+                    <p className="text-[#38ABAE] text-xl font-bold">{stats.revenue.toLocaleString()}</p>
+                  </div>
                 </div>
-                <div className="bg-white rounded-lg p-4 text-center">
-                  <p className="text-gray-500 text-xs mb-2" style={{ fontFamily: 'Bree Serif, serif' }}>Total Sessions</p>
-                  <p className="text-xl font-bold" style={{ color: '#ABA5D1', fontFamily: 'Bree Serif, serif' }}>170</p>
+
+                {/* Metric 2 */}
+                <div className="flex flex-col items-start space-y-2">
+                  <p className="text-lg font-bold pl-1" style={{ fontFamily: 'Bree Serif, serif' }}>Total Sessions:</p>
+                  <div className="bg-white rounded-full px-6 py-3 w-full text-center shadow-md">
+                    <p className="text-[#38ABAE] text-xl font-bold">{stats.sessions}</p>
+                  </div>
                 </div>
-                <div className="bg-white rounded-lg p-4 text-center">
-                  <p className="text-gray-500 text-xs mb-2" style={{ fontFamily: 'Bree Serif, serif' }}>Total Hrs Of Therapy</p>
-                  <p className="text-xl font-bold" style={{ color: '#ABA5D1', fontFamily: 'Bree Serif, serif' }}>150</p>
+
+                {/* Metric 3 */}
+                <div className="flex flex-col items-start space-y-2">
+                  <p className="text-lg font-bold pl-1" style={{ fontFamily: 'Bree Serif, serif' }}>Total Hours:</p>
+                  <div className="bg-white rounded-full px-6 py-3 w-full text-center shadow-md">
+                    <p className="text-[#38ABAE] text-xl font-bold">{stats.hours}</p>
+                  </div>
                 </div>
-                <div className="bg-white rounded-lg p-4 text-center flex flex-col justify-center">
-                  <p className="text-gray-500 text-xs mb-2" style={{ fontFamily: 'Bree Serif, serif' }}>DLA- 20</p>
-                  <button 
-                    className="text-xs font-medium px-3 py-1 rounded-full mt-1 hover:opacity-90 transition-opacity"
-                    style={{ backgroundColor: '#ABA5D1', color: 'white', fontFamily: 'Bree Serif, serif' }}
-                  >
-                    Take Test
-                  </button>
+
+                {/* Metric 4 (Action) */}
+                <div className="flex flex-col items-start space-y-2">
+                  <p className="text-lg font-bold pl-1" style={{ fontFamily: 'Bree Serif, serif' }}>DLA- 20:</p>
+                  <div className="bg-white rounded-full px-6 py-3 w-full text-center shadow-md cursor-pointer hover:bg-gray-50 transition-colors">
+                    <button
+                      className="text-[#38ABAE] text-lg font-bold w-full"
+                    >
+                      Take Test
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Calendar Card */}
-          <div className="flex flex-col">
-            <Calendar 
-              userRole="doctor" 
+          {/* Calendar Card - Updated Wrapper */}
+          <div className="flex flex-col rounded-xl overflow-hidden shadow-lg border border-teal-100">
+            <Calendar
+              userRole="doctor"
               onSessionClick={handleSessionClick}
               refreshTrigger={calendarRefreshTrigger}
             />
           </div>
 
-          {/* Tasks Assigned + Reports Card */}
+          {/* Tasks & Reports - Unified Teal Theme */}
           <div className="flex flex-col gap-6">
+
             {/* Tasks Assigned Section */}
-            <div className="rounded-lg text-white flex flex-col overflow-hidden" style={{ backgroundColor: '#6DBEDF' }}>
-              <h3 className="text-xl font-bold text-center py-4" style={{ backgroundColor: '#6DBEDF', fontFamily: 'Bree Serif, serif' }}>Tasks Assigned</h3>
-              <div className="px-6 pb-4">
-                <div className="grid grid-cols-3 gap-4 text-sm font-bold mb-3" style={{ fontFamily: 'Bree Serif, serif' }}>
+            <div className="rounded-xl text-white flex flex-col overflow-hidden shadow-lg" style={{ backgroundColor: '#4DBAB2' }}>
+              <h3 className="text-xl font-bold text-center py-4 bg-[#3AA79F]" style={{ fontFamily: 'Bree Serif, serif' }}>Tasks Assigned</h3>
+              <div className="px-6 pb-4 pt-4">
+                <div className="grid grid-cols-3 gap-2 text-sm font-bold mb-3 border-b border-white/20 pb-2" style={{ fontFamily: 'Bree Serif, serif' }}>
                   <span>Name</span>
                   <span>Last Date</span>
                   <span>Tasks</span>
                 </div>
-                {assignedTasks.length > 0 ? (
-                  assignedTasks.map((task: any) => (
-                    <div key={task._id} className="grid grid-cols-3 gap-4 text-sm items-center py-3" style={{ fontFamily: 'Bree Serif, serif' }}>
-                      <span>{task.patientId.firstName} {task.patientId.lastName}</span>
-                      <span>{formatDate(task.dueDate)}</span>
-                      <span>{task.title}</span>
+                <div className="space-y-3">
+                  {assignedTasks.length > 0 ? (
+                    assignedTasks.map((task: any) => (
+                      <div key={task._id} className="grid grid-cols-3 gap-2 text-sm items-center font-medium" style={{ fontFamily: 'Bree Serif, serif' }}>
+                        <span className="truncate">{task.patientId.firstName} {task.patientId.lastName}</span>
+                        <span>{formatDate(task.dueDate)}</span>
+                        <span className="truncate">{task.title}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-6">
+                      <p className="text-white opacity-80 text-sm" style={{ fontFamily: 'Bree Serif, serif' }}>No tasks assigned yet</p>
                     </div>
-                  ))
-                ) : (
-                  <div className="text-center py-4">
-                    <p className="text-white opacity-70 text-sm" style={{ fontFamily: 'Bree Serif, serif' }}>No tasks assigned yet</p>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
               <div className="px-6 pb-6 flex justify-end">
-                <button 
-                  onClick={() => navigate('/doctor-tasks')} 
-                  className="text-sm underline hover:no-underline"
+                <button
+                  onClick={() => navigate('/doctor-tasks')}
+                  className="text-sm font-bold underline hover:no-underline"
                   style={{ fontFamily: 'Bree Serif, serif' }}
                 >
                   View All
@@ -548,33 +567,35 @@ const DoctorDashboard: React.FC = () => {
             </div>
 
             {/* Reports Section */}
-            <div className="rounded-lg text-white flex flex-col overflow-hidden" style={{ backgroundColor: '#78BE9F' }}>
-              <h3 className="text-xl font-bold text-center py-4" style={{ backgroundColor: '#78BE9F', fontFamily: 'Bree Serif, serif' }}>Reports</h3>
-              <div className="px-6 pb-4">
-                <div className="grid grid-cols-3 gap-4 text-sm font-bold mb-3" style={{ fontFamily: 'Bree Serif, serif' }}>
+            <div className="rounded-xl text-white flex flex-col overflow-hidden shadow-lg" style={{ backgroundColor: '#4DBAB2' }}>
+              <h3 className="text-xl font-bold text-center py-4 bg-[#3AA79F]" style={{ fontFamily: 'Bree Serif, serif' }}>Reports</h3>
+              <div className="px-6 pb-4 pt-4">
+                <div className="grid grid-cols-3 gap-2 text-sm font-bold mb-3 border-b border-white/20 pb-2" style={{ fontFamily: 'Bree Serif, serif' }}>
                   <span>Name</span>
                   <span>Last Date</span>
                   <span>Reports</span>
                 </div>
-                {recentReports.length > 0 ? (
-                  recentReports.map((report: any) => (
-                    <div key={report._id} className="grid grid-cols-3 gap-4 text-sm items-center py-3" style={{ fontFamily: 'Bree Serif, serif' }}>
-                      <span>{report.patientId.firstName} {report.patientId.lastName}</span>
-                      <span>{formatDate(report.createdAt)}</span>
-                      <span>{report.title}</span>
+                <div className="space-y-3">
+                  {recentReports.length > 0 ? (
+                    recentReports.map((report: any) => (
+                      <div key={report._id} className="grid grid-cols-3 gap-2 text-sm items-center font-medium" style={{ fontFamily: 'Bree Serif, serif' }}>
+                        <span className="truncate">{report.patientId.firstName} {report.patientId.lastName}</span>
+                        <span>{formatDate(report.createdAt)}</span>
+                        <span className="truncate">{report.title}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-center py-6">
+                      <p className="text-white opacity-80 text-sm" style={{ fontFamily: 'Bree Serif, serif' }}>No reports created yet</p>
                     </div>
-                  ))
-                ) : (
-                  <div className="text-center py-4">
-                    <p className="text-white opacity-70 text-sm" style={{ fontFamily: 'Bree Serif, serif' }}>No reports created yet</p>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
               <div className="px-6 pb-6 flex justify-center">
-                <button 
+                <button
                   onClick={() => navigate('/doctor-reports')}
-                  className="bg-white px-8 py-2 font-medium hover:opacity-90 transition-opacity rounded-full"
-                  style={{ color: '#78BE9F', fontFamily: 'Bree Serif, serif' }}
+                  className="bg-white px-8 py-2 font-bold hover:opacity-90 transition-opacity rounded-full text-[#4DBAB2] shadow-sm"
+                  style={{ fontFamily: 'Bree Serif, serif' }}
                 >
                   View All
                 </button>

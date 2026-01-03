@@ -1,28 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import EmergencyContactModal from '../components/EmergencyContactModal';
-
-interface Doctor {
-  _id: string;
-  userId: {
-    _id: string;
-    firstName: string;
-    lastName: string;
-    email: string;
-  };
-  specialization: string[];
-  experience: number;
-  qualification: string[];
-  languages: string[];
-  treatsFor: string[];
-  pricing: {
-    min: number;
-    max: number;
-  };
-  profileImage: string;
-  bio: string;
-  isOnline: boolean;
-}
+import { API_CONFIG } from '../config/api';
+import logger from '../utils/logger';
+import { useToast } from '../hooks/useToast';
+import type { Doctor } from '../types';
 
 const BookSessionPage: React.FC = () => {
   const { doctorId } = useParams<{ doctorId: string }>();
@@ -32,15 +14,11 @@ const BookSessionPage: React.FC = () => {
   const [selectedTime, setSelectedTime] = useState('');
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [sessionType, setSessionType] = useState('regular');
-  // Removed loading state for faster page load
   const [bookingLoading, setBookingLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
   const [hasEmergencyContact, setHasEmergencyContact] = useState(false);
-
-  const API_BASE_URL = window.location.hostname === 'localhost' 
-    ? 'http://localhost:5001/api' 
-    : 'https://veraawell-backend.onrender.com/api';
+  const { showSuccess, showError: showErrorToast } = useToast();
 
   useEffect(() => {
     if (doctorId) {
@@ -57,15 +35,8 @@ const BookSessionPage: React.FC = () => {
 
   const checkEmergencyContact = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const headers: HeadersInit = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/patients/emergency-contact`, {
-        credentials: 'include',
-        headers
+      const response = await fetch(`${API_CONFIG.BASE_URL}/patients/emergency-contact`, {
+        credentials: 'include'
       });
 
       if (response.ok) {
@@ -73,13 +44,13 @@ const BookSessionPage: React.FC = () => {
         setHasEmergencyContact(!!(data.emergencyContact?.name && data.emergencyContact?.phone));
       }
     } catch (error) {
-      console.error('Error checking emergency contact:', error);
+      logger.error('Error checking emergency contact:', error);
     }
   };
 
   const fetchDoctorDetails = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/sessions/doctors`);
+      const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/doctors`);
       if (!response.ok) {
         throw new Error('Failed to fetch doctor details');
       }
@@ -89,23 +60,25 @@ const BookSessionPage: React.FC = () => {
         setDoctor(foundDoctor);
       } else {
         setError('Doctor not found');
+      showErrorToast('Doctor not found');
       }
     } catch (error) {
-      console.error('Error fetching doctor details:', error);
+      logger.error('Error fetching doctor details:', error);
       setError('Failed to load doctor details');
+      showErrorToast('Failed to load doctor details');
     }
   };
 
   const fetchAvailableSlots = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/sessions/doctors/${doctorId}/slots/${selectedDate}`);
+      const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/doctors/${doctorId}/slots/${selectedDate}`);
       if (!response.ok) {
         throw new Error('Failed to fetch available slots');
       }
       const data = await response.json();
       setAvailableSlots(data.availableSlots);
     } catch (error) {
-      console.error('Error fetching available slots:', error);
+      logger.error('Error fetching available slots:', error);
       setAvailableSlots([]);
     }
   };
@@ -128,17 +101,9 @@ const BookSessionPage: React.FC = () => {
 
   const handleEmergencyContactSubmit = async (contactName: string, contactPhone: string, contactRelationship: string) => {
     try {
-      const token = localStorage.getItem('token');
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/patients/emergency-contact`, {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/patients/emergency-contact`, {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ contactName, contactPhone, contactRelationship })
       });
@@ -150,8 +115,9 @@ const BookSessionPage: React.FC = () => {
         await proceedWithBooking();
       }
     } catch (error) {
-      console.error('Error saving emergency contact:', error);
+      logger.error('Error saving emergency contact:', error);
       setError('Failed to save emergency contact');
+      showErrorToast('Failed to save emergency contact');
     }
   };
 
@@ -162,18 +128,9 @@ const BookSessionPage: React.FC = () => {
 
       const price = sessionType === 'discovery' ? 0 : doctor!.pricing.min;
 
-      // Get token from localStorage
-      const token = localStorage.getItem('token');
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/sessions/book`, {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/book`, {
         method: 'POST',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({
           doctorId: doctor!.userId._id,
@@ -190,18 +147,15 @@ const BookSessionPage: React.FC = () => {
       }
 
       const data = await response.json();
-      console.log('✅ Booking successful:', data);
+      logger.info('Booking successful:', data);
       
-      // Show success message with better visibility
-      const successMessage = '✅ Session booked successfully! Redirecting to your dashboard...';
-      alert(successMessage);
+      showSuccess('Session booked successfully! Redirecting to your dashboard...');
       
-      // Small delay to ensure alert is seen
       setTimeout(() => {
         navigate('/patient-dashboard');
-      }, 500);
+      }, 1500);
     } catch (error: any) {
-      console.error('Error booking session:', error);
+      logger.error('Error booking session:', error);
       setError(error.message || 'Failed to book session');
     } finally {
       setBookingLoading(false);

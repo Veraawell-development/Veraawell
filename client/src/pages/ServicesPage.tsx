@@ -7,55 +7,55 @@ const services = [
     title: 'DEPRESSION',
     description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
     image: '/service-01.svg',
-    color: '#ABA5D1'
+    color: '#6DBEDF' // Blue
   },
   {
     title: 'ANXIETY',
     description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
     image: '/service-02.svg',
-    color: '#6DBEDF'
+    color: '#38ABAE' // Teal
   },
   {
     title: 'TRAUMA',
     description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
     image: '/service-03.svg',
-    color: '#38ABAE'
+    color: '#ABA5D1' // Purple
   },
   {
     title: 'STUDENT',
     description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
     image: '/service-04.svg',
-    color: '#ABA5D1'
+    color: '#38ABAE' // Teal
   },
   {
     title: 'MARRIAGE',
     description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
     image: '/service-05.svg',
-    color: '#6DBEDF'
+    color: '#ABA5D1' // Purple
+  },
+  {
+    title: 'CHILD THERAPY',
+    description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
+    image: '/service-07.svg',
+    color: '#6DBEDF' // Blue
+  },
+  {
+    title: 'GENDER-RELATED',
+    description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
+    image: '/service-08.svg',
+    color: '#ABA5D1' // Purple
   },
   {
     title: 'RELATIONSHIP',
     description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
     image: '/service-06.svg',
-    color: '#38ABAE'
+    color: '#6DBEDF' // Blue
   },
   {
-    title: 'CHILD',
+    title: 'ADDICTION',
     description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
-    image: '/service-07.svg',
-    color: '#ABA5D1'
-  },
-  {
-    title: 'LGBTQ',
-    description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
-    image: '/service-08.svg',
-    color: '#6DBEDF'
-  },
-  {
-    title: 'OTHERS',
-    description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
-    image: '/service-09.svg',
-    color: '#38ABAE'
+    color: '#38ABAE' // Teal
+    // No image property
   }
 ];
 
@@ -71,7 +71,7 @@ const ServicesPage: React.FC = () => {
   return (
     <div className="bg-white">
       {/* Hero Section */}
-      <div 
+      <div
         className="relative min-h-[55vh] bg-cover bg-center flex items-center justify-center text-white"
         style={{ backgroundImage: 'url(/service-bg.svg)' }}
       >

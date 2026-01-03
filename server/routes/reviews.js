@@ -3,27 +3,7 @@ const router = express.Router();
 const Review = require('../models/review');
 const Session = require('../models/session');
 const User = require('../models/user');
-const jwt = require('jsonwebtoken');
-
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-here-change-in-production';
-
-// JWT verification middleware
-const verifyToken = (req, res, next) => {
-  try {
-    const token = req.cookies.token || req.headers.authorization?.replace('Bearer ', '');
-    
-    if (!token) {
-      return res.status(401).json({ message: 'No token provided' });
-    }
-
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (error) {
-    console.error('[REVIEWS AUTH] JWT verification error:', error.message);
-    return res.status(401).json({ message: 'Invalid token' });
-  }
-};
+const { verifyToken } = require('../middleware/auth.middleware');
 
 // Admin verification middleware
 const verifyAdmin = (req, res, next) => {
@@ -37,7 +17,7 @@ const verifyAdmin = (req, res, next) => {
 router.post('/submit', verifyToken, async (req, res) => {
   try {
     const { sessionId, rating, feedback, positives, improvements, wouldRecommend } = req.body;
-    const patientId = req.user.userId;
+    const patientId = req.user._id.toString();
 
     console.log('[REVIEW] Submit request:', { sessionId, patientId, rating });
 
@@ -91,7 +71,7 @@ router.post('/submit', verifyToken, async (req, res) => {
 
     await review.save();
 
-    console.log('[REVIEW] ✅ Review submitted successfully');
+    console.log('[REVIEW] Review submitted successfully');
 
     res.status(201).json({
       success: true,
@@ -99,7 +79,7 @@ router.post('/submit', verifyToken, async (req, res) => {
       review
     });
   } catch (error) {
-    console.error('[REVIEW] ❌ Error submitting review:', error);
+    console.error('[REVIEW] Error submitting review:', error);
     res.status(500).json({ message: 'Failed to submit review', error: error.message });
   }
 });
@@ -108,7 +88,7 @@ router.post('/submit', verifyToken, async (req, res) => {
 router.get('/check/:sessionId', verifyToken, async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const patientId = req.user.userId;
+    const patientId = req.user._id.toString();
 
     const review = await Review.findOne({ sessionId, patientId });
 
@@ -237,7 +217,7 @@ router.patch('/admin/:reviewId/status', verifyToken, verifyAdmin, async (req, re
       {
         reviewStatus: status,
         adminNotes: adminNotes || '',
-        reviewedBy: req.user.userId,
+        reviewedBy: req.user._id,
         reviewedAt: new Date()
       },
       { new: true }

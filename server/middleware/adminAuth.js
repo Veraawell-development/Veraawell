@@ -1,5 +1,8 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/user');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('ADMIN-AUTH');
 
 // Verify admin JWT token
 const adminAuth = async (req, res, next) => {
@@ -12,44 +15,44 @@ const adminAuth = async (req, res, next) => {
       const authHeader = req.headers.authorization;
       if (authHeader.startsWith('Bearer ')) {
         token = authHeader.substring(7);
-        console.log('[ADMIN AUTH] Token from Authorization header');
+        logger.debug('Token from Authorization header');
       }
     }
     
     if (!token) {
-      console.log('[ADMIN AUTH] No token found in cookie or header');
+      logger.warn('No token found in cookie or header');
       return res.status(401).json({ message: 'Admin authentication required' });
     }
 
     // Verify token
     const decoded = jwt.verify(token, process.env.ADMIN_JWT_SECRET);
-    console.log('[ADMIN AUTH] Token verified for user:', decoded.userId, 'role:', decoded.role);
+    logger.debug('Token verified', { userId: decoded.userId, role: decoded.role });
 
     // Check for admin roles
     if (!decoded.role || !['admin', 'super_admin'].includes(decoded.role)) {
-      console.log('[ADMIN AUTH] Invalid role:', decoded.role);
+      logger.warn('Invalid role', { role: decoded.role });
       return res.status(403).json({ message: 'Access denied' });
     }
     
     // Find admin
     const admin = await User.findById(decoded.userId);
     if (!admin) {
-      console.log('[ADMIN AUTH] Admin not found:', decoded.userId);
+      logger.warn('Admin not found', { userId: decoded.userId });
       return res.status(401).json({ message: 'Admin not found' });
     }
 
     // Check if admin is active
     if (admin.status !== 'active') {
-      console.log('[ADMIN AUTH] Admin account suspended:', admin.email);
+      logger.warn('Admin account suspended', { email: admin.email });
       return res.status(403).json({ message: 'Admin account is suspended' });
     }
 
-    console.log('[ADMIN AUTH] ✅ Authentication successful for:', admin.email);
+    logger.info('Authentication successful', { email: admin.email });
     // Add admin to request
     req.admin = admin;
     next();
   } catch (error) {
-    console.error('[ADMIN AUTH] Error:', error.message);
+    logger.error('Authentication error', { error: error.message });
     res.status(401).json({ message: 'Invalid admin token' });
   }
 };
@@ -62,7 +65,7 @@ const superAdminAuth = async (req, res, next) => {
     }
     next();
   } catch (error) {
-    console.error('Super admin auth error:', error);
+    logger.error('Super admin auth error', { error: error.message });
     res.status(403).json({ message: 'Not authorized as super admin' });
   }
 };
@@ -79,7 +82,7 @@ const checkFirstTimeSetup = async (req, res, next) => {
     // Continue with normal auth
     next();
   } catch (error) {
-    console.error('Setup check error:', error);
+    logger.error('Setup check error', { error: error.message });
     res.status(500).json({ message: 'Server error' });
   }
 };
@@ -96,7 +99,7 @@ const requirePasswordChange = async (req, res, next) => {
     }
     next();
   } catch (error) {
-    console.error('Password change check error:', error);
+    logger.error('Password change check error', { error: error.message });
     res.status(500).json({ message: 'Server error' });
   }
 };

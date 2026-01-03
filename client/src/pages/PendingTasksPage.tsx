@@ -2,31 +2,19 @@ import React, { useState, useEffect } from 'react';
 import { FiDownload, FiMenu, FiCheck } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-
-interface PendingTask {
-  _id: string;
-  title: string;
-  description: string;
-  dueDate: string;
-  priority: 'low' | 'medium' | 'high';
-  status: 'pending' | 'in-progress' | 'completed';
-  doctorId: {
-    firstName: string;
-    lastName: string;
-  };
-  createdAt: string;
-}
+import { API_CONFIG } from '../config/api';
+import { formatDate } from '../utils/dateUtils';
+import logger from '../utils/logger';
+import { useToast } from '../hooks/useToast';
+import type { Task } from '../types';
 
 const PendingTasksPage: React.FC = () => {
-  const [tasks, setTasks] = useState<PendingTask[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const { user } = useAuth();
-
-  const API_BASE_URL = window.location.hostname === 'localhost' 
-    ? 'http://localhost:5001/api' 
-    : 'https://veraawell-backend.onrender.com/api';
+  const { showSuccess, showError } = useToast();
 
   useEffect(() => {
     fetchPendingTasks();
@@ -37,16 +25,8 @@ const PendingTasksPage: React.FC = () => {
       setLoading(true);
       if (!user) return;
 
-      const token = localStorage.getItem('token');
-      const headers: HeadersInit = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      console.log('✅ Fetching pending tasks for patient:', user.userId);
-      const response = await fetch(`${API_BASE_URL}/session-tools/tasks/patient/${user.userId}?status=pending`, {
-        credentials: 'include',
-        headers
+      const response = await fetch(`${API_CONFIG.BASE_URL}/session-tools/tasks/patient/${user.userId}?status=pending`, {
+        credentials: 'include'
       });
 
       if (!response.ok) {
@@ -54,62 +34,36 @@ const PendingTasksPage: React.FC = () => {
       }
 
       const data = await response.json();
-      console.log('✅ Tasks received:', data.length);
       setTasks(data);
     } catch (error) {
-      console.error('Error fetching pending tasks:', error);
+      logger.error('Error fetching pending tasks:', error);
+      showError('Failed to load tasks');
       setTasks([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const day = date.getDate();
-    const month = date.toLocaleString('en-US', { month: 'long' });
-    const year = date.getFullYear();
-    
-    const suffix = (day: number) => {
-      if (day > 3 && day < 21) return 'th';
-      switch (day % 10) {
-        case 1: return 'st';
-        case 2: return 'nd';
-        case 3: return 'rd';
-        default: return 'th';
-      }
-    };
-    
-    return `${day}${suffix(day)} ${month} ${year}`;
-  };
-
   const handleMarkComplete = async (taskId: string) => {
     try {
-      const token = localStorage.getItem('token');
-      const headers: HeadersInit = { 'Content-Type': 'application/json' };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-      
-      const response = await fetch(`${API_BASE_URL}/session-tools/tasks/${taskId}`, {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/session-tools/tasks/${taskId}`, {
         method: 'PUT',
-        headers,
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
         body: JSON.stringify({ status: 'completed' })
       });
 
       if (!response.ok) throw new Error('Failed to update task');
 
-      // Refresh tasks
+      showSuccess('Task marked as complete!');
       fetchPendingTasks();
-      alert('Task marked as complete!');
     } catch (error) {
-      console.error('Error updating task:', error);
-      alert('Failed to update task');
+      logger.error('Error updating task:', error);
+      showError('Failed to update task');
     }
   };
 
-  const handleDownload = (task: PendingTask) => {
+  const handleDownload = (task: Task) => {
     const content = `${task.title}\n\nDescription:\n${task.description}\n\nDue Date: ${formatDate(task.dueDate)}\nPriority: ${task.priority}\nAssigned by: Dr. ${task.doctorId.firstName} ${task.doctorId.lastName}`;
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);

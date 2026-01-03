@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AdminProvider } from './context/AdminContext';
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
+import { Toaster } from 'react-hot-toast';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import LoadingScreen from './components/LoadingScreen';
@@ -31,6 +32,8 @@ import ResourcesPage from './pages/ResourcesPage';
 import BookSessionPage from './pages/BookSessionPage';
 import ReportsPage from './pages/ReportsPage';
 import MentalHealthTestPage from './pages/MentalHealthTestPage';
+import MentalHealthDashboard from './pages/MentalHealthDashboard';
+import TestResultsPage from './pages/TestResultsPage';
 import VideoCallRoom from './pages/VideoCallRoom';
 import CallHistoryPage from './pages/CallHistoryPage';
 import PendingTasksPage from './pages/PendingTasksPage';
@@ -46,6 +49,7 @@ import DoctorSessionNotesDetailPage from './pages/DoctorSessionNotesDetailPage';
 import ProfileSetupPage from './pages/ProfileSetupPage';
 import ManageCalendar from './pages/ManageCalendar';
 import MessagesPage from './pages/MessagesPage';
+import MyTestsPage from './pages/MyTestsPage';
 
 
 function AppRoutes() {
@@ -58,7 +62,7 @@ function AppRoutes() {
   // Initialize app on first load only
   useEffect(() => {
     const hasLoadedBefore = sessionStorage.getItem('appInitialized');
-    
+
     // If already loaded in this session, skip loader
     if (hasLoadedBefore) {
       setIsAppReady(true);
@@ -75,7 +79,7 @@ function AppRoutes() {
         wakeUpBackend().catch(() => {
           console.log('Backend wakeup failed, continuing anyway');
         });
-        
+
         // Wait for DOM to be fully ready
         const waitForLoad = () => {
           return new Promise<void>((resolve) => {
@@ -86,14 +90,14 @@ function AppRoutes() {
             }
           });
         };
-        
+
         await waitForLoad();
-        
+
         // Try to check auth silently (don't fail if not logged in)
         checkAuth().catch((error) => {
           console.log('[App] Auth check failed on first load:', error?.message || 'User not logged in');
         });
-        
+
         // Mark as initialized
         sessionStorage.setItem('appInitialized', 'true');
         setIsAppReady(true);
@@ -104,56 +108,41 @@ function AppRoutes() {
         setIsAppReady(true);
       }
     };
-    
+
     initializeApp();
   }, [checkAuth]);
 
   useEffect(() => {
     // If the user lands on the site with auth success params from Google OAuth,
     // we trigger a re-check of authentication status.
+    // Token is now in HTTP-only cookie set by backend - NOT in URL
     const urlParams = new URLSearchParams(location.search);
     if (urlParams.has('auth') && urlParams.get('auth') === 'success') {
-      console.log('[OAuth] Auth success detected, processing authentication...');
-      
-      // Get token and role from URL
-      const tokenFromUrl = urlParams.get('token');
+      // Get role from URL (token is NOT in URL anymore - security fix)
       const roleFromUrl = urlParams.get('role');
-      
-      if (tokenFromUrl) {
-        console.log('[OAuth] Token found in URL, storing in localStorage');
-        localStorage.setItem('token', tokenFromUrl);
-        
-        // Also set in cookie for consistency
-        document.cookie = `token=${tokenFromUrl}; path=/; max-age=${30 * 24 * 60 * 60}; ${
-          window.location.protocol === 'https:' ? 'secure; samesite=none' : 'samesite=lax'
-        }`;
-      }
-      
+
+      // Clean URL immediately (remove auth params)
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, '', cleanUrl);
+
       // Retry auth check with exponential backoff
       const retryAuthCheck = async (attempt = 1, maxAttempts = 3) => {
         try {
-          console.log(`[OAuth] Auth check attempt ${attempt}/${maxAttempts}`);
           await checkAuth();
-          console.log('[OAuth] Auth check completed successfully');
-          
+
           // Redirect to appropriate dashboard based on role
           if (roleFromUrl === 'patient') {
-            console.log('[OAuth] Redirecting to patient dashboard');
             navigate('/patient-dashboard', { replace: true });
           } else if (roleFromUrl === 'doctor') {
-            console.log('[OAuth] Redirecting to doctor dashboard');
             navigate('/doctor-dashboard', { replace: true });
           } else {
-            // Fallback: clean URL and let the redirect effect handle it
+            // Fallback: let the redirect effect handle it
             navigate('/', { replace: true });
           }
         } catch (error) {
-          console.error(`[OAuth] Auth check attempt ${attempt} failed:`, error);
-          
           if (attempt < maxAttempts) {
             // Wait before retrying (exponential backoff: 500ms, 1000ms, 2000ms)
             const delay = 500 * Math.pow(2, attempt - 1);
-            console.log(`[OAuth] Retrying in ${delay}ms...`);
             await new Promise(resolve => setTimeout(resolve, delay));
             return retryAuthCheck(attempt + 1, maxAttempts);
           } else {
@@ -163,7 +152,7 @@ function AppRoutes() {
           }
         }
       };
-      
+
       retryAuthCheck();
     }
   }, [location, checkAuth, navigate]);
@@ -174,7 +163,7 @@ function AppRoutes() {
       const { role } = user;
       const isLandingPage = location.pathname === '/';
       const isAuthPage = location.pathname === '/login' || location.pathname === '/signup';
-      
+
       if (isLandingPage || isAuthPage) {
         if (role === 'patient') {
           navigate('/patient-dashboard', { replace: true });
@@ -192,9 +181,9 @@ function AppRoutes() {
   };
 
   // Check if current route is auth-related or video call
-  const isAuthRoute = location.pathname === '/login' || location.pathname === '/signup' || 
-                     location.pathname === '/forgot-password' || location.pathname === '/reset-password' ||
-                     location.pathname.startsWith('/admin');
+  const isAuthRoute = location.pathname === '/login' || location.pathname === '/signup' ||
+    location.pathname === '/forgot-password' || location.pathname === '/reset-password' ||
+    location.pathname.startsWith('/admin');
   const isVideoCallRoute = location.pathname.startsWith('/video-call');
 
   // Show loading screen only on first load
@@ -210,10 +199,10 @@ function AppRoutes() {
           path="/"
           element={
             <LandingPage
-                          />
+            />
           }
         />
-                <Route path="/login" element={<AuthPage mode="login" onSuccess={handleAuthSuccess} />} />
+        <Route path="/login" element={<AuthPage mode="login" onSuccess={handleAuthSuccess} />} />
         <Route path="/signup" element={<AuthPage mode="signup" onSuccess={handleAuthSuccess} />} />
         <Route path="/about" element={<AboutPage />} />
         <Route path="/careers" element={<CareerPage />} />
@@ -239,7 +228,10 @@ function AppRoutes() {
         <Route path="/resources" element={<ResourcesPage />} />
         <Route path="/book-session/:doctorId" element={<BookSessionPage />} />
         <Route path="/reports" element={<ReportsPage />} />
-        <Route path="/mental-health-test" element={<MentalHealthTestPage />} />
+        <Route path="/mental-health" element={<MentalHealthDashboard />} />
+        <Route path="/mental-health/:testType" element={<MentalHealthTestPage />} />
+        <Route path="/test-results/:id" element={<TestResultsPage />} />
+        <Route path="/my-tests" element={<MyTestsPage />} />
         <Route path="/video-call/:sessionId" element={<VideoCallRoom />} />
         <Route path="/call-history" element={<CallHistoryPage />} />
         <Route path="/pending-tasks" element={<PendingTasksPage />} />
@@ -260,20 +252,20 @@ function AppRoutes() {
 
 function AppWithFooter() {
   const location = useLocation();
-  
+
   // Check if current route is auth-related, dashboard-related, or video call
-  const isAuthRoute = location.pathname === '/login' || location.pathname === '/signup' || 
-                     location.pathname === '/forgot-password' || location.pathname === '/reset-password' ||
-                     location.pathname.startsWith('/admin') || location.pathname === '/patient-dashboard' ||
-                     location.pathname === '/doctor-dashboard' || location.pathname === '/call-history' ||
-                     location.pathname === '/pending-tasks' || location.pathname === '/my-journal' ||
-                     location.pathname === '/reports-recommendation' || location.pathname === '/patient-details' ||
-                     location.pathname === '/doctor-reports' || location.pathname.startsWith('/doctor-reports/') ||
-                     location.pathname === '/doctor-tasks' || location.pathname.startsWith('/doctor-tasks/') ||
-                     location.pathname === '/doctor-session-notes' || location.pathname.startsWith('/doctor-session-notes/') ||
-                     location.pathname === '/messages' || location.pathname === '/admin-login' || 
-                     location.pathname === '/admin-signup' || location.pathname === '/admin-dashboard' ||
-                     location.pathname === '/super-admin-dashboard';
+  const isAuthRoute = location.pathname === '/login' || location.pathname === '/signup' ||
+    location.pathname === '/forgot-password' || location.pathname === '/reset-password' ||
+    location.pathname.startsWith('/admin') || location.pathname === '/patient-dashboard' ||
+    location.pathname === '/doctor-dashboard' || location.pathname === '/call-history' ||
+    location.pathname === '/pending-tasks' || location.pathname === '/my-journal' ||
+    location.pathname === '/reports-recommendation' || location.pathname === '/patient-details' ||
+    location.pathname === '/doctor-reports' || location.pathname.startsWith('/doctor-reports/') ||
+    location.pathname === '/doctor-tasks' || location.pathname.startsWith('/doctor-tasks/') ||
+    location.pathname === '/doctor-session-notes' || location.pathname.startsWith('/doctor-session-notes/') ||
+    location.pathname === '/messages' || location.pathname === '/admin-login' ||
+    location.pathname === '/admin-signup' || location.pathname === '/admin-dashboard' ||
+    location.pathname === '/super-admin-dashboard';
   const isVideoCallRoute = location.pathname.startsWith('/video-call');
 
   return (
@@ -289,6 +281,59 @@ export default function App() {
     <Router>
       <AuthProvider>
         <AdminProvider>
+          <Toaster
+            position="top-right"
+            reverseOrder={false}
+            gutter={8}
+            containerClassName=""
+            containerStyle={{}}
+            toastOptions={{
+              duration: 4000,
+              style: {
+                background: '#1f2937',
+                color: '#fff',
+                padding: '16px 20px',
+                borderRadius: '12px',
+                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2)',
+                border: '1px solid rgba(255, 255, 255, 0.1)',
+                fontSize: '14px',
+                fontWeight: '500',
+                maxWidth: '400px',
+              },
+              success: {
+                duration: 3000,
+                iconTheme: {
+                  primary: '#10b981',
+                  secondary: '#fff',
+                },
+                style: {
+                  background: '#065f46',
+                  border: '1px solid #10b981',
+                },
+              },
+              error: {
+                duration: 5000,
+                iconTheme: {
+                  primary: '#ef4444',
+                  secondary: '#fff',
+                },
+                style: {
+                  background: '#7f1d1d',
+                  border: '1px solid #ef4444',
+                },
+              },
+              loading: {
+                iconTheme: {
+                  primary: '#3b82f6',
+                  secondary: '#fff',
+                },
+                style: {
+                  background: '#1e3a8a',
+                  border: '1px solid #3b82f6',
+                },
+              },
+            }}
+          />
           <AppWithFooter />
         </AdminProvider>
       </AuthProvider>

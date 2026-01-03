@@ -5,10 +5,10 @@ const Session = require('../models/session');
 
 async function migrateCallTrackingFields() {
   try {
-    console.log('🔄 Starting migration: Adding call tracking fields to existing sessions...\n');
+    console.log('Starting migration: Adding call tracking fields to existing sessions...\n');
 
     await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/verocare');
-    console.log('✅ Connected to MongoDB\n');
+    console.log('Connected to MongoDB\n');
 
     // Find all sessions without call tracking fields
     const sessionsToUpdate = await Session.find({
@@ -19,7 +19,7 @@ async function migrateCallTrackingFields() {
       ]
     });
 
-    console.log(`📊 Found ${sessionsToUpdate.length} sessions to migrate\n`);
+    console.log(`Found ${sessionsToUpdate.length} sessions to migrate\n`);
 
     let updatedCount = 0;
     for (const session of sessionsToUpdate) {
@@ -48,14 +48,14 @@ async function migrateCallTrackingFields() {
       }
     }
 
-    console.log(`\n✅ Migration completed successfully!`);
+    console.log(`\nMigration completed successfully!`);
     console.log(`   Total sessions updated: ${updatedCount}`);
 
     await mongoose.connection.close();
-    console.log('\n✅ Database connection closed');
+    console.log('\nDatabase connection closed');
     process.exit(0);
   } catch (error) {
-    console.error('\n❌ Migration failed:', error);
+    console.error('\nMigration failed:', error);
     process.exit(1);
   }
 }

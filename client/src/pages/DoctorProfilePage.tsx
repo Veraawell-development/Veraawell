@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../config/api';
 
 interface BookingState {
@@ -40,8 +41,11 @@ const DoctorProfilePage: React.FC = () => {
   const { doctorId } = useParams<{ doctorId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const { serviceType, bookingType } = (location.state as any) || {};
-  
+  const { serviceType, bookingType } = (location.state as any) || { bookingType: 'scheduled' };
+
+  // Determine if this is an immediate booking (Available Now doctor)
+  const isImmediate = bookingType === 'immediate';
+
   const [doctorProfile, setDoctorProfile] = useState<DoctorProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +59,7 @@ const DoctorProfilePage: React.FC = () => {
   });
 
   const [availableDates, setAvailableDates] = useState<Array<{ date: string; day: string }>>([]);
-  const [availableSlots] = useState(['09:00 AM', '11:00 AM', '03:00 PM', '05:00 PM']);
+  const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [isBooking, setIsBooking] = useState(false);
 
   useEffect(() => {
@@ -65,24 +69,30 @@ const DoctorProfilePage: React.FC = () => {
     }
   }, [doctorId]);
 
+  useEffect(() => {
+    if (doctorId && booking.date) {
+      fetchAvailableSlots(booking.date);
+    }
+  }, [doctorId, booking.date]);
+
   const fetchDoctorProfile = async () => {
     try {
       setLoading(true);
-      console.log('🔍 Fetching doctor profile for ID:', doctorId);
-      console.log('📡 API URL:', `${API_BASE_URL}/sessions/doctors/${doctorId}`);
-      
+      console.log(' Fetching doctor profile for ID:', doctorId);
+      console.log(' API URL:', `${API_BASE_URL}/sessions/doctors/${doctorId}`);
+
       const response = await fetch(`${API_BASE_URL}/sessions/doctors/${doctorId}`);
-      
+
       console.log('📥 Response status:', response.status);
-      
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
         console.error('❌ Error response:', errorData);
         throw new Error(errorData.message || 'Doctor not found');
       }
-      
+
       const data = await response.json();
-      console.log('✅ Doctor profile loaded:', data);
+      console.log(' Doctor profile loaded:', data);
       setDoctorProfile(data);
       setError(null);
     } catch (err: any) {
@@ -93,24 +103,50 @@ const DoctorProfilePage: React.FC = () => {
     }
   };
 
+  const fetchAvailableSlots = async (date: string) => {
+    try {
+      console.log(`Fetching slots for doctor ${doctorId} on ${date}`);
+      const response = await fetch(`${API_BASE_URL}/sessions/doctors/${doctorId}/slots/${date}`);
+
+      if (response.ok) {
+        const data = await response.json();
+        setAvailableSlots(data.availableSlots || []);
+        // Reset selected time slot if it's no longer available
+        if (booking.timeSlot && !data.availableSlots.includes(booking.timeSlot)) {
+          setBooking(prev => ({ ...prev, timeSlot: '' }));
+        }
+      } else {
+        console.error('Failed to fetch slots');
+        setAvailableSlots([]);
+      }
+    } catch (error) {
+      console.error('Error fetching slots:', error);
+      setAvailableSlots([]);
+    }
+  };
+
   const generateAvailableDates = () => {
     const dates: Array<{ date: string; day: string }> = [];
     const today = new Date();
-    
+
     for (let i = 0; i < 7; i++) {
       const date = new Date(today);
       date.setDate(today.getDate() + i);
-      
+
       const dateStr = date.toISOString().split('T')[0];
       const dayStr = date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
       const dayMonth = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
-      
+
       dates.push({ date: dateStr, day: `${dayMonth} ${dayStr}` });
     }
-    
+
     setAvailableDates(dates);
     if (bookingType === 'now') {
-      setBooking(prev => ({ ...prev, date: dates[0].date, timeSlot: availableSlots[0] }));
+      // Don't auto-set slot here, let fetchAvailableSlots handle it or user select
+      setBooking(prev => ({ ...prev, date: dates[0].date }));
+    } else {
+      // Default to first date
+      setBooking(prev => ({ ...prev, date: dates[0].date }));
     }
   };
 
@@ -122,7 +158,7 @@ const DoctorProfilePage: React.FC = () => {
     let price = 2000;
     if (duration === 40) price = 1200;
     if (duration === 25) price = 0;
-    
+
     setBooking(prev => ({ ...prev, duration, price }));
   };
 
@@ -135,126 +171,88 @@ const DoctorProfilePage: React.FC = () => {
   };
 
   const handleBookNow = async () => {
-    if (!booking.date || !booking.timeSlot) {
-      alert('Please select both date and time slot');
+    // Validation: scheduled bookings need date/time, immediate bookings don't
+    if (!isImmediate && (!booking.date || !booking.timeSlot)) {
+      toast.error('Please select both date and time slot');
       return;
     }
 
     setIsBooking(true);
 
     try {
-      // Mock payment for now
-      const paymentSuccess = true;
-
-      if (paymentSuccess) {
-        // Get token from localStorage
-        const token = localStorage.getItem('token');
-        const headers: HeadersInit = {
-          'Content-Type': 'application/json',
-        };
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-        
-        const response = await fetch(`${API_BASE_URL}/sessions/book`, {
-          method: 'POST',
-          headers,
-          credentials: 'include',
-          body: JSON.stringify({
-            doctorId,
-            sessionDate: booking.date,
-            sessionTime: booking.timeSlot,
-            sessionType: bookingType === 'now' ? 'immediate' : 'scheduled',
-            mode: booking.mode,
-            duration: booking.duration,
-            price: booking.price,
-            serviceType: serviceType || 'General'
-          })
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          console.log('✅ Booking successful:', data);
-          
-          // Show success message with better visibility
-          const successMessage = '✅ Session booked successfully! Redirecting to your dashboard...';
-          alert(successMessage);
-          
-          // Small delay to ensure alert is seen
-          setTimeout(() => {
-            navigate('/patient-dashboard');
-          }, 500);
-        } else {
-          const error = await response.json();
-          console.error('❌ Booking failed:', error);
-          alert(`❌ Booking failed: ${error.message || 'Please try again'}`);
-        }
-      }
-    } catch (error) {
-      console.error('Booking error:', error);
-      alert('Failed to book session. Please try again.');
-    } finally {
-      setIsBooking(false);
-    }
-  };
-
-  const handleInstantBook = async () => {
-    setIsBooking(true);
-
-    try {
-      console.log('🚀 Starting instant book...');
-      console.log('📡 API URL:', `${API_BASE_URL}/sessions/book-immediate`);
-      console.log('👤 Doctor ID:', doctorId);
-      
       // Get token from localStorage
       const token = localStorage.getItem('token');
-      console.log('🔑 Token from localStorage:', token ? 'Present' : 'Missing');
-      
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       };
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
-        console.log('✅ Authorization header added');
-      } else {
-        console.warn('⚠️ No token found in localStorage!');
       }
-      
-      const response = await fetch(`${API_BASE_URL}/sessions/book-immediate`, {
+
+      // Use different endpoints and payloads for immediate vs scheduled
+      const endpoint = isImmediate
+        ? `${API_BASE_URL}/sessions/book-immediate`
+        : `${API_BASE_URL}/sessions/book`;
+
+      const requestBody = isImmediate
+        ? {
+          // Immediate booking - only needs doctorId
+          // Backend generates date/time/price automatically
+          doctorId
+        }
+        : {
+          // Scheduled booking - requires full details
+          doctorId,
+          sessionDate: booking.date,
+          sessionTime: booking.timeSlot,
+          sessionType: 'scheduled',
+          mode: booking.mode,
+          duration: booking.duration,
+          price: booking.price,
+          serviceType: serviceType || 'General'
+        };
+
+      console.log('📞 Booking request:', {
+        endpoint,
+        isImmediate,
+        payload: requestBody
+      });
+
+      const response = await fetch(endpoint, {
         method: 'POST',
         headers,
         credentials: 'include',
-        body: JSON.stringify({
-          doctorId: doctorId || 'test-doctor-id'
-        })
+        body: JSON.stringify(requestBody)
       });
-
-      console.log('📥 Response status:', response.status);
 
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ Instant booking successful:', data);
-        
-        // Show success message with better visibility
-        const successMessage = '✅ Instant session booked successfully! You can join now from your dashboard.';
-        alert(successMessage);
-        
-        // Small delay to ensure alert is seen
+        console.log('✅ Booking successful:', data);
+
+        // Different success messages
+        const successMessage = isImmediate
+          ? 'Immediate session booked! You can join now from your dashboard.'
+          : 'Session scheduled successfully! Check your dashboard for details.';
+        toast.success(successMessage);
+
+        // Navigate immediately
         setTimeout(() => {
           navigate('/patient-dashboard');
         }, 500);
       } else {
         const error = await response.json();
-        console.error('❌ Instant booking failed:', error);
-        alert(`❌ Instant booking failed: ${error.message || 'Please try again'}`);
+        console.error('❌ Booking failed:', error);
+        toast.error(error.message || 'Booking failed. Please try again.');
       }
     } catch (error) {
-      console.error('❌ Instant booking error:', error);
-      alert('Failed to book instant session. Please check console for details.');
+      console.error('Booking error:', error);
+      toast.error('Failed to book session. Please try again.');
     } finally {
       setIsBooking(false);
     }
   };
+
+
 
   // Show loading state
   if (loading) {
@@ -274,7 +272,7 @@ const DoctorProfilePage: React.FC = () => {
       <div className="bg-white min-h-screen flex items-center justify-center">
         <div className="text-center">
           <p className="text-xl text-red-600 mb-4" style={{ fontFamily: 'Bree Serif, serif' }}>{error || 'Doctor not found'}</p>
-          <button 
+          <button
             onClick={() => navigate('/choose-professional')}
             className="px-6 py-3 bg-teal-600 text-white rounded-lg hover:bg-teal-700"
             style={{ fontFamily: 'Bree Serif, serif' }}
@@ -299,8 +297,8 @@ const DoctorProfilePage: React.FC = () => {
     <div className="bg-white min-h-screen">
       {/* Hero Section with Background */}
       <div className="relative h-[60vh] overflow-hidden">
-        <img 
-          src="/profile-bg.svg" 
+        <img
+          src="/profile-bg.svg"
           alt="Veraawell clinic background"
           className="absolute inset-0 w-full h-full object-cover"
         />
@@ -313,10 +311,10 @@ const DoctorProfilePage: React.FC = () => {
           {/* Profile Picture */}
           <div className="w-1/3">
             <div className="rounded-2xl overflow-hidden shadow-2xl border-8 border-white">
-              <img 
-                src={doctorProfile.profileImage} 
-                alt={`Dr. ${doctorName}`} 
-                className="w-full h-full object-cover" 
+              <img
+                src={doctorProfile.profileImage}
+                alt={`Dr. ${doctorName}`}
+                className="w-full h-full object-cover"
               />
             </div>
           </div>
@@ -327,12 +325,12 @@ const DoctorProfilePage: React.FC = () => {
               <h1 className="text-5xl font-bold text-gray-800">{doctorName}</h1>
               <div className="flex text-yellow-500">
                 {[...Array(5)].map((_, i) => (
-                  <svg 
-                    key={i} 
-                    className={`w-8 h-8 ${i < fullStars ? 'fill-current' : 'fill-gray-300'}`} 
+                  <svg
+                    key={i}
+                    className={`w-8 h-8 ${i < fullStars ? 'fill-current' : 'fill-gray-300'}`}
                     viewBox="0 0 20 20"
                   >
-                    <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/>
+                    <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z" />
                   </svg>
                 ))}
               </div>
@@ -378,13 +376,13 @@ const DoctorProfilePage: React.FC = () => {
                 <div className="flex items-center">
                   <h3 className="font-bold text-xl w-1/3">Select Mode:</h3>
                   <div className="flex space-x-3">
-                    <button 
+                    <button
                       onClick={() => handleModeChange('video')}
                       className={`${booking.mode === 'video' ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner transition-all`}
                     >
                       Video Call
                     </button>
-                    <button 
+                    <button
                       onClick={() => handleModeChange('voice')}
                       className={`${booking.mode === 'voice' ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner transition-all`}
                     >
@@ -396,19 +394,19 @@ const DoctorProfilePage: React.FC = () => {
                 <div className="flex items-center">
                   <h3 className="font-bold text-xl w-1/3">Select Duration:</h3>
                   <div className="flex space-x-3">
-                    <button 
+                    <button
                       onClick={() => handleDurationChange(65)}
                       className={`${booking.duration === 65 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner transition-all`}
                     >
                       65 Minutes
                     </button>
-                    <button 
+                    <button
                       onClick={() => handleDurationChange(40)}
                       className={`${booking.duration === 40 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner transition-all`}
                     >
                       40 Minutes
                     </button>
-                    <button 
+                    <button
                       onClick={() => handleDurationChange(25)}
                       className={`${booking.duration === 25 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner transition-all`}
                     >
@@ -432,57 +430,64 @@ const DoctorProfilePage: React.FC = () => {
             {/* Right Card */}
             <div className="bg-[#4DBAB2] rounded-2xl p-8 text-white shadow-2xl">
               <div className="space-y-8">
-                {/* Select Date */}
-                <div>
-                  <h3 className="font-bold text-xl mb-4">Select Date:</h3>
-                  <div className="flex space-x-3 overflow-x-auto pb-2">
-                    {availableDates.map((dateObj) => (
-                      <button
-                        key={dateObj.date}
-                        onClick={() => handleDateChange(dateObj.date)}
-                        className={`${booking.date === dateObj.date ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-4 rounded-lg text-center flex-shrink-0 shadow-inner transition-all`}
-                      >
-                        <div className="text-sm">{dateObj.day.split(' ').slice(0, 2).join(' ')}</div>
-                        <div className="font-bold text-xs">{dateObj.day.split(' ')[2]}</div>
-                      </button>
-                    ))}
+                {/* Conditional: Only show date/time selection for scheduled bookings */}
+                {!isImmediate ? (
+                  <>
+                    {/* Select Date */}
+                    <div>
+                      <h3 className="font-bold text-xl mb-4">Select Date:</h3>
+                      <div className="flex space-x-3 overflow-x-auto pb-2">
+                        {availableDates.map((dateObj) => (
+                          <button
+                            key={dateObj.date}
+                            onClick={() => handleDateChange(dateObj.date)}
+                            className={`${booking.date === dateObj.date ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-4 rounded-lg text-center flex-shrink-0 shadow-inner transition-all`}
+                          >
+                            <div className="text-sm">{dateObj.day.split(' ').slice(0, 2).join(' ')}</div>
+                            <div className="font-bold text-xs">{dateObj.day.split(' ')[2]}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    {/* Select Slot */}
+                    <div>
+                      <h3 className="font-bold text-xl mb-4">Select Slot:</h3>
+                      <div className="flex flex-wrap gap-3">
+                        {availableSlots.length > 0 ? availableSlots.map((slot) => (
+                          <button
+                            key={slot}
+                            onClick={() => handleTimeSlotChange(slot)}
+                            className={`${booking.timeSlot === slot ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner transition-all`}
+                          >
+                            {slot}
+                          </button>
+                        )) : (
+                          <p className="text-white opacity-80 italic">No available slots for this date</p>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  /* For immediate bookings, show a message */
+                  <div className="text-center py-8">
+                    <div className="bg-white/10 rounded-xl p-6 mb-4">
+                      <svg className="w-16 h-16 mx-auto mb-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      <h3 className="text-2xl font-bold mb-2">Instant Session</h3>
+                      <p className="text-white/90">This doctor is available now. Click "Book Now" to start your session immediately!</p>
+                    </div>
                   </div>
-                </div>
-                {/* Select Slot */}
-                <div>
-                  <h3 className="font-bold text-xl mb-4">Select Slot:</h3>
-                  <div className="flex flex-wrap gap-3">
-                    {availableSlots.map((slot) => (
-                      <button
-                        key={slot}
-                        onClick={() => handleTimeSlotChange(slot)}
-                        className={`${booking.timeSlot === slot ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner transition-all`}
-                      >
-                        {slot}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+                )}
+
                 <div className="text-center pt-4 space-y-3">
-                  <button 
+                  <button
                     onClick={handleBookNow}
-                    disabled={isBooking || !booking.date || !booking.timeSlot}
-                    className={`${isBooking || !booking.date || !booking.timeSlot ? 'opacity-50 cursor-not-allowed' : 'hover:bg-white hover:scale-105'} bg-[#E0F7FA] text-[#38ABAE] font-bold py-3 px-10 rounded-full shadow-md text-xl transition-all w-full`}
+                    disabled={isImmediate ? isBooking : (isBooking || !booking.date || !booking.timeSlot)}
+                    className={`${(isImmediate ? isBooking : (isBooking || !booking.date || !booking.timeSlot)) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-white hover:scale-105'} bg-[#E0F7FA] text-[#38ABAE] font-bold py-3 px-10 rounded-full shadow-md text-xl transition-all w-full`}
                   >
                     {isBooking ? 'Booking...' : 'Book Now'}
                   </button>
-                  
-                  <button 
-                    onClick={handleInstantBook}
-                    disabled={isBooking}
-                    className={`${isBooking ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-400 hover:scale-105'} bg-yellow-300 text-gray-800 font-bold py-3 px-10 rounded-full shadow-md text-xl transition-all w-full`}
-                  >
-                    {isBooking ? 'Booking...' : '⚡ Instant Book (Test Video Call)'}
-                  </button>
-                  
-                  <p className="text-sm text-white mt-2">
-                    💡 Use "Instant Book" to create a session you can join immediately for testing
-                  </p>
                 </div>
               </div>
             </div>
@@ -501,7 +506,7 @@ const DoctorProfilePage: React.FC = () => {
                 </h3>
                 <div className="flex text-yellow-500 mb-4">
                   {[...Array(5)].map((_, i) => (
-                    <svg key={i} className="w-6 h-6 fill-current" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z"/></svg>
+                    <svg key={i} className="w-6 h-6 fill-current" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z" /></svg>
                   ))}
                 </div>
                 <p className="text-gray-600 italic leading-relaxed">

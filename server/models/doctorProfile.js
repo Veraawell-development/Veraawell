@@ -48,6 +48,19 @@ const doctorProfileSchema = new mongoose.Schema({
     type: String,
     maxlength: 1000
   },
+  type: {
+    type: String,
+    required: true
+  },
+  modeOfSession: {
+    type: String
+  },
+  quote: {
+    type: String
+  },
+  quoteAuthor: {
+    type: String
+  },
   isOnline: {
     type: Boolean,
     default: false
@@ -83,25 +96,25 @@ const doctorProfileSchema = new mongoose.Schema({
 });
 
 // Index for efficient queries
-doctorProfileSchema.index({ userId: 1 });
+// Note: userId already has unique index from schema definition
 doctorProfileSchema.index({ specialization: 1 });
 doctorProfileSchema.index({ isOnline: 1 });
 doctorProfileSchema.index({ 'rating.average': -1 });
 
 // Virtual for full name
-doctorProfileSchema.virtual('fullName').get(function() {
+doctorProfileSchema.virtual('fullName').get(function () {
   return `${this.userId.firstName} ${this.userId.lastName}`;
 });
 
 // Method to check if doctor is available on a specific day
-doctorProfileSchema.methods.isAvailableOn = function(dayOfWeek) {
+doctorProfileSchema.methods.isAvailableOn = function (dayOfWeek) {
   const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const dayName = days[dayOfWeek];
   return this.availability[dayName];
 };
 
 // Static method to get all doctors with their profiles
-doctorProfileSchema.statics.getAllDoctorsWithProfiles = async function() {
+doctorProfileSchema.statics.getAllDoctorsWithProfiles = async function () {
   return await this.find({ isOnline: true })
     .populate('userId', 'firstName lastName email')
     .sort({ 'rating.average': -1 });

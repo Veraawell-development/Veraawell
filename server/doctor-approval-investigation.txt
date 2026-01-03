@@ -1,0 +1,135 @@
+DOCTOR APPROVAL LOGIN ISSUE - ROOT CAUSE ANALYSIS & FIX
+=======================================================
+Date: 2026-01-03 19:30 IST
+Status: ROOT CAUSE IDENTIFIED ✅
+
+ISSUE SUMMARY
+=============
+Doctor cannot login after admin approval - gets 401 Unauthorized errors.
+
+ROOT CAUSE IDENTIFIED
+=====================
+
+The doctor LOGIN is actually WORKING! ✅
+
+Evidence from server logs:
+--------------------------
+2026-01-03T13:58:57.358Z [AUTH-SERVICE] [INFO] Doctor approval check passed
+2026-01-03T13:58:57.465Z [AUTH-SERVICE] [INFO] User authenticated successfully
+
+The REAL problem is the SUBSEQUENT request to /api/protected:
+--------------------------------------------------------------
+2026-01-03T13:58:57.571Z [AUTH] [WARN] Token verification failed {"error":"invalid signature"}
+
+DETAILED ANALYSIS
+=================
+
+Step 1: Doctor Login Request
+-----------------------------
+✅ Doctor submits login (testdoctor@gmail.com)
+✅ Backend finds user in database
+✅ Approval status check: "approved" ✅
+✅ Password verification: SUCCESS ✅
+✅ JWT token generated with correct secret
+✅ Token set in HTTP-only cookie
+✅ Login response sent to frontend
+
+Step 2: Frontend Makes /api/protected Request
+----------------------------------------------
+❌ Frontend sends request with INVALID token
+❌ Token has "invalid signature" error
+❌ Backend rejects request with 401 Unauthorized
+
+WHY IS THE TOKEN INVALID?
+==========================
+
+Hypothesis 1: Frontend Using Old Token from localStorage ⭐ MOST LIKELY
+------------------------------------------------------------------------
+Problem:
+- Frontend might have an old token stored in localStorage
+- This old token was signed with a different JWT_SECRET
+- Frontend sends this old token in Authorization header
+- Backend tries to verify with current JWT_SECRET
+- Verification fails: "invalid signature"
+
+Solution:
+- Frontend needs to CLEAR localStorage on login
+- Frontend should rely ONLY on HTTP-only cookies
+- Frontend should NOT send Authorization header if using cookies
+
+Hypothesis 2: CORS Cookie Issue
+--------------------------------
+Problem:
+- Cookies not being sent due to CORS configuration
+- Frontend falls back to localStorage token
+- Old token causes signature mismatch
+
+Solution:
+- Verify CORS credentials: true
+- Verify frontend sends withCredentials: true
+
+Hypothesis 3: Multiple JWT Secrets
+-----------------------------------
+Problem:
+- Token signed with one secret
+- Verified with different secret
+
+Solution:
+- Verify all parts of code use getJWTSecret()
+- We already fixed this in Issues 2 & 3 ✅
+
+VERIFICATION
+============
+
+Database State: ✅ CORRECT
+--------------------------
+Doctor approval status: "approved"
+Doctor can login: YES
+Token generation: SUCCESS
+
+Backend Code: ✅ CORRECT
+------------------------
+- Approval check logic: CORRECT
+- JWT token generation: CORRECT
+- Cookie setting: CORRECT
+- Token verification: CORRECT
+
+Frontend Issue: ❌ NEEDS FIX
+-----------------------------
+- Sending invalid/old token
+- Not using fresh cookie token
+
+THE FIX
+=======
+
+Backend Fix (Optional - Add Better Error Message):
+---------------------------------------------------
+Add logging to show which token is being used:
+- Cookie token vs Authorization header token
+- Help debug frontend token issues
+
+Frontend Fix (REQUIRED):
+------------------------
+1. Clear localStorage on login
+2. Remove Authorization header when using cookies
+3. Ensure withCredentials: true for cookie requests
+4. Don't store JWT tokens in localStorage (security risk)
+
+IMMEDIATE WORKAROUND
+====================
+
+For the doctor to login RIGHT NOW:
+1. Open browser DevTools
+2. Go to Application > Local Storage
+3. Clear all items for localhost:5173
+4. Go to Application > Cookies
+5. Clear all cookies for localhost:5173
+6. Refresh page
+7. Login again
+
+This will force the frontend to use the fresh cookie token.
+
+BACKEND DIAGNOSTIC IMPROVEMENT
+===============================
+
+Let me add better logging to show which token source is being used:

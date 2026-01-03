@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import SessionChat from './SessionChat';
 
 interface SessionToolsModalProps {
   isOpen: boolean;
@@ -15,7 +16,7 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
   patientId,
   patientName
 }) => {
-  const [activeTab, setActiveTab] = useState<'notes' | 'tasks' | 'report'>('notes');
+  const [activeTab, setActiveTab] = useState<'notes' | 'tasks' | 'report' | 'chat'>('notes');
   const [saving, setSaving] = useState(false);
 
   // Notes state
@@ -36,8 +37,8 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
   const [reportType, setReportType] = useState<'assessment' | 'progress' | 'diagnosis' | 'treatment-plan' | 'other'>('progress');
   const [reportContent, setReportContent] = useState('');
 
-  const API_BASE_URL = window.location.hostname === 'localhost' 
-    ? 'http://localhost:5001/api' 
+  const API_BASE_URL = window.location.hostname === 'localhost'
+    ? 'http://localhost:5001/api'
     : 'https://veraawell-backend.onrender.com/api';
 
   if (!isOpen) return null;
@@ -45,8 +46,8 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
   const handleSaveNotes = async () => {
     try {
       setSaving(true);
-      console.log('📝 Saving notes:', { sessionId, patientId });
-      
+      console.log(' Saving notes:', { sessionId, patientId });
+
       const response = await fetch(`${API_BASE_URL}/session-tools/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -62,16 +63,16 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
         })
       });
 
-      console.log('📝 Notes response status:', response.status);
+      console.log(' Notes response status:', response.status);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-        console.error('📝 Notes error:', errorData);
+        console.error(' Notes error:', errorData);
         throw new Error(errorData.message || 'Failed to save notes');
       }
 
       const result = await response.json();
-      console.log('✅ Notes saved:', result);
+      console.log(' Notes saved:', result);
 
       alert('Session notes saved successfully!');
       // Clear form
@@ -96,8 +97,8 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
       }
 
       setSaving(true);
-      console.log('✅ Saving task:', { sessionId, patientId, title: taskTitle });
-      
+      console.log(' Saving task:', { sessionId, patientId, title: taskTitle });
+
       const response = await fetch(`${API_BASE_URL}/session-tools/tasks`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -112,16 +113,16 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
         })
       });
 
-      console.log('✅ Task response status:', response.status);
+      console.log(' Task response status:', response.status);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-        console.error('✅ Task error:', errorData);
+        console.error(' Task error:', errorData);
         throw new Error(errorData.message || 'Failed to create task');
       }
 
       const result = await response.json();
-      console.log('✅ Task saved:', result);
+      console.log(' Task saved:', result);
 
       alert('Task created successfully!');
       // Clear form
@@ -145,8 +146,8 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
       }
 
       setSaving(true);
-      console.log('📝 Saving report:', { sessionId, patientId, title: reportTitle });
-      
+      console.log(' Saving report:', { sessionId, patientId, title: reportTitle });
+
       const response = await fetch(`${API_BASE_URL}/session-tools/reports`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -161,17 +162,17 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
         })
       });
 
-      console.log('📝 Report response status:', response.status);
+      console.log(' Report response status:', response.status);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-        console.error('📝 Report error:', errorData);
+        console.error(' Report error:', errorData);
         throw new Error(errorData.message || 'Failed to create report');
       }
 
       const result = await response.json();
-      console.log('✅ Report saved:', result);
-      
+      console.log(' Report saved:', result);
+
       alert('Report created successfully!');
       // Clear form
       setReportTitle('');
@@ -186,16 +187,30 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-      <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-50 overflow-hidden pointer-events-none">
+      {/* Backdrop (invisible or subtle to allow seeing video) */}
+      <div
+        className={`absolute inset-0 bg-black/20 backdrop-blur-[1px] transition-opacity pointer-events-auto ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        onClick={onClose}
+      />
+
+      {/* Side Drawer */}
+      <div
+        className={`absolute top-0 right-0 h-full w-full max-w-md bg-gray-900/95 backdrop-blur-xl border-l border-gray-700 shadow-2xl transform transition-transform duration-300 ease-in-out pointer-events-auto flex flex-col ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4" style={{ backgroundColor: '#5DBEBD' }}>
-          <h2 className="text-2xl font-bold text-white" style={{ fontFamily: 'Bree Serif, serif' }}>
-            Session Tools
-          </h2>
+        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800/50">
+          <div>
+            <h2 className="text-2xl font-bold text-white tracking-wide" style={{ fontFamily: 'Bree Serif, serif' }}>
+              Session Tools
+            </h2>
+            <p className="text-sm text-gray-400 mt-1 flex items-center gap-2">
+              Patient: <span className="text-teal-400 font-semibold">{patientName}</span>
+            </p>
+          </div>
           <button
             onClick={onClose}
-            className="text-white hover:bg-white/20 p-2 rounded-full transition-colors"
+            className="text-gray-400 hover:text-white hover:bg-white/10 p-2 rounded-full transition-all"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -203,115 +218,93 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
           </button>
         </div>
 
-        {/* Patient Info */}
-        <div className="px-6 py-3 bg-gray-50 border-b">
-          <p className="text-sm text-gray-600">Patient: <span className="font-semibold text-gray-800">{patientName}</span></p>
+        {/* Tabs - Pill Style */}
+        <div className="px-6 py-4">
+          <div className="flex bg-gray-800 p-1 rounded-xl">
+            {(['notes', 'tasks', 'report', 'chat'] as const).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all duration-200 capitalize ${activeTab === tab
+                  ? 'bg-teal-600 text-white shadow-lg'
+                  : 'text-gray-400 hover:text-white hover:bg-gray-700/50'
+                  }`}
+                style={{ fontFamily: 'Inter, sans-serif' }}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b">
-          <button
-            onClick={() => setActiveTab('notes')}
-            className={`flex-1 py-3 text-center font-medium transition-colors ${
-              activeTab === 'notes'
-                ? 'text-teal-600 border-b-2 border-teal-600 bg-teal-50'
-                : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-            }`}
-            style={{ fontFamily: 'Bree Serif, serif' }}
-          >
-            Notes
-          </button>
-          <button
-            onClick={() => setActiveTab('tasks')}
-            className={`flex-1 py-3 text-center font-medium transition-colors ${
-              activeTab === 'tasks'
-                ? 'text-teal-600 border-b-2 border-teal-600 bg-teal-50'
-                : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-            }`}
-            style={{ fontFamily: 'Bree Serif, serif' }}
-          >
-            Tasks
-          </button>
-          <button
-            onClick={() => setActiveTab('report')}
-            className={`flex-1 py-3 text-center font-medium transition-colors ${
-              activeTab === 'report'
-                ? 'text-teal-600 border-b-2 border-teal-600 bg-teal-50'
-                : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'
-            }`}
-            style={{ fontFamily: 'Bree Serif, serif' }}
-          >
-            Report
-          </button>
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        {/* Content - Scrollable */}
+        <div className={`flex-1 overflow-y-auto px-6 pb-6 custom-scrollbar ${activeTab === 'chat' ? 'flex flex-col' : ''}`}>
           {/* NOTES TAB */}
           {activeTab === 'notes' && (
-            <div className="space-y-4">
+            <div className="space-y-5 animate-fadeIn">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Session Notes</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Session Notes</label>
                 <textarea
                   value={noteContent}
                   onChange={(e) => setNoteContent(e.target.value)}
-                  placeholder="Document key observations, patient responses, therapeutic interventions..."
-                  className="w-full h-40 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent resize-none"
-                  style={{ fontFamily: 'Bree Serif, serif' }}
+                  placeholder="Type observations here..."
+                  className="w-full h-48 p-4 bg-gray-800/50 border border-gray-700 rounded-xl text-gray-200 placeholder-gray-500 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all resize-none leading-relaxed"
                 />
               </div>
 
-              <div className="text-sm text-gray-600 space-y-2">
-                <p className="font-medium">💡 Include:</p>
-                <ul className="list-disc list-inside space-y-1 ml-2">
-                  <li>Patient's mood and behavior</li>
-                  <li>Topics discussed</li>
-                  <li>Progress and insights</li>
-                  <li>Therapeutic techniques used</li>
-                </ul>
+              <div className="bg-teal-900/20 border border-teal-900/50 rounded-xl p-4">
+                <p className="text-xs font-bold text-teal-400 mb-2 flex items-center gap-1">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  REMEMBER TO INCLUDE
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {['Mood', 'Topics', 'Progress', 'Techniques'].map(tag => (
+                    <span key={tag} className="text-[10px] bg-teal-900/40 text-teal-300 px-2 py-1 rounded-md border border-teal-800/50">{tag}</span>
+                  ))}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Mood</label>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Mood</label>
                   <input
                     type="text"
                     value={mood}
                     onChange={(e) => setMood(e.target.value)}
-                    placeholder="e.g., Anxious, Calm, Hopeful"
-                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                    placeholder="e.g. Anxious"
+                    className="w-full p-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Topics Discussed</label>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Topics</label>
                   <input
                     type="text"
                     value={topicsDiscussed}
                     onChange={(e) => setTopicsDiscussed(e.target.value)}
-                    placeholder="e.g., Work stress, Family"
-                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                    placeholder="e.g. Work"
+                    className="w-full p-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Progress & Insights</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Progress & Insights</label>
                 <textarea
                   value={progressInsights}
                   onChange={(e) => setProgressInsights(e.target.value)}
-                  placeholder="Patient's progress and key insights..."
-                  className="w-full h-24 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 resize-none"
+                  placeholder="Key insights..."
+                  className="w-full h-24 p-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all resize-none"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Therapeutic Techniques</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Techniques Used</label>
                 <input
                   type="text"
                   value={therapeuticTechniques}
                   onChange={(e) => setTherapeuticTechniques(e.target.value)}
-                  placeholder="e.g., CBT, Mindfulness, Breathing exercises"
-                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                  placeholder="e.g. CBT, Breathwork"
+                  className="w-full p-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all"
                 />
               </div>
             </div>
@@ -319,46 +312,45 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
 
           {/* TASKS TAB */}
           {activeTab === 'tasks' && (
-            <div className="space-y-4">
+            <div className="space-y-5 animate-fadeIn">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Task Title *</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Task Title</label>
                 <input
                   type="text"
                   value={taskTitle}
                   onChange={(e) => setTaskTitle(e.target.value)}
-                  placeholder="e.g., Practice mindfulness meditation"
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-                  style={{ fontFamily: 'Bree Serif, serif' }}
+                  placeholder="What needs to be done?"
+                  className="w-full p-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Description *</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Description</label>
                 <textarea
                   value={taskDescription}
                   onChange={(e) => setTaskDescription(e.target.value)}
-                  placeholder="Detailed instructions for the task..."
-                  className="w-full h-32 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 resize-none"
-                  style={{ fontFamily: 'Bree Serif, serif' }}
+                  placeholder="Details..."
+                  className="w-full h-32 p-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all resize-none"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Due Date *</label>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Due Date</label>
                   <input
                     type="date"
                     value={taskDueDate}
                     onChange={(e) => setTaskDueDate(e.target.value)}
-                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                    className="w-full p-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all icon-white"
+                    style={{ colorScheme: 'dark' }}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Priority</label>
+                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Priority</label>
                   <select
                     value={taskPriority}
-                    onChange={(e) => setTaskPriority(e.target.value as 'low' | 'medium' | 'high')}
-                    className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                    onChange={(e) => setTaskPriority(e.target.value as any)}
+                    className="w-full p-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all"
                   >
                     <option value="low">Low</option>
                     <option value="medium">Medium</option>
@@ -371,28 +363,27 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
 
           {/* REPORT TAB */}
           {activeTab === 'report' && (
-            <div className="space-y-4">
+            <div className="space-y-5 animate-fadeIn">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Report Title *</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Report Title</label>
                 <input
                   type="text"
                   value={reportTitle}
                   onChange={(e) => setReportTitle(e.target.value)}
-                  placeholder="e.g., Progress Assessment - Week 4"
-                  className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
-                  style={{ fontFamily: 'Bree Serif, serif' }}
+                  placeholder="Report Name..."
+                  className="w-full p-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Report Type</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Type</label>
                 <select
                   value={reportType}
                   onChange={(e) => setReportType(e.target.value as any)}
-                  className="w-full p-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500"
+                  className="w-full p-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all"
                 >
-                  <option value="assessment">Assessment</option>
                   <option value="progress">Progress Report</option>
+                  <option value="assessment">Assessment</option>
                   <option value="diagnosis">Diagnosis</option>
                   <option value="treatment-plan">Treatment Plan</option>
                   <option value="other">Other</option>
@@ -400,44 +391,54 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">Report Content *</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Content</label>
                 <textarea
                   value={reportContent}
                   onChange={(e) => setReportContent(e.target.value)}
-                  placeholder="Detailed report content..."
-                  className="w-full h-64 p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 resize-none"
-                  style={{ fontFamily: 'Bree Serif, serif' }}
+                  placeholder="Write report..."
+                  className="w-full h-64 p-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all resize-none"
                 />
               </div>
             </div>
           )}
+
+          {/* CHAT TAB */}
+          {activeTab === 'chat' && (
+            <div className="h-full animate-fadeIn flex flex-col">
+              <SessionChat targetUserId={patientId} targetUserName={patientName} />
+            </div>
+          )}
         </div>
 
-        {/* Footer */}
-        <div className="px-6 py-4 bg-gray-50 border-t flex justify-end space-x-3">
-          <button
-            onClick={onClose}
-            className="px-6 py-2 text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-            style={{ fontFamily: 'Bree Serif, serif' }}
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => {
-              if (activeTab === 'notes') handleSaveNotes();
-              else if (activeTab === 'tasks') handleSaveTask();
-              else if (activeTab === 'report') handleSaveReport();
-            }}
-            disabled={saving}
-            className="px-6 py-2 text-white rounded-lg transition-colors disabled:opacity-50"
-            style={{ 
-              backgroundColor: '#5DBEBD',
-              fontFamily: 'Bree Serif, serif'
-            }}
-          >
-            {saving ? 'Saving...' : `Save ${activeTab === 'notes' ? 'Notes' : activeTab === 'tasks' ? 'Task' : 'Report'}`}
-          </button>
-        </div>
+        {/* Footer - Hide if Chat is active */}
+        {activeTab !== 'chat' && (
+          <div className="px-6 py-5 border-t border-gray-800/50 bg-gray-900/50 backdrop-blur-md flex justify-end space-x-3">
+            <button
+              onClick={onClose}
+              className="px-6 py-2.5 text-sm font-semibold text-gray-400 hover:text-white transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                if (activeTab === 'notes') handleSaveNotes();
+                else if (activeTab === 'tasks') handleSaveTask();
+                else if (activeTab === 'report') handleSaveReport();
+              }}
+              disabled={saving}
+              className="px-8 py-2.5 bg-gradient-to-r from-teal-600 to-teal-500 text-white text-sm font-bold rounded-xl shadow-lg hover:shadow-teal-500/20 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            >
+              {saving ? (
+                <span className="flex items-center gap-2">
+                  <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                  Saving...
+                </span>
+              ) : (
+                `Save ${activeTab === 'notes' ? 'Notes' : activeTab === 'tasks' ? 'Task' : 'Report'}`
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

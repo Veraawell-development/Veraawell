@@ -542,7 +542,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
             {session.status === 'no-show' && (
               <div className="text-center py-4 px-8 rounded-2xl" style={{ backgroundColor: '#FEF3C7', fontFamily: 'Bree Serif, serif' }}>
                 <p className="text-lg font-semibold" style={{ color: '#92400E' }}>
-                  ⚠ No Show
+                   No Show
                 </p>
               </div>
             )}

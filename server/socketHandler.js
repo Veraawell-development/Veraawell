@@ -1,66 +1,50 @@
 // Socket.IO handler for WebRTC video calling with comprehensive logging
 const Session = require('./models/session');
 const jwt = require('jsonwebtoken');
+const { getJWTSecret } = require('./config/auth');
+const { createLogger } = require('./utils/logger');
+
+const logger = createLogger('SOCKET-HANDLER');
 
 // Store active rooms and users
 const activeRooms = new Map(); // roomId -> { users: Map<userId, {role, socketId}>, createdAt: Date }
 const userSockets = new Map(); // userId -> socketId
 
-// JWT Secret with fallback (same as main server)
-const JWT_SECRET = process.env.JWT_SECRET || 'veraawell_jwt_secret_key_2024_development_environment_secure_token_generation';
-
-// JWT verification middleware
+// JWT verification middleware for Socket.IO
 const authenticateSocket = (socket, next) => {
   const token = socket.handshake.auth.token;
   
-  console.log('[SOCKET-AUTH] 🔐 Authentication attempt:', {
+  logger.debug('Authentication attempt', {
     hasToken: !!token,
-    tokenPreview: token ? token.substring(0, 20) + '...' : 'none',
     socketId: socket.id
   });
   
   if (!token) {
-    console.error('[SOCKET-AUTH] ❌ No token provided');
+    logger.error('No token provided');
     return next(new Error('Authentication error: No token provided'));
   }
 
   try {
+    const JWT_SECRET = getJWTSecret(); // Use config module - no hardcoded fallback
     const decoded = jwt.verify(token, JWT_SECRET);
     socket.user = {
       id: decoded.userId,
       role: decoded.role,
       username: decoded.username
     };
-    console.log('[SOCKET-AUTH] ✅ Authentication successful:', {
+    logger.debug('Authentication successful', {
       userId: decoded.userId?.substring(0, 8) + '...',
-      role: decoded.role,
-      username: decoded.username
+      role: decoded.role
     });
     next();
   } catch (error) {
-    console.error('[SOCKET-AUTH] ❌ Token verification failed:', error.message);
+    logger.error('Token verification failed', { error: error.message });
     next(new Error('Authentication error: Invalid token'));
   }
 };
 
-// Logging utility
-const log = {
-  info: (message, data = {}) => {
-    console.log(`[VIDEO-CALL] ℹ️  ${message}`, data);
-  },
-  success: (message, data = {}) => {
-    console.log(`[VIDEO-CALL] ✅ ${message}`, data);
-  },
-  error: (message, data = {}) => {
-    console.error(`[VIDEO-CALL] ❌ ${message}`, data);
-  },
-  user: (action, userId, role, sessionId) => {
-    const timestamp = new Date().toLocaleTimeString();
-    const userIdStr = userId?.substring(0, 8) || 'unknown';
-    const sessionIdStr = sessionId?.substring(0, 8) || 'unknown';
-    console.log(`[${timestamp}] 👤 ${role?.toUpperCase() || 'USER'} (${userIdStr}...) ${action} session ${sessionIdStr}...`);
-  }
-};
+// Use existing logger
+const log = logger;
 
 module.exports = (io) => {
   io.use(authenticateSocket);
@@ -71,14 +55,14 @@ module.exports = (io) => {
 
     // Handle disconnection
     socket.on('disconnect', async () => {
-      log.user('DISCONNECTED', userId, role, socket.roomId);
+      log.info('User disconnected', { userId, role, sessionId: socket.roomId });
       if (socket.roomId && activeRooms.has(socket.roomId)) {
         const room = activeRooms.get(socket.roomId);
         if (room.users.has(userId)) {
           room.users.delete(userId);
           // Notify other users in the room
           socket.to(socket.roomId).emit('user-left', { userId, role });
-          log.user('LEFT ROOM', userId, role, socket.roomId);
+          log.info('User left room', { userId, role, sessionId: socket.roomId });
           
           // Update call tracking when ANY user leaves
           // Mark session as completed immediately when last user leaves
@@ -97,7 +81,7 @@ module.exports = (io) => {
                 }
                 session.status = 'completed';
                 await session.save();
-                log.success('Call ended and tracked', { 
+                log.info('Call ended and tracked', { 
                   sessionId: socket.roomId.substring(0, 8),
                   duration: session.actualDuration
                 });
@@ -110,7 +94,7 @@ module.exports = (io) => {
           // Clean up empty rooms
           if (room.users.size === 0) {
             activeRooms.delete(socket.roomId);
-            log.success('Room cleaned up', { roomId: socket.roomId });
+            log.info('Room cleaned up', { roomId: socket.roomId });
           }
         }
       }
@@ -124,7 +108,7 @@ module.exports = (io) => {
           throw new Error('User not authenticated');
         }
 
-        log.user('JOINING', userId, role, sessionId);
+        log.info('User joining room', { userId, role, sessionId });
 
         // Verify session exists
         const session = await Session.findById(sessionId);
@@ -139,7 +123,7 @@ module.exports = (io) => {
           session.callStatus = 'in-progress';
           session.callStartTime = new Date();
           await session.save();
-          log.success('Call started', { sessionId: sessionId.substring(0, 8) });
+          log.info('Call started', { sessionId: sessionId.substring(0, 8) });
         }
 
         // Verify user authorization
@@ -174,7 +158,7 @@ module.exports = (io) => {
           return;
         }
         
-        log.success('User authorized for video call', {
+        log.info('User authorized for video call', {
           userId: userId.substring(0, 8),
           role: isPatient ? 'patient' : (isDoctor ? 'doctor' : 'self-session'),
           sessionType: session.sessionType
@@ -183,7 +167,7 @@ module.exports = (io) => {
         // Leave any existing room
         if (socket.roomId) {
           socket.leave(socket.roomId);
-          log.user('LEFT PREVIOUS ROOM', userId, role, socket.roomId);
+          log.info('User left previous room', { userId, role, sessionId: socket.roomId });
         }
 
         // Join the new room
@@ -197,13 +181,13 @@ module.exports = (io) => {
             users: new Map(),
             createdAt: new Date()
           });
-          log.success('Room created', { sessionId });
+          log.info('Room created', { sessionId });
         }
 
         const room = activeRooms.get(sessionId);
         room.users.set(userId, { role, socketId: socket.id });
 
-        log.success(`${role.toUpperCase()} joined room`, {
+        log.info(`${role.toUpperCase()} joined room`, {
           sessionId: sessionId.substring(0, 8),
           userId: userId.substring(0, 8),
           totalUsers: room.users.size
@@ -312,7 +296,7 @@ module.exports = (io) => {
     if (room) {
       room.users.delete(userId);
       
-      log.user('LEFT', userId, role, sessionId);
+      log.info('User left room', { userId, role, sessionId });
       log.info(`Remaining users in room ${sessionId?.substring(0, 8) || 'unknown'}:`, {
         count: room.users.size
       });
@@ -327,7 +311,7 @@ module.exports = (io) => {
       // Clean up empty rooms
       if (room.users.size === 0) {
         activeRooms.delete(sessionId);
-        log.success('Room closed (empty)', { sessionId: sessionId.substring(0, 8) });
+        log.info('Room closed (empty)', { sessionId: sessionId.substring(0, 8) });
       }
     }
 
@@ -338,7 +322,7 @@ module.exports = (io) => {
   // Log active rooms every 30 seconds
   setInterval(() => {
     if (activeRooms.size > 0) {
-      log.info('📊 Active video call rooms:', {
+      log.info('Active video call rooms', {
         totalRooms: activeRooms.size,
         rooms: Array.from(activeRooms.entries()).map(([id, room]) => ({
           sessionId: id.substring(0, 8),

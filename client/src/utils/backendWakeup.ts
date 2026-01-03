@@ -1,4 +1,5 @@
 import { API_BASE_URL } from '../config/api';
+import logger from './logger';
 
 /**
  * Wake up the backend server (for Render free tier that sleeps after inactivity)
@@ -6,7 +7,7 @@ import { API_BASE_URL } from '../config/api';
  */
 export const wakeUpBackend = async (): Promise<boolean> => {
   try {
-    console.log('🔄 Waking up backend server...');
+    logger.info('Waking up backend server...');
     
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
@@ -20,17 +21,17 @@ export const wakeUpBackend = async (): Promise<boolean> => {
     clearTimeout(timeoutId);
     
     if (response.ok) {
-      console.log('✅ Backend server is awake!');
+      logger.info('Backend server is awake!');
       return true;
     } else {
-      console.warn('⚠️ Backend health check returned non-OK status:', response.status);
+      logger.warn('Backend health check returned non-OK status:', response.status);
       return false;
     }
   } catch (error: any) {
     if (error.name === 'AbortError') {
-      console.error('❌ Backend wake up timed out after 60 seconds');
+      logger.error('Backend wake up timed out after 60 seconds');
     } else {
-      console.error('❌ Error waking up backend:', error.message);
+      logger.error('Error waking up backend:', error.message);
     }
     return false;
   }
@@ -50,7 +51,7 @@ export const fetchWithRetry = async (
   
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
-      console.log(`🔄 Attempt ${attempt + 1}/${maxRetries} for ${url}`);
+      logger.debug(`Attempt ${attempt + 1}/${maxRetries} for ${url}`);
       
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout per attempt
@@ -68,23 +69,23 @@ export const fetchWithRetry = async (
       }
       
       // Server error, retry
-      console.warn(`⚠️ Server error ${response.status}, retrying...`);
+      logger.warn(`Server error ${response.status}, retrying...`);
       lastError = new Error(`Server returned ${response.status}`);
       
     } catch (error: any) {
       lastError = error;
       
       if (error.name === 'AbortError') {
-        console.error(`❌ Request timed out on attempt ${attempt + 1}`);
+        logger.error(`Request timed out on attempt ${attempt + 1}`);
       } else {
-        console.error(`❌ Request failed on attempt ${attempt + 1}:`, error.message);
+        logger.error(`Request failed on attempt ${attempt + 1}:`, error.message);
       }
     }
     
     // Wait before retrying (exponential backoff)
     if (attempt < maxRetries - 1) {
       const delay = initialDelay * Math.pow(2, attempt);
-      console.log(`⏳ Waiting ${delay}ms before retry...`);
+      logger.debug(`Waiting ${delay}ms before retry...`);
       await new Promise(resolve => setTimeout(resolve, delay));
     }
   }

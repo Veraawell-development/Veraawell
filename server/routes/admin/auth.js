@@ -28,7 +28,7 @@ router.post('/setup', checkFirstTimeSetup, async (req, res) => {
     const admin = await User.createFirstAdmin(adminData);
     await admin.logActivity('account_created', { isFirstAdmin: true });
 
-    res.json({ 
+    res.json({
       message: 'Super admin account created successfully',
       email: admin.email
     });
@@ -60,7 +60,7 @@ router.post('/forgot-password', async (req, res) => {
     const resetToken = await admin.initializeResetToken();
 
     // Create reset URL
-    const frontendBaseUrl = process.env.NODE_ENV === 'production' 
+    const frontendBaseUrl = process.env.NODE_ENV === 'production'
       ? 'https://veraawell.vercel.app'
       : 'http://localhost:5173';
     const resetUrl = `${frontendBaseUrl}/admin/reset-password/${resetToken}`;
@@ -100,7 +100,7 @@ router.post('/forgot-password', async (req, res) => {
     console.log(`Reset token generated for admin ${admin.email}:`, resetToken);
     console.log('Reset token expiry:', admin.resetTokenExpiry);
 
-    res.json({ 
+    res.json({
       message: 'Password reset instructions sent to your email',
       debug: process.env.NODE_ENV === 'development' ? { resetToken } : undefined
     });
@@ -158,7 +158,7 @@ router.post('/login', async (req, res) => {
     if (email.toLowerCase() === 'admin@gmail.com' && password === 'admin@1') {
       // Check if super admin exists in database
       let superAdmin = await User.findOne({ email: 'admin@gmail.com', role: 'super_admin' });
-      
+
       // Create super admin if doesn't exist
       if (!superAdmin) {
         superAdmin = new User({
@@ -172,7 +172,7 @@ router.post('/login', async (req, res) => {
           profileCompleted: true
         });
         await superAdmin.save();
-        console.log('✅ Super admin created automatically');
+        console.log('Super admin created automatically');
       }
 
       // Create token for super admin
@@ -192,7 +192,7 @@ router.post('/login', async (req, res) => {
 
       return res.json({
         message: 'Super admin login successful',
-        token: token, // Send token in response for localStorage
+        // Token is in HTTP-only cookie, not in response (security fix)
         admin: {
           id: superAdmin._id,
           email: superAdmin.email,
@@ -254,7 +254,7 @@ router.post('/login', async (req, res) => {
 
     res.json({
       message: 'Login successful',
-      token: token, // Send token in response for localStorage
+      // Token is in HTTP-only cookie, not in response (security fix)
       admin: {
         id: admin._id,
         email: admin.email,
@@ -330,13 +330,13 @@ router.post('/create', adminAuth, superAdminAuth, async (req, res) => {
     });
 
     // Log activity
-    await req.admin.logActivity('create_admin', { 
+    await req.admin.logActivity('create_admin', {
       newAdminId: newAdmin._id,
       newAdminEmail: newAdmin.email
     });
 
-    res.status(201).json({ 
-      message: 'Admin created successfully. Credentials sent via email.' 
+    res.status(201).json({
+      message: 'Admin created successfully. Credentials sent via email.'
     });
   } catch (error) {
     console.error('Create admin error:', error);

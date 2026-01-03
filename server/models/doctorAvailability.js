@@ -45,71 +45,99 @@ const doctorAvailabilitySchema = new mongoose.Schema({
   // Active date range
   activeDates: [{
     type: String // Array of dates in "YYYY-MM-DD" format
+  }],
+  // Track booked slots independently of availability settings
+  bookedSlots: [{
+    date: { type: String, required: true },
+    time: { type: String, required: true },
+    sessionId: { type: mongoose.Schema.Types.ObjectId, ref: 'Session' }
   }]
 }, {
   timestamps: true
 });
 
 // Index for efficient queries
-doctorAvailabilitySchema.index({ doctorId: 1, 'customAvailability.date': 1 });
+doctorAvailabilitySchema.index({ doctorId: 1, 'bookedSlots.date': 1 });
 
 // Method to get available slots for a specific date
-doctorAvailabilitySchema.methods.getAvailableSlotsForDate = function(dateStr) {
+doctorAvailabilitySchema.methods.getAvailableSlotsForDate = function (dateStr) {
+  let slots = [];
+
   if (this.availabilityType === 'same_slots') {
-    // Return default slots if date is in active dates
-    if (this.activeDates.includes(dateStr)) {
-      return this.defaultSlots.map(time => ({
+    // Return default slots ONLY if date is in active dates
+    if (this.activeDates && this.activeDates.includes(dateStr)) {
+      slots = this.defaultSlots.map(time => ({
         time,
         isBooked: false,
         sessionId: null
       }));
+    } else {
+      slots = [];
     }
-    return [];
   } else {
     // Find custom availability for the date
     const dayAvailability = this.customAvailability.find(day => day.date === dateStr);
-    return dayAvailability ? dayAvailability.slots : [];
+    slots = dayAvailability ? JSON.parse(JSON.stringify(dayAvailability.slots)) : [];
   }
+
+  // Filter out booked slots logic
+  // Check against the bookedSlots array
+  const bookingsForDate = this.bookedSlots.filter(booking => booking.date === dateStr);
+
+  return slots.map(slot => {
+    const isBooked = bookingsForDate.some(booking => booking.time === slot.time);
+    return {
+      ...slot,
+      isBooked: isBooked || slot.isBooked // Check both global booking and specific day slot booking (legacy)
+    };
+  });
 };
 
 // Method to check if a slot is available
-doctorAvailabilitySchema.methods.isSlotAvailable = function(dateStr, timeStr) {
+doctorAvailabilitySchema.methods.isSlotAvailable = function (dateStr, timeStr) {
   const slots = this.getAvailableSlotsForDate(dateStr);
   const slot = slots.find(s => s.time === timeStr);
   return slot && !slot.isBooked;
 };
 
 // Method to book a slot
-doctorAvailabilitySchema.methods.bookSlot = async function(dateStr, timeStr, sessionId) {
-  if (this.availabilityType === 'different_slots') {
-    const dayAvailability = this.customAvailability.find(day => day.date === dateStr);
-    if (dayAvailability) {
-      const slot = dayAvailability.slots.find(s => s.time === timeStr);
-      if (slot && !slot.isBooked) {
-        slot.isBooked = true;
-        slot.sessionId = sessionId;
-        await this.save();
-        return true;
-      }
-    }
-  }
-  return false;
+doctorAvailabilitySchema.methods.bookSlot = async function (dateStr, timeStr, sessionId) {
+  // Check if slot exists in configured availability first
+  const slots = this.getAvailableSlotsForDate(dateStr);
+  const slotExists = slots.some(s => s.time === timeStr);
+
+  if (!slotExists) return false;
+
+  // Check if already booked
+  const isAlreadyBooked = this.bookedSlots.some(
+    booking => booking.date === dateStr && booking.time === timeStr
+  );
+
+  if (isAlreadyBooked) return false;
+
+  // Add to bookedSlots
+  this.bookedSlots.push({
+    date: dateStr,
+    time: timeStr,
+    sessionId
+  });
+
+  await this.save();
+  return true;
 };
 
 // Method to release a slot (when session is cancelled)
-doctorAvailabilitySchema.methods.releaseSlot = async function(dateStr, timeStr) {
-  if (this.availabilityType === 'different_slots') {
-    const dayAvailability = this.customAvailability.find(day => day.date === dateStr);
-    if (dayAvailability) {
-      const slot = dayAvailability.slots.find(s => s.time === timeStr);
-      if (slot) {
-        slot.isBooked = false;
-        slot.sessionId = null;
-        await this.save();
-        return true;
-      }
-    }
+doctorAvailabilitySchema.methods.releaseSlot = async function (dateStr, timeStr) {
+  const initialLength = this.bookedSlots.length;
+  this.bookedSlots = this.bookedSlots.filter(
+    booking => !(booking.date === dateStr && booking.time === timeStr)
+  );
+
+  if (this.bookedSlots.length !== initialLength) {
+    await this.save();
+    return true;
   }
+
   return false;
 };
 

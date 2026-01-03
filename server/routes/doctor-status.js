@@ -1,68 +1,35 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/user');
-const jwt = require('jsonwebtoken');
+const { verifyToken } = require('../middleware/auth.middleware');
+const { createLogger } = require('../utils/logger');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'veraawell_jwt_secret_key_2024_secure';
-
-// Middleware to verify JWT token
-const verifyToken = (req, res, next) => {
-  try {
-    const token = req.cookies.token || req.headers.authorization?.replace('Bearer ', '');
-    
-    if (!token) {
-      return res.status(401).json({ message: 'No token provided' });
-    }
-
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.userId = decoded.userId;
-    req.userRole = decoded.role;
-    next();
-  } catch (error) {
-    console.error('[DOCTOR STATUS] JWT verification error:', error.message);
-    return res.status(401).json({ message: 'Invalid token' });
-  }
-};
+const logger = createLogger('DOCTOR-STATUS');
 
 // Toggle doctor online status
 router.post('/toggle-online', verifyToken, async (req, res) => {
   try {
-    const userId = req.userId;
-    const userRole = req.userRole;
-
-    console.log('[DOCTOR STATUS] 🔄 Toggle online status request:', {
-      userId,
-      role: userRole
-    });
+    const userId = req.user._id.toString();
+    const userRole = req.user.role;
 
     // Only doctors can toggle online status
     if (userRole !== 'doctor') {
       return res.status(403).json({ message: 'Only doctors can toggle online status' });
     }
 
-    const doctor = await User.findById(userId);
-    if (!doctor) {
-      return res.status(404).json({ message: 'Doctor not found' });
-    }
-
+    // req.user is already the User model instance
     // Toggle online status
-    doctor.isOnline = !doctor.isOnline;
-    doctor.lastActiveAt = new Date();
-    await doctor.save();
-
-    console.log('[DOCTOR STATUS] ✅ Online status toggled:', {
-      doctorId: userId,
-      isOnline: doctor.isOnline,
-      lastActiveAt: doctor.lastActiveAt
-    });
+    req.user.isOnline = !req.user.isOnline;
+    req.user.lastActiveAt = new Date();
+    await req.user.save();
 
     res.json({
       success: true,
-      isOnline: doctor.isOnline,
-      lastActiveAt: doctor.lastActiveAt
+      isOnline: req.user.isOnline,
+      lastActiveAt: req.user.lastActiveAt
     });
   } catch (error) {
-    console.error('[DOCTOR STATUS] ❌ Error toggling online status:', error);
+    logger.error('Error toggling online status', { error: error.message, userId: req.user._id.toString() });
     res.status(500).json({ message: 'Failed to toggle online status' });
   }
 });
@@ -70,24 +37,19 @@ router.post('/toggle-online', verifyToken, async (req, res) => {
 // Get current doctor's online status
 router.get('/status', verifyToken, async (req, res) => {
   try {
-    const userId = req.userId;
-    const userRole = req.userRole;
+    const userRole = req.user.role;
 
     if (userRole !== 'doctor') {
       return res.status(403).json({ message: 'Only doctors can check status' });
     }
 
-    const doctor = await User.findById(userId).select('isOnline lastActiveAt');
-    if (!doctor) {
-      return res.status(404).json({ message: 'Doctor not found' });
-    }
-
+    // req.user is already the User model instance
     res.json({
-      isOnline: doctor.isOnline,
-      lastActiveAt: doctor.lastActiveAt
+      isOnline: req.user.isOnline,
+      lastActiveAt: req.user.lastActiveAt
     });
   } catch (error) {
-    console.error('[DOCTOR STATUS] Error fetching status:', error);
+    logger.error('Error fetching status', { error: error.message, userId: req.user._id.toString() });
     res.status(500).json({ message: 'Failed to fetch status' });
   }
 });
@@ -95,8 +57,6 @@ router.get('/status', verifyToken, async (req, res) => {
 // Get all online doctors (public endpoint)
 router.get('/online-doctors', async (req, res) => {
   try {
-    console.log('[DOCTOR STATUS] 📋 Fetching online doctors...');
-
     const onlineDoctors = await User.find({
       role: 'doctor',
       isOnline: true,
@@ -105,21 +65,12 @@ router.get('/online-doctors', async (req, res) => {
     .select('firstName lastName email isOnline lastActiveAt profileCompleted')
     .sort({ lastActiveAt: -1 });
 
-    console.log('[DOCTOR STATUS] ✅ Found online doctors:', {
-      count: onlineDoctors.length,
-      doctors: onlineDoctors.map(d => ({
-        id: d._id,
-        name: `${d.firstName} ${d.lastName}`,
-        lastActive: d.lastActiveAt
-      }))
-    });
-
     res.json({
       count: onlineDoctors.length,
       doctors: onlineDoctors
     });
   } catch (error) {
-    console.error('[DOCTOR STATUS] ❌ Error fetching online doctors:', error);
+    logger.error('Error fetching online doctors', { error: error.message });
     res.status(500).json({ message: 'Failed to fetch online doctors' });
   }
 });
@@ -127,25 +78,20 @@ router.get('/online-doctors', async (req, res) => {
 // Set doctor offline (called on logout)
 router.post('/set-offline', verifyToken, async (req, res) => {
   try {
-    const userId = req.userId;
-    const userRole = req.userRole;
+    const userRole = req.user.role;
 
     if (userRole !== 'doctor') {
       return res.json({ success: true }); // Silently succeed for non-doctors
     }
 
-    const doctor = await User.findById(userId);
-    if (doctor) {
-      doctor.isOnline = false;
-      doctor.lastActiveAt = new Date();
-      await doctor.save();
-
-      console.log('[DOCTOR STATUS] 🔴 Doctor set offline on logout:', userId);
-    }
+    // req.user is already the User model instance
+    req.user.isOnline = false;
+    req.user.lastActiveAt = new Date();
+    await req.user.save();
 
     res.json({ success: true });
   } catch (error) {
-    console.error('[DOCTOR STATUS] Error setting offline:', error);
+    logger.error('Error setting offline', { error: error.message, userId: req.user._id.toString() });
     res.status(500).json({ message: 'Failed to set offline' });
   }
 });

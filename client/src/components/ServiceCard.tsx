@@ -3,8 +3,8 @@ import React from 'react';
 type ServiceCardProps = {
   title: string;
   description: string;
-  imageSrc: string;
-  bgColor?: string; 
+  imageSrc?: string; // Made optional
+  bgColor?: string;
   onClick?: () => void;
 };
 
@@ -45,12 +45,14 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
         View Therapist
       </button>
 
-      {/* Illustration */}
-      <img
-        src={imageSrc}
-        alt={title}
-        className="absolute bottom-0 left-0 w-28 md:w-32 lg:w-40 h-auto object-contain select-none pointer-events-none" // Adjust width here to control image size
-      />
+      {/* Illustration - Only render if imageSrc is provided */}
+      {imageSrc && (
+        <img
+          src={imageSrc}
+          alt={title}
+          className="absolute bottom-0 left-0 w-28 md:w-32 lg:w-40 h-auto object-contain select-none pointer-events-none"
+        />
+      )}
     </div>
   );
 };

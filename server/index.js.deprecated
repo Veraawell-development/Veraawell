@@ -1,4 +1,28 @@
+/**
+ * ⚠️ DEPRECATED FILE - DO NOT USE ⚠️
+ * 
+ * This file has been DEPRECATED as of 2026-01-03.
+ * The codebase has been migrated to a modular architecture.
+ * 
+ * Current entry point: server.js
+ * 
+ * This file is kept temporarily for reference only.
+ * It will be permanently deleted after verification period.
+ * 
+ * DO NOT MAKE ANY CHANGES TO THIS FILE.
+ * All changes should be made to the new modular structure:
+ * - server.js (HTTP server + Socket.IO)
+ * - app.js (Express app + routes)
+ * - config/* (Configuration modules)
+ * - middleware/* (Middleware)
+ * - services/* (Business logic)
+ * - controllers/* (Route handlers)
+ * 
+ * See ARCHITECTURE.md for details.
+ */
+
 const express = require('express');
+
 const jwt = require('jsonwebtoken');
 require('dotenv').config();
 const mongoose = require('mongoose');
@@ -77,9 +101,9 @@ const limiter = rateLimit({
 // Apply rate limiting to all API routes (only in production)
 if (process.env.NODE_ENV === 'production') {
   app.use('/api/', limiter);
-  console.log('✅ Rate limiting enabled for production');
+  console.log('Rate limiting enabled for production');
 } else {
-  console.log('⚠️  Rate limiting DISABLED for development');
+  console.log('WARNING: Rate limiting DISABLED for development');
 }
 
 // Stricter rate limiting for auth endpoints (DISABLED IN DEVELOPMENT)
@@ -372,29 +396,29 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         
         // Priority 1: Environment variable (ALWAYS USE THIS IN PRODUCTION!)
         if (process.env.FRONTEND_URL) {
-          console.log('[OAUTH] ✅ Using FRONTEND_URL from env:', process.env.FRONTEND_URL);
+          console.log('[OAUTH] Using FRONTEND_URL from env:', process.env.FRONTEND_URL);
           return process.env.FRONTEND_URL;
         }
         
         // Priority 2: Detect Render environment
         if (process.env.RENDER || req.headers.host?.includes('onrender.com')) {
-          console.log('[OAUTH] ✅ Detected Render environment, using production URL');
+          console.log('[OAUTH] Detected Render environment, using production URL');
           return 'https://veraawell.com';
         }
         
         // Priority 3: Check NODE_ENV
         if (process.env.NODE_ENV === 'production') {
-          console.log('[OAUTH] ✅ NODE_ENV is production, using production URL');
+          console.log('[OAUTH] NODE_ENV is production, using production URL');
           return 'https://veraawell.com';
         }
         
         // Priority 4: Development default
-        console.log('[OAUTH] ⚠️ Using development URL: http://localhost:5173');
+        console.log('[OAUTH] WARNING: Using development URL: http://localhost:5173');
         return 'http://localhost:5173';
       };
 
       const frontendBaseUrl = getFrontendUrl();
-      console.log('[OAUTH] ✅ Final frontend URL:', frontendBaseUrl);
+      console.log('[OAUTH] Final frontend URL:', frontendBaseUrl);
 
       passport.authenticate('google', async (err, user) => {
         if (err) {
@@ -408,17 +432,17 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           return res.redirect(frontendUrl);
         }
 
-        console.log('[OAUTH] ✅ User authenticated:', user.email);
+        console.log('[OAUTH] User authenticated:', user.email);
         console.log('[OAUTH] User ID:', user._id);
         console.log('[OAUTH] Current role:', user.role);
         console.log('[OAUTH] Requested role:', role);
         
         // Update user's role if it's different
         if (role !== user.role) {
-          console.log(`[OAUTH] 🔄 Updating user role from ${user.role} to ${role}`);
+          console.log(`[OAUTH] Updating user role from ${user.role} to ${role}`);
           user.role = role;
           await user.save();
-          console.log(`[OAUTH] ✅ User role updated to: ${role}`);
+          console.log(`[OAUTH] User role updated to: ${role}`);
         }
 
         // Clear the OAuth role from session
@@ -427,12 +451,12 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
         // Log the user in
         req.logIn(user, (err) => {
           if (err) {
-            console.error('[OAUTH] ❌ Login error:', err);
+            console.error('[OAUTH] Login error:', err);
             const frontendUrl = `${frontendBaseUrl}/login?error=login-failed`;
             return res.redirect(frontendUrl);
           }
 
-          console.log('[OAUTH] ✅ User logged in successfully');
+          console.log('[OAUTH] User logged in successfully');
           
           // Create JWT token for the user
         const token = jwt.sign(
@@ -441,7 +465,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           { expiresIn: '30d' }
         );
 
-        console.log('[OAUTH] 🔑 JWT token generated');
+        console.log('[OAUTH] JWT token generated');
         console.log('[OAUTH] Token payload:', { userId: user._id.toString().substring(0, 8) + '...', username: user.username, role: user.role });
 
         // Set cookie with proper domain configuration
@@ -454,7 +478,7 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           path: '/'
         });
 
-          console.log('[OAUTH] 🍪 Cookie set with token');
+          console.log('[OAUTH] Cookie set with token');
           
           // Redirect to frontend with success parameters AND token
           // Include token in URL as fallback for immediate auth
@@ -465,8 +489,8 @@ if (process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET) {
           redirectUrl.searchParams.set('role', user.role);
           redirectUrl.searchParams.set('isGoogle', 'true');
           
-          console.log('[OAUTH] 🚀 Redirecting to:', redirectUrl.toString());
-          console.log('[OAUTH] ✅ OAuth flow completed successfully!');
+          console.log('[OAUTH] Redirecting to:', redirectUrl.toString());
+          console.log('[OAUTH] OAuth flow completed successfully!');
           return res.redirect(redirectUrl.toString());
         });
       })(req, res, next);

@@ -1,40 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const jwt = require('jsonwebtoken');
 const DoctorAvailability = require('../models/doctorAvailability');
 const Session = require('../models/session');
-
-const JWT_SECRET = process.env.JWT_SECRET || 'veraawell_jwt_secret_key_2024_development_environment_secure_token_generation';
-
-// Middleware to verify JWT token (supports both cookie and Authorization header)
-const verifyToken = (req, res, next) => {
-  // Check BOTH cookie AND Authorization header
-  let token = req.cookies.token;
-  
-  // If no cookie, check Authorization header
-  if (!token && req.headers.authorization) {
-    const authHeader = req.headers.authorization;
-    if (authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-      console.log('[AVAILABILITY AUTH] Token from Authorization header');
-    }
-  }
-  
-  if (!token) {
-    console.log('[AVAILABILITY AUTH] No token found');
-    return res.status(401).json({ message: 'No token provided' });
-  }
-  
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.userId = decoded.userId;
-    req.userRole = decoded.role;
-    next();
-  } catch (error) {
-    console.error('[AVAILABILITY AUTH] JWT verification error:', error.message);
-    return res.status(401).json({ message: 'Invalid token' });
-  }
-};
+const { verifyToken } = require('../middleware/auth.middleware');
 
 // GET - Get doctor's availability settings
 router.get('/doctor/:doctorId', async (req, res) => {
@@ -65,7 +33,8 @@ router.get('/doctor/:doctorId', async (req, res) => {
 // GET - Get current logged-in doctor's availability
 router.get('/doctor/current', verifyToken, async (req, res) => {
   try {
-    const { userId, userRole } = req;
+    const userId = req.user._id.toString();
+    const userRole = req.user.role;
     
     if (userRole !== 'doctor') {
       return res.status(403).json({ message: 'Only doctors can access this' });
@@ -95,7 +64,8 @@ router.get('/doctor/current', verifyToken, async (req, res) => {
 // POST - Save/Update doctor's availability
 router.post('/save', verifyToken, async (req, res) => {
   try {
-    const { userId, userRole } = req;
+    const userId = req.user._id.toString();
+    const userRole = req.user.role;
     
     if (userRole !== 'doctor') {
       return res.status(403).json({ message: 'Only doctors can set availability' });

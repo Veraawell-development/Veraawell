@@ -3,48 +3,16 @@ const router = express.Router();
 const Conversation = require('../models/conversation');
 const Message = require('../models/message');
 const Session = require('../models/session');
-const jwt = require('jsonwebtoken');
-
-const JWT_SECRET = process.env.JWT_SECRET || 'veraawell_jwt_secret_key_2024_development_environment_secure_token_generation';
-
-// Middleware to verify JWT token (supports both cookie and Authorization header)
-const verifyToken = (req, res, next) => {
-  // Check BOTH cookie AND Authorization header
-  let token = req.cookies.token;
-  
-  // If no cookie, check Authorization header
-  if (!token && req.headers.authorization) {
-    const authHeader = req.headers.authorization;
-    if (authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-      console.log('[CHAT AUTH] Token from Authorization header');
-    }
-  }
-  
-  if (!token) {
-    console.log('[CHAT AUTH] No token found');
-    return res.status(401).json({ message: 'No token provided' });
-  }
-  
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.userId = decoded.userId;
-    req.userRole = decoded.role;
-    next();
-  } catch (error) {
-    console.error('[CHAT AUTH] JWT verification error:', error.message);
-    return res.status(401).json({ message: 'Invalid token' });
-  }
-};
+const { verifyToken } = require('../middleware/auth.middleware');
 
 // Get all conversations for the logged-in user
 // Only shows conversations with users they've had sessions with
 router.get('/conversations', verifyToken, async (req, res) => {
   try {
-    const userId = req.userId;
-    const userRole = req.userRole;
+    const userId = req.user._id.toString();
+    const userRole = req.user.role;
     
-    console.log('[CHAT] 📋 Fetching conversations for user:', {
+    console.log('[CHAT] Fetching conversations for user:', {
       userId,
       role: userRole
     });
@@ -52,14 +20,14 @@ router.get('/conversations', verifyToken, async (req, res) => {
     // Get all conversations for this user
     const conversations = await Conversation.getConversationsForUser(userId);
     
-    console.log('[CHAT] 📊 Found conversations:', {
+    console.log('[CHAT] Found conversations:', {
       count: conversations.length,
       conversationIds: conversations.map(c => c._id.toString())
     });
     
     // Format conversations for frontend
     const formattedConversations = await Promise.all(conversations.map(async (conv, index) => {
-      console.log(`[CHAT] 🔍 Processing conversation ${index + 1}/${conversations.length}:`, {
+      console.log(`[CHAT] Processing conversation ${index + 1}/${conversations.length}:`, {
         conversationId: conv._id,
         participantCount: conv.participants.length,
         participants: conv.participants.map(p => ({
@@ -71,22 +39,22 @@ router.get('/conversations', verifyToken, async (req, res) => {
       
       // Find the other participant (skip if userId is null)
       const otherParticipant = conv.participants.find(
-        p => p.userId && p.userId._id && p.userId._id.toString() !== userId.toString()
+        p => p.userId && p.userId._id && p.userId._id.toString() !== userId
       );
       
       if (!otherParticipant) {
-        console.log(`[CHAT] ⚠️ No valid other participant found in conversation ${conv._id} - skipping`);
+        console.log(`[CHAT] WARNING: No valid other participant found in conversation ${conv._id} - skipping`);
         return null;
       }
       
-      console.log(`[CHAT] ✅ Other participant found:`, {
+      console.log(`[CHAT] Other participant found:`, {
         userId: otherParticipant.userId._id,
         name: `${otherParticipant.userId.firstName} ${otherParticipant.userId.lastName}`,
         role: otherParticipant.role
       });
       
       // Get unread count
-      const unreadCount = await Message.getUnreadCount(conv._id, userId);
+      const unreadCount = await Message.getUnreadCount(conv._id, userId.toString());
       
       return {
         _id: conv._id,
@@ -122,7 +90,7 @@ router.get('/conversations', verifyToken, async (req, res) => {
 router.get('/messages/:conversationId', verifyToken, async (req, res) => {
   try {
     const { conversationId } = req.params;
-    const userId = req.userId;
+    const userId = req.user._id.toString();
     const limit = parseInt(req.query.limit) || 50;
     const skip = parseInt(req.query.skip) || 0;
     
@@ -133,7 +101,7 @@ router.get('/messages/:conversationId', verifyToken, async (req, res) => {
     }
     
     const isParticipant = conversation.participants.some(
-      p => p.userId.toString() === userId.toString()
+      p => p.userId && p.userId.toString() === userId
     );
     
     if (!isParticipant) {
@@ -154,13 +122,13 @@ router.get('/messages/:conversationId', verifyToken, async (req, res) => {
       }),
       senderId: msg.senderId._id,
       senderName: `${msg.senderId.firstName} ${msg.senderId.lastName}`,
-      isSentByMe: msg.senderId._id.toString() === userId.toString(),
+      isSentByMe: msg.senderId._id.toString() === userId,
       isRead: msg.isRead,
       createdAt: msg.createdAt
     }));
     
     // Mark messages as read
-    await Message.markAsRead(conversationId, userId);
+    await Message.markAsRead(conversationId, userId.toString());
     
     // Update lastReadAt for this user in conversation
     await Conversation.findByIdAndUpdate(
@@ -187,7 +155,7 @@ router.get('/messages/:conversationId', verifyToken, async (req, res) => {
 router.post('/conversation', verifyToken, async (req, res) => {
   try {
     const { otherUserId } = req.body;
-    const userId = req.userId;
+    const userId = req.user._id.toString();
     
     if (!otherUserId) {
       return res.status(400).json({ message: 'Other user ID is required' });
@@ -225,7 +193,7 @@ router.post('/conversation', verifyToken, async (req, res) => {
 router.post('/message', verifyToken, async (req, res) => {
   try {
     const { conversationId, text } = req.body;
-    const senderId = req.userId;
+    const senderId = req.user._id.toString();
     
     if (!conversationId || !text) {
       return res.status(400).json({ message: 'Conversation ID and text are required' });
@@ -238,7 +206,7 @@ router.post('/message', verifyToken, async (req, res) => {
     }
     
     const isParticipant = conversation.participants.some(
-      p => p.userId.toString() === senderId.toString()
+      p => p.userId && p.userId.toString() === senderId
     );
     
     if (!isParticipant) {
@@ -247,7 +215,7 @@ router.post('/message', verifyToken, async (req, res) => {
     
     // Find receiver
     const receiver = conversation.participants.find(
-      p => p.userId.toString() !== senderId.toString()
+      p => p.userId && p.userId.toString() !== senderId
     );
     
     // Create message
@@ -296,7 +264,7 @@ router.post('/message', verifyToken, async (req, res) => {
 router.put('/conversation/:conversationId/read', verifyToken, async (req, res) => {
   try {
     const { conversationId } = req.params;
-    const userId = req.userId;
+    const userId = req.user._id.toString();
     
     await Message.markAsRead(conversationId, userId);
     
@@ -308,7 +276,7 @@ router.put('/conversation/:conversationId/read', verifyToken, async (req, res) =
         }
       },
       {
-        arrayFilters: [{ 'elem.userId': userId }]
+        arrayFilters: [{ 'elem.userId': req.user._id }]
       }
     );
     
@@ -322,11 +290,11 @@ router.put('/conversation/:conversationId/read', verifyToken, async (req, res) =
 // Get total unread message count for the logged-in user
 router.get('/unread-count', verifyToken, async (req, res) => {
   try {
-    const userId = req.userId;
+    const userId = req.user._id.toString();
     
     // Get all conversations for this user
     const conversations = await Conversation.find({
-      'participants.userId': userId
+      'participants.userId': req.user._id
     });
     
     // Calculate total unread count across all conversations

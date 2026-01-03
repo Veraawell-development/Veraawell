@@ -1,6 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { IoClose } from 'react-icons/io5';
+import { useAuth } from '../context/AuthContext';
 
 interface BookingPreferenceModalProps {
   isOpen: boolean;
@@ -14,11 +15,28 @@ const BookingPreferenceModal: React.FC<BookingPreferenceModalProps> = ({
   serviceType = 'General' 
 }) => {
   const navigate = useNavigate();
+  const { isLoggedIn } = useAuth();
 
   if (!isOpen) return null;
 
   const handleBookingChoice = (bookingType: 'now' | 'later') => {
     onClose();
+    
+    // Check if user is logged in
+    if (!isLoggedIn) {
+      // Redirect to login page with return URL
+      navigate('/login', { 
+        state: { 
+          from: '/choose-professional',
+          serviceType,
+          bookingType,
+          message: 'Please login to book a session'
+        } 
+      });
+      return;
+    }
+    
+    // User is logged in, proceed to choose professional
     navigate('/choose-professional', { 
       state: { 
         serviceType,
@@ -26,6 +44,7 @@ const BookingPreferenceModal: React.FC<BookingPreferenceModalProps> = ({
       } 
     });
   };
+
 
   return (
     <>

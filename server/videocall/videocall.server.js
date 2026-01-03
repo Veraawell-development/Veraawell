@@ -283,11 +283,11 @@ class VideoCallServer {
 ╔══════════════════════════════════════════════════════════════╗
 ║                    VERAAWELL VIDEO CALL SERVER              ║
 ║                                                              ║
-║  🎥 Server running on: http://localhost:${this.port}                ║
-║  📚 API Documentation: http://localhost:${this.port}/api/docs        ║
-║  🔍 Health Check: http://localhost:${this.port}/health              ║
+║  Server running on: http://localhost:${this.port}                ║
+║  API Documentation: http://localhost:${this.port}/api/docs        ║
+║  Health Check: http://localhost:${this.port}/health              ║
 ║                                                              ║
-║  Ready for WebRTC video calls! 🚀                          ║
+║  Ready for WebRTC video calls!                               ║
 ╚══════════════════════════════════════════════════════════════╝
         `);
       });

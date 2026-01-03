@@ -5,38 +5,7 @@ const Task = require('../models/task');
 const Report = require('../models/report');
 const Session = require('../models/session');
 const Journal = require('../models/journal');
-const jwt = require('jsonwebtoken');
-
-const JWT_SECRET = process.env.JWT_SECRET || 'veraawell_jwt_secret_key_2024_development_environment_secure_token_generation';
-
-// Middleware to verify JWT token (supports both cookie and Authorization header)
-const verifyToken = (req, res, next) => {
-  // Check BOTH cookie AND Authorization header
-  let token = req.cookies.token;
-  
-  // If no cookie, check Authorization header
-  if (!token && req.headers.authorization) {
-    const authHeader = req.headers.authorization;
-    if (authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-      console.log('[SESSION TOOLS AUTH] Token from Authorization header');
-    }
-  }
-  
-  if (!token) {
-    console.log('[SESSION TOOLS AUTH] No token found');
-    return res.status(401).json({ message: 'No token provided' });
-  }
-  
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
-    next();
-  } catch (error) {
-    console.error('[SESSION TOOLS AUTH] JWT verification error:', error.message);
-    return res.status(401).json({ message: 'Invalid token' });
-  }
-};
+const { verifyToken } = require('../middleware/auth.middleware');
 
 // ==================== SESSION NOTES ====================
 
@@ -44,7 +13,7 @@ const verifyToken = (req, res, next) => {
 router.post('/notes', verifyToken, async (req, res) => {
   try {
     const { sessionId, patientId, content, mood, topicsDiscussed, progressInsights, therapeuticTechniques, isPrivate } = req.body;
-    const doctorId = req.user.userId;
+    const doctorId = req.user._id.toString();
 
     if (req.user.role !== 'doctor') {
       return res.status(403).json({ message: 'Only doctors can create session notes' });
@@ -93,7 +62,7 @@ router.post('/notes', verifyToken, async (req, res) => {
 router.get('/notes/session/:sessionId', verifyToken, async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
     const userRole = req.user.role;
 
     // Build query based on role
@@ -123,7 +92,7 @@ router.get('/notes/session/:sessionId', verifyToken, async (req, res) => {
 router.get('/notes/patient/:patientId', verifyToken, async (req, res) => {
   try {
     const { patientId } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
     const userRole = req.user.role;
 
     // Authorization check
@@ -155,7 +124,7 @@ router.get('/notes/patient/:patientId', verifyToken, async (req, res) => {
 router.get('/notes/doctor/:doctorId', verifyToken, async (req, res) => {
   try {
     const { doctorId } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
 
     // Authorization check - only the doctor can see their own notes
     if (userId !== doctorId) {
@@ -180,7 +149,7 @@ router.get('/notes/doctor/:doctorId', verifyToken, async (req, res) => {
 router.post('/tasks', verifyToken, async (req, res) => {
   try {
     const { sessionId, patientId, title, description, dueDate, priority } = req.body;
-    const doctorId = req.user.userId;
+    const doctorId = req.user._id.toString();
 
     if (req.user.role !== 'doctor') {
       return res.status(403).json({ message: 'Only doctors can create tasks' });
@@ -227,7 +196,7 @@ router.post('/tasks', verifyToken, async (req, res) => {
 router.get('/tasks/patient/:patientId', verifyToken, async (req, res) => {
   try {
     const { patientId } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
     const userRole = req.user.role;
     const { status } = req.query;
 
@@ -262,7 +231,7 @@ router.get('/tasks/patient/:patientId', verifyToken, async (req, res) => {
 router.get('/tasks/doctor/:doctorId', verifyToken, async (req, res) => {
   try {
     const { doctorId } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
 
     // Authorization check - only the doctor can see their own tasks
     if (userId !== doctorId) {
@@ -286,7 +255,7 @@ router.put('/tasks/:taskId', verifyToken, async (req, res) => {
   try {
     const { taskId } = req.params;
     const { status, patientNotes } = req.body;
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
 
     const task = await Task.findById(taskId);
     
@@ -332,9 +301,9 @@ router.put('/tasks/:taskId', verifyToken, async (req, res) => {
 router.post('/reports', verifyToken, async (req, res) => {
   try {
     const { sessionId, patientId, title, reportType, content, isSharedWithPatient } = req.body;
-    const doctorId = req.user.userId;
+    const doctorId = req.user._id.toString();
 
-    console.log('📝 Creating report:', {
+    console.log('Creating report:', {
       sessionId: sessionId?.substring(0, 8),
       patientId: patientId?.substring(0, 8),
       doctorId: doctorId?.substring(0, 8),
@@ -343,20 +312,20 @@ router.post('/reports', verifyToken, async (req, res) => {
     });
 
     if (req.user.role !== 'doctor') {
-      console.error('❌ Not a doctor');
+      console.error('Not a doctor');
       return res.status(403).json({ message: 'Only doctors can create reports' });
     }
 
     // Verify session exists and doctor is authorized
-    console.log('🔍 Looking up session:', sessionId);
+    console.log('Looking up session:', sessionId);
     const session = await Session.findById(sessionId);
     
     if (!session) {
-      console.error('❌ Session not found:', sessionId);
+      console.error('Session not found:', sessionId);
       return res.status(404).json({ message: 'Session not found' });
     }
     
-    console.log('✅ Session found:', {
+    console.log('Session found:', {
       id: session._id.toString().substring(0, 8),
       doctorId: session.doctorId?.toString().substring(0, 8),
       patientId: session.patientId?.toString().substring(0, 8)
@@ -364,11 +333,11 @@ router.post('/reports', verifyToken, async (req, res) => {
     
     const sessionDoctorId = session.doctorId?._id?.toString() || session.doctorId?.toString();
     if (sessionDoctorId !== doctorId) {
-      console.error('❌ Unauthorized - doctor mismatch:', { sessionDoctorId, doctorId });
+      console.error('Unauthorized - doctor mismatch:', { sessionDoctorId, doctorId });
       return res.status(403).json({ message: 'Unauthorized to create reports for this session' });
     }
 
-    console.log('💾 Creating report document...');
+    console.log('Creating report document...');
     const report = new Report({
       sessionId,
       doctorId,
@@ -379,22 +348,22 @@ router.post('/reports', verifyToken, async (req, res) => {
       isSharedWithPatient: isSharedWithPatient !== undefined ? isSharedWithPatient : true
     });
 
-    console.log('💾 Saving report...');
+    console.log('Saving report...');
     await report.save();
-    console.log('✅ Report saved:', report._id.toString().substring(0, 8));
+    console.log('Report saved:', report._id.toString().substring(0, 8));
     
-    console.log('👥 Populating report...');
+    console.log('Populating report...');
     const populatedReport = await Report.findById(report._id)
       .populate('doctorId', 'firstName lastName')
       .populate('patientId', 'firstName lastName');
 
-    console.log('✅ Report created successfully');
+    console.log('Report created successfully');
     res.status(201).json({
       message: 'Report created successfully',
       report: populatedReport
     });
   } catch (error) {
-    console.error('❌ Error creating report:', error);
+    console.error('Error creating report:', error);
     console.error('Error stack:', error.stack);
     res.status(500).json({ message: 'Failed to create report', error: error.message });
   }
@@ -404,7 +373,7 @@ router.post('/reports', verifyToken, async (req, res) => {
 router.get('/reports/patient/:patientId', verifyToken, async (req, res) => {
   try {
     const { patientId } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
     const userRole = req.user.role;
 
     // Authorization check
@@ -437,7 +406,7 @@ router.get('/reports/patient/:patientId', verifyToken, async (req, res) => {
 router.get('/reports/doctor/:doctorId', verifyToken, async (req, res) => {
   try {
     const { doctorId } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
 
     // Authorization check - only the doctor can see their own reports
     if (userId !== doctorId) {
@@ -460,7 +429,7 @@ router.get('/reports/doctor/:doctorId', verifyToken, async (req, res) => {
 router.put('/reports/:reportId/view', verifyToken, async (req, res) => {
   try {
     const { reportId } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
 
     const report = await Report.findById(reportId);
     
@@ -493,7 +462,7 @@ router.put('/reports/:reportId/view', verifyToken, async (req, res) => {
 router.post('/journal', verifyToken, async (req, res) => {
   try {
     const { title, content, mood, tags } = req.body;
-    const patientId = req.user.userId;
+    const patientId = req.user._id.toString();
 
     if (req.user.role !== 'patient') {
       return res.status(403).json({ message: 'Only patients can create journal entries' });
@@ -523,7 +492,7 @@ router.post('/journal', verifyToken, async (req, res) => {
 router.get('/journal/patient/:patientId', verifyToken, async (req, res) => {
   try {
     const { patientId } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
 
     // Only patient can view their own journal
     if (userId !== patientId) {
@@ -545,7 +514,7 @@ router.put('/journal/:journalId', verifyToken, async (req, res) => {
   try {
     const { journalId } = req.params;
     const { title, content, mood, tags } = req.body;
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
 
     const journal = await Journal.findById(journalId);
     
@@ -579,7 +548,7 @@ router.put('/journal/:journalId', verifyToken, async (req, res) => {
 router.delete('/journal/:journalId', verifyToken, async (req, res) => {
   try {
     const { journalId } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user._id.toString();
 
     const journal = await Journal.findById(journalId);
     
