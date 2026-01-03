@@ -1,15 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+
 import { MENTAL_HEALTH_TESTS } from '../data/mentalHealthTests';
 import { API_CONFIG } from '../config/api';
 
 const MentalHealthDashboard: React.FC = () => {
     const navigate = useNavigate();
-    const { user } = useAuth();
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [latestScores, setLatestScores] = useState<Record<string, any>>({});
-    const [loading, setLoading] = useState(true);
+    // Removed unused loading state
 
     useEffect(() => {
         fetchLatestScores();
@@ -17,7 +16,6 @@ const MentalHealthDashboard: React.FC = () => {
 
     const fetchLatestScores = async () => {
         try {
-            setLoading(true);
             const response = await fetch(`${API_CONFIG.BASE_URL}/assessments/stats/summary`, {
                 credentials: 'include'
             });
@@ -32,8 +30,6 @@ const MentalHealthDashboard: React.FC = () => {
             }
         } catch (error) {
             console.error('Error fetching scores:', error);
-        } finally {
-            setLoading(false);
         }
     };
 

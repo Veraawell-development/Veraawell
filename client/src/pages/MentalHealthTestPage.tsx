@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import { MENTAL_HEALTH_TESTS, calculateTestScore } from '../data/mentalHealthTests';
 import type { TestDefinition } from '../data/mentalHealthTests';
 import { API_CONFIG } from '../config/api';
@@ -13,7 +12,6 @@ interface Answer {
 const MentalHealthTestPage: React.FC = () => {
   const { testType } = useParams<{ testType: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentQuestion, setCurrentQuestion] = useState(0);

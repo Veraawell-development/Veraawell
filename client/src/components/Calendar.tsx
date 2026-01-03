@@ -93,11 +93,9 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
     if (session.status === 'no-show') return 'cancelled';
 
     // Calculate end time
-    const now = new Date();
-    const sessionDateTime = new Date(session.sessionDate);
-    const [hours, minutes] = session.sessionTime.split(':').map(Number);
-    sessionDateTime.setHours(hours, minutes, 0, 0);
-    const durationInMs = (session.duration || 60) * 60 * 1000;
+    // Calculate end time
+    // Logic removed as it relies on strict backend status
+
     // If time has passed, treat as completed (even if status update hasn't persisted yet)
     // removed local override to respect strict participation rules from backend
     // if (now > endTime) {

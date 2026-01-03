@@ -17,7 +17,7 @@ interface SessionChatProps {
 }
 
 const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName }) => {
-    const { token, user } = useAuth();
+    const { token } = useAuth();
     const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);

@@ -1,12 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import { MENTAL_HEALTH_TESTS } from '../data/mentalHealthTests';
 import { API_CONFIG } from '../config/api';
 
 const MyTestsPage: React.FC = () => {
     const navigate = useNavigate();
-    const { user } = useAuth();
 
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [assessments, setAssessments] = useState<any[]>([]);
@@ -109,8 +107,8 @@ const MyTestsPage: React.FC = () => {
                             key={type.id}
                             onClick={() => setFilterType(type.id)}
                             className={`px-5 py-2 rounded-full font-medium text-sm transition-all ${filterType === type.id
-                                    ? 'bg-white text-teal-600 shadow-md'
-                                    : 'bg-white/60 text-gray-600 hover:bg-white hover:shadow-sm'
+                                ? 'bg-white text-teal-600 shadow-md'
+                                : 'bg-white/60 text-gray-600 hover:bg-white hover:shadow-sm'
                                 }`}
                             style={{ fontFamily: 'Inter, sans-serif' }}
                         >
