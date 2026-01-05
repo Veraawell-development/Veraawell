@@ -17,7 +17,7 @@ const logger = createLogger('AUTH-CONFIG');
  */
 function getJWTSecret() {
   const secret = getEnv('JWT_SECRET');
-  
+
   if (!secret) {
     if (isProduction()) {
       logger.error('JWT_SECRET is required in production!');
@@ -27,7 +27,7 @@ function getJWTSecret() {
     logger.warn('JWT_SECRET not set, using development fallback');
     return 'veraawell_jwt_secret_key_2024_development_environment_secure_token_generation';
   }
-  
+
   return secret;
 }
 
@@ -36,7 +36,7 @@ function getJWTSecret() {
  */
 function getAdminJWTSecret() {
   const secret = getEnv('ADMIN_JWT_SECRET');
-  
+
   if (!secret) {
     if (isProduction()) {
       logger.error('ADMIN_JWT_SECRET is required in production!');
@@ -45,7 +45,7 @@ function getAdminJWTSecret() {
     // Use same secret as regular JWT in development if not set
     return getJWTSecret();
   }
-  
+
   return secret;
 }
 
@@ -54,7 +54,7 @@ function getAdminJWTSecret() {
  */
 function getSessionSecret() {
   const secret = getEnv('SESSION_SECRET');
-  
+
   if (!secret) {
     if (isProduction()) {
       // Generate random secret in production if not set (not ideal but better than crash)
@@ -64,7 +64,7 @@ function getSessionSecret() {
     // Generate random secret in development
     return crypto.randomBytes(64).toString('hex');
   }
-  
+
   return secret;
 }
 
@@ -74,7 +74,7 @@ function getSessionSecret() {
 function getOAuthConfig() {
   const clientId = getEnv('GOOGLE_CLIENT_ID');
   const clientSecret = getEnv('GOOGLE_CLIENT_SECRET');
-  
+
   return {
     enabled: !!(clientId && clientSecret),
     clientId,
@@ -91,7 +91,7 @@ function getCookieConfig() {
     secure: isProduction(),
     sameSite: isProduction() ? 'none' : 'lax',
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    domain: isProduction() ? '.veraawell.com' : undefined,
+    domain: undefined, // No domain restriction for cross-origin (Vercel <-> Render)
     path: '/'
   };
 }
@@ -104,7 +104,7 @@ function getSessionCookieConfig() {
     secure: isProduction(),
     sameSite: isProduction() ? 'none' : 'lax',
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    domain: isProduction() ? '.veraawell.com' : undefined
+    domain: undefined // No domain restriction for cross-origin (Vercel <-> Render)
   };
 }
 
@@ -112,8 +112,8 @@ function getSessionCookieConfig() {
  * Get frontend URL
  */
 function getFrontendUrl() {
-  return getEnv('FRONTEND_URL', isProduction() 
-    ? 'https://veraawell.com' 
+  return getEnv('FRONTEND_URL', isProduction()
+    ? 'https://veraawell.com'
     : 'http://localhost:5173'
   );
 }

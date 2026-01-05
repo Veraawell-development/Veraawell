@@ -1,5 +1,6 @@
 const express = require('express');
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 const router = express.Router();
 const Session = require('../models/session');
 const Conversation = require('../models/conversation');
@@ -7,6 +8,7 @@ const User = require('../models/user');
 const DoctorProfile = require('../models/doctorProfile');
 const { verifyToken } = require('../middleware/auth.middleware');
 const { updateSessionStatuses } = require('../utils/sessionUpdater');
+
 
 
 // Get session statistics for doctor

@@ -1,0 +1,74 @@
+# Render Blueprint for Veerawell Backend
+# This file defines the infrastructure for deploying the backend on Render
+
+services:
+  # Web Service - Backend API
+  - type: web
+    name: veraawell-backend
+    runtime: node
+    region: oregon # Change to your preferred region
+    plan: free # Change to 'starter' or higher for production
+    buildCommand: npm install
+    startCommand: npm start
+    rootDir: server
+    
+    # Health check endpoint
+    healthCheckPath: /api/health
+    
+    # Environment variables
+    # IMPORTANT: Add sensitive values in Render Dashboard, not here
+    envVars:
+      - key: NODE_ENV
+        value: production
+      
+      # Database - Set in Render Dashboard
+      - key: MONGO_URI
+        sync: false # Must be set manually in dashboard
+      
+      # Authentication Secrets - Set in Render Dashboard
+      - key: JWT_SECRET
+        sync: false # Must be set manually in dashboard
+      
+      - key: SESSION_SECRET
+        sync: false # Must be set manually in dashboard
+      
+      - key: ADMIN_JWT_SECRET
+        sync: false # Must be set manually in dashboard
+      
+      # Frontend URL - Update after Vercel deployment
+      - key: FRONTEND_URL
+        value: https://veraawell.vercel.app # Update with your actual Vercel URL
+      
+      # Optional: Google OAuth
+      - key: GOOGLE_CLIENT_ID
+        sync: false # Optional - set if using OAuth
+      
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false # Optional - set if using OAuth
+      
+      # Optional: Email Service
+      - key: EMAIL_USER
+        sync: false # Optional - set if using email
+      
+      - key: EMAIL_PASS
+        sync: false # Optional - set if using email
+      
+      # Optional: Admin Credentials
+      - key: ADMIN_ID
+        value: admin@gmail.com # Change as needed
+      
+      - key: ADMIN_PASSWORD
+        sync: false # Must be set manually in dashboard
+    
+    # Auto-deploy on push to main branch
+    autoDeploy: true
+    
+    # Scaling (Free tier: 1 instance, Starter+: can scale)
+    numInstances: 1
+
+# Notes:
+# 1. This file can be committed to your repo
+# 2. Sensitive values (marked sync: false) MUST be set in Render Dashboard
+# 3. Update FRONTEND_URL after deploying to Vercel
+# 4. Free tier spins down after 15 minutes of inactivity
+# 5. First request after spin down takes ~30 seconds
