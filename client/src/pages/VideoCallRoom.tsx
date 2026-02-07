@@ -149,12 +149,16 @@ const VideoCallRoom: React.FC = () => {
     }
   }, [connectionState, sessionData]);
 
-  // ✨ FIX: Force chat closed when session loads or when modals appear
+  // ✨ FIX: Force chat closed on mount and when modals appear
   useEffect(() => {
-    if (sessionData || showRatingModal || showReportModal) {
+    setShowChat(false);
+  }, []);
+
+  useEffect(() => {
+    if (showRatingModal || showReportModal) {
       setShowChat(false);
     }
-  }, [sessionData, showRatingModal, showReportModal]);
+  }, [showRatingModal, showReportModal]);
 
   const initializeCall = async () => {
     try {
@@ -972,8 +976,8 @@ const VideoCallRoom: React.FC = () => {
         </>
       )}
 
-      {/* Patient Chat Panel */}
-      {user?.role === 'patient' && !showRatingModal && (
+      {/* Patient Chat Panel - ✨ AGGRESSIVE FIX: Only render if showChat is TRUE */}
+      {user?.role === 'patient' && !showRatingModal && showChat && (
         <>
           {/* Chat Sidebar */}
           <div className="fixed inset-0 z-50 overflow-hidden pointer-events-none">
