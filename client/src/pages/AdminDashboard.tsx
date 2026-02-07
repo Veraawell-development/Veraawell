@@ -50,13 +50,15 @@ const AdminDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'approvals' | 'analytics'>('approvals');
   const navigate = useNavigate();
-  const { admin, logout } = useAdmin();
+  const { admin, logout, loading: adminLoading } = useAdmin();
 
-  const API_BASE_URL = window.location.hostname === 'localhost' 
-    ? 'http://localhost:5001/api' 
+  const API_BASE_URL = window.location.hostname === 'localhost'
+    ? 'http://localhost:5001/api'
     : 'https://veraawell-backend.onrender.com/api';
 
   useEffect(() => {
+    if (adminLoading) return;
+
     if (!admin) {
       navigate('/admin-login');
       return;
@@ -71,7 +73,7 @@ const AdminDashboard: React.FC = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      
+
       const [statsRes, analyticsRes, doctorsRes] = await Promise.all([
         fetch(`${API_BASE_URL}/admin/approvals/statistics`, { credentials: 'include' }),
         fetch(`${API_BASE_URL}/admin/approvals/analytics`, { credentials: 'include' }),
@@ -110,7 +112,7 @@ const AdminDashboard: React.FC = () => {
 
   const handleReject = async (doctorId: string) => {
     const reason = prompt('Enter rejection reason (optional):');
-    
+
     try {
       const response = await fetch(`${API_BASE_URL}/admin/approvals/doctors/${doctorId}/reject`, {
         method: 'POST',
@@ -158,30 +160,27 @@ const AdminDashboard: React.FC = () => {
       {sidebarOpen && <div className="fixed inset-0 z-40" onClick={() => setSidebarOpen(false)} />}
 
       {/* Sidebar */}
-      <div className={`fixed left-0 top-0 h-full w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${
-        sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-      }`} style={{ backgroundColor: '#7DA9A8' }}>
+      <div className={`fixed left-0 top-0 h-full w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`} style={{ backgroundColor: '#7DA9A8' }}>
         <div className="h-full flex flex-col p-4 text-white">
           <div className="mb-8">
             <h2 className="text-2xl font-bold" style={{ fontFamily: 'Bree Serif, serif' }}>Admin</h2>
             <p className="text-sm opacity-90" style={{ fontFamily: 'Inter, sans-serif' }}>{admin?.firstName} {admin?.lastName}</p>
           </div>
-          
+
           <div className="space-y-3 flex-1">
-            <div 
+            <div
               onClick={() => setActiveTab('approvals')}
-              className={`flex items-center space-x-3 cursor-pointer p-2 rounded-lg transition-colors ${
-                activeTab === 'approvals' ? 'bg-white/20' : 'hover:bg-white/10'
-              }`}
+              className={`flex items-center space-x-3 cursor-pointer p-2 rounded-lg transition-colors ${activeTab === 'approvals' ? 'bg-white/20' : 'hover:bg-white/10'
+                }`}
             >
               <FiUserCheck className="w-5 h-5" />
               <span style={{ fontFamily: 'Inter, sans-serif' }}>Approvals</span>
             </div>
-            <div 
+            <div
               onClick={() => setActiveTab('analytics')}
-              className={`flex items-center space-x-3 cursor-pointer p-2 rounded-lg transition-colors ${
-                activeTab === 'analytics' ? 'bg-white/20' : 'hover:bg-white/10'
-              }`}
+              className={`flex items-center space-x-3 cursor-pointer p-2 rounded-lg transition-colors ${activeTab === 'analytics' ? 'bg-white/20' : 'hover:bg-white/10'
+                }`}
             >
               <FiActivity className="w-5 h-5" />
               <span style={{ fontFamily: 'Inter, sans-serif' }}>Analytics</span>

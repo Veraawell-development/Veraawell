@@ -47,9 +47,17 @@ import DoctorTasksDetailPage from './pages/DoctorTasksDetailPage';
 import DoctorSessionNotesPage from './pages/DoctorSessionNotesPage';
 import DoctorSessionNotesDetailPage from './pages/DoctorSessionNotesDetailPage';
 import ProfileSetupPage from './pages/ProfileSetupPage';
+import PatientProfileSetupPage from './pages/PatientProfileSetupPage';
 import ManageCalendar from './pages/ManageCalendar';
 import MessagesPage from './pages/MessagesPage';
 import MyTestsPage from './pages/MyTestsPage';
+import MyTherapistPage from './pages/MyTherapistPage';
+import FAQPage from './pages/FAQPage';
+import ArticlesPage from './pages/ArticlesPage';
+import ArticleDetailPage from './pages/ArticleDetailPage';
+import AdminArticlesPage from './pages/AdminArticlesPage';
+import AdminArticleEditorPage from './pages/AdminArticleEditorPage';
+import VideosPage from './pages/VideosPage';
 
 
 function AppRoutes() {
@@ -161,10 +169,9 @@ function AppRoutes() {
   useEffect(() => {
     if (isLoggedIn && user) {
       const { role } = user;
-      const isLandingPage = location.pathname === '/';
       const isAuthPage = location.pathname === '/login' || location.pathname === '/signup';
 
-      if (isLandingPage || isAuthPage) {
+      if (isAuthPage) {
         if (role === 'patient') {
           navigate('/patient-dashboard', { replace: true });
         } else if (role === 'doctor') {
@@ -226,12 +233,17 @@ function AppRoutes() {
         <Route path="/super-admin-dashboard" element={<SuperAdminDashboard />} />
         <Route path="/partner" element={<PartnerPage />} />
         <Route path="/resources" element={<ResourcesPage />} />
+        <Route path="/resources/articles" element={<ArticlesPage />} />
+        <Route path="/resources/articles/:slug" element={<ArticleDetailPage />} />
+        <Route path="/resources/videos" element={<VideosPage />} />
+        <Route path="/faq" element={<FAQPage />} />
         <Route path="/book-session/:doctorId" element={<BookSessionPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/mental-health" element={<MentalHealthDashboard />} />
         <Route path="/mental-health/:testType" element={<MentalHealthTestPage />} />
         <Route path="/test-results/:id" element={<TestResultsPage />} />
         <Route path="/my-tests" element={<MyTestsPage />} />
+        <Route path="/my-therapists" element={<MyTherapistPage />} />
         <Route path="/video-call/:sessionId" element={<VideoCallRoom />} />
         <Route path="/call-history" element={<CallHistoryPage />} />
         <Route path="/pending-tasks" element={<PendingTasksPage />} />
@@ -245,6 +257,12 @@ function AppRoutes() {
         <Route path="/doctor-session-notes" element={<DoctorSessionNotesPage />} />
         <Route path="/doctor-session-notes/:patientId" element={<DoctorSessionNotesDetailPage />} />
         <Route path="/profile-setup" element={<ProfileSetupPage />} />
+        <Route path="/patient-profile-setup" element={<PatientProfileSetupPage />} />
+
+        {/* Admin Article Management Routes */}
+        <Route path="/admin/articles" element={<AdminArticlesPage />} />
+        <Route path="/admin/articles/new" element={<AdminArticleEditorPage />} />
+        <Route path="/admin/articles/edit/:id" element={<AdminArticleEditorPage />} />
       </Routes>
     </main>
   );

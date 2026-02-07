@@ -1,78 +1,74 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
+
+interface Review {
+  _id: string;
+  rating: number;
+  feedback: string;
+  patientId: {
+    firstName: string;
+    lastName: string;
+  };
+  createdAt: string;
+}
 
 export default function Reviews() {
-  const testimonials = [
+  const [reviews, setReviews] = useState<Review[]>([]);
+
+  const API_BASE_URL = window.location.hostname === 'localhost'
+    ? 'http://localhost:5001/api'
+    : 'https://veraawell-backend.onrender.com/api';
+
+  // Predefined background colors for variety
+  const bgColors = [
+    "bg-[#A594C4]",
+    "bg-[#7BC3E8]",
+    "bg-[#9BC49A]",
+    "bg-[#F4B87A]",
+    "bg-[#E89B9B]",
+    "bg-[#B8A9E8]",
+    "bg-[#A8D8A8]",
+    "bg-[#F4C87A]"
+  ];
+
+  useEffect(() => {
+    fetchPlatformReviews();
+  }, []);
+
+  const fetchPlatformReviews = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/reviews/platform?limit=20`);
+      if (!response.ok) throw new Error('Failed to fetch reviews');
+
+      const data = await response.json();
+      setReviews(data.reviews || []);
+    } catch (error) {
+      console.error('Error fetching platform reviews:', error);
+      // Keep empty array if fetch fails
+    }
+  };
+
+  // Fallback to static reviews if no reviews are fetched
+  const displayReviews = reviews.length > 0 ? reviews : [
     {
-      name: "Isha",
+      _id: '1',
+      patientId: { firstName: 'Isha', lastName: '' },
       rating: 5,
-      text: "I came in feeling lost, and today I feel stronger and more in control of my life. Thank you, Veraawell, for your guidance and patience.",
-      bgColor: "bg-[#A594C4]"
+      feedback: "I came in feeling lost, and today I feel stronger and more in control of my life. Thank you, Veraawell, for your guidance and patience.",
+      createdAt: new Date().toISOString()
     },
     {
-      name: "Isha",
+      _id: '2',
+      patientId: { firstName: 'Rahul', lastName: '' },
       rating: 5,
-      text: "I came in feeling lost, and today I feel stronger and more in control of my life. Thank you, Veraawell, for your guidance and patience.",
-      bgColor: "bg-[#7BC3E8]"
+      feedback: "Veraawell has been a game-changer for my mental health journey. The therapists are compassionate and understanding.",
+      createdAt: new Date().toISOString()
     },
     {
-      name: "Isha",
-      rating: 5,
-      text: "I came in feeling lost, and today I feel stronger and more in control of my life. Thank you, Veraawell, for your guidance and patience.",
-      bgColor: "bg-[#9BC49A]"
-    },
-    {
-      name: "Isha",
-      rating: 3,
-      text: "I came in feeling lost, and today I feel stronger and more in control of my life. Thank you, Veraawell, for your guidance and patience.",
-      bgColor: "bg-[#F4B87A]"
-    },
-    {
-      name: "Rahul",
-      rating: 5,
-      text: "Veraawell has been a game-changer for my mental health journey. The therapists are compassionate and understanding.",
-      bgColor: "bg-[#E89B9B]"
-    },
-    {
-      name: "Priya",
+      _id: '3',
+      patientId: { firstName: 'Priya', lastName: '' },
       rating: 4,
-      text: "The platform is user-friendly and the sessions have helped me develop better coping strategies for stress and anxiety.",
-      bgColor: "bg-[#B8A9E8]"
-    },
-    {
-      name: "Arjun",
-      rating: 5,
-      text: "Professional service with genuine care. I've seen significant improvement in my mental wellness since joining.",
-      bgColor: "bg-[#A8D8A8]"
-    },
-    {
-      name: "Sneha",
-      rating: 4,
-      text: "The flexibility to schedule sessions at my convenience has made therapy accessible for my busy lifestyle.",
-      bgColor: "bg-[#F4C87A]"
-    },
-    {
-      name: "Amit",
-      rating: 5,
-      text: "I appreciate the confidentiality and ease of booking sessions. Veraawell is a blessing!",
-      bgColor: "bg-[#A594C4]"
-    },
-    {
-      name: "Neha",
-      rating: 4,
-      text: "Therapy at Veraawell has helped me regain my confidence and peace of mind.",
-      bgColor: "bg-[#7BC3E8]"
-    },
-    {
-      name: "Karan",
-      rating: 5,
-      text: "The therapists are knowledgeable and truly care about your progress.",
-      bgColor: "bg-[#9BC49A]"
-    },
-    {
-      name: "Simran",
-      rating: 5,
-      text: "The best mental health platform I've used so far. Highly recommend!",
-      bgColor: "bg-[#F4B87A]"
+      feedback: "The platform is user-friendly and the sessions have helped me develop better coping strategies for stress and anxiety.",
+      createdAt: new Date().toISOString()
     }
   ];
 
@@ -100,8 +96,8 @@ export default function Reviews() {
         {/* Header with Illustration */}
         <div className="relative flex justify-center mb-16">
           <div className="absolute md:-top-16 left-1/2 transform -translate-x-1/2 z-20 sm:-top-16 ">
-            <img 
-              src="/2453876 1.svg" 
+            <img
+              src="/2453876 1.svg"
               alt="People illustration"
               className="w-80 h-auto mt-3"
             />
@@ -118,40 +114,40 @@ export default function Reviews() {
             onClick={scrollLeft}
             className="hidden sm:flex absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-white rounded-full w-12 h-12 items-center justify-center shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50"
             aria-label="Scroll left"
-            style={{transform: 'translate(-50%, -50%)'}}
+            style={{ transform: 'translate(-50%, -50%)' }}
           >
             <span className="text-[#C17B5C] text-3xl font-bold">&#8249;</span>
           </button>
           <div
             ref={scrollRef}
             className="flex gap-4 sm:gap-6 md:gap-8 overflow-x-auto scroll-smooth pb-4 hide-scrollbar"
-            style={{scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch'}}
+            style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
           >
-            {testimonials.map((testimonial, index) => (
+            {displayReviews.map((review, index) => (
               <div
-                key={index}
+                key={review._id}
                 data-testimonial-card
                 className={`
-                  ${testimonial.bgColor}
+                  ${bgColors[index % bgColors.length]}
                   min-w-[85vw] max-w-[95vw] sm:min-w-[340px] sm:max-w-[370px] md:min-w-[320px] md:max-w-[350px]
                   rounded-[10px] border border-[rgba(0,0,0,0.16)] shadow-xl flex flex-col h-full p-5 sm:p-8 flex-shrink-0
                 `}
               >
                 <h3 className="text-white font-bold text-[22px] sm:text-[26px] md:text-[30px] font-bowlby mb-2 leading-tight">
-                  {testimonial.name}
+                  {review.patientId.firstName} {review.patientId.lastName && review.patientId.lastName.charAt(0) + '.'}
                 </h3>
                 <div className="flex items-center mb-4">
                   {Array.from({ length: 5 }, (_, starIndex) => (
                     <span
                       key={starIndex}
-                      className={`text-[24px] sm:text-[28px] md:text-[32px] mr-1 ${starIndex < testimonial.rating ? 'text-[#FFB800]' : 'text-white/40'}`}
+                      className={`text-[24px] sm:text-[28px] md:text-[32px] mr-1 ${starIndex < review.rating ? 'text-[#FFB800]' : 'text-white/40'}`}
                     >
                       ★
                     </span>
                   ))}
                 </div>
                 <p className="text-white font-bree text-[15px] sm:text-[18px] md:text-[22px] leading-snug">
-                  "{testimonial.text}"
+                  "{review.feedback}"
                 </p>
               </div>
             ))}
@@ -160,7 +156,7 @@ export default function Reviews() {
             onClick={scrollRight}
             className="hidden sm:flex absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-white rounded-full w-12 h-12 items-center justify-center shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50"
             aria-label="Scroll right"
-            style={{transform: 'translate(50%, -50%)'}}
+            style={{ transform: 'translate(50%, -50%)' }}
           >
             <span className="text-[#C17B5C] text-3xl font-bold">&#8250;</span>
           </button>

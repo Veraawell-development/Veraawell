@@ -16,19 +16,11 @@ const logger = createLogger('AUTH');
  */
 function extractToken(req) {
   // Check cookies first
-  let token = req.cookies.token || req.cookies.adminToken;
+  let token = null;
   let tokenSource = null;
 
-  if (token) {
-    tokenSource = req.cookies.token ? 'cookie:token' : 'cookie:adminToken';
-    logger.debug('Token extracted from cookie', {
-      source: tokenSource,
-      tokenPreview: token.substring(0, 20) + '...'
-    });
-  }
-
-  // If no cookie, check Authorization header
-  if (!token && req.headers.authorization) {
+  // Check Authorization header first (highest priority)
+  if (req.headers.authorization) {
     const authHeader = req.headers.authorization;
     if (authHeader.startsWith('Bearer ')) {
       token = authHeader.substring(7);
@@ -37,10 +29,20 @@ function extractToken(req) {
         source: tokenSource,
         tokenPreview: token.substring(0, 20) + '...'
       });
+      return token;
     }
   }
 
-  if (!token) {
+  // If no header, check cookies
+  token = req.cookies.token || req.cookies.adminToken;
+
+  if (token) {
+    tokenSource = req.cookies.token ? 'cookie:token' : 'cookie:adminToken';
+    logger.debug('Token extracted from cookie', {
+      source: tokenSource,
+      tokenPreview: token.substring(0, 20) + '...'
+    });
+  } else {
     logger.debug('No token found in request', {
       hasCookies: !!req.cookies,
       hasAuthHeader: !!req.headers.authorization
@@ -199,10 +201,24 @@ async function optionalAuth(req, res, next) {
   }
 }
 
+/**
+ * Verify specific role
+ */
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!req.user || !roles.includes(req.user.role)) {
+      return next(new AuthorizationError('Insufficient permissions'));
+    }
+    next();
+  };
+}
+
 module.exports = {
   verifyToken,
   verifyAdminToken,
   verifySuperAdmin,
+  requireRole,
   optionalAuth,
   extractToken
 };
+

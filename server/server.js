@@ -66,6 +66,29 @@ async function startServer() {
     // Connect to database
     await connectDatabase();
 
+    // Initialize session middleware AFTER database connection
+    const { initializeSessionMiddleware } = require('./app');
+    initializeSessionMiddleware();
+    logger.info('Session middleware initialized');
+
+    // Initialize WhatsApp Client (non-blocking)
+    const { initializeWhatsApp } = require('./services/whatsapp');
+    const { startScheduler } = require('./services/scheduler');
+
+    logger.info('Initializing WhatsApp notification service...');
+
+    // Start WhatsApp initialization in background
+    initializeWhatsApp()
+      .then(() => {
+        logger.info('WhatsApp notification service started successfully');
+        // Start scheduler after WhatsApp is ready
+        startScheduler();
+      })
+      .catch((error) => {
+        logger.error('Failed to initialize WhatsApp service:', error.message || error);
+        logger.warn('Server will continue without WhatsApp notifications');
+      });
+
     // Start HTTP server
     httpServer.listen(PORT, () => {
       showBanner();
@@ -90,7 +113,7 @@ async function startServer() {
  */
 async function gracefulShutdown(signal) {
   logger.info(`${signal} received, shutting down gracefully...`);
-  
+
   try {
     // Close HTTP server
     httpServer.close(() => {

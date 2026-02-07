@@ -44,6 +44,22 @@ const reviewSchema = new mongoose.Schema({
     type: Boolean,
     default: true
   },
+  // Review type - for doctor profile or platform landing page
+  reviewType: {
+    type: String,
+    enum: ['doctor', 'platform'],
+    required: true,
+    default: 'doctor'
+  },
+  // Public display flags
+  isPublic: {
+    type: Boolean,
+    default: false
+  },
+  approvedForDisplay: {
+    type: Boolean,
+    default: false
+  },
   // Admin review status
   reviewStatus: {
     type: String,
@@ -72,9 +88,11 @@ const reviewSchema = new mongoose.Schema({
 reviewSchema.index({ doctorId: 1, createdAt: -1 });
 reviewSchema.index({ sessionId: 1 });
 reviewSchema.index({ reviewStatus: 1 });
+reviewSchema.index({ reviewType: 1, approvedForDisplay: 1 });
+reviewSchema.index({ doctorId: 1, approvedForDisplay: 1 });
 
 // Static method to calculate doctor's average rating
-reviewSchema.statics.getDoctorStats = async function(doctorId) {
+reviewSchema.statics.getDoctorStats = async function (doctorId) {
   const stats = await this.aggregate([
     { $match: { doctorId: mongoose.Types.ObjectId(doctorId) } },
     {

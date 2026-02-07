@@ -22,7 +22,7 @@ export interface Session {
   _id: string;
   sessionDate: string;
   sessionTime: string;
-  status: 'scheduled' | 'completed' | 'cancelled' | 'no-show';
+  status: 'scheduled' | 'completed' | 'cancelled' | 'no-show' | 'ended';
   sessionType: 'regular' | 'immediate' | 'follow-up';
   patientId: {
     _id: string;
@@ -37,6 +37,11 @@ export interface Session {
   meetingLink?: string;
   price: number;
   duration?: number;
+  rating?: {
+    score: number;
+    review: string;
+    ratedAt: string;
+  };
 }
 
 // ============================================================================

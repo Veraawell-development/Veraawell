@@ -24,6 +24,11 @@ const setupProfile = asyncHandler(async (req, res) => {
 
   const {
     name,
+    phoneNumber,
+    dateOfBirth,
+    gender,
+    emergencyContact,
+    profileImage,
     qualification,
     languages,
     type,
@@ -36,10 +41,29 @@ const setupProfile = asyncHandler(async (req, res) => {
     introduction
   } = req.body;
 
+  // Update user's phone number if provided (for all users)
+  if (phoneNumber !== undefined) {
+    user.phoneNumber = phoneNumber;
+  }
+
+  // Update basic info if provided
+  if (dateOfBirth) user.dateOfBirth = dateOfBirth;
+  if (gender) user.gender = gender;
+
+  // Update emergency contact if provided
+  if (emergencyContact) {
+    user.emergencyContact = {
+      name: emergencyContact.name || user.emergencyContact?.name || null,
+      phone: emergencyContact.phone || user.emergencyContact?.phone || null,
+      relationship: emergencyContact.relationship || user.emergencyContact?.relationship || null
+    };
+  }
+
   // If user is a doctor, create/update doctor profile
   if (user.role === 'doctor') {
     const profileData = {
       userId: user._id,
+      profileImage: profileImage || '',
       qualification: qualification || [],
       languages: languages || [],
       type: type || '',
@@ -47,10 +71,10 @@ const setupProfile = asyncHandler(async (req, res) => {
       specialization: specialization || [],
       treatsFor: specialization || [],
       pricing: {
-        min: pricing?.discovery || pricing?.session30 || 0,
-        max: pricing?.session45 || pricing?.session30 || 0
+        min: pricing?.session20 || pricing?.session40 || 0,
+        max: pricing?.session55 || pricing?.session40 || 0
       },
-      modeOfSession: modeOfSession || '',
+      modeOfSession: modeOfSession || [],
       quote: quote || '',
       quoteAuthor: quoteAuthor || '',
       bio: introduction || '',
@@ -122,15 +146,17 @@ const getProfile = asyncHandler(async (req, res) => {
       success: true,
       profile: {
         name: `${user.firstName} ${user.lastName}`.trim(),
+        profileImage: doctorProfile.profileImage || '',
         qualification: doctorProfile.qualification || [],
         languages: doctorProfile.languages || [],
         type: doctorProfile.type || '',
         experience: doctorProfile.experience?.toString() || '',
         specialization: doctorProfile.specialization || [],
-        priceDiscovery: doctorProfile.pricing?.min?.toString() || '',
-        price30: doctorProfile.pricing?.min?.toString() || '',
-        price45: doctorProfile.pricing?.max?.toString() || '',
-        modeOfSession: doctorProfile.modeOfSession || '',
+        priceDiscovery: '',
+        price20: doctorProfile.pricing?.min?.toString() || '',
+        price40: doctorProfile.pricing?.min?.toString() || '',
+        price55: doctorProfile.pricing?.max?.toString() || '',
+        modeOfSession: doctorProfile.modeOfSession || [],
         quote: doctorProfile.quote || '',
         quoteAuthor: doctorProfile.quoteAuthor || '',
         introduction: doctorProfile.bio || ''
@@ -142,14 +168,57 @@ const getProfile = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     profile: {
-      name: `${user.firstName} ${user.lastName}`.trim()
+      name: `${user.firstName} ${user.lastName}`.trim(),
+      phoneNumber: user.phoneNumber || '',
+      countryCode: user.countryCode || '91',
+      dateOfBirth: user.dateOfBirth || null,
+      gender: user.gender || null,
+      emergencyContact: user.emergencyContact || {
+        name: null,
+        phone: null,
+        relationship: null
+      }
     }
+  });
+});
+
+/**
+ * Update user profile (for phone number and basic info)
+ */
+const updateProfile = asyncHandler(async (req, res) => {
+  const userId = req.user._id;
+  const { phoneNumber, countryCode } = req.body;
+
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new NotFoundError('User');
+  }
+
+  // Update phone number if provided
+  if (phoneNumber !== undefined) {
+    user.phoneNumber = phoneNumber;
+  }
+
+  if (countryCode !== undefined) {
+    user.countryCode = countryCode;
+  }
+
+  await user.save();
+
+  logger.info('Profile updated', { userId: user._id.toString().substring(0, 8) });
+
+  res.json({
+    success: true,
+    message: 'Profile updated successfully',
+    phoneNumber: user.phoneNumber,
+    countryCode: user.countryCode
   });
 });
 
 module.exports = {
   setupProfile,
   getProfileStatus,
-  getProfile
+  getProfile,
+  updateProfile
 };
 

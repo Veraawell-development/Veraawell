@@ -24,3 +24,9 @@ dist-ssr
 *.sw?
 .config.env
 .env
+# WhatsApp Web Session Data
+server/.wwebjs_auth/
+server/.wwebjs_cache/
+
+# Environment variables
+server/.env

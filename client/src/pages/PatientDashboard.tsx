@@ -2,9 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Calendar from '../components/Calendar';
 import SessionModal from '../components/SessionModal';
+import RatingModal from '../components/RatingModal';
 import WelcomeModal from '../components/WelcomeModal';
 import BookingPreferenceModal from '../components/BookingPreferenceModal';
 import EmergencyHotlineModal from '../components/EmergencyHotlineModal';
+import PatientCalendarModal from '../components/PatientCalendarModal';
 import { useAuth } from '../context/AuthContext';
 import { API_CONFIG } from '../config/api';
 import { formatDate } from '../utils/dateUtils';
@@ -27,6 +29,10 @@ const PatientDashboard: React.FC = () => {
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [isHotlineModalOpen, setIsHotlineModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [latestScores, setLatestScores] = useState<Record<string, any>>({});
+  const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [sessionToRate, setSessionToRate] = useState<Session | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -36,12 +42,13 @@ const PatientDashboard: React.FC = () => {
       setLoading(true);
       try {
         // Parallel API calls for better performance
-        const [profileRes, reportsRes, tasksRes, journalRes, unreadRes] = await Promise.all([
+        const [profileRes, reportsRes, tasksRes, journalRes, unreadRes, scoresRes] = await Promise.all([
           fetch(`${API_CONFIG.BASE_URL}/auth/profile`, { credentials: 'include' }),
           fetch(`${API_CONFIG.BASE_URL}/session-tools/reports/patient/${user.userId}`, { credentials: 'include' }),
           fetch(`${API_CONFIG.BASE_URL}/session-tools/tasks/patient/${user.userId}?status=pending`, { credentials: 'include' }),
           fetch(`${API_CONFIG.BASE_URL}/session-tools/journal/patient/${user.userId}`, { credentials: 'include' }),
-          fetch(`${API_CONFIG.BASE_URL}/chat/unread-count`, { credentials: 'include' })
+          fetch(`${API_CONFIG.BASE_URL}/chat/unread-count`, { credentials: 'include' }),
+          fetch(`${API_CONFIG.BASE_URL}/assessments/stats/summary`, { credentials: 'include' })
         ]);
 
         if (profileRes.ok) {
@@ -68,6 +75,15 @@ const PatientDashboard: React.FC = () => {
           const data = await unreadRes.json();
           setUnreadCount(data.unreadCount || 0);
         }
+
+        if (scoresRes.ok) {
+          const stats = await scoresRes.json();
+          const scoresMap: Record<string, any> = {};
+          stats.forEach((stat: any) => {
+            scoresMap[stat._id] = stat;
+          });
+          setLatestScores(scoresMap);
+        }
       } catch (error) {
         logger.error('Error loading dashboard data:', error);
       } finally {
@@ -77,6 +93,7 @@ const PatientDashboard: React.FC = () => {
 
     loadDashboardData();
     setCalendarRefreshTrigger(prev => prev + 1);
+    checkForUnratedSessions();
 
     // Show welcome modal only once
     const hasSeenWelcome = localStorage.getItem(`welcomeModal_${user.userId}`);
@@ -84,6 +101,109 @@ const PatientDashboard: React.FC = () => {
       setShowWelcomeModal(true);
     }
   }, [user]);
+
+  // Check for unrated completed sessions
+  const checkForUnratedSessions = async () => {
+    try {
+      console.log('[AUTO-RATING] Checking for unrated sessions...');
+
+      const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/call-history`, {
+        credentials: 'include'
+      });
+
+      console.log('[AUTO-RATING] Response status:', response.status);
+
+      if (response.ok) {
+        const sessions = await response.json();
+        console.log('[AUTO-RATING] Total sessions:', sessions.length);
+        console.log('[AUTO-RATING] Sessions:', sessions);
+
+        // Find the most recent completed session without a rating
+        const unratedSession = sessions.find((session: Session) => {
+          console.log(`[AUTO-RATING] Session ${session._id}:`, {
+            status: session.status,
+            hasRating: !!session.rating,
+            ratingScore: session.rating?.score,
+            doctorName: `${session.doctorId?.firstName} ${session.doctorId?.lastName}`
+          });
+
+          // Check if session is completed (might be 'ended' or other status)
+          const isCompleted = session.status === 'completed' || session.status === 'ended';
+          const hasNoRating = !session.rating || !session.rating.score;
+
+          return isCompleted && hasNoRating;
+        });
+
+        console.log('[AUTO-RATING] Unrated session found:', unratedSession);
+
+        if (unratedSession) {
+          // Check if we've already shown rating modal for this session
+          const ratedSessions = JSON.parse(localStorage.getItem('ratedSessions') || '[]');
+          console.log('[AUTO-RATING] Previously rated sessions:', ratedSessions);
+
+          if (!ratedSessions.includes(unratedSession._id)) {
+            console.log('[AUTO-RATING] Showing rating modal for session:', unratedSession._id);
+            setSessionToRate(unratedSession);
+            setShowRatingModal(true);
+          } else {
+            console.log('[AUTO-RATING] Session already rated/dismissed');
+          }
+        } else {
+          console.log('[AUTO-RATING] No unrated sessions found');
+        }
+      }
+    } catch (error) {
+      console.error('[AUTO-RATING] Error checking for unrated sessions:', error);
+      logger.error('Error checking for unrated sessions:', error);
+    }
+  };
+
+  // Handle rating submission
+  const handleRatingSubmit = async (ratingData: { score: number; review: string }) => {
+    if (!sessionToRate) return;
+
+    try {
+      console.log('[RATING] Submitting rating from dashboard:', { sessionId: sessionToRate._id, score: ratingData.score });
+
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_CONFIG.BASE_URL}/ratings/${sessionToRate._id}/rate`, {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify(ratingData)
+      });
+
+      console.log('[RATING] Response status:', response.status);
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[RATING] Success:', data);
+
+        // Mark this session as rated
+        const ratedSessions = JSON.parse(localStorage.getItem('ratedSessions') || '[]');
+        ratedSessions.push(sessionToRate._id);
+        localStorage.setItem('ratedSessions', JSON.stringify(ratedSessions));
+
+        setShowRatingModal(false);
+        setSessionToRate(null);
+        alert('Thank you for your rating!');
+      } else {
+        const data = await response.json();
+        console.error('[RATING] Error response:', data);
+        alert(data.message || 'Failed to submit rating');
+      }
+    } catch (error) {
+      console.error('Error submitting rating:', error);
+      alert('Failed to submit rating');
+    }
+  };
 
   // Removed individual fetch functions - now using parallel loading in useEffect
 
@@ -98,6 +218,106 @@ const PatientDashboard: React.FC = () => {
       logger.error('Logout error:', error);
       window.location.href = '/';
     }
+  };
+
+  const getSeverityColor = (score: number, maxScore: number) => {
+    const percentage = (score / maxScore) * 100;
+    if (percentage >= 75) return '#EF4444'; // Red - Severe
+    if (percentage >= 50) return '#F59E0B'; // Orange - Moderate
+    if (percentage >= 25) return '#FCD34D'; // Yellow - Mild
+    return '#10B981'; // Green - Minimal
+  };
+
+  const getSeverityLabel = (score: number, maxScore: number) => {
+    const percentage = (score / maxScore) * 100;
+    if (percentage >= 75) return 'Severe';
+    if (percentage >= 50) return 'Moderate';
+    if (percentage >= 25) return 'Mild';
+    return 'Minimal';
+  };
+
+  const renderTestCard = (testId: string, testName: string, maxScore: number) => {
+    const scoreData = latestScores[testId];
+    const hasScore = scoreData && scoreData.latestScore !== undefined;
+    const score = hasScore ? scoreData.latestScore : 0;
+    const percentage = (score / maxScore) * 100;
+    const severityColor = getSeverityColor(score, maxScore);
+    const severityLabel = getSeverityLabel(score, maxScore);
+
+    // Format date
+    const lastTaken = hasScore && scoreData.latestDate
+      ? new Date(scoreData.latestDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      : null;
+
+    return (
+      <div key={testId} className="bg-white p-4 rounded-lg border border-gray-200 flex flex-col">
+        <p className="text-gray-700 text-sm font-semibold mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+          {testName}
+        </p>
+
+        {hasScore ? (
+          <>
+            {/* Score Display */}
+            <div className="mb-3">
+              <div className="flex items-baseline justify-center gap-1 mb-1">
+                <span className="text-3xl font-bold" style={{ color: severityColor, fontFamily: 'Bree Serif, serif' }}>
+                  {score}
+                </span>
+                <span className="text-gray-500 text-sm">/{maxScore}</span>
+              </div>
+              <p className="text-xs text-center font-medium" style={{ color: severityColor, fontFamily: 'Inter, sans-serif' }}>
+                {severityLabel}
+              </p>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="mb-3">
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div
+                  className="h-2 rounded-full transition-all duration-500"
+                  style={{
+                    width: `${Math.min(percentage, 100)}%`,
+                    backgroundColor: severityColor
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* Last Taken Date */}
+            {lastTaken && (
+              <p className="text-xs text-gray-500 text-center mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
+                Taken on {lastTaken}
+              </p>
+            )}
+
+            {/* Retest Button */}
+            <button
+              onClick={() => navigate(`/mental-health/${testId}`)}
+              className="text-sm font-semibold hover:underline mt-auto"
+              style={{ color: '#ABA5D1', fontFamily: 'Inter, sans-serif' }}
+            >
+              Retest
+            </button>
+          </>
+        ) : (
+          <>
+            {/* No Score - Take Test */}
+            <div className="flex-1 flex items-center justify-center py-4">
+              <p className="text-gray-400 text-xs mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                Not taken yet
+              </p>
+            </div>
+            <button
+              onClick={() => navigate(`/mental-health/${testId}`)}
+              className="text-base font-semibold hover:underline"
+              style={{ color: '#ABA5D1', fontFamily: 'Inter, sans-serif' }}
+            >
+              Take Test
+            </button>
+          </>
+        )}
+      </div>
+    );
   };
 
   const handleSessionClick = (session: Session) => {
@@ -152,7 +372,7 @@ const PatientDashboard: React.FC = () => {
 
             <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
-              onClick={() => { navigate('/profile-setup'); setSidebarOpen(false); }}
+              onClick={() => { navigate('/patient-profile-setup'); setSidebarOpen(false); }}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
@@ -198,6 +418,16 @@ const PatientDashboard: React.FC = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
               </svg>
               <span className="text-base font-medium">My Journal</span>
+            </div>
+
+            <div
+              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
+              onClick={() => { navigate('/my-therapists'); setSidebarOpen(false); }}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+              </svg>
+              <span className="text-base font-medium">My Therapists</span>
             </div>
 
             <div
@@ -356,51 +586,36 @@ const PatientDashboard: React.FC = () => {
                 <h3 className="text-2xl font-bold text-center" style={{ fontFamily: 'Bree Serif, serif' }}>Mental Health Screening</h3>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 flex-1">
-                <div className="bg-white p-4 text-center flex flex-col justify-center rounded-lg border border-gray-200">
-                  <p className="text-gray-600 text-sm mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>Depression Score</p>
-                  <button
-                    onClick={() => navigate('/mental-health/depression')}
-                    className="text-base font-semibold hover:underline"
-                    style={{ color: '#ABA5D1', fontFamily: 'Inter, sans-serif' }}
-                  >
-                    Take Test
-                  </button>
-                </div>
-                <div className="bg-white p-4 text-center flex flex-col justify-center rounded-lg border border-gray-200">
-                  <p className="text-gray-600 text-sm mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>Anxiety Score</p>
-                  <button
-                    onClick={() => navigate('/mental-health/anxiety')}
-                    className="text-base font-semibold hover:underline"
-                    style={{ color: '#ABA5D1', fontFamily: 'Inter, sans-serif' }}
-                  >
-                    Take Test
-                  </button>
-                </div>
-                <div className="bg-white p-4 text-center flex flex-col justify-center rounded-lg border border-gray-200">
-                  <p className="text-gray-600 text-sm mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>ADHD Score</p>
-                  <button
-                    onClick={() => navigate('/mental-health/adhd')}
-                    className="text-base font-semibold hover:underline"
-                    style={{ color: '#ABA5D1', fontFamily: 'Inter, sans-serif' }}
-                  >
-                    Take Test
-                  </button>
-                </div>
-                <div className="bg-white p-4 text-center flex flex-col justify-center rounded-lg border border-gray-200">
-                  <p className="text-gray-600 text-sm mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>DLA- 20</p>
-                  <button
-                    onClick={() => navigate('/mental-health/dla20')}
-                    className="text-base font-semibold hover:underline"
-                    style={{ color: '#ABA5D1', fontFamily: 'Inter, sans-serif' }}
-                  >
-                    Take Test
-                  </button>
-                </div>
+                {/* Depression Test Card */}
+                {renderTestCard('depression', 'Depression Score', 27)}
+
+                {/* Anxiety Test Card */}
+                {renderTestCard('anxiety', 'Anxiety Score', 21)}
+
+                {/* ADHD Test Card */}
+                {renderTestCard('adhd', 'ADHD Score', 72)}
+
+                {/* DLA-20 Test Card */}
+                {renderTestCard('disability', 'DLA-20', 80)}
               </div>
             </div>
 
             {/* Calendar Card */}
             <div className="flex flex-col">
+              {/* Manage Calendar Button */}
+              <div className="mb-4">
+                <button
+                  onClick={() => setIsCalendarModalOpen(true)}
+                  className="w-full px-6 py-3 text-white rounded-xl font-semibold hover:shadow-lg transition-all flex items-center justify-center gap-2"
+                  style={{ backgroundColor: '#ABA5D1', fontFamily: 'Inter, sans-serif' }}
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  Manage Calendar
+                </button>
+              </div>
+
               <Calendar
                 userRole="patient"
                 onSessionClick={handleSessionClick}
@@ -508,6 +723,30 @@ const PatientDashboard: React.FC = () => {
         isOpen={isHotlineModalOpen}
         onClose={() => setIsHotlineModalOpen(false)}
       />
+
+      {/* Patient Calendar Modal */}
+      <PatientCalendarModal
+        isOpen={isCalendarModalOpen}
+        onClose={() => setIsCalendarModalOpen(false)}
+      />
+
+      {/* Auto Rating Modal */}
+      {sessionToRate && sessionToRate.doctorId && (
+        <RatingModal
+          isOpen={showRatingModal}
+          sessionId={sessionToRate._id}
+          doctorName={`Dr. ${sessionToRate.doctorId.firstName} ${sessionToRate.doctorId.lastName}`}
+          onClose={() => {
+            setShowRatingModal(false);
+            // Mark as dismissed so it doesn't show again
+            const ratedSessions = JSON.parse(localStorage.getItem('ratedSessions') || '[]');
+            ratedSessions.push(sessionToRate._id);
+            localStorage.setItem('ratedSessions', JSON.stringify(ratedSessions));
+            setSessionToRate(null);
+          }}
+          onSubmit={handleRatingSubmit}
+        />
+      )}
     </div>
   );
 };

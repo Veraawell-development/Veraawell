@@ -4,6 +4,8 @@ import { useAuth } from '../context/AuthContext';
 import { io, Socket } from 'socket.io-client';
 import SessionToolsModal from '../components/SessionToolsModal';
 import SessionChat from '../components/SessionChat';
+import PostSessionReportModal from '../components/PostSessionReportModal';
+import RatingModal from '../components/RatingModal';
 
 const VideoCallRoom: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -30,6 +32,8 @@ const VideoCallRoom: React.FC = () => {
   const [showChat, setShowChat] = useState(false);
   const [sessionData, setSessionData] = useState<any>(null);
   const [_loadingSession, setLoadingSession] = useState(true);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [showRatingModal, setShowRatingModal] = useState(false);
 
   const API_BASE_URL = window.location.hostname === 'localhost'
     ? 'http://localhost:5001'
@@ -71,12 +75,17 @@ const VideoCallRoom: React.FC = () => {
     if (!sessionId || !user) return;
 
     fetchSessionData();
-    initializeCall();
 
     return () => {
       cleanup();
     };
   }, [sessionId, user]);
+
+  useEffect(() => {
+    if (sessionData && !peerConnectionRef.current) {
+      initializeCall();
+    }
+  }, [sessionData]);
 
   useEffect(() => {
     // Start countdown timer when connected and session data is available
@@ -126,7 +135,7 @@ const VideoCallRoom: React.FC = () => {
     try {
       // Validate authentication before proceeding
       if (!token) {
-        console.error('[VIDEO-CALL] ❌ No authentication token available');
+        console.error('[VIDEO-CALL]  No authentication token available');
         setError('Authentication error: Please log in again');
         setTimeout(() => {
           navigate(user?.role === 'patient' ? '/patient-dashboard' : '/doctor-dashboard');
@@ -136,16 +145,26 @@ const VideoCallRoom: React.FC = () => {
 
       console.log('[VIDEO-CALL]  Initializing with token:', token.substring(0, 20) + '...');
 
+      // Determine media constraints based on call mode
+      const isVoiceCall = sessionData?.callMode === 'Voice Calling';
+      console.log(`[VIDEO-CALL] Mode: ${sessionData?.callMode}, Video enabled: ${!isVoiceCall}`);
+
       // Get local media
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: true,
+        video: !isVoiceCall,
         audio: true
       });
 
       setLocalStream(stream);
-      if (localVideoRef.current) {
+
+      // Only set video src if video is enabled
+      if (!isVoiceCall && localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
       }
+
+      // Set initial states
+      setIsVideoEnabled(!isVoiceCall);
+      setIsAudioEnabled(true);
 
       // Connect to Socket.IO server with authentication
       console.log('[VIDEO-CALL] 🔌 Connecting to:', API_BASE_URL);
@@ -162,7 +181,7 @@ const VideoCallRoom: React.FC = () => {
 
       // Handle connection errors
       socket.on('connect_error', (err) => {
-        console.error('[VIDEO-CALL] ❌ Connection error:', err.message);
+        console.error('[VIDEO-CALL] Connection error:', err.message);
         setError('Failed to connect to video call server: ' + err.message);
 
         // If authentication error, redirect to login
@@ -206,22 +225,22 @@ const VideoCallRoom: React.FC = () => {
       });
 
       socket.on('offer', async ({ offer, senderId }) => {
-        console.log('[VIDEO-CALL] 📨 Received offer from:', senderId);
+        console.log('[VIDEO-CALL] Received offer from:', senderId);
         await handleOffer(offer, stream);
       });
 
       socket.on('answer', async ({ answer }) => {
-        console.log('[VIDEO-CALL] 📨 Received answer');
+        console.log('[VIDEO-CALL] Received answer');
         await handleAnswer(answer);
       });
 
       socket.on('ice-candidate', async ({ candidate }) => {
-        console.log('[VIDEO-CALL] 🧊 Received ICE candidate');
+        console.log('[VIDEO-CALL] Received ICE candidate');
         await handleIceCandidate(candidate);
       });
 
       socket.on('user-left', (data) => {
-        console.log('[VIDEO-CALL] 👋 Remote user left:', data.role);
+        console.log('[VIDEO-CALL] Remote user left:', data.role);
         setRemoteUserJoined(false);
         setConnectionState('disconnected');
         if (remoteVideoRef.current) {
@@ -230,18 +249,18 @@ const VideoCallRoom: React.FC = () => {
       });
 
       socket.on('media-state-change', (data) => {
-        console.log('[VIDEO-CALL] 🔄 Remote media state changed:', data);
+        console.log('[VIDEO-CALL] Remote media state changed:', data);
         setRemoteVideoEnabled(data.video);
         setRemoteAudioEnabled(data.audio);
       });
 
       socket.on('error', (data) => {
-        console.error('[VIDEO-CALL] ❌ Socket error:', data.message);
+        console.error('[VIDEO-CALL]  Socket error:', data.message);
         setError(data.message);
       });
 
     } catch (err) {
-      console.error('[VIDEO-CALL] ❌ Error initializing call:', err);
+      console.error('[VIDEO-CALL]  Error initializing call:', err);
       const errorMessage = err instanceof Error ? err.message : 'Unknown error';
       if (errorMessage.includes('Permission denied') || errorMessage.includes('NotAllowedError')) {
         setError('Camera/microphone access denied. Please allow permissions and refresh.');
@@ -537,7 +556,43 @@ const VideoCallRoom: React.FC = () => {
     }
   };
 
-  const endCall = () => {
+  const endCall = async () => {
+    console.log('[VIDEO-CALL] Ending call...', { role: user?.role });
+
+    // For doctors: Show report modal instead of ending immediately
+    if (user?.role === 'doctor') {
+      setShowReportModal(true);
+      return;
+    }
+
+    // For patients: Mark session as completed FIRST, then show rating modal
+    try {
+      console.log('[VIDEO-CALL] Marking session as completed before review...');
+
+      const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/complete`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include'
+      });
+
+      if (!response.ok) {
+        console.error('[VIDEO-CALL] Failed to mark session as completed:', await response.text());
+        // Continue anyway - show rating modal even if completion fails
+      } else {
+        console.log('[VIDEO-CALL] Session marked as completed successfully');
+      }
+    } catch (error) {
+      console.error('[VIDEO-CALL] Error marking session as completed:', error);
+      // Continue anyway - show rating modal even if completion fails
+    }
+
+    // Show rating modal (session should now be completed)
+    setShowRatingModal(true);
+  };
+
+  const handleEndCall = () => {
     if (socketRef.current && sessionId && user) {
       socketRef.current.emit('leave-room', {
         sessionId,
@@ -548,6 +603,89 @@ const VideoCallRoom: React.FC = () => {
     cleanup();
     navigate(user?.role === 'patient' ? '/patient-dashboard' : '/doctor-dashboard');
   };
+
+  const handleReportSubmit = () => {
+    setShowReportModal(false);
+    handleEndCall();
+  };
+
+  const handleRatingSubmit = async (ratingData: { score: number; review: string }) => {
+    try {
+      console.log('[RATING] Submitting rating from video call:', { sessionId, score: ratingData.score });
+
+      const response = await fetch(`${API_BASE_URL}/api/ratings/${sessionId}/rate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+        body: JSON.stringify(ratingData)
+      });
+
+      if (response.ok) {
+        console.log('[RATING] Rating submitted successfully');
+        // Close rating modal and end call
+        setShowRatingModal(false);
+        handleEndCall();
+      } else {
+        const data = await response.json();
+        console.error('[RATING] Error response:', data);
+        alert(data.message || 'Failed to submit rating');
+      }
+    } catch (error) {
+      console.error('Error submitting rating:', error);
+      alert('Failed to submit rating. Please try again.');
+    }
+  };
+
+  const isVoiceMode = sessionData?.callMode === 'Voice Calling';
+
+
+  // Voice Call UI Component
+  const VoiceCallInterface = () => (
+    <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 flex flex-col items-center justify-center">
+      {/* Remote User Avatar (Large) */}
+      <div className="relative mb-12">
+        {/* Pulsing Rings Animation */}
+        <div className={`absolute inset-0 rounded-full bg-blue-500 opacity-20 ${remoteAudioEnabled ? 'animate-ping' : ''}`}></div>
+        <div className={`absolute -inset-4 rounded-full bg-blue-500 opacity-10 ${remoteAudioEnabled ? 'animate-pulse' : ''}`}></div>
+
+        <div className="w-48 h-48 rounded-full border-4 border-blue-400 overflow-hidden shadow-2xl relative z-10 bg-gray-800">
+          {/* If we had user images, we would show them here. For now using Initials/Placeholder */}
+          <div className="w-full h-full flex items-center justify-center bg-gray-700 text-white text-5xl font-bold">
+            {remoteUserJoined ? (user?.role === 'patient' ? 'Dr' : 'Pt') : '?'}
+          </div>
+        </div>
+
+        <div className="mt-6 text-center">
+          <h2 className="text-3xl font-bold text-white mb-2">
+            {remoteUserJoined
+              ? (user?.role === 'patient' ? `Dr. ${sessionData?.doctorId?.lastName || 'Therapist'}` : `${sessionData?.patientId?.firstName || 'Patient'}`)
+              : 'Waiting...'}
+          </h2>
+          <p className="text-blue-200 text-lg">
+            {remoteUserJoined
+              ? (remoteAudioEnabled ? 'Speaking...' : 'Muted')
+              : 'Connecting...'}
+          </p>
+        </div>
+      </div>
+
+      {/* Local User Avatar (Small) */}
+      <div className="absolute bottom-32 right-8 flex items-center gap-3 bg-black/40 backdrop-blur-md p-3 rounded-xl border border-white/10">
+        <div className="relative">
+          <div className={`absolute inset-0 rounded-full bg-green-500 opacity-30 ${isAudioEnabled ? 'animate-pulse' : ''}`}></div>
+          <div className="w-12 h-12 rounded-full bg-gray-600 flex items-center justify-center text-white font-bold border-2 border-green-400 relative z-10">
+            You
+          </div>
+        </div>
+        <div className="text-white text-sm">
+          <div className="font-medium">You</div>
+          <div className="text-xs text-gray-400">{isAudioEnabled ? 'Mic On' : 'Mic Off'}</div>
+        </div>
+      </div>
+    </div>
+  );
 
   const cleanup = () => {
     console.log('[VIDEO-CALL] 🧹 Cleaning up resources...');
@@ -629,97 +767,105 @@ const VideoCallRoom: React.FC = () => {
         </div>
       )}
 
-      {/* Video Container */}
+      {/* Main Content Area */}
       <div className="flex-1 relative bg-gray-900">
-        {/* Remote Video (Main - Full Screen) */}
-        <video
-          ref={remoteVideoRef}
-          autoPlay
-          playsInline
-          className="absolute inset-0 w-full h-full object-cover"
-        />
 
-        {/* Remote Video On/Off State */}
-        {!remoteVideoEnabled && remoteUserJoined && (
-          <div className="absolute inset-0 bg-gray-900 flex items-center justify-center">
-            <div className="text-center text-white">
-              <div className="w-24 h-24 bg-gray-800 rounded-full flex items-center justify-center mb-4 mx-auto">
-                <svg className="w-12 h-12 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
-                </svg>
-              </div>
-              <p className="text-gray-400">Camera is off</p>
-            </div>
-          </div>
-        )}
+        {/* Render Voice Interface OR Video Interface */}
+        {isVoiceMode ? (
+          <VoiceCallInterface />
+        ) : (
+          <>
+            {/* Remote Video (Main - Full Screen) */}
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              className="absolute inset-0 w-full h-full object-cover"
+            />
 
-        {/* Remote Audio Muted Indicator */}
-        {!remoteAudioEnabled && remoteUserJoined && (
-          <div className="absolute top-4 right-4 bg-red-500 bg-opacity-90 text-white px-2 py-1 rounded-md text-xs flex items-center gap-1.5">
-            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z" />
-            </svg>
-            Mic off
-          </div>
-        )}
-
-        {/* Remote User Label */}
-        <div className="absolute top-4 left-4 bg-black bg-opacity-50 backdrop-blur-sm text-white px-2 py-1 rounded-md text-xs">
-          {user?.role === 'patient' ? 'Therapist' : 'Patient'}
-        </div>
-
-        {/* Waiting Overlay */}
-        {!remoteUserJoined && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-90">
-            <div className="text-center text-white">
-              <div className="mb-6">
-                <div className="w-12 h-12 border-3 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>
-              </div>
-              <h2 className="text-xl font-light mb-2">Waiting for {user?.role === 'patient' ? 'therapist' : 'patient'}</h2>
-              <p className="text-xs text-gray-400">Session will begin shortly...</p>
-            </div>
-          </div>
-        )}
-
-        {/* Connection Status */}
-        {remoteUserJoined && connectionState !== 'connected' && (
-          <div className="absolute top-4 right-4 bg-yellow-500 text-white px-2 py-1 rounded-md text-xs">
-            Connecting...
-          </div>
-        )}
-
-        {/* Local Video (Small - Picture in Picture) */}
-        <div className="absolute bottom-24 right-6 w-48 h-36 bg-gray-900 rounded-xl overflow-hidden shadow-2xl border border-gray-700 z-10">
-          <video
-            ref={localVideoRef}
-            autoPlay
-            playsInline
-            muted
-            className="w-full h-full object-cover"
-          />
-
-          {/* Local Video Off State */}
-          {!isVideoEnabled && (
-            <div className="absolute inset-0 bg-gray-900 flex items-center justify-center">
-              <div className="text-center text-white">
-                <div className="w-16 h-16 bg-gray-800 rounded-full flex items-center justify-center mx-auto">
-                  <svg className="w-8 h-8 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
-                  </svg>
+            {/* Remote Video On/Off State */}
+            {!remoteVideoEnabled && remoteUserJoined && (
+              <div className="absolute inset-0 bg-gray-900 flex items-center justify-center">
+                <div className="text-center text-white">
+                  <div className="w-24 h-24 bg-gray-800 rounded-full flex items-center justify-center mb-4 mx-auto">
+                    <svg className="w-12 h-12 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+                    </svg>
+                  </div>
+                  <p className="text-gray-400">Camera is off</p>
                 </div>
               </div>
-            </div>
-          )}
-
-          <div className="absolute bottom-2 left-2 bg-black bg-opacity-60 backdrop-blur-sm text-white px-2 py-0.5 rounded text-xs flex items-center gap-1">
-            You
-            {!isAudioEnabled && (
-              <svg className="w-3 h-3 text-red-400" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z" />
-              </svg>
             )}
-          </div>
-        </div>
+
+            {/* Remote Audio Muted Indicator (Video Mode) */}
+            {!remoteAudioEnabled && remoteUserJoined && (
+              <div className="absolute top-4 right-4 bg-red-500 bg-opacity-90 text-white px-2 py-1 rounded-md text-xs flex items-center gap-1.5">
+                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z" />
+                </svg>
+                Mic off
+              </div>
+            )}
+
+            {/* Remote User Label */}
+            <div className="absolute top-4 left-4 bg-black bg-opacity-50 backdrop-blur-sm text-white px-2 py-1 rounded-md text-xs">
+              {user?.role === 'patient' ? 'Therapist' : 'Patient'}
+            </div>
+
+            {/* Waiting Overlay */}
+            {!remoteUserJoined && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-90">
+                <div className="text-center text-white">
+                  <div className="mb-6">
+                    <div className="w-12 h-12 border-3 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>
+                  </div>
+                  <h2 className="text-xl font-light mb-2">Waiting for {user?.role === 'patient' ? 'therapist' : 'patient'}</h2>
+                  <p className="text-xs text-gray-400">Session will begin shortly...</p>
+                </div>
+              </div>
+            )}
+
+            {/* Connection Status */}
+            {remoteUserJoined && connectionState !== 'connected' && (
+              <div className="absolute top-4 right-4 bg-yellow-500 text-white px-2 py-1 rounded-md text-xs">
+                Connecting...
+              </div>
+            )}
+
+            {/* Local Video (Small - Picture in Picture) */}
+            <div className="absolute bottom-24 right-6 w-48 h-36 bg-gray-900 rounded-xl overflow-hidden shadow-2xl border border-gray-700 z-10">
+              <video
+                ref={localVideoRef}
+                autoPlay
+                playsInline
+                muted
+                className="w-full h-full object-cover"
+              />
+
+              {/* Local Video Off State */}
+              {!isVideoEnabled && (
+                <div className="absolute inset-0 bg-gray-900 flex items-center justify-center">
+                  <div className="text-center text-white">
+                    <div className="w-16 h-16 bg-gray-800 rounded-full flex items-center justify-center mx-auto">
+                      <svg className="w-8 h-8 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="absolute bottom-2 left-2 bg-black bg-opacity-60 backdrop-blur-sm text-white px-2 py-0.5 rounded text-xs flex items-center gap-1">
+                You
+                {!isAudioEnabled && (
+                  <svg className="w-3 h-3 text-red-400" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z" />
+                  </svg>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Doctor Panel */}
@@ -817,21 +963,23 @@ const VideoCallRoom: React.FC = () => {
           )}
         </button>
 
-        <button
-          onClick={toggleVideo}
-          className={`w-14 h-14 rounded-full ${isVideoEnabled ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-500 hover:bg-red-600'} text-white transition-all flex items-center justify-center shadow-xl`}
-          title={isVideoEnabled ? 'Turn off camera' : 'Turn on camera'}
-        >
-          {isVideoEnabled ? (
-            <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
-              <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" />
-            </svg>
-          ) : (
-            <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
-              <path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H9.82L21 17.18V6.5zM3.27 2L2 3.27 4.73 6H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.21 0 .39-.08.54-.18L19.73 21 21 19.73 3.27 2z" />
-            </svg>
-          )}
-        </button>
+        {!isVoiceMode && (
+          <button
+            onClick={toggleVideo}
+            className={`w-14 h-14 rounded-full ${isVideoEnabled ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-500 hover:bg-red-600'} text-white transition-all flex items-center justify-center shadow-xl`}
+            title={isVideoEnabled ? 'Turn off camera' : 'Turn on camera'}
+          >
+            {isVideoEnabled ? (
+              <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
+                <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" />
+              </svg>
+            ) : (
+              <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
+                <path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H9.82L21 17.18V6.5zM3.27 2L2 3.27 4.73 6H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.21 0 .39-.08.54-.18L19.73 21 21 19.73 3.27 2z" />
+              </svg>
+            )}
+          </button>
+        )}
 
         {/* Chat Toggle Button (Patient Only) */}
         {user?.role === 'patient' && (
@@ -856,6 +1004,31 @@ const VideoCallRoom: React.FC = () => {
           </svg>
         </button>
       </div>
+
+      {/* Post-Session Report Modal (Doctor Only) */}
+      {user?.role === 'doctor' && sessionData && (
+        <PostSessionReportModal
+          isOpen={showReportModal}
+          sessionId={sessionId || ''}
+          patientId={sessionData.patientId?._id || sessionData.patientId}
+          patientName={`${sessionData.patientId?.firstName || ''} ${sessionData.patientId?.lastName || ''}`.trim()}
+          sessionDate={sessionData.sessionDate}
+          sessionDuration={sessionData.duration || 60}
+          onSubmit={handleReportSubmit}
+          onCancel={() => setShowReportModal(false)}
+        />
+      )}
+
+      {/* Rating Modal (Patient Only) */}
+      {user?.role === 'patient' && sessionData && (
+        <RatingModal
+          isOpen={showRatingModal}
+          sessionId={sessionId || ''}
+          doctorName={sessionData?.doctorId ? `Dr. ${sessionData.doctorId.lastName || sessionData.doctorId.firstName}` : 'Doctor'}
+          onClose={() => setShowRatingModal(false)}
+          onSubmit={handleRatingSubmit}
+        />
+      )}
     </div>
   );
 };

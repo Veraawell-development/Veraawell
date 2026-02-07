@@ -1,17 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { FiDownload, FiMenu, FiCheck } from 'react-icons/fi';
+import { FiDownload, FiMenu, FiCheck, FiEye } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
+import ViewContentModal from '../components/ViewContentModal';
 import { useAuth } from '../context/AuthContext';
 import { API_CONFIG } from '../config/api';
 import { formatDate } from '../utils/dateUtils';
 import logger from '../utils/logger';
 import { useToast } from '../hooks/useToast';
 import type { Task } from '../types';
+import { generateTaskPDF } from '../utils/pdfGenerator';
 
 const PendingTasksPage: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
   const { showSuccess, showError } = useToast();
@@ -64,16 +68,12 @@ const PendingTasksPage: React.FC = () => {
   };
 
   const handleDownload = (task: Task) => {
-    const content = `${task.title}\n\nDescription:\n${task.description}\n\nDue Date: ${formatDate(task.dueDate)}\nPriority: ${task.priority}\nAssigned by: Dr. ${task.doctorId.firstName} ${task.doctorId.lastName}`;
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Task_${task.title.replace(/\s+/g, '_')}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    generateTaskPDF(task);
+  };
+
+  const handleView = (task: Task) => {
+    setSelectedTask(task);
+    setViewModalOpen(true);
   };
 
   if (loading) {
@@ -98,12 +98,11 @@ const PendingTasksPage: React.FC = () => {
       )}
 
       {/* Sidebar */}
-      <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${
-        sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-      }`} style={{ backgroundColor: '#7DA9A8' }}>
+      <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`} style={{ backgroundColor: '#7DA9A8' }}>
         <div className="h-full flex flex-col p-4 text-white font-serif">
           <div className="space-y-3 mb-6">
-            <div 
+            <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
               onClick={() => { navigate('/patient-dashboard'); setSidebarOpen(false); }}
             >
@@ -112,8 +111,8 @@ const PendingTasksPage: React.FC = () => {
               </svg>
               <span className="text-base font-medium">My Dashboard</span>
             </div>
-            
-            <div 
+
+            <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
               onClick={() => { navigate('/call-history'); setSidebarOpen(false); }}
             >
@@ -122,8 +121,8 @@ const PendingTasksPage: React.FC = () => {
               </svg>
               <span className="text-base font-medium">My Calls</span>
             </div>
-            
-            <div 
+
+            <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
               onClick={() => { navigate('/pending-tasks'); setSidebarOpen(false); }}
             >
@@ -132,8 +131,8 @@ const PendingTasksPage: React.FC = () => {
               </svg>
               <span className="text-base font-medium">Pending Tasks</span>
             </div>
-            
-            <div 
+
+            <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
               onClick={() => { navigate('/my-journal'); setSidebarOpen(false); }}
             >
@@ -188,7 +187,7 @@ const PendingTasksPage: React.FC = () => {
               ) : (
                 <>
                   {tasks.map((task) => (
-                    <tr 
+                    <tr
                       key={task._id}
                       className="border-b border-gray-900"
                     >
@@ -206,6 +205,14 @@ const PendingTasksPage: React.FC = () => {
                         >
                           <FiCheck className="w-4 h-4" />
                           Complete
+                        </button>
+                        <button
+                          onClick={() => handleView(task)}
+                          className="inline-flex items-center gap-2 text-base font-semibold text-gray-900 hover:opacity-70 transition-opacity underline mr-2"
+                          style={{ fontFamily: 'Bree Serif, serif' }}
+                        >
+                          View
+                          <FiEye className="w-5 h-5" />
                         </button>
                         <button
                           onClick={() => handleDownload(task)}
@@ -232,6 +239,16 @@ const PendingTasksPage: React.FC = () => {
           </table>
         </div>
       </div>
+      <ViewContentModal
+        isOpen={viewModalOpen}
+        onClose={() => setViewModalOpen(false)}
+        title={selectedTask?.title || 'Task Details'}
+        content={selectedTask?.description || 'No description available.'}
+        date={selectedTask?.dueDate || ''}
+        doctorName={selectedTask ? `Dr. ${selectedTask.doctorId.firstName} ${selectedTask.doctorId.lastName}` : ''}
+        type="Pending Task"
+        onDownload={() => selectedTask && handleDownload(selectedTask)}
+      />
     </div>
   );
 };

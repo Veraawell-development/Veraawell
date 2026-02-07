@@ -38,7 +38,40 @@ function setAuthCookie(res, token) {
  * Register new user
  */
 async function registerUser(userData) {
-  const { firstName, lastName, email, password, role = 'patient', phoneNo, username } = userData;
+  const {
+    firstName,
+    lastName,
+    email,
+    password,
+    role = 'patient',
+    phoneNo,
+    username,
+    // Doctor-specific fields
+    documents,
+    specialization,
+    licenseNumber,
+    jobRole,
+    professionalMessage
+  } = userData;
+
+  // FOR EMAIL/PASSWORD SIGNUP: Check OTP verification (skip for Google OAuth users)
+  // Google OAuth users don't need OTP as Google verifies their email
+  if (!userData.googleId) {
+    const OTP = require('../models/otp');
+    const otpRecord = await OTP.findOne({
+      email: email.toLowerCase(),
+      verified: true
+    }).sort({ createdAt: -1 });
+
+    if (!otpRecord) {
+      logger.warn('Registration blocked - Email not verified', { email });
+      throw new ConflictError('Email not verified. Please verify your email with OTP first.');
+    }
+
+    // Clean up verified OTP after successful check
+    await OTP.deleteMany({ email: email.toLowerCase(), verified: true });
+    logger.info('OTP verification passed, OTP records cleaned up', { email });
+  }
 
   // Check if user already exists
   const existingUser = await User.findOne({ email: email.toLowerCase() });
@@ -59,9 +92,24 @@ async function registerUser(userData) {
     resetTokenExpiry: null
   };
 
-  // Set approval status based on role
+  // Add doctor-specific fields if role is doctor
   if (role === 'doctor') {
     newUserData.approvalStatus = 'pending';
+    if (documents && Array.isArray(documents)) {
+      newUserData.documents = documents;
+    }
+    if (specialization) {
+      newUserData.specialization = specialization;
+    }
+    if (licenseNumber) {
+      newUserData.licenseNumber = licenseNumber.trim();
+    }
+    if (jobRole) {
+      newUserData.jobRole = jobRole.trim();
+    }
+    if (professionalMessage) {
+      newUserData.professionalMessage = professionalMessage.trim();
+    }
     logger.info('Doctor registration - setting approvalStatus to pending');
   } else {
     newUserData.approvalStatus = 'approved';

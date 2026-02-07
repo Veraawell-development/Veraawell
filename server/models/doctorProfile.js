@@ -52,9 +52,9 @@ const doctorProfileSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  modeOfSession: {
+  modeOfSession: [{
     type: String
-  },
+  }],
   quote: {
     type: String
   },
@@ -68,7 +68,7 @@ const doctorProfileSchema = new mongoose.Schema({
   rating: {
     average: {
       type: Number,
-      default: 4.5,
+      default: 0,
       min: 0,
       max: 5
     },
@@ -76,6 +76,13 @@ const doctorProfileSchema = new mongoose.Schema({
       type: Number,
       default: 0,
       min: 0
+    },
+    distribution: {
+      5: { type: Number, default: 0 },
+      4: { type: Number, default: 0 },
+      3: { type: Number, default: 0 },
+      2: { type: Number, default: 0 },
+      1: { type: Number, default: 0 }
     }
   },
   availability: {

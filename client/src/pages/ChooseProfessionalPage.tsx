@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import DoctorCard from '../components/DoctorCard';
+import { API_CONFIG } from '../config/api';
 
 interface Doctor {
   _id: string;
@@ -9,6 +10,7 @@ interface Doctor {
     firstName: string;
     lastName: string;
     email: string;
+    gender?: string;
   };
   specialization: string[];
   experience: number;
@@ -26,6 +28,7 @@ interface Doctor {
     average: number;
     totalReviews: number;
   };
+  gender?: string;
 }
 
 const ChooseProfessionalPage: React.FC = () => {
@@ -33,8 +36,10 @@ const ChooseProfessionalPage: React.FC = () => {
   const location = useLocation();
   const [doctors, setDoctors] = useState<Doctor[]>([]);
   const [onlineDoctors, setOnlineDoctors] = useState<any[]>([]);
+  const [previousDoctorIds, setPreviousDoctorIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'online' | 'all'>('online');
 
   const serviceType = (location.state as any)?.serviceType || 'General';
 
@@ -43,8 +48,16 @@ const ChooseProfessionalPage: React.FC = () => {
     : 'https://veraawell-backend.onrender.com/api';
 
   useEffect(() => {
-    fetchDoctors();
-    fetchOnlineDoctors();
+    const loadData = async () => {
+      setLoading(true);
+      await Promise.all([
+        fetchDoctors(),
+        fetchOnlineDoctors(),
+        fetchPreviousDoctors()
+      ]);
+      setLoading(false);
+    };
+    loadData();
   }, []);
 
   const fetchDoctors = async () => {
@@ -79,6 +92,22 @@ const ChooseProfessionalPage: React.FC = () => {
     }
   };
 
+  const fetchPreviousDoctors = async () => {
+    try {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/my-doctors`, {
+        credentials: 'include'
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        // Store IDs of previous doctors (using DoctorProfile _id)
+        setPreviousDoctorIds(new Set(data.map((d: any) => d._id)));
+      }
+    } catch (error) {
+      console.error('Error fetching previous doctors:', error);
+    }
+  };
+
   const handleBookSession = (doctorId: string, isImmediate: boolean = false) => {
     navigate(`/doctor/${doctorId}`, {
       state: {
@@ -88,14 +117,61 @@ const ChooseProfessionalPage: React.FC = () => {
     });
   };
 
-  const getRandomBgColor = (index: number) => {
-    const colors = ['#ABA5D1', '#6DBEDF', '#38ABAE'];
-    return colors[index % colors.length];
+  const getDoctorBgColor = (id: string) => {
+    const colors = ['#ABA5D1', '#7DA9A8', '#6DBEDF', '#A8D5BA'];
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) {
+      hash = id.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const index = Math.abs(hash) % colors.length;
+    return colors[index];
   };
+
+  // Helper function to get gender-based image
+  const getDoctorImage = (doctor: any) => {
+    // Check if doctor has a valid profile image (not default/placeholder/old SVG)
+    if (doctor.profileImage &&
+      doctor.profileImage !== '/default-doctor.png' &&
+      !doctor.profileImage.includes('doctor-0') &&
+      !doctor.profileImage.includes('doctor-placeholder')) {
+      return doctor.profileImage;
+    }
+
+    // Use name-based detection since backend doesn't have gender field
+    const firstName = (doctor.userId?.firstName || doctor.firstName || '').toLowerCase();
+
+    // Common female names and patterns
+    const femaleNames = [
+      'shreya', 'priya', 'anjali', 'kavya', 'divya', 'neha', 'pooja', 'riya',
+      'sneha', 'swati', 'nikita', 'preeti', 'shweta', 'megha', 'isha', 'tanvi',
+      'aditi', 'aishwarya', 'ananya', 'deepika', 'kriti', 'nisha', 'rachana',
+      'sakshi', 'simran', 'sonali', 'tanya', 'varsha', 'vidya', 'zoya',
+      'sarah', 'emily', 'jessica', 'jennifer', 'michelle', 'amanda', 'lisa',
+      'maria', 'susan', 'karen', 'nancy', 'betty', 'helen', 'sandra', 'donna',
+      'carol', 'ruth', 'sharon', 'laura', 'cynthia', 'anna', 'jean', 'alice'
+    ];
+
+    // Check if name ends with common female suffixes
+    const femaleSuffixes = ['a', 'i', 'ya', 'ka', 'na'];
+    const endsWithFemaleSuffix = femaleSuffixes.some(suffix =>
+      firstName.endsWith(suffix) && firstName.length > 3
+    );
+
+    // Check if name is in female names list or ends with female suffix
+    if (femaleNames.includes(firstName) || endsWithFemaleSuffix) {
+      return '/female.jpg';
+    }
+
+    return '/male.jpg';
+  };
+
+  // Get current doctors based on view mode
+  const currentDoctors = viewMode === 'online' ? onlineDoctors : doctors;
+  const currentCount = viewMode === 'online' ? onlineDoctors.length : doctors.length;
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Hero Section - Simplified */}
+      {/* Hero Section */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-5xl mx-auto px-4 py-12 md:py-16">
           <div className="text-center max-w-3xl mx-auto">
@@ -119,82 +195,58 @@ const ChooseProfessionalPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Online Doctors Section */}
-      {onlineDoctors.length > 0 && (
-        <div className="bg-white border-b border-gray-200">
-          <div className="max-w-6xl mx-auto px-4 py-10">
-            {/* Section Header */}
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                <h2 className="text-xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
-                  Available Now
-                </h2>
-              </div>
-              <span className="text-sm text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>
-                {onlineDoctors.length} online
-              </span>
-            </div>
-
-            {/* Online Doctors Grid */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {onlineDoctors.map((doctor, index) => (
-                <div
-                  key={doctor._id}
-                  className="bg-white border border-gray-200 rounded-xl p-5 hover:border-teal-300 hover:shadow-md transition-all"
-                >
-                  {/* Online Badge */}
-                  <div className="flex justify-end mb-3">
-                    <div className="flex items-center gap-1.5 bg-green-50 px-2.5 py-1 rounded-full">
-                      <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
-                      <span className="text-xs font-medium text-green-700" style={{ fontFamily: 'Inter, sans-serif' }}>
-                        Online
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Doctor Info */}
-                  <div className="text-center">
-                    <div
-                      className="w-16 h-16 mx-auto mb-3 rounded-full flex items-center justify-center text-white text-xl font-bold"
-                      style={{ backgroundColor: getRandomBgColor(index) }}
-                    >
-                      {doctor.firstName.charAt(0)}{doctor.lastName.charAt(0)}
-                    </div>
-                    <h3 className="text-base font-bold mb-1 text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
-                      Dr. {doctor.firstName} {doctor.lastName}
-                    </h3>
-                    <p className="text-xs text-gray-500 mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
-                      {doctor.email}
-                    </p>
-                    <button
-                      onClick={() => handleBookSession(doctor._id, true)}
-                      className="w-full px-4 py-2 bg-teal-600 text-white text-sm font-semibold rounded-lg hover:bg-teal-700 transition-colors"
-                      style={{ fontFamily: 'Inter, sans-serif' }}
-                    >
-                      Book Now
-                    </button>
-                  </div>
-                </div>
-              ))}
+      {/* Toggle Section */}
+      <div className="bg-white border-b border-gray-200">
+        <div className="max-w-6xl mx-auto px-4 py-6">
+          <div className="flex justify-center">
+            <div className="inline-flex bg-gray-100 rounded-lg p-1 gap-1">
+              <button
+                onClick={() => setViewMode('online')}
+                className={`px-8 py-2.5 rounded-md font-medium transition-all duration-200 ${viewMode === 'online'
+                  ? 'bg-teal-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                style={{ fontFamily: 'Inter, sans-serif' }}
+              >
+                Online Now
+              </button>
+              <button
+                onClick={() => setViewMode('all')}
+                className={`px-8 py-2.5 rounded-md font-medium transition-all duration-200 ${viewMode === 'all'
+                  ? 'bg-teal-600 text-white shadow-sm'
+                  : 'text-gray-600 hover:text-gray-900'
+                  }`}
+                style={{ fontFamily: 'Inter, sans-serif' }}
+              >
+                All Available
+              </button>
             </div>
           </div>
         </div>
-      )}
+      </div>
 
-      {/* All Doctors Section */}
+      {/* Previous Doctors Section Removed in favor of inline tags */}
+
+      {/* Unified Doctors Section */}
       <div className="max-w-6xl mx-auto px-4 py-10">
+        {/* Section Header */}
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
-            All Professionals
-          </h2>
+          <div className="flex items-center gap-2">
+            {viewMode === 'online' && (
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+            )}
+            <h2 className="text-xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+              {viewMode === 'online' ? 'Online Now' : 'All Professionals'}
+            </h2>
+          </div>
           {!loading && !error && (
             <span className="text-sm text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>
-              {doctors.length} available
+              {currentCount} {viewMode === 'online' ? 'online' : 'available'}
             </span>
           )}
         </div>
 
+        {/* Content */}
         {loading ? (
           <div className="text-center py-16">
             <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-2 border-teal-600 mb-3"></div>
@@ -211,32 +263,119 @@ const ChooseProfessionalPage: React.FC = () => {
               Try Again
             </button>
           </div>
-        ) : doctors.length > 0 ? (
+        ) : currentDoctors.length > 0 ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {doctors.map((doctor, index) => {
-              const pricingText = doctor.pricing.min === 0 && doctor.pricing.max === 0
-                ? 'Not Set'
-                : `₹${doctor.pricing.min} - ₹${doctor.pricing.max}`;
+            {viewMode === 'online' ? (
+              // Online doctors view - use DoctorCard component
+              onlineDoctors.map((doctor) => {
+                // Find full doctor data from doctors array
+                const fullDoctorData = doctors.find(d => d.userId._id === doctor._id);
 
-              const experienceText = doctor.experience === 0
-                ? 'Unknown'
-                : `${doctor.experience} years`;
+                if (fullDoctorData) {
+                  const pricingText = fullDoctorData.pricing.min === 0 && fullDoctorData.pricing.max === 0
+                    ? 'Not Set'
+                    : `₹${fullDoctorData.pricing.min} - ₹${fullDoctorData.pricing.max}`;
 
-              return (
-                <DoctorCard
-                  key={doctor._id}
-                  name={`Dr. ${doctor.userId.firstName} ${doctor.userId.lastName}`}
-                  experience={experienceText}
-                  qualification={doctor.qualification.join(', ')}
-                  pricing={pricingText}
-                  language={doctor.languages.join(', ')}
-                  treatsFor={doctor.treatsFor.join(', ')}
-                  imageSrc={doctor.profileImage}
-                  bgColor={getRandomBgColor(index)}
-                  onBookSession={() => handleBookSession(doctor.userId._id)}
-                />
-              );
-            })}
+                  const experienceText = fullDoctorData.experience === 0
+                    ? 'Unknown'
+                    : `${fullDoctorData.experience} years`;
+
+                  return (
+                    <div key={doctor._id} className="relative">
+                      {/* Online Badge Overlay */}
+                      <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-green-50 px-2.5 py-1 rounded-full border border-green-200">
+                        <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
+                        <span className="text-xs font-medium text-green-700" style={{ fontFamily: 'Inter, sans-serif' }}>
+                          Online
+                        </span>
+                      </div>
+
+                      <DoctorCard
+                        name={`Dr. ${fullDoctorData.userId.firstName} ${fullDoctorData.userId.lastName}`}
+                        experience={experienceText}
+                        qualification={fullDoctorData.qualification.join(', ') || 'Not specified'}
+                        pricing={pricingText}
+                        language={fullDoctorData.languages.join(', ') || 'Not specified'}
+                        treatsFor={fullDoctorData.treatsFor.join(', ') || 'General'}
+                        imageSrc={getDoctorImage(fullDoctorData)}
+                        bgColor={getDoctorBgColor(fullDoctorData.userId._id)}
+                        rating={fullDoctorData.rating}
+                        isPrevious={previousDoctorIds.has(fullDoctorData._id)}
+                        onBookSession={() => handleBookSession(doctor._id, true)}
+                      />
+                    </div>
+                  );
+                }
+
+                // Fallback for doctors without full data
+                return (
+                  <div
+                    key={doctor._id}
+                    className="bg-white border border-gray-200 rounded-xl p-5 hover:border-teal-300 hover:shadow-md transition-all"
+                  >
+                    {/* Online Badge */}
+                    <div className="flex justify-end mb-3">
+                      <div className="flex items-center gap-1.5 bg-green-50 px-2.5 py-1 rounded-full">
+                        <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
+                        <span className="text-xs font-medium text-green-700" style={{ fontFamily: 'Inter, sans-serif' }}>
+                          Online
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Doctor Info */}
+                    <div className="text-center">
+                      <div
+                        className="w-16 h-16 mx-auto mb-3 rounded-full flex items-center justify-center text-white text-xl font-bold"
+                        style={{ backgroundColor: getDoctorBgColor(doctor._id) }}
+                      >
+                        {doctor.firstName.charAt(0)}{doctor.lastName.charAt(0)}
+                      </div>
+                      <h3 className="text-base font-bold mb-1 text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+                        Dr. {doctor.firstName} {doctor.lastName}
+                      </h3>
+                      <p className="text-xs text-gray-500 mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        {doctor.email}
+                      </p>
+                      <button
+                        onClick={() => handleBookSession(doctor._id, true)}
+                        className="w-full px-4 py-2 bg-teal-600 text-white text-sm font-semibold rounded-lg hover:bg-teal-700 transition-colors"
+                        style={{ fontFamily: 'Inter, sans-serif' }}
+                      >
+                        Book Now
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              // All doctors view - detailed cards
+              doctors.map((doctor) => {
+                return (
+                  <DoctorCard
+                    key={doctor._id}
+                    name={`Dr. ${doctor.userId.firstName} ${doctor.userId.lastName}`}
+                    experience={`${doctor.experience} years`}
+                    qualification={doctor.qualification.join(', ')}
+                    pricing={`₹${doctor.pricing.min} - ₹${doctor.pricing.max}`}
+                    language={doctor.languages.join(', ')}
+                    treatsFor={doctor.treatsFor.join(', ')}
+                    imageSrc={doctor.profileImage || getDoctorImage(doctor)}
+                    bgColor={getDoctorBgColor(doctor.userId._id)}
+                    rating={doctor.rating}
+                    isPrevious={previousDoctorIds.has(doctor._id)}
+                    onBookSession={() => {
+                      navigate('/book-session', {
+                        state: {
+                          doctorId: doctor.userId._id,
+                          serviceType: 'General'
+                        }
+                      });
+                    }}
+                  />
+                );
+              })
+            )}
           </div>
         ) : (
           <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
@@ -245,7 +384,9 @@ const ChooseProfessionalPage: React.FC = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </div>
-            <p className="text-gray-600 text-sm mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>No professionals available</p>
+            <p className="text-gray-600 text-sm mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+              {viewMode === 'online' ? 'No professionals online' : 'No professionals available'}
+            </p>
             <p className="text-gray-400 text-xs" style={{ fontFamily: 'Inter, sans-serif' }}>Please check back later</p>
           </div>
         )}

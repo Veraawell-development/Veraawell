@@ -24,7 +24,7 @@ router.post('/notes', verifyToken, async (req, res) => {
     if (!session) {
       return res.status(404).json({ message: 'Session not found' });
     }
-    
+
     const sessionDoctorId = session.doctorId?._id?.toString() || session.doctorId?.toString();
     if (sessionDoctorId !== doctorId) {
       return res.status(403).json({ message: 'Unauthorized to create notes for this session' });
@@ -43,7 +43,7 @@ router.post('/notes', verifyToken, async (req, res) => {
     });
 
     await note.save();
-    
+
     const populatedNote = await SessionNote.findById(note._id)
       .populate('doctorId', 'firstName lastName')
       .populate('patientId', 'firstName lastName');
@@ -67,7 +67,7 @@ router.get('/notes/session/:sessionId', verifyToken, async (req, res) => {
 
     // Build query based on role
     let query = { sessionId };
-    
+
     // Patients can only see non-private notes
     if (userRole === 'patient') {
       query.isPrivate = false;
@@ -101,7 +101,7 @@ router.get('/notes/patient/:patientId', verifyToken, async (req, res) => {
     }
 
     let query = { patientId };
-    
+
     if (userRole === 'patient') {
       query.isPrivate = false;
     } else if (userRole === 'doctor') {
@@ -160,7 +160,7 @@ router.post('/tasks', verifyToken, async (req, res) => {
     if (!session) {
       return res.status(404).json({ message: 'Session not found' });
     }
-    
+
     const sessionDoctorId = session.doctorId?._id?.toString() || session.doctorId?.toString();
     if (sessionDoctorId !== doctorId) {
       return res.status(403).json({ message: 'Unauthorized to create tasks for this session' });
@@ -177,7 +177,7 @@ router.post('/tasks', verifyToken, async (req, res) => {
     });
 
     await task.save();
-    
+
     const populatedTask = await Task.findById(task._id)
       .populate('doctorId', 'firstName lastName')
       .populate('patientId', 'firstName lastName');
@@ -206,7 +206,7 @@ router.get('/tasks/patient/:patientId', verifyToken, async (req, res) => {
     }
 
     let query = { patientId };
-    
+
     if (userRole === 'doctor') {
       query.doctorId = userId;
     }
@@ -258,7 +258,7 @@ router.put('/tasks/:taskId', verifyToken, async (req, res) => {
     const userId = req.user._id.toString();
 
     const task = await Task.findById(taskId);
-    
+
     if (!task) {
       return res.status(404).json({ message: 'Task not found' });
     }
@@ -319,18 +319,18 @@ router.post('/reports', verifyToken, async (req, res) => {
     // Verify session exists and doctor is authorized
     console.log('Looking up session:', sessionId);
     const session = await Session.findById(sessionId);
-    
+
     if (!session) {
       console.error('Session not found:', sessionId);
       return res.status(404).json({ message: 'Session not found' });
     }
-    
+
     console.log('Session found:', {
       id: session._id.toString().substring(0, 8),
       doctorId: session.doctorId?.toString().substring(0, 8),
       patientId: session.patientId?.toString().substring(0, 8)
     });
-    
+
     const sessionDoctorId = session.doctorId?._id?.toString() || session.doctorId?.toString();
     if (sessionDoctorId !== doctorId) {
       console.error('Unauthorized - doctor mismatch:', { sessionDoctorId, doctorId });
@@ -351,7 +351,17 @@ router.post('/reports', verifyToken, async (req, res) => {
     console.log('Saving report...');
     await report.save();
     console.log('Report saved:', report._id.toString().substring(0, 8));
-    
+
+    // Update session with post-session report info
+    if (sessionId) {
+      console.log('Updating session with report completion...');
+      await Session.findByIdAndUpdate(sessionId, {
+        postSessionReportCompleted: true,
+        postSessionReportId: report._id
+      });
+      console.log('Session updated with report completion');
+    }
+
     console.log('Populating report...');
     const populatedReport = await Report.findById(report._id)
       .populate('doctorId', 'firstName lastName')
@@ -382,7 +392,7 @@ router.get('/reports/patient/:patientId', verifyToken, async (req, res) => {
     }
 
     let query = { patientId };
-    
+
     // Patients can only see shared reports
     if (userRole === 'patient') {
       query.isSharedWithPatient = true;
@@ -432,7 +442,7 @@ router.put('/reports/:reportId/view', verifyToken, async (req, res) => {
     const userId = req.user._id.toString();
 
     const report = await Report.findById(reportId);
-    
+
     if (!report) {
       return res.status(404).json({ message: 'Report not found' });
     }
@@ -517,7 +527,7 @@ router.put('/journal/:journalId', verifyToken, async (req, res) => {
     const userId = req.user._id.toString();
 
     const journal = await Journal.findById(journalId);
-    
+
     if (!journal) {
       return res.status(404).json({ message: 'Journal entry not found' });
     }
@@ -551,7 +561,7 @@ router.delete('/journal/:journalId', verifyToken, async (req, res) => {
     const userId = req.user._id.toString();
 
     const journal = await Journal.findById(journalId);
-    
+
     if (!journal) {
       return res.status(404).json({ message: 'Journal entry not found' });
     }

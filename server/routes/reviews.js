@@ -16,10 +16,10 @@ const verifyAdmin = (req, res, next) => {
 // Submit review for a session (Patient only)
 router.post('/submit', verifyToken, async (req, res) => {
   try {
-    const { sessionId, rating, feedback, positives, improvements, wouldRecommend } = req.body;
+    const { sessionId, rating, feedback, positives, improvements, wouldRecommend, reviewType } = req.body;
     const patientId = req.user._id.toString();
 
-    console.log('[REVIEW] Submit request:', { sessionId, patientId, rating });
+    console.log('[REVIEW] Submit request:', { sessionId, patientId, rating, reviewType });
 
     // Validate patient role
     if (req.user.role !== 'patient') {
@@ -34,6 +34,11 @@ router.post('/submit', verifyToken, async (req, res) => {
     // Validate rating range
     if (rating < 1 || rating > 5) {
       return res.status(400).json({ message: 'Rating must be between 1 and 5' });
+    }
+
+    // Validate reviewType
+    if (reviewType && !['doctor', 'platform'].includes(reviewType)) {
+      return res.status(400).json({ message: 'Review type must be either "doctor" or "platform"' });
     }
 
     // Check if session exists and is completed
@@ -66,7 +71,12 @@ router.post('/submit', verifyToken, async (req, res) => {
       feedback,
       positives: positives || '',
       improvements: improvements || '',
-      wouldRecommend: wouldRecommend !== undefined ? wouldRecommend : true
+      wouldRecommend: wouldRecommend !== undefined ? wouldRecommend : true,
+      reviewType: reviewType || 'doctor',
+      // Auto-approve platform reviews for landing page display
+      // Doctor reviews still require admin approval
+      approvedForDisplay: (reviewType || 'doctor') === 'platform',
+      isPublic: (reviewType || 'doctor') === 'platform'
     });
 
     await review.save();
@@ -102,14 +112,55 @@ router.get('/check/:sessionId', verifyToken, async (req, res) => {
   }
 });
 
+// Get platform reviews for landing page (public)
+router.get('/platform', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+    const skip = parseInt(req.query.skip) || 0;
+
+    const reviews = await Review.find({
+      reviewType: 'platform',
+      approvedForDisplay: true
+    })
+      .populate('patientId', 'firstName lastName')
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(skip);
+
+    const total = await Review.countDocuments({
+      reviewType: 'platform',
+      approvedForDisplay: true
+    });
+
+    res.json({
+      reviews,
+      total
+    });
+  } catch (error) {
+    console.error('[REVIEW] Error fetching platform reviews:', error);
+    res.status(500).json({ message: 'Failed to fetch platform reviews' });
+  }
+});
+
 // Get reviews for a doctor (for display on profile)
 router.get('/doctor/:doctorId', async (req, res) => {
   try {
     const { doctorId } = req.params;
     const limit = parseInt(req.query.limit) || 10;
     const skip = parseInt(req.query.skip) || 0;
+    const includeAll = req.query.includeAll === 'true'; // For doctor's own view
 
-    const reviews = await Review.find({ doctorId })
+    const filter = {
+      doctorId,
+      reviewType: 'doctor'
+    };
+
+    // Only show approved reviews for public view
+    if (!includeAll) {
+      filter.approvedForDisplay = true;
+    }
+
+    const reviews = await Review.find(filter)
       .populate('patientId', 'firstName lastName')
       .sort({ createdAt: -1 })
       .limit(limit)
@@ -120,7 +171,7 @@ router.get('/doctor/:doctorId', async (req, res) => {
     res.json({
       reviews,
       stats,
-      total: await Review.countDocuments({ doctorId })
+      total: await Review.countDocuments(filter)
     });
   } catch (error) {
     console.error('[REVIEW] Error fetching doctor reviews:', error);
@@ -179,7 +230,7 @@ router.get('/admin/all', verifyToken, verifyAdmin, async (req, res) => {
 router.get('/admin/doctor-performance', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const doctors = await User.find({ role: 'doctor' }).select('firstName lastName email');
-    
+
     const performance = await Promise.all(
       doctors.map(async (doctor) => {
         const stats = await Review.getDoctorStats(doctor._id);
@@ -235,6 +286,80 @@ router.patch('/admin/:reviewId/status', verifyToken, verifyAdmin, async (req, re
   } catch (error) {
     console.error('[REVIEW] Error updating review status:', error);
     res.status(500).json({ message: 'Failed to update review status' });
+  }
+});
+
+// Approve review for public display (Admin only)
+router.patch('/admin/:reviewId/approve', verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const { reviewId } = req.params;
+    const { approved } = req.body; // true or false
+
+    const review = await Review.findByIdAndUpdate(
+      reviewId,
+      {
+        approvedForDisplay: approved,
+        isPublic: approved,
+        reviewedBy: req.user._id,
+        reviewedAt: new Date()
+      },
+      { new: true }
+    );
+
+    if (!review) {
+      return res.status(404).json({ message: 'Review not found' });
+    }
+
+    res.json({
+      success: true,
+      message: approved ? 'Review approved for display' : 'Review hidden from display',
+      review
+    });
+  } catch (error) {
+    console.error('[REVIEW] Error approving review:', error);
+    res.status(500).json({ message: 'Failed to approve review' });
+  }
+});
+
+// Get doctor's own reviews (all reviews for their sessions)
+router.get('/my-reviews', verifyToken, async (req, res) => {
+  try {
+    const doctorId = req.user._id;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = parseInt(req.query.skip) || 0;
+
+    // Verify user is a doctor
+    if (req.user.role !== 'doctor') {
+      return res.status(403).json({ message: 'Only doctors can access this endpoint' });
+    }
+
+    const reviews = await Review.find({
+      doctorId,
+      reviewType: 'doctor' // Only show doctor-specific reviews
+    })
+      .populate('patientId', 'firstName lastName')
+      .populate('sessionId', 'sessionDate sessionTime')
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .skip(skip);
+
+    const stats = await Review.getDoctorStats(doctorId);
+
+    const total = await Review.countDocuments({
+      doctorId,
+      reviewType: 'doctor'
+    });
+
+    res.json({
+      reviews,
+      stats,
+      total,
+      page: Math.floor(skip / limit) + 1,
+      totalPages: Math.ceil(total / limit)
+    });
+  } catch (error) {
+    console.error('[REVIEW] Error fetching doctor reviews:', error);
+    res.status(500).json({ message: 'Failed to fetch reviews' });
   }
 });
 

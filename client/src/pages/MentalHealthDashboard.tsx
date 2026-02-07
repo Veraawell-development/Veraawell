@@ -8,10 +8,28 @@ const MentalHealthDashboard: React.FC = () => {
     const navigate = useNavigate();
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [latestScores, setLatestScores] = useState<Record<string, any>>({});
-    // Removed unused loading state
 
     useEffect(() => {
         fetchLatestScores();
+
+        // Refresh scores when user returns to the page
+        const handleFocus = () => {
+            fetchLatestScores();
+        };
+
+        const handleVisibilityChange = () => {
+            if (!document.hidden) {
+                fetchLatestScores();
+            }
+        };
+
+        window.addEventListener('focus', handleFocus);
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => {
+            window.removeEventListener('focus', handleFocus);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
     }, []);
 
     const fetchLatestScores = async () => {
@@ -31,6 +49,41 @@ const MentalHealthDashboard: React.FC = () => {
         } catch (error) {
             console.error('Error fetching scores:', error);
         }
+    };
+
+    const getSeverityInfo = (score: number, testId: string) => {
+        const test = MENTAL_HEALTH_TESTS[testId as keyof typeof MENTAL_HEALTH_TESTS];
+        if (!test) return { label: 'Unknown', color: '#6B7280' };
+
+        const levels = test.scoring.severityLevels;
+
+        // Check severity levels in order from most to least severe
+        if (score >= levels.severe.min) {
+            return { label: 'Severe', color: getSeverityColor('Severe') };
+        }
+        if (levels['moderately-severe'] && score >= levels['moderately-severe'].min) {
+            return { label: 'Moderately Severe', color: getSeverityColor('Moderately Severe') };
+        }
+        if (score >= levels.moderate.min) {
+            return { label: 'Moderate', color: getSeverityColor('Moderate') };
+        }
+        if (score >= levels.mild.min) {
+            return { label: 'Mild', color: getSeverityColor('Mild') };
+        }
+        if (score <= levels.minimal.max) {
+            return { label: 'Minimal', color: getSeverityColor('Minimal') };
+        }
+
+        return { label: 'Unknown', color: '#6B7280' };
+    };
+
+    const getSeverityColor = (label: string) => {
+        const lowerLabel = label.toLowerCase();
+        if (lowerLabel.includes('minimal') || lowerLabel.includes('none') || lowerLabel.includes('normal')) return '#10B981';
+        if (lowerLabel.includes('mild')) return '#F59E0B';
+        if (lowerLabel.includes('moderate')) return '#F97316';
+        if (lowerLabel.includes('severe') || lowerLabel.includes('moderately severe')) return '#EF4444';
+        return '#6B7280';
     };
 
     const testCards = [
@@ -114,6 +167,7 @@ const MentalHealthDashboard: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {testCards.map((test) => {
                         const latestScore = latestScores[test.id];
+                        const severityInfo = latestScore ? getSeverityInfo(latestScore.latestScore, test.id) : null;
 
                         return (
                             <div
@@ -121,7 +175,15 @@ const MentalHealthDashboard: React.FC = () => {
                                 className="bg-white rounded-2xl shadow-lg hover:shadow-xl transition-all duration-300 overflow-hidden group cursor-pointer"
                                 onClick={() => navigate(`/mental-health/${test.id}`)}
                             >
-                                <div className={`bg-gradient-to-r ${test.color} p-6 text-white`}>
+                                <div className={`bg-gradient-to-r ${test.color} p-6 text-white relative`}>
+                                    {latestScore && (
+                                        <div className="absolute top-4 right-4 bg-white/20 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-semibold flex items-center gap-1">
+                                            <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                            </svg>
+                                            Completed
+                                        </div>
+                                    )}
                                     <div className="flex items-start justify-between">
                                         <div className="flex-1">
                                             <h3 className="text-2xl font-bold mb-1" style={{ fontFamily: 'Bree Serif, serif' }}>{test.name}</h3>
@@ -134,51 +196,74 @@ const MentalHealthDashboard: React.FC = () => {
                                 </div>
 
                                 <div className="p-6">
-                                    <p className="text-gray-600 mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                        {test.description}
-                                    </p>
-
-                                    <div className="flex items-center justify-between text-sm text-gray-500 mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                        <div className="flex items-center gap-2">
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                            </svg>
-                                            <span>{test.questionCount} questions</span>
-                                        </div>
-                                        <div className="flex items-center gap-2">
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                            </svg>
-                                            <span>{test.estimatedTime}</span>
-                                        </div>
-                                    </div>
-
-                                    {latestScore && (
-                                        <div className="bg-gray-50 rounded-lg p-3 mb-4">
-                                            <div className="flex items-center justify-between">
-                                                <span className="text-xs text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>Last taken:</span>
-                                                <span className="text-xs font-medium text-gray-700" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                                    {new Date(latestScore.latestDate).toLocaleDateString()}
-                                                </span>
+                                    {latestScore ? (
+                                        // COMPLETED TEST VIEW
+                                        <>
+                                            <div className="text-center mb-4">
+                                                <p className="text-sm text-gray-500 mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                                    Latest Score
+                                                </p>
+                                                <div className="text-5xl font-bold mb-3" style={{
+                                                    fontFamily: 'Bree Serif, serif',
+                                                    color: severityInfo?.color || '#6B7280'
+                                                }}>
+                                                    {latestScore.latestScore}
+                                                    <span className="text-2xl text-gray-400">/{test.scoring.maxScore}</span>
+                                                </div>
+                                                <div className="inline-block px-4 py-1.5 rounded-full text-sm font-semibold mb-3"
+                                                    style={{
+                                                        backgroundColor: `${severityInfo?.color}20`,
+                                                        color: severityInfo?.color || '#6B7280'
+                                                    }}
+                                                >
+                                                    {severityInfo?.label || 'Unknown'}
+                                                </div>
+                                                <p className="text-xs text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                                    Last taken: {new Date(latestScore.latestDate).toLocaleDateString()}
+                                                </p>
                                             </div>
-                                            <div className="flex items-center justify-between mt-1">
-                                                <span className="text-xs text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>Score:</span>
-                                                <span className="text-sm font-bold" style={{ fontFamily: 'Inter, sans-serif', color: '#5DBEBD' }}>
-                                                    {latestScore.latestScore}/{test.scoring.maxScore}
-                                                </span>
+
+                                            <button className="w-full py-3 rounded-xl font-bold text-white transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5"
+                                                style={{
+                                                    fontFamily: 'Bree Serif, serif',
+                                                    background: `linear-gradient(135deg, ${test.color.split(' ')[1].replace('to-', '')} 0%, ${test.color.split(' ')[2]} 100%)`
+                                                }}
+                                            >
+                                                Retest
+                                            </button>
+                                        </>
+                                    ) : (
+                                        // NOT TAKEN TEST VIEW
+                                        <>
+                                            <p className="text-gray-600 mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                                {test.description}
+                                            </p>
+
+                                            <div className="flex items-center justify-between text-sm text-gray-500 mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                                <div className="flex items-center gap-2">
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                    <span>{test.questionCount} questions</span>
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                                    </svg>
+                                                    <span>{test.estimatedTime}</span>
+                                                </div>
                                             </div>
-                                        </div>
+
+                                            <button className="w-full py-3 rounded-xl font-bold text-white transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5"
+                                                style={{
+                                                    fontFamily: 'Bree Serif, serif',
+                                                    background: `linear-gradient(135deg, ${test.color.split(' ')[1].replace('to-', '')} 0%, ${test.color.split(' ')[2]} 100%)`
+                                                }}
+                                            >
+                                                Take Test
+                                            </button>
+                                        </>
                                     )}
-
-                                    <button
-                                        className="w-full py-3 rounded-xl font-bold text-white transition-all shadow-md hover:shadow-lg hover:-translate-y-0.5"
-                                        style={{
-                                            fontFamily: 'Bree Serif, serif',
-                                            background: `linear-gradient(135deg, ${test.color.split(' ')[1].replace('to-', '')} 0%, ${test.color.split(' ')[2]} 100%)`
-                                        }}
-                                    >
-                                        {latestScore ? 'Retake Test' : 'Take Test'}
-                                    </button>
                                 </div>
                             </div>
                         );

@@ -4,24 +4,7 @@ import Calendar from '../components/Calendar';
 import WelcomeModal from '../components/WelcomeModal';
 import { useAuth } from '../context/AuthContext';
 import SessionModal from '../components/SessionModal';
-
-interface Session {
-  _id: string;
-  sessionDate: string;
-  sessionTime: string;
-  status: 'scheduled' | 'completed' | 'cancelled' | 'no-show';
-  patientId: {
-    firstName: string;
-    lastName: string;
-  };
-  doctorId: {
-    firstName: string;
-    lastName: string;
-  };
-  meetingLink?: string;
-  sessionType: string;
-  price: number;
-}
+import type { Session } from '../types';
 
 const DoctorDashboard: React.FC = () => {
   const navigate = useNavigate();

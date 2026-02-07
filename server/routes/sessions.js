@@ -9,6 +9,30 @@ const DoctorProfile = require('../models/doctorProfile');
 const { verifyToken } = require('../middleware/auth.middleware');
 const { updateSessionStatuses } = require('../utils/sessionUpdater');
 
+// Helper function to get gender-based image
+const getGenderBasedImage = (user) => {
+  const firstName = (user.firstName || '').toLowerCase();
+
+  // Common female names
+  const femaleNames = [
+    'shreya', 'priya', 'anjali', 'kavya', 'divya', 'neha', 'pooja', 'riya',
+    'sneha', 'swati', 'nikita', 'preeti', 'shweta', 'megha', 'isha', 'tanvi',
+    'aditi', 'aishwarya', 'ananya', 'deepika', 'kriti', 'nisha', 'rachana',
+    'sakshi', 'simran', 'sonali', 'tanya', 'varsha', 'vidya', 'zoya'
+  ];
+
+  // Check if name is in female names list or ends with typical female suffixes
+  const femaleSuffixes = ['a', 'i', 'ya', 'ka', 'na'];
+  const endsWithFemaleSuffix = femaleSuffixes.some(suffix =>
+    firstName.endsWith(suffix) && firstName.length > 3
+  );
+
+  if (femaleNames.includes(firstName) || endsWithFemaleSuffix) {
+    return '/female.jpg';
+  }
+  return '/male.jpg';
+};
+
 
 
 // Get session statistics for doctor
@@ -58,6 +82,76 @@ router.get('/stats', verifyToken, async (req, res) => {
   }
 });
 
+// Get patient's previously booked doctors (top 3)
+router.get('/my-doctors', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user._id;
+    const userRole = req.user.role;
+
+    // Only patients can access this endpoint
+    if (userRole !== 'patient') {
+      return res.status(403).json({ message: 'Only patients can access this endpoint' });
+    }
+
+    console.log('👥 Fetching previous doctors for patient:', userId.toString().substring(0, 8));
+
+    // Aggregate to find top 3 previously booked doctors
+    const previousDoctors = await Session.aggregate([
+      {
+        $match: {
+          patientId: new mongoose.Types.ObjectId(userId),
+          status: { $in: ['completed', 'ended'] }
+        }
+      },
+      {
+        $group: {
+          _id: '$doctorId',
+          sessionCount: { $sum: 1 },
+          lastSession: { $max: '$sessionDate' }
+        }
+      },
+      {
+        $sort: { sessionCount: -1, lastSession: -1 }
+      },
+      {
+        $limit: 3
+      }
+    ]);
+
+    console.log('👥 Found previous doctors:', previousDoctors.length);
+
+    if (previousDoctors.length === 0) {
+      return res.json([]);
+    }
+
+    // Get doctor IDs
+    const doctorIds = previousDoctors.map(d => d._id);
+
+    // Fetch doctor profiles with user data
+    const doctors = await DoctorProfile.find({ userId: { $in: doctorIds } })
+      .populate('userId', 'firstName lastName email')
+      .lean();
+
+    console.log('👥 Found doctor profiles:', doctors.length);
+
+    // Merge session count with doctor data
+    const result = doctors.map(doctor => {
+      const stats = previousDoctors.find(d => d._id.equals(doctor.userId._id));
+      return {
+        ...doctor,
+        sessionCount: stats ? stats.sessionCount : 0,
+        lastSessionDate: stats ? stats.lastSession : null
+      };
+    });
+
+    res.json(result);
+
+  } catch (error) {
+    console.error('Error fetching previous doctors:', error);
+    res.status(500).json({ message: 'Failed to fetch previous doctors' });
+  }
+});
+
 // Get call history for the authenticated user
 router.get('/call-history', verifyToken, async (req, res) => {
   try {
@@ -86,6 +180,7 @@ router.get('/call-history', verifyToken, async (req, res) => {
     })
       .populate('patientId', 'firstName lastName')
       .populate('doctorId', 'firstName lastName')
+      .select('+rating') // Explicitly include rating field
       .sort({ sessionDate: -1, sessionTime: -1 })
       .lean();
 
@@ -171,7 +266,7 @@ router.get('/doctors/:doctorId/slots/:date', async (req, res) => {
 // Book an immediate session (for testing video calls)
 router.post('/book-immediate', verifyToken, async (req, res) => {
   try {
-    let { doctorId } = req.body;
+    let { doctorId, mode } = req.body;
     const patientId = req.user._id.toString();
 
     // If no doctorId provided or it's a test ID, use the current user as doctor
@@ -212,7 +307,8 @@ router.post('/book-immediate', verifyToken, async (req, res) => {
       sessionTime,
       year,
       month,
-      day
+      day,
+      mode: mode || 'video'
     });
 
     const session = new Session({
@@ -225,7 +321,8 @@ router.post('/book-immediate', verifyToken, async (req, res) => {
       price: 0,
       paymentStatus: 'paid',
       paymentId: `immediate_${Date.now()}`,
-      meetingLink: null
+      meetingLink: null,
+      callMode: mode === 'voice' ? 'Voice Calling' : 'Video Calling'
     });
 
     const savedSession = await session.save();
@@ -337,7 +434,8 @@ router.post('/book', verifyToken, async (req, res) => {
       paymentStatus: 'paid', // Mock payment - always paid
       paymentId: `mock_payment_${Date.now()}`,
       meetingLink,
-      sessionNotes: `Service Type: ${serviceType || 'General'}, Mode: ${mode || 'video'}`
+      sessionNotes: `Service Type: ${serviceType || 'General'}`,
+      callMode: mode === 'voice' ? 'Voice Calling' : 'Video Calling'
     });
 
     // Save availability booking FIRST
@@ -353,8 +451,34 @@ router.post('/book', verifyToken, async (req, res) => {
 
     // Populate the session with user details
     const populatedSession = await Session.findById(session._id)
-      .populate('patientId', 'firstName lastName email')
+      .populate('patientId', 'firstName lastName email phoneNumber')
       .populate('doctorId', 'firstName lastName email');
+
+    // Send booking confirmation via SMS (Twilio)
+    try {
+      const { sendSMS } = require('../services/twilioService');
+
+      if (populatedSession.patientId.phoneNumber) {
+        const patient = populatedSession.patientId;
+        const doctor = populatedSession.doctorId;
+
+        // Format date
+        const sessionDateObj = new Date(populatedSession.sessionDate);
+        const formattedDate = sessionDateObj.toLocaleDateString('en-IN', {
+          day: 'numeric',
+          month: 'short',
+          year: 'numeric'
+        });
+
+        const confirmationMessage = `Hi ${patient.firstName}! Your session has been confirmed. Date: ${formattedDate}, Time: ${populatedSession.sessionTime}, Doctor: Dr. ${doctor.firstName} ${doctor.lastName}. You'll receive a reminder 15 minutes before your session. - Veerawell`;
+
+        await sendSMS(patient.phoneNumber, confirmationMessage);
+        console.log(`Booking confirmation SMS sent to ${patient.phoneNumber}`);
+      }
+    } catch (smsError) {
+      console.error('Error sending booking confirmation SMS:', smsError);
+      // Don't fail the booking if SMS fails
+    }
 
     // Auto-create conversation between patient and doctor
     try {
@@ -461,15 +585,41 @@ router.get('/doctors', async (req, res) => {
 
     console.log('[DOCTORS] Valid profiles after filtering:', validProfiles.length);
 
-    // Available doctor images for rotation
-    const doctorImages = ['/doctor-01.svg', '/doctor-02.svg', '/doctor-03.svg', '/doctor-04.svg'];
+    // Helper function to get gender-based image
+    const getGenderBasedImage = (user) => {
+      const firstName = (user.firstName || '').toLowerCase();
 
-    // Map profiles with images
-    const result = validProfiles.map((profile, index) => {
-      // If profile exists but has no image, assign one from rotation
-      if (!profile.profileImage || profile.profileImage === '/doctor-placeholder.svg') {
-        profile.profileImage = doctorImages[index % doctorImages.length];
+      // Common female names
+      const femaleNames = [
+        'shreya', 'priya', 'anjali', 'kavya', 'divya', 'neha', 'pooja', 'riya',
+        'sneha', 'swati', 'nikita', 'preeti', 'shweta', 'megha', 'isha', 'tanvi',
+        'aditi', 'aishwarya', 'ananya', 'deepika', 'kriti', 'nisha', 'rachana',
+        'sakshi', 'simran', 'sonali', 'tanya', 'varsha', 'vidya', 'zoya'
+      ];
+
+      // Check if name is in female names list or ends with typical female suffixes
+      const femaleSuffixes = ['a', 'i', 'ya', 'ka', 'na'];
+      const endsWithFemaleSuffix = femaleSuffixes.some(suffix =>
+        firstName.endsWith(suffix) && firstName.length > 3
+      );
+
+      if (femaleNames.includes(firstName) || endsWithFemaleSuffix) {
+        return '/female.jpg';
       }
+      return '/male.jpg';
+    };
+
+    // Map profiles with gender-based images ONLY if no valid image exists
+    const result = validProfiles.map((profile) => {
+      // Only assign placeholder if profile has NO image or has old placeholder
+      // DO NOT overwrite valid Cloudinary URLs!
+      if (!profile.profileImage ||
+        profile.profileImage.trim() === '' ||
+        profile.profileImage.includes('doctor-0') ||
+        profile.profileImage === '/doctor-placeholder.svg') {
+        profile.profileImage = getGenderBasedImage(profile.userId);
+      }
+      // If profileImage exists and is a valid URL (Cloudinary), keep it as-is
       return profile;
     });
 
@@ -508,22 +658,18 @@ router.get('/doctors/:doctorId', async (req, res) => {
 
     console.log('Profile found:', profile ? 'Yes' : 'No (using defaults)');
 
-    // Available doctor images for rotation
-    const doctorImages = ['/doctor-01.svg', '/doctor-02.svg', '/doctor-03.svg', '/doctor-04.svg'];
-
-    // Get all doctors to determine index for image rotation
-    const allDoctors = await User.find({ role: 'doctor' }).select('_id').sort({ createdAt: 1 });
-    const doctorIndex = allDoctors.findIndex(d => d._id.toString() === doctorId);
-    const assignedImage = doctorImages[doctorIndex >= 0 ? doctorIndex % doctorImages.length : 0];
+    // Get user data for gender-based image
+    const user = await User.findById(doctorId).select('firstName lastName email');
+    const genderBasedImage = user ? getGenderBasedImage(user) : '/male.jpg';
 
     if (profile) {
       // Return existing profile with populated user data
       const populatedProfile = await DoctorProfile.findById(profile._id)
         .populate('userId', 'firstName lastName email');
 
-      // If profile has no image or placeholder, assign one from rotation
-      if (!populatedProfile.profileImage || populatedProfile.profileImage === '/doctor-placeholder.svg') {
-        populatedProfile.profileImage = assignedImage;
+      // If profile has no image or has old doctor SVG, assign gender-based image
+      if (!populatedProfile.profileImage || populatedProfile.profileImage.includes('doctor-0') || populatedProfile.profileImage === '/doctor-placeholder.svg') {
+        populatedProfile.profileImage = genderBasedImage;
       }
 
       console.log('Returning populated profile with image:', populatedProfile.profileImage);
@@ -671,8 +817,69 @@ router.get('/join/:sessionId', verifyToken, async (req, res) => {
   }
 });
 
-// Cancel a session
-router.put('/cancel/:sessionId', verifyToken, async (req, res) => {
+// Mark session as completed (for post-call review flow)
+router.post('/:sessionId/complete', verifyToken, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const userId = req.user._id.toString();
+    const userRole = req.user.role;
+
+    console.log('[SESSION COMPLETE] Request received:', {
+      sessionId: sessionId.substring(0, 8),
+      userId: userId.substring(0, 8),
+      role: userRole
+    });
+
+    const session = await Session.findById(sessionId);
+
+    if (!session) {
+      return res.status(404).json({ message: 'Session not found' });
+    }
+
+    // Verify user is part of this session
+    const patientId = session.patientId?.toString();
+    const doctorId = session.doctorId?.toString();
+
+    if (patientId !== userId && doctorId !== userId) {
+      return res.status(403).json({ message: 'Unauthorized to complete this session' });
+    }
+
+    // If already completed, just return success
+    if (session.status === 'completed') {
+      console.log('[SESSION COMPLETE] Session already completed');
+      return res.json({
+        message: 'Session already marked as completed',
+        session: { status: session.status }
+      });
+    }
+
+    // Mark session as completed
+    session.status = 'completed';
+    if (session.callStatus !== 'completed') {
+      session.callStatus = 'completed';
+      session.callEndTime = session.callEndTime || new Date();
+    }
+
+    await session.save();
+
+    console.log('[SESSION COMPLETE] Session marked as completed:', {
+      sessionId: sessionId.substring(0, 8),
+      by: userRole
+    });
+
+    res.json({
+      message: 'Session marked as completed successfully',
+      session: { status: session.status }
+    });
+
+  } catch (error) {
+    console.error('[SESSION COMPLETE] Error:', error);
+    res.status(500).json({ message: 'Failed to mark session as completed', error: error.message });
+  }
+});
+
+// Cancel a session and process refund
+router.post('/:sessionId/cancel', verifyToken, async (req, res) => {
   try {
     const { sessionId } = req.params;
     const userId = req.user._id.toString();
@@ -786,6 +993,122 @@ router.get('/calendar/:year/:month', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('Error in join session:', error);
     res.status(500).json({ message: 'Failed to process session join' });
+  }
+});
+
+// Get patient emergency contact (Doctor only)
+router.get('/patients/:patientId/emergency-contact', verifyToken, async (req, res) => {
+  try {
+    const { patientId } = req.params;
+
+    // Only doctors can access emergency contacts
+    if (req.user.role !== 'doctor') {
+      return res.status(403).json({ message: 'Only doctors can access emergency contacts' });
+    }
+
+    // Verify doctor has a session with this patient
+    const hasSession = await Session.findOne({
+      doctorId: req.user._id,
+      patientId: patientId
+    });
+
+    if (!hasSession) {
+      return res.status(403).json({ message: 'You can only view emergency contacts for your patients' });
+    }
+
+    // Get patient with emergency contact
+    const patient = await User.findById(patientId)
+      .select('firstName lastName emergencyContact');
+
+    if (!patient) {
+      return res.status(404).json({ message: 'Patient not found' });
+    }
+
+    res.json({
+      patientName: `${patient.firstName} ${patient.lastName}`,
+      emergencyContact: patient.emergencyContact
+    });
+  } catch (error) {
+    console.error('Error fetching emergency contact:', error);
+    res.status(500).json({ message: 'Failed to fetch emergency contact' });
+  }
+});
+
+// Get patient's therapists (Patient only)
+router.get('/my-therapists', verifyToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'patient') {
+      return res.status(403).json({ message: 'Only patients can access this endpoint' });
+    }
+
+    const patientId = req.user._id.toString();
+
+    // Get all sessions for this patient
+    const sessions = await Session.find({
+      patientId: patientId,
+      status: { $in: ['completed', 'scheduled'] }
+    })
+      .populate('doctorId', 'firstName lastName email')
+      .sort({ sessionDate: -1 });
+
+    // Group by doctor and calculate stats
+    const therapistsMap = {};
+
+    sessions.forEach(session => {
+      if (!session.doctorId) return;
+
+      const doctorId = session.doctorId._id.toString();
+
+      if (!therapistsMap[doctorId]) {
+        therapistsMap[doctorId] = {
+          doctor: {
+            _id: session.doctorId._id,
+            firstName: session.doctorId.firstName,
+            lastName: session.doctorId.lastName,
+            email: session.doctorId.email
+          },
+          totalSessions: 0,
+          completedSessions: 0,
+          upcomingSessions: 0,
+          lastSession: null,
+          nextSession: null
+        };
+      }
+
+      therapistsMap[doctorId].totalSessions++;
+
+      if (session.status === 'completed') {
+        therapistsMap[doctorId].completedSessions++;
+        if (!therapistsMap[doctorId].lastSession ||
+          session.sessionDate > therapistsMap[doctorId].lastSession) {
+          therapistsMap[doctorId].lastSession = session.sessionDate;
+        }
+      } else if (session.status === 'scheduled') {
+        therapistsMap[doctorId].upcomingSessions++;
+        if (!therapistsMap[doctorId].nextSession ||
+          session.sessionDate < therapistsMap[doctorId].nextSession) {
+          therapistsMap[doctorId].nextSession = session.sessionDate;
+        }
+      }
+    });
+
+    // Convert to array and populate doctor profiles
+    const therapists = await Promise.all(
+      Object.values(therapistsMap).map(async (therapist) => {
+        const profile = await DoctorProfile.findOne({ userId: therapist.doctor._id })
+          .select('specialization experience qualification profileImage');
+
+        return {
+          ...therapist,
+          profile: profile || null
+        };
+      })
+    );
+
+    res.json(therapists);
+  } catch (error) {
+    console.error('Error fetching therapists:', error);
+    res.status(500).json({ message: 'Failed to fetch therapists' });
   }
 });
 

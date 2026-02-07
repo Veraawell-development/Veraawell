@@ -25,7 +25,12 @@ const WelcomeModal: React.FC<WelcomeModalProps> = ({ isOpen, onClose, showClose 
     setIsAnimating(false);
     setTimeout(() => {
       onClose();
-      navigate('/profile-setup');
+      // Redirect based on user role
+      if (user?.role === 'patient') {
+        navigate('/patient-profile-setup');
+      } else {
+        navigate('/profile-setup');
+      }
     }, 200);
   };
 

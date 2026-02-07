@@ -14,6 +14,7 @@ const BookSessionPage: React.FC = () => {
   const [selectedTime, setSelectedTime] = useState('');
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [sessionType, setSessionType] = useState('regular');
+  const [mode, setMode] = useState<'video' | 'voice'>('video');
   const [bookingLoading, setBookingLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
@@ -60,7 +61,7 @@ const BookSessionPage: React.FC = () => {
         setDoctor(foundDoctor);
       } else {
         setError('Doctor not found');
-      showErrorToast('Doctor not found');
+        showErrorToast('Doctor not found');
       }
     } catch (error) {
       logger.error('Error fetching doctor details:', error);
@@ -136,7 +137,9 @@ const BookSessionPage: React.FC = () => {
           doctorId: doctor!.userId._id,
           sessionDate: selectedDate,
           sessionTime: selectedTime,
+
           sessionType,
+          mode,
           price
         })
       });
@@ -148,9 +151,9 @@ const BookSessionPage: React.FC = () => {
 
       const data = await response.json();
       logger.info('Booking successful:', data);
-      
+
       showSuccess('Session booked successfully! Redirecting to your dashboard...');
-      
+
       setTimeout(() => {
         navigate('/patient-dashboard');
       }, 1500);
@@ -181,7 +184,7 @@ const BookSessionPage: React.FC = () => {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <p className="text-red-600 mb-4">{error}</p>
-          <button 
+          <button
             onClick={() => navigate('/choose-professional')}
             className="px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700"
           >
@@ -197,7 +200,7 @@ const BookSessionPage: React.FC = () => {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <p className="text-gray-600">Doctor not found</p>
-          <button 
+          <button
             onClick={() => navigate('/choose-professional')}
             className="mt-4 px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700"
           >
@@ -213,7 +216,7 @@ const BookSessionPage: React.FC = () => {
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-8">
-          <button 
+          <button
             onClick={() => navigate('/choose-professional')}
             className="flex items-center text-teal-600 hover:text-teal-700 mb-4"
           >
@@ -229,8 +232,8 @@ const BookSessionPage: React.FC = () => {
           {/* Doctor Info */}
           <div className="bg-white rounded-lg shadow-lg p-6">
             <div className="flex items-start space-x-4 mb-6">
-              <img 
-                src={doctor.profileImage} 
+              <img
+                src={doctor.profileImage}
                 alt={`${doctor.userId.firstName} ${doctor.userId.lastName}`}
                 className="w-20 h-20 rounded-full object-cover"
               />
@@ -249,12 +252,12 @@ const BookSessionPage: React.FC = () => {
                 <h3 className="font-semibold text-gray-800 mb-2">Languages</h3>
                 <p className="text-gray-600">{doctor.languages.join(', ')}</p>
               </div>
-              
+
               <div>
                 <h3 className="font-semibold text-gray-800 mb-2">Treats For</h3>
                 <p className="text-gray-600">{doctor.treatsFor.join(', ')}</p>
               </div>
-              
+
               <div>
                 <h3 className="font-semibold text-gray-800 mb-2">Pricing</h3>
                 <p className="text-gray-600">₹{doctor.pricing.min} - ₹{doctor.pricing.max} per session</p>
@@ -272,7 +275,7 @@ const BookSessionPage: React.FC = () => {
           {/* Booking Form */}
           <div className="bg-white rounded-lg shadow-lg p-6">
             <h3 className="text-xl font-bold text-gray-800 font-serif mb-6">Schedule Your Session</h3>
-            
+
             {error && (
               <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
                 {error}
@@ -293,6 +296,39 @@ const BookSessionPage: React.FC = () => {
                   <option value="discovery">Discovery Session (Free)</option>
                   <option value="regular">Regular Session (₹{doctor.pricing.min})</option>
                 </select>
+              </div>
+
+              {/* Session Mode */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Session Mode
+                </label>
+                <div className="flex gap-4">
+                  <button
+                    onClick={() => setMode('video')}
+                    className={`flex-1 py-3 px-4 rounded-md border flex items-center justify-center gap-2 transition-all ${mode === 'video'
+                      ? 'border-teal-600 bg-teal-50 text-teal-700 font-medium'
+                      : 'border-gray-300 hover:bg-gray-50 text-gray-600'
+                      }`}
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    Video Call
+                  </button>
+                  <button
+                    onClick={() => setMode('voice')}
+                    className={`flex-1 py-3 px-4 rounded-md border flex items-center justify-center gap-2 transition-all ${mode === 'voice'
+                      ? 'border-teal-600 bg-teal-50 text-teal-700 font-medium'
+                      : 'border-gray-300 hover:bg-gray-50 text-gray-600'
+                      }`}
+                  >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+                    </svg>
+                    Voice Call
+                  </button>
+                </div>
               </div>
 
               {/* Date Selection */}
@@ -322,11 +358,10 @@ const BookSessionPage: React.FC = () => {
                         <button
                           key={slot}
                           onClick={() => setSelectedTime(slot)}
-                          className={`p-2 text-sm border rounded-md transition-colors ${
-                            selectedTime === slot
-                              ? 'bg-teal-600 text-white border-teal-600'
-                              : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                          }`}
+                          className={`p-2 text-sm border rounded-md transition-colors ${selectedTime === slot
+                            ? 'bg-teal-600 text-white border-teal-600'
+                            : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                            }`}
                         >
                           {slot}
                         </button>
@@ -347,6 +382,7 @@ const BookSessionPage: React.FC = () => {
                     <p><span className="font-medium">Date:</span> {new Date(selectedDate).toLocaleDateString()}</p>
                     <p><span className="font-medium">Time:</span> {selectedTime}</p>
                     <p><span className="font-medium">Type:</span> {sessionType === 'discovery' ? 'Discovery Session' : 'Regular Session'}</p>
+                    <p><span className="font-medium">Mode:</span> {mode === 'video' ? 'Video Call' : 'Voice Call'}</p>
                     <p><span className="font-medium">Price:</span> {sessionType === 'discovery' ? 'Free' : `₹${doctor.pricing.min}`}</p>
                   </div>
                 </div>
@@ -356,11 +392,10 @@ const BookSessionPage: React.FC = () => {
               <button
                 onClick={handleBookSession}
                 disabled={!selectedDate || !selectedTime || bookingLoading}
-                className={`w-full py-3 px-4 rounded-md font-medium transition-colors ${
-                  !selectedDate || !selectedTime || bookingLoading
-                    ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                    : 'bg-teal-600 text-white hover:bg-teal-700'
-                }`}
+                className={`w-full py-3 px-4 rounded-md font-medium transition-colors ${!selectedDate || !selectedTime || bookingLoading
+                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  : 'bg-teal-600 text-white hover:bg-teal-700'
+                  }`}
               >
                 {bookingLoading ? 'Booking...' : 'Book Session'}
               </button>

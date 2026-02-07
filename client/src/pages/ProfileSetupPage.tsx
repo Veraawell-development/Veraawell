@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import ProfileImageUpload from '../components/ProfileImageUpload';
 
 const ProfileSetupPage: React.FC = () => {
   const navigate = useNavigate();
@@ -18,15 +19,16 @@ const ProfileSetupPage: React.FC = () => {
   // Form state for doctor profile
   const [formData, setFormData] = useState({
     name: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
+    profileImage: '',
     qualification: [] as string[],
     languages: [] as string[],
     type: '',
     experience: '',
     specialization: [] as string[],
-    priceDiscovery: '',
-    price30: '',
-    price45: '',
-    modeOfSession: '',
+    price20: '',
+    price40: '',
+    price55: '',
+    modeOfSession: [] as string[],
     quote: '',
     quoteAuthor: '',
     introduction: ''
@@ -38,7 +40,7 @@ const ProfileSetupPage: React.FC = () => {
   const specializationOptions = ['Anxiety', 'Depression', 'Stress Management', 'Relationship Issues', 'Trauma', 'PTSD', 'OCD', 'Bipolar Disorder', 'Addiction', 'Family Therapy', 'Child Psychology', 'Career Counseling'];
   const sessionModeOptions = ['Video Call', 'Audio Call', 'In-Person', 'Chat'];
 
-  const handleMultiSelect = (field: 'qualification' | 'languages' | 'specialization', value: string) => {
+  const handleMultiSelect = (field: 'qualification' | 'languages' | 'specialization' | 'modeOfSession', value: string) => {
     setFormData(prev => {
       const currentValues = prev[field];
       if (currentValues.includes(value)) {
@@ -63,15 +65,19 @@ const ProfileSetupPage: React.FC = () => {
           if (data.profile) {
             setFormData({
               name: data.profile.name || `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
+              profileImage: data.profile.profileImage || '',
               qualification: data.profile.qualification || [],
               languages: data.profile.languages || [],
               type: data.profile.type || '',
               experience: data.profile.experience || '',
               specialization: data.profile.specialization || [],
-              priceDiscovery: data.profile.priceDiscovery || '',
-              price30: data.profile.price30 || '',
-              price45: data.profile.price45 || '',
-              modeOfSession: data.profile.modeOfSession || '',
+              price20: data.profile.price20 || '',
+              price40: data.profile.price40 || '',
+              price55: data.profile.price55 || '',
+              // Ensure modeOfSession is always an array (handle legacy string data)
+              modeOfSession: Array.isArray(data.profile.modeOfSession)
+                ? data.profile.modeOfSession
+                : (data.profile.modeOfSession ? [data.profile.modeOfSession] : []),
               quote: data.profile.quote || '',
               quoteAuthor: data.profile.quoteAuthor || '',
               introduction: data.profile.introduction || ''
@@ -105,9 +111,9 @@ const ProfileSetupPage: React.FC = () => {
           ...formData,
           experience: parseInt(formData.experience) || 0,
           pricing: {
-            discovery: parseFloat(formData.priceDiscovery) || 0,
-            session30: parseFloat(formData.price30) || 0,
-            session45: parseFloat(formData.price45) || 0
+            session20: parseFloat(formData.price20) || 0,
+            session40: parseFloat(formData.price40) || 0,
+            session55: parseFloat(formData.price55) || 0
           }
         })
       });
@@ -147,7 +153,7 @@ const ProfileSetupPage: React.FC = () => {
       case 2:
         return formData.qualification.length > 0 && formData.languages.length > 0 && formData.specialization.length > 0;
       case 3:
-        return formData.modeOfSession;
+        return formData.modeOfSession.length > 0;
       case 4:
         return true; // Optional step
       default:
@@ -284,6 +290,16 @@ const ProfileSetupPage: React.FC = () => {
                 {/* STEP 1: Basic Information */}
                 {currentStep === 1 && (
                   <>
+                    {/* Profile Image Upload */}
+                    <div className="flex justify-center mb-8">
+                      <ProfileImageUpload
+                        currentImage={formData.profileImage}
+                        onImageUpdate={(imageUrl) => setFormData({ ...formData, profileImage: imageUrl })}
+                        onImageRemove={() => setFormData({ ...formData, profileImage: '' })}
+                        defaultImage="/male.png"
+                      />
+                    </div>
+
                     {/* Name */}
                     <div className="space-y-2">
                       <label className="block text-sm font-medium text-gray-700">
@@ -534,16 +550,16 @@ const ProfileSetupPage: React.FC = () => {
                       </label>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="space-y-1.5">
-                          <label className="text-xs font-medium text-gray-600">15 Minutes</label>
+                          <label className="text-xs font-medium text-gray-600">20 Minutes</label>
                           <div className="relative">
                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">₹</span>
                             <input
                               type="number"
-                              value={formData.priceDiscovery}
-                              onChange={(e) => setFormData({ ...formData, priceDiscovery: e.target.value })}
-                              onFocus={() => setFocusedField('priceDiscovery')}
+                              value={formData.price20}
+                              onChange={(e) => setFormData({ ...formData, price20: e.target.value })}
+                              onFocus={() => setFocusedField('price20')}
                               onBlur={() => setFocusedField(null)}
-                              className={`w-full pl-8 pr-4 py-3 border rounded-xl transition-all duration-200 ${focusedField === 'priceDiscovery'
+                              className={`w-full pl-8 pr-4 py-3 border rounded-xl transition-all duration-200 ${focusedField === 'price20'
                                 ? 'border-teal-500 ring-4 ring-teal-100 bg-white'
                                 : 'border-gray-300 bg-gray-50 hover:border-gray-400'
                                 } focus:outline-none`}
@@ -553,16 +569,16 @@ const ProfileSetupPage: React.FC = () => {
                           </div>
                         </div>
                         <div className="space-y-1.5">
-                          <label className="text-xs font-medium text-gray-600">30 Minutes</label>
+                          <label className="text-xs font-medium text-gray-600">40 Minutes</label>
                           <div className="relative">
                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">₹</span>
                             <input
                               type="number"
-                              value={formData.price30}
-                              onChange={(e) => setFormData({ ...formData, price30: e.target.value })}
-                              onFocus={() => setFocusedField('price30')}
+                              value={formData.price40}
+                              onChange={(e) => setFormData({ ...formData, price40: e.target.value })}
+                              onFocus={() => setFocusedField('price40')}
                               onBlur={() => setFocusedField(null)}
-                              className={`w-full pl-8 pr-4 py-3 border rounded-xl transition-all duration-200 ${focusedField === 'price30'
+                              className={`w-full pl-8 pr-4 py-3 border rounded-xl transition-all duration-200 ${focusedField === 'price40'
                                 ? 'border-teal-500 ring-4 ring-teal-100 bg-white'
                                 : 'border-gray-300 bg-gray-50 hover:border-gray-400'
                                 } focus:outline-none`}
@@ -572,16 +588,16 @@ const ProfileSetupPage: React.FC = () => {
                           </div>
                         </div>
                         <div className="space-y-1.5">
-                          <label className="text-xs font-medium text-gray-600">45 Minutes</label>
+                          <label className="text-xs font-medium text-gray-600">55 Minutes</label>
                           <div className="relative">
                             <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">₹</span>
                             <input
                               type="number"
-                              value={formData.price45}
-                              onChange={(e) => setFormData({ ...formData, price45: e.target.value })}
-                              onFocus={() => setFocusedField('price45')}
+                              value={formData.price55}
+                              onChange={(e) => setFormData({ ...formData, price55: e.target.value })}
+                              onFocus={() => setFocusedField('price55')}
                               onBlur={() => setFocusedField(null)}
-                              className={`w-full pl-8 pr-4 py-3 border rounded-xl transition-all duration-200 ${focusedField === 'price45'
+                              className={`w-full pl-8 pr-4 py-3 border rounded-xl transition-all duration-200 ${focusedField === 'price55'
                                 ? 'border-teal-500 ring-4 ring-teal-100 bg-white'
                                 : 'border-gray-300 bg-gray-50 hover:border-gray-400'
                                 } focus:outline-none`}
@@ -599,32 +615,57 @@ const ProfileSetupPage: React.FC = () => {
                       </p>
                     </div>
 
-                    {/* Mode of Session */}
+                    {/* Mode of Session - Multi-select */}
                     <div className="space-y-2">
                       <label className="block text-sm font-medium text-gray-700">
                         Preferred Session Mode <span className="text-red-500">*</span>
                       </label>
                       <div className="relative">
                         <select
-                          value={formData.modeOfSession}
-                          onChange={(e) => setFormData({ ...formData, modeOfSession: e.target.value })}
                           onFocus={() => setFocusedField('modeOfSession')}
                           onBlur={() => setFocusedField(null)}
                           className={`w-full px-4 py-3 border rounded-xl appearance-none transition-all duration-200 ${focusedField === 'modeOfSession'
                             ? 'border-teal-500 ring-4 ring-teal-100 bg-white'
                             : 'border-gray-300 bg-gray-50 hover:border-gray-400'
                             } focus:outline-none cursor-pointer`}
-                          required
+                          onChange={(e) => {
+                            if (e.target.value) {
+                              handleMultiSelect('modeOfSession', e.target.value);
+                              e.target.value = '';
+                            }
+                          }}
                         >
-                          <option value="">Select session mode</option>
-                          {sessionModeOptions.map(opt => (
+                          <option value="">Add a session mode</option>
+                          {sessionModeOptions.filter(opt => !formData.modeOfSession.includes(opt)).map(opt => (
                             <option key={opt} value={opt}>{opt}</option>
                           ))}
                         </select>
                         <svg className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                         </svg>
                       </div>
+                      {formData.modeOfSession.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-3">
+                          {formData.modeOfSession.map(mode => (
+                            <span key={mode} className="inline-flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-sm font-medium border border-green-200">
+                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                              </svg>
+                              {mode}
+                              <button
+                                type="button"
+                                onClick={() => handleMultiSelect('modeOfSession', mode)}
+                                className="ml-1 hover:bg-green-200 rounded-full p-0.5 transition-colors"
+                                aria-label={`Remove ${mode}`}
+                              >
+                                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                                </svg>
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </>
                 )}

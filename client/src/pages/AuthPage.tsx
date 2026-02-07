@@ -4,6 +4,8 @@ import { FcGoogle } from 'react-icons/fc';
 import { FaUserMd, FaUser } from 'react-icons/fa';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config/api';
+import OTPVerificationModal from '../components/OTPVerificationModal';
+import toast from 'react-hot-toast';
 
 interface AuthPageProps {
   mode?: 'login' | 'signup';
@@ -26,6 +28,10 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   const navigate = useNavigate();
   const location = useLocation();
   const { setAuthToken } = useAuth();
+
+  // OTP verification states
+  const [showOTPModal, setShowOTPModal] = useState(false);
+  const [otpEmail, setOtpEmail] = useState('');
 
   // Get redirect information from location state
   const redirectMessage = location.state?.message;
@@ -96,6 +102,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
     setRegisterMsg('');
     setError('');
 
+    // Validation
     if (!firstName.trim()) {
       setRegisterMsg('Name is required');
       return;
@@ -120,7 +127,42 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
       setRegisterMsg('Passwords do not match');
       return;
     }
+
+    // STEP 1: Send OTP to email
     setLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/otp/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.toLowerCase(),
+          userType: 'patient'
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success) {
+        toast.success('OTP sent to your email!');
+        setOtpEmail(email);
+        setShowOTPModal(true);
+        setLoading(false);
+      } else {
+        setRegisterMsg(data.message || 'Failed to send OTP');
+        setLoading(false);
+      }
+    } catch (err) {
+      setRegisterMsg('Network error. Please try again.');
+      setLoading(false);
+    }
+  };
+
+  // STEP 2: Handle OTP verification success
+  const handleOTPVerified = async () => {
+    setShowOTPModal(false);
+    setLoading(true);
+
+    // STEP 3: Register user after OTP verification
     try {
       const res = await fetch(`${API_BASE_URL}/auth/register`, {
         method: 'POST',
@@ -136,19 +178,27 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
           role: 'patient'
         }),
       });
+
       const data = await res.json();
+
       if (res.ok) {
-        setRegisterMsg('Registration successful! Please sign in.');
+        toast.success('Account created successfully!');
+
+        // Auto-login the user after registration
+        if (data.token) {
+          setAuthToken(data.token);
+        }
+
+        // Clear form
         setFirstName('');
         setEmail('');
         setPhoneNo('');
         setRegisterPassword('');
         setRegisterConfirm('');
         setLoading(false);
-        setTimeout(() => {
-          setRegisterMode(false);
-          setRegisterMsg('');
-        }, 2000);
+
+        // Redirect to patient dashboard
+        navigate('/patient-dashboard');
       } else {
         setRegisterMsg(data.message || 'Registration failed');
         setLoading(false);
@@ -206,11 +256,10 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
                   setRegisterMode(false);
                   setIsProfessional(false);
                 }}
-                className={`flex-1 py-2 sm:py-2.5 text-xs sm:text-sm font-medium transition-all rounded-lg ${
-                  !registerMode
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
+                className={`flex-1 py-2 sm:py-2.5 text-xs sm:text-sm font-medium transition-all rounded-lg ${!registerMode
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+                  }`}
               >
                 Sign In
               </button>
@@ -219,11 +268,10 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
                   setRegisterMode(true);
                   setIsProfessional(false);
                 }}
-                className={`flex-1 py-2 sm:py-2.5 text-xs sm:text-sm font-medium transition-all rounded-lg ${
-                  registerMode
-                    ? 'bg-white text-slate-900 shadow-sm'
-                    : 'text-slate-600 hover:text-slate-900'
-                }`}
+                className={`flex-1 py-2 sm:py-2.5 text-xs sm:text-sm font-medium transition-all rounded-lg ${registerMode
+                  ? 'bg-white text-slate-900 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
+                  }`}
               >
                 Sign Up
               </button>
@@ -244,28 +292,24 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
                     setRegisterMode(false);
                   }
                 }}
-                className={`relative p-3 sm:p-4 rounded-lg sm:rounded-xl border-2 transition-all duration-200 ${
-                  !isProfessional
-                    ? 'border-teal-500 bg-teal-50/50 shadow-sm'
-                    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
-                }`}
+                className={`relative p-3 sm:p-4 rounded-lg sm:rounded-xl border-2 transition-all duration-200 ${!isProfessional
+                  ? 'border-teal-500 bg-teal-50/50 shadow-sm'
+                  : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                  }`}
               >
                 <div className="flex flex-col items-center gap-2 sm:gap-2.5">
                   <div
-                    className={`p-2 sm:p-2.5 rounded-full transition-colors ${
-                      !isProfessional ? 'bg-teal-100' : 'bg-slate-100'
-                    }`}
+                    className={`p-2 sm:p-2.5 rounded-full transition-colors ${!isProfessional ? 'bg-teal-100' : 'bg-slate-100'
+                      }`}
                   >
                     <FaUser
-                      className={`text-lg sm:text-xl ${
-                        !isProfessional ? 'text-teal-600' : 'text-slate-400'
-                      }`}
+                      className={`text-lg sm:text-xl ${!isProfessional ? 'text-teal-600' : 'text-slate-400'
+                        }`}
                     />
                   </div>
                   <span
-                    className={`text-xs sm:text-sm font-medium ${
-                      !isProfessional ? 'text-teal-700' : 'text-slate-600'
-                    }`}
+                    className={`text-xs sm:text-sm font-medium ${!isProfessional ? 'text-teal-700' : 'text-slate-600'
+                      }`}
                   >
                     Patient
                   </span>
@@ -291,28 +335,24 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
               {!registerMode && (
                 <button
                   onClick={() => setIsProfessional(true)}
-                  className={`relative p-3 sm:p-4 rounded-lg sm:rounded-xl border-2 transition-all duration-200 ${
-                    isProfessional
-                      ? 'border-slate-700 bg-slate-50 shadow-sm'
-                      : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
-                  }`}
+                  className={`relative p-3 sm:p-4 rounded-lg sm:rounded-xl border-2 transition-all duration-200 ${isProfessional
+                    ? 'border-slate-700 bg-slate-50 shadow-sm'
+                    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                    }`}
                 >
                   <div className="flex flex-col items-center gap-2 sm:gap-2.5">
                     <div
-                      className={`p-2 sm:p-2.5 rounded-full transition-colors ${
-                        isProfessional ? 'bg-slate-200' : 'bg-slate-100'
-                      }`}
+                      className={`p-2 sm:p-2.5 rounded-full transition-colors ${isProfessional ? 'bg-slate-200' : 'bg-slate-100'
+                        }`}
                     >
                       <FaUserMd
-                        className={`text-lg sm:text-xl ${
-                          isProfessional ? 'text-slate-700' : 'text-slate-400'
-                        }`}
+                        className={`text-lg sm:text-xl ${isProfessional ? 'text-slate-700' : 'text-slate-400'
+                          }`}
                       />
                     </div>
                     <span
-                      className={`text-xs sm:text-sm font-medium ${
-                        isProfessional ? 'text-slate-800' : 'text-slate-600'
-                      }`}
+                      className={`text-xs sm:text-sm font-medium ${isProfessional ? 'text-slate-800' : 'text-slate-600'
+                        }`}
                     >
                       Doctor
                     </span>
@@ -465,11 +505,10 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
               </div>
               <button
                 type="submit"
-                className={`w-full py-2.5 sm:py-3 rounded-lg font-medium text-white transition-all shadow-sm hover:shadow disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm ${
-                  isProfessional
-                    ? 'bg-slate-900 hover:bg-slate-800'
-                    : 'bg-teal-600 hover:bg-teal-700'
-                }`}
+                className={`w-full py-2.5 sm:py-3 rounded-lg font-medium text-white transition-all shadow-sm hover:shadow disabled:opacity-50 disabled:cursor-not-allowed text-xs sm:text-sm ${isProfessional
+                  ? 'bg-slate-900 hover:bg-slate-800'
+                  : 'bg-teal-600 hover:bg-teal-700'
+                  }`}
                 disabled={loading}
               >
                 {loading ? 'Signing In...' : `Sign In as ${isProfessional ? 'Doctor' : 'Patient'}`}
@@ -501,11 +540,10 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
           )}
           {registerMsg && (
             <div
-              className={`mt-3 sm:mt-4 p-2.5 sm:p-3 border rounded-lg text-center text-xs font-medium ${
-                registerMsg.includes('successful')
-                  ? 'bg-green-50 border-green-200 text-green-700'
-                  : 'bg-red-50 border-red-200 text-red-700'
-              }`}
+              className={`mt-3 sm:mt-4 p-2.5 sm:p-3 border rounded-lg text-center text-xs font-medium ${registerMsg.includes('successful')
+                ? 'bg-green-50 border-green-200 text-green-700'
+                : 'bg-red-50 border-red-200 text-red-700'
+                }`}
             >
               {registerMsg}
             </div>
@@ -521,6 +559,18 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
             </button>
           </div>
         </div>
+
+        {/* OTP Verification Modal */}
+        <OTPVerificationModal
+          isOpen={showOTPModal}
+          email={otpEmail}
+          userType="patient"
+          onVerified={handleOTPVerified}
+          onClose={() => {
+            setShowOTPModal(false);
+            setLoading(false);
+          }}
+        />
       </div>
     </div>
   );

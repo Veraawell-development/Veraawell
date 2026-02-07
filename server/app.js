@@ -47,6 +47,9 @@ const reviewRoutes = require('./routes/reviews');
 const sessionToolsRoutes = require('./routes/sessionTools');
 const doctorStatusRoutes = require('./routes/doctor-status');
 const mentalHealthAssessmentRoutes = require('./routes/mentalHealthAssessment');
+const uploadRoutes = require('./routes/upload');
+const ratingsRoutes = require('./routes/ratings');
+const sessionReportsRoutes = require('./routes/sessionReports');
 
 const app = express();
 
@@ -122,19 +125,20 @@ if (isProduction()) {
   app.use('/api/auth/forgot-password', passwordResetLimiter);
 }
 
-// Request timeout middleware (30 seconds)
+// Request timeout middleware (60 seconds)
 app.use((req, res, next) => {
-  req.setTimeout(30000, () => {
+  req.setTimeout(60000, () => {
     res.status(408).json({ error: 'Request timeout' });
   });
-  res.setTimeout(30000, () => {
+  res.setTimeout(60000, () => {
     res.status(408).json({ error: 'Response timeout' });
   });
   next();
 });
 
 // Body parsing middleware
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use(cookieParser());
 
 // Input sanitization - prevent NoSQL injection
@@ -146,20 +150,34 @@ app.use(mongoSanitize({
 }));
 
 // Session middleware with MongoDB store
-const sessionStore = createSessionStore();
-app.use(session({
-  secret: getSessionSecret(),
-  resave: false,
-  saveUninitialized: false,
-  store: sessionStore,
-  cookie: getSessionCookieConfig()
-}));
+// NOTE: Session store will be initialized AFTER database connection in server.js
+// This prevents the session store from trying to connect before the main DB connection
+let sessionStore = null;
 
-// Passport middleware
-app.use(passport.initialize());
-app.use(passport.session());
+function initializeSessionMiddleware() {
+  const { createSessionStore } = require('./config/database');
+  sessionStore = createSessionStore();
 
-// Passport serialization
+  app.use(session({
+    secret: getSessionSecret(),
+    resave: false,
+    saveUninitialized: false,
+    store: sessionStore,
+    cookie: getSessionCookieConfig()
+  }));
+
+  // Initialize Passport AFTER session middleware
+  app.use(passport.initialize());
+  app.use(passport.session());
+
+  appLogger.info('Session middleware initialized with MongoDB store');
+  appLogger.info('Passport initialized with session support');
+}
+
+// Export the initialization function
+module.exports.initializeSessionMiddleware = initializeSessionMiddleware;
+
+// Passport serialization (configured but not initialized yet)
 passport.serializeUser((user, done) => {
   done(null, user.id);
 });
@@ -232,8 +250,10 @@ app.get('/api/auth/profile', verifyToken, authController.getProfile);
 app.get('/api/protected', verifyToken, authController.getProtected);
 
 // Profile routes
+// Profile routes
 app.get('/api/profile/setup', verifyToken, profileController.getProfile);
 app.post('/api/profile/setup', verifyToken, profileController.setupProfile);
+app.put('/api/profile', verifyToken, profileController.updateProfile);
 app.get('/api/profile/status', verifyToken, profileController.getProfileStatus);
 
 
@@ -311,6 +331,17 @@ app.use('/api/patients', patientRoutes);
 app.use('/api/session-tools', sessionToolsRoutes);
 app.use('/api/doctor-status', doctorStatusRoutes);
 app.use('/api/assessments', mentalHealthAssessmentRoutes);
+app.use('/api/upload', uploadRoutes);
+app.use('/api/ratings', ratingsRoutes);
+app.use('/api/session-reports', sessionReportsRoutes);
+
+// Article routes
+const articleRoutes = require('./routes/articles');
+app.use('/api/articles', articleRoutes);
+
+// OTP routes (for email verification during signup)
+const otpRoutes = require('./routes/otp');
+app.use('/api/otp', otpRoutes);
 
 // 404 handler
 app.use(notFoundHandler);
@@ -319,3 +350,4 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 module.exports = app;
+module.exports.initializeSessionMiddleware = initializeSessionMiddleware;

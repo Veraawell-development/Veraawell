@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const User = require('../../models/user');
-const { adminAuth, superAdminAuth, checkFirstTimeSetup, requirePasswordChange } = require('../../middleware/adminAuth');
+const { verifyAdminToken, verifySuperAdmin } = require('../../middleware/auth.middleware');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
 
@@ -15,7 +15,19 @@ const transporter = nodemailer.createTransport({
   }
 });
 
-// First-time setup route
+// First-time setup route (no auth required)
+const checkFirstTimeSetup = async (req, res, next) => {
+  try {
+    const adminCount = await User.countDocuments({ role: { $in: ['admin', 'super_admin'] } });
+    if (adminCount > 0) {
+      return res.status(403).json({ message: 'Setup already completed' });
+    }
+    next();
+  } catch (error) {
+    next(error);
+  }
+};
+
 router.post('/setup', checkFirstTimeSetup, async (req, res) => {
   try {
     const adminData = {
@@ -155,7 +167,7 @@ router.post('/login', async (req, res) => {
     const { email, password } = req.body;
 
     // HARDCODED SUPER ADMIN LOGIN
-    if (email.toLowerCase() === 'admin@gmail.com' && password === 'admin@1') {
+    if (email.toLowerCase() === 'admin@gmail.com' && password === 'admin@123') {
       // Check if super admin exists in database
       let superAdmin = await User.findOne({ email: 'admin@gmail.com', role: 'super_admin' });
 
@@ -164,7 +176,7 @@ router.post('/login', async (req, res) => {
         superAdmin = new User({
           email: 'admin@gmail.com',
           username: 'superadmin',
-          password: 'admin@1',
+          password: 'admin@123',
           firstName: 'Super',
           lastName: 'Admin',
           role: 'super_admin',
@@ -182,6 +194,9 @@ router.post('/login', async (req, res) => {
         { expiresIn: '8h' }
       );
 
+      console.log('[ADMIN LOGIN] Super admin token generated:', token.substring(0, 30) + '...');
+      console.log('[ADMIN LOGIN] Token will be sent in response body and cookie');
+
       // Set cookie
       res.cookie('adminToken', token, {
         httpOnly: true,
@@ -190,9 +205,11 @@ router.post('/login', async (req, res) => {
         maxAge: 28800000 // 8 hours
       });
 
+      console.log('[ADMIN LOGIN] Cookie set successfully');
+
       return res.json({
         message: 'Super admin login successful',
-        // Token is in HTTP-only cookie, not in response (security fix)
+        token: token,  // Added for frontend localStorage
         admin: {
           id: superAdmin._id,
           email: superAdmin.email,
@@ -254,7 +271,7 @@ router.post('/login', async (req, res) => {
 
     res.json({
       message: 'Login successful',
-      // Token is in HTTP-only cookie, not in response (security fix)
+      token: token,  // Added for frontend localStorage
       admin: {
         id: admin._id,
         email: admin.email,
@@ -271,7 +288,7 @@ router.post('/login', async (req, res) => {
 });
 
 // Change password route
-router.post('/change-password', adminAuth, async (req, res) => {
+router.post('/change-password', verifyAdminToken, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
     const admin = req.admin;
@@ -298,7 +315,7 @@ router.post('/change-password', adminAuth, async (req, res) => {
 });
 
 // Create new admin (super admin only)
-router.post('/create', adminAuth, superAdminAuth, async (req, res) => {
+router.post('/create', verifyAdminToken, verifySuperAdmin, async (req, res) => {
   try {
     const { email, firstName, lastName, role } = req.body;
 
@@ -345,7 +362,7 @@ router.post('/create', adminAuth, superAdminAuth, async (req, res) => {
 });
 
 // Logout route
-router.post('/logout', adminAuth, async (req, res) => {
+router.post('/logout', verifyAdminToken, async (req, res) => {
   try {
     // Log activity before clearing cookie
     await req.admin.logActivity('logout', { timestamp: new Date() });
@@ -365,7 +382,7 @@ router.post('/logout', adminAuth, async (req, res) => {
 
 
 // Get admin status
-router.get('/status', adminAuth, async (req, res) => {
+router.get('/status', verifyAdminToken, async (req, res) => {
   try {
     const admin = req.admin;
     res.json({

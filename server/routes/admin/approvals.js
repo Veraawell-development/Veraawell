@@ -2,12 +2,12 @@ const express = require('express');
 const router = express.Router();
 const User = require('../../models/user');
 const DoctorProfile = require('../../models/doctorProfile');
-const { adminAuth, superAdminAuth } = require('../../middleware/adminAuth');
+const { verifyAdminToken, verifySuperAdmin } = require('../../middleware/auth.middleware');
 
 // ==================== ADMIN APPROVALS (Super Admin Only) ====================
 
 // Get all pending admin requests
-router.get('/admins/pending', superAdminAuth, async (req, res) => {
+router.get('/admins/pending', verifyAdminToken, verifySuperAdmin, async (req, res) => {
   try {
     const pendingAdmins = await User.find({
       role: 'admin',
@@ -22,14 +22,14 @@ router.get('/admins/pending', superAdminAuth, async (req, res) => {
 });
 
 // Get all admins (approved and pending)
-router.get('/admins/all', superAdminAuth, async (req, res) => {
+router.get('/admins/all', verifyAdminToken, verifySuperAdmin, async (req, res) => {
   try {
     const admins = await User.find({
       role: 'admin'
     })
-    .select('-password')
-    .populate('approvedBy', 'firstName lastName email')
-    .sort({ createdAt: -1 });
+      .select('-password')
+      .populate('approvedBy', 'firstName lastName email')
+      .sort({ createdAt: -1 });
 
     res.json(admins);
   } catch (error) {
@@ -39,13 +39,13 @@ router.get('/admins/all', superAdminAuth, async (req, res) => {
 });
 
 // Approve admin
-router.post('/admins/:adminId/approve', superAdminAuth, async (req, res) => {
+router.post('/admins/:adminId/approve', verifyAdminToken, verifySuperAdmin, async (req, res) => {
   try {
     const { adminId } = req.params;
     const superAdminId = req.admin._id;
 
     const admin = await User.findById(adminId);
-    
+
     if (!admin) {
       return res.status(404).json({ message: 'Admin not found' });
     }
@@ -64,12 +64,12 @@ router.post('/admins/:adminId/approve', superAdminAuth, async (req, res) => {
     await admin.save();
 
     // Log activity
-    await admin.logActivity('approved_by_super_admin', { 
+    await admin.logActivity('approved_by_super_admin', {
       approvedBy: superAdminId,
       timestamp: new Date()
     });
 
-    res.json({ 
+    res.json({
       message: 'Admin approved successfully',
       admin: {
         id: admin._id,
@@ -85,13 +85,13 @@ router.post('/admins/:adminId/approve', superAdminAuth, async (req, res) => {
 });
 
 // Reject admin
-router.post('/admins/:adminId/reject', superAdminAuth, async (req, res) => {
+router.post('/admins/:adminId/reject', verifyAdminToken, verifySuperAdmin, async (req, res) => {
   try {
     const { adminId } = req.params;
     const { reason } = req.body;
 
     const admin = await User.findById(adminId);
-    
+
     if (!admin) {
       return res.status(404).json({ message: 'Admin not found' });
     }
@@ -105,12 +105,12 @@ router.post('/admins/:adminId/reject', superAdminAuth, async (req, res) => {
     await admin.save();
 
     // Log activity
-    await admin.logActivity('rejected_by_super_admin', { 
+    await admin.logActivity('rejected_by_super_admin', {
       reason: admin.rejectionReason,
       timestamp: new Date()
     });
 
-    res.json({ 
+    res.json({
       message: 'Admin rejected successfully',
       admin: {
         id: admin._id,
@@ -128,17 +128,17 @@ router.post('/admins/:adminId/reject', superAdminAuth, async (req, res) => {
 // ==================== DOCTOR APPROVALS (Admin & Super Admin) ====================
 
 // Get all pending doctor requests
-router.get('/doctors/pending', adminAuth, async (req, res) => {
+router.get('/doctors/pending', verifyAdminToken, async (req, res) => {
   try {
     console.log('[ADMIN] Fetching pending doctors...');
     console.log('[ADMIN] Admin user:', req.admin);
-    
+
     const pendingDoctors = await User.find({
       role: 'doctor',
       approvalStatus: 'pending'
     })
-    .select('-password')
-    .sort({ createdAt: -1 });
+      .select('-password')
+      .sort({ createdAt: -1 });
 
     console.log(`[ADMIN] Found ${pendingDoctors.length} pending doctors`);
     if (pendingDoctors.length > 0) {
@@ -170,14 +170,14 @@ router.get('/doctors/pending', adminAuth, async (req, res) => {
 });
 
 // Get all doctors (approved and pending)
-router.get('/doctors/all', adminAuth, async (req, res) => {
+router.get('/doctors/all', verifyAdminToken, async (req, res) => {
   try {
     const doctors = await User.find({
       role: 'doctor'
     })
-    .select('-password')
-    .populate('approvedBy', 'firstName lastName email')
-    .sort({ createdAt: -1 });
+      .select('-password')
+      .populate('approvedBy', 'firstName lastName email')
+      .sort({ createdAt: -1 });
 
     // Also get their doctor profiles
     const doctorsWithProfiles = await Promise.all(
@@ -198,13 +198,13 @@ router.get('/doctors/all', adminAuth, async (req, res) => {
 });
 
 // Approve doctor
-router.post('/doctors/:doctorId/approve', adminAuth, async (req, res) => {
+router.post('/doctors/:doctorId/approve', verifyAdminToken, async (req, res) => {
   try {
     const { doctorId } = req.params;
     const adminId = req.admin._id;
 
     const doctor = await User.findById(doctorId);
-    
+
     if (!doctor) {
       return res.status(404).json({ message: 'Doctor not found' });
     }
@@ -223,12 +223,12 @@ router.post('/doctors/:doctorId/approve', adminAuth, async (req, res) => {
     await doctor.save();
 
     // Log activity
-    await doctor.logActivity('approved_by_admin', { 
+    await doctor.logActivity('approved_by_admin', {
       approvedBy: adminId,
       timestamp: new Date()
     });
 
-    res.json({ 
+    res.json({
       message: 'Doctor approved successfully',
       doctor: {
         id: doctor._id,
@@ -244,13 +244,13 @@ router.post('/doctors/:doctorId/approve', adminAuth, async (req, res) => {
 });
 
 // Reject doctor
-router.post('/doctors/:doctorId/reject', adminAuth, async (req, res) => {
+router.post('/doctors/:doctorId/reject', verifyAdminToken, async (req, res) => {
   try {
     const { doctorId } = req.params;
     const { reason } = req.body;
 
     const doctor = await User.findById(doctorId);
-    
+
     if (!doctor) {
       return res.status(404).json({ message: 'Doctor not found' });
     }
@@ -264,12 +264,12 @@ router.post('/doctors/:doctorId/reject', adminAuth, async (req, res) => {
     await doctor.save();
 
     // Log activity
-    await doctor.logActivity('rejected_by_admin', { 
+    await doctor.logActivity('rejected_by_admin', {
       reason: doctor.rejectionReason,
       timestamp: new Date()
     });
 
-    res.json({ 
+    res.json({
       message: 'Doctor rejected successfully',
       doctor: {
         id: doctor._id,
@@ -287,7 +287,7 @@ router.post('/doctors/:doctorId/reject', adminAuth, async (req, res) => {
 // ==================== STATISTICS ====================
 
 // Get approval statistics (for dashboard)
-router.get('/statistics', adminAuth, async (req, res) => {
+router.get('/statistics', verifyAdminToken, async (req, res) => {
   try {
     const userRole = req.admin.role;
 
@@ -321,7 +321,7 @@ router.get('/statistics', adminAuth, async (req, res) => {
 });
 
 // Get detailed analytics (sessions, revenue, growth)
-router.get('/analytics', adminAuth, async (req, res) => {
+router.get('/analytics', verifyAdminToken, async (req, res) => {
   try {
     const Session = require('../../models/session');
     const Report = require('../../models/report');
@@ -336,7 +336,7 @@ router.get('/analytics', adminAuth, async (req, res) => {
     const totalSessions = await Session.countDocuments();
     const completedSessions = await Session.countDocuments({ status: 'completed' });
     const cancelledSessions = await Session.countDocuments({ status: 'cancelled' });
-    const upcomingSessions = await Session.countDocuments({ 
+    const upcomingSessions = await Session.countDocuments({
       status: 'scheduled',
       scheduledDate: { $gte: now }
     });
@@ -355,12 +355,12 @@ router.get('/analytics', adminAuth, async (req, res) => {
     const totalRevenue = revenueData.length > 0 ? revenueData[0].total : 0;
 
     const revenueLast30Days = await Session.aggregate([
-      { 
-        $match: { 
-          status: 'completed', 
+      {
+        $match: {
+          status: 'completed',
           price: { $exists: true },
           createdAt: { $gte: last30Days }
-        } 
+        }
       },
       { $group: { _id: null, total: { $sum: '$price' } } }
     ]);
@@ -438,7 +438,7 @@ router.get('/analytics', adminAuth, async (req, res) => {
 });
 
 // Remove admin (Super Admin only)
-router.delete('/admins/:adminId', superAdminAuth, async (req, res) => {
+router.delete('/admins/:adminId', verifyAdminToken, verifySuperAdmin, async (req, res) => {
   try {
     const { adminId } = req.params;
     const superAdminId = req.admin._id;
@@ -449,7 +449,7 @@ router.delete('/admins/:adminId', superAdminAuth, async (req, res) => {
     }
 
     const admin = await User.findById(adminId);
-    
+
     if (!admin) {
       return res.status(404).json({ message: 'Admin not found' });
     }
@@ -465,7 +465,7 @@ router.delete('/admins/:adminId', superAdminAuth, async (req, res) => {
 
     await User.findByIdAndDelete(adminId);
 
-    res.json({ 
+    res.json({
       message: 'Admin removed successfully',
       removedAdmin: {
         id: admin._id,

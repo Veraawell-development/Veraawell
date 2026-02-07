@@ -42,6 +42,36 @@ const userSchema = new mongoose.Schema({
     enum: VALID_ROLES,
     default: 'patient'
   },
+  phoneNumber: {
+    type: String,
+    required: false,
+    trim: true,
+    sparse: true, // Allow multiple null values
+    validate: {
+      validator: function (v) {
+        // Allow empty/null
+        if (!v) return true;
+        // Validate format: 10-15 digits (after removing non-digits)
+        const cleaned = v.replace(/\D/g, '');
+        return cleaned.length >= 10 && cleaned.length <= 15;
+      },
+      message: 'Phone number must be 10-15 digits'
+    }
+  },
+  countryCode: {
+    type: String,
+    default: '91', // India by default
+    trim: true
+  },
+  dateOfBirth: {
+    type: Date,
+    required: false
+  },
+  gender: {
+    type: String,
+    enum: ['male', 'female', 'other', null],
+    default: null
+  },
   isPasswordChanged: { type: Boolean, default: false },
   lastLogin: { type: Date },
   status: { type: String, enum: ['active', 'suspended'], default: 'active' },
@@ -69,7 +99,7 @@ const userSchema = new mongoose.Schema({
   approvalStatus: {
     type: String,
     enum: ['pending', 'approved', 'rejected'],
-    default: function() {
+    default: function () {
       // Auto-approve patients, require approval for doctors and admins
       if (this.role === 'patient') return 'approved';
       if (this.role === 'super_admin') return 'approved';
@@ -112,6 +142,61 @@ const userSchema = new mongoose.Schema({
       type: String,
       default: null
     }
+  },
+  // Doctor-specific fields
+  documents: [{
+    fileName: {
+      type: String,
+      required: false
+    },
+    fileUrl: {
+      type: String,
+      required: false
+    },
+    fileType: {
+      type: String,
+      required: false
+    },
+    cloudinaryPublicId: {
+      type: String,
+      required: false
+    },
+    uploadedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  specialization: {
+    type: String,
+    default: null,
+    enum: [
+      null,
+      'Clinical Psychologist',
+      'Counseling Psychologist',
+      'Psychiatrist',
+      'Psychotherapist',
+      'Marriage & Family Therapist',
+      'Child Psychologist',
+      'Neuropsychologist',
+      'Health Psychologist',
+      'Forensic Psychologist',
+      'Other'
+    ]
+  },
+  licenseNumber: {
+    type: String,
+    default: null,
+    trim: true
+  },
+  jobRole: {
+    type: String,
+    default: null,
+    trim: true
+  },
+  professionalMessage: {
+    type: String,
+    default: null,
+    trim: true
   }
 }, {
   timestamps: true,
@@ -127,12 +212,12 @@ userSchema.index({ role: 1, isOnline: 1 }); // For online doctors query
 userSchema.index({ resetToken: 1, resetTokenExpiry: 1 }); // Compound index for password reset
 
 // Virtual to check if password reset is active
-userSchema.virtual('isResetActive').get(function() {
+userSchema.virtual('isResetActive').get(function () {
   return !!(this.resetToken && this.resetTokenExpiry && this.resetTokenExpiry > new Date());
 });
 
 // Ensure reset token fields are always in sync
-userSchema.pre('save', async function(next) {
+userSchema.pre('save', async function (next) {
   // If either field is being modified, ensure they are in sync
   if (this.isModified('resetToken') || this.isModified('resetTokenExpiry')) {
     // If either field is null/empty/undefined, clear both
@@ -140,7 +225,7 @@ userSchema.pre('save', async function(next) {
       this.resetToken = null;
       this.resetTokenExpiry = null;
     }
-    
+
     // If token exists but expiry is in the past, clear both
     if (this.resetTokenExpiry && this.resetTokenExpiry < new Date()) {
       this.resetToken = null;
@@ -151,11 +236,11 @@ userSchema.pre('save', async function(next) {
 });
 
 // Hash password before saving
-userSchema.pre('save', async function(next) {
+userSchema.pre('save', async function (next) {
   try {
     if (!this.isModified('password')) return next();
     if (this.googleId) return next();
-    
+
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
     next();
@@ -165,13 +250,13 @@ userSchema.pre('save', async function(next) {
 });
 
 // Activity logging method
-userSchema.methods.logActivity = async function(action, details = {}) {
+userSchema.methods.logActivity = async function (action, details = {}) {
   this.activityLog.push({ action, details });
   return this.save();
 };
 
 // Compare password method
-userSchema.methods.comparePassword = async function(candidatePassword) {
+userSchema.methods.comparePassword = async function (candidatePassword) {
   try {
     if (this.googleId) return false;
     return await bcrypt.compare(candidatePassword, this.password);
@@ -181,14 +266,14 @@ userSchema.methods.comparePassword = async function(candidatePassword) {
 };
 
 // Initialize reset token
-userSchema.methods.initializeResetToken = async function() {
+userSchema.methods.initializeResetToken = async function () {
   try {
     const buffer = await crypto.randomBytes(48);
     const token = buffer.toString('hex');
-    
+
     this.resetToken = token;
     this.resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour
-    
+
     await this.save();
     return token;
   } catch (error) {
@@ -197,7 +282,7 @@ userSchema.methods.initializeResetToken = async function() {
 };
 
 // Clear reset token
-userSchema.methods.clearResetToken = async function() {
+userSchema.methods.clearResetToken = async function () {
   try {
     this.resetToken = null;
     this.resetTokenExpiry = null;
@@ -208,7 +293,7 @@ userSchema.methods.clearResetToken = async function() {
 };
 
 // Update password
-userSchema.methods.updatePassword = async function(newPassword) {
+userSchema.methods.updatePassword = async function (newPassword) {
   try {
     this.password = newPassword;
     await this.clearResetToken();
@@ -218,11 +303,11 @@ userSchema.methods.updatePassword = async function(newPassword) {
 };
 
 // Static method to migrate existing documents
-userSchema.statics.migrateResetTokens = async function() {
+userSchema.statics.migrateResetTokens = async function () {
   try {
     const { createLogger } = require('../utils/logger');
     const logger = createLogger('USER-MIGRATION');
-    
+
     logger.info('Starting reset token migration...');
 
     // Find users with expired or inconsistent tokens
@@ -260,12 +345,12 @@ userSchema.statics.migrateResetTokens = async function() {
 };
 
 // Static method to check if a role is valid
-userSchema.statics.isValidRole = function(role) {
+userSchema.statics.isValidRole = function (role) {
   return VALID_ROLES.includes(role);
 };
 
 // Static method to create admin
-userSchema.statics.createAdmin = async function(adminData) {
+userSchema.statics.createAdmin = async function (adminData) {
   const admin = new this({
     ...adminData,
     role: 'admin'
@@ -274,12 +359,12 @@ userSchema.statics.createAdmin = async function(adminData) {
 };
 
 // Static method to check if any admin exists
-userSchema.statics.hasAnyAdmin = async function() {
+userSchema.statics.hasAnyAdmin = async function () {
   return await this.countDocuments({ role: { $in: ['admin', 'super_admin'] } }) > 0;
 };
 
 // Static method to create the first admin
-userSchema.statics.createFirstAdmin = async function(adminData) {
+userSchema.statics.createFirstAdmin = async function (adminData) {
   const admin = new this({
     ...adminData,
     role: 'super_admin',

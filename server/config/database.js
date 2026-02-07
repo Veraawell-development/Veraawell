@@ -18,10 +18,10 @@ let isMongoConnected = false;
  */
 async function connectDatabase() {
   const mongoUri = getEnv('MONGO_URI');
-  
+
   // Mask credentials in URI for logging
   const maskedUri = mongoUri.replace(/\/\/([^:]+):([^@]+)@/, '//***:***@');
-  
+
   logger.info('Attempting to connect to MongoDB', {
     uri: maskedUri,
     hasUri: !!mongoUri,
@@ -39,7 +39,7 @@ async function connectDatabase() {
 
     logger.info('Initiating mongoose.connect()...');
     const startTime = Date.now();
-    
+
     await mongoose.connect(mongoUri, {
       serverSelectionTimeoutMS: 10000, // 10 seconds timeout for server selection
       socketTimeoutMS: 45000, // 45 seconds socket timeout
@@ -50,7 +50,7 @@ async function connectDatabase() {
 
     const connectionTime = Date.now() - startTime;
     isMongoConnected = true;
-    
+
     logger.info('MongoDB connected successfully', {
       connectionTime: `${connectionTime}ms`,
       readyState: mongoose.connection.readyState,
@@ -110,7 +110,7 @@ async function connectDatabase() {
     return mongoose.connection;
   } catch (error) {
     isMongoConnected = false;
-    
+
     // Detailed error logging
     logger.error('MongoDB connection failed', {
       errorName: error.name,
@@ -128,7 +128,7 @@ async function connectDatabase() {
         servers: error.reason ? error.reason.servers : []
       });
     }
-    
+
     if (error.name === 'MongoNetworkError' || error.code === 'ECONNREFUSED') {
       logger.error('Network connection error', {
         message: 'Cannot reach MongoDB server. Check:',
@@ -159,7 +159,7 @@ async function connectDatabase() {
       uriFormat: mongoUri ? (mongoUri.startsWith('mongodb+srv://') ? 'SRV' : 'Standard') : 'None',
       suggestion: 'Please verify MONGO_URI in .env file and MongoDB Atlas cluster status'
     });
-    
+
     throw error;
   }
 }
@@ -168,9 +168,9 @@ async function connectDatabase() {
  * Create MongoDB session store
  */
 function createSessionStore() {
-  const mongoUri = getEnv('MONGO_URI', 'mongodb://localhost:27017/verocare');
+  const mongoUri = getEnv('MONGO_URI', 'mongodb://localhost:27017/veraawell');
   const sessionSecret = getEnv('SESSION_SECRET');
-  
+
   // If no session secret, generate one (should not happen after validation, but safe fallback)
   const secret = sessionSecret || require('crypto').randomBytes(64).toString('hex');
 
@@ -193,10 +193,10 @@ async function closeDatabase() {
       readyState: mongoose.connection.readyState,
       isConnected: isMongoConnected
     });
-    
+
     await mongoose.connection.close();
     isMongoConnected = false;
-    
+
     logger.info('MongoDB connection closed successfully', {
       readyState: mongoose.connection.readyState
     });

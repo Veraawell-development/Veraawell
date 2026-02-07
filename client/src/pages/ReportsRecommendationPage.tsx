@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { FiDownload, FiMenu } from 'react-icons/fi';
+import { FiDownload, FiMenu, FiEye } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
+import ViewContentModal from '../components/ViewContentModal';
 import { useAuth } from '../context/AuthContext';
 import { API_CONFIG } from '../config/api';
 import { formatDate } from '../utils/dateUtils';
@@ -11,6 +12,8 @@ const ReportsRecommendationPage: React.FC = () => {
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [viewModalOpen, setViewModalOpen] = useState(false);
+  const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
 
@@ -55,7 +58,7 @@ const ReportsRecommendationPage: React.FC = () => {
 
   const handleDownload = (report: Report) => {
     markAsViewed(report._id);
-    
+
     // Create a text file with report content
     const content = `${report.title}\n\nType: ${report.reportType}\n\nDate: ${formatDate(report.createdAt)}\nDoctor: Dr. ${report.doctorId.firstName} ${report.doctorId.lastName}\n\n${report.content}`;
     const blob = new Blob([content], { type: 'text/plain' });
@@ -67,6 +70,12 @@ const ReportsRecommendationPage: React.FC = () => {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const handleView = (report: Report) => {
+    markAsViewed(report._id);
+    setSelectedReport(report);
+    setViewModalOpen(true);
   };
 
   if (loading) {
@@ -91,12 +100,11 @@ const ReportsRecommendationPage: React.FC = () => {
       )}
 
       {/* Sidebar */}
-      <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${
-        sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-      }`} style={{ backgroundColor: '#7DA9A8' }}>
+      <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`} style={{ backgroundColor: '#7DA9A8' }}>
         <div className="h-full flex flex-col p-4 text-white font-serif">
           <div className="space-y-3 mb-6">
-            <div 
+            <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
               onClick={() => { navigate('/patient-dashboard'); setSidebarOpen(false); }}
             >
@@ -105,8 +113,8 @@ const ReportsRecommendationPage: React.FC = () => {
               </svg>
               <span className="text-base font-medium">My Dashboard</span>
             </div>
-            
-            <div 
+
+            <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
               onClick={() => { navigate('/call-history'); setSidebarOpen(false); }}
             >
@@ -115,8 +123,8 @@ const ReportsRecommendationPage: React.FC = () => {
               </svg>
               <span className="text-base font-medium">My Calls</span>
             </div>
-            
-            <div 
+
+            <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
               onClick={() => { navigate('/pending-tasks'); setSidebarOpen(false); }}
             >
@@ -125,8 +133,8 @@ const ReportsRecommendationPage: React.FC = () => {
               </svg>
               <span className="text-base font-medium">Pending Tasks</span>
             </div>
-            
-            <div 
+
+            <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
               onClick={() => { navigate('/my-journal'); setSidebarOpen(false); }}
             >
@@ -181,7 +189,7 @@ const ReportsRecommendationPage: React.FC = () => {
               ) : (
                 <>
                   {reports.map((report) => (
-                    <tr 
+                    <tr
                       key={report._id}
                       className="border-b border-gray-900"
                     >
@@ -192,6 +200,14 @@ const ReportsRecommendationPage: React.FC = () => {
                         Dr. {report.doctorId.firstName} {report.doctorId.lastName}
                       </td>
                       <td className="py-4 px-6 text-center">
+                        <button
+                          onClick={() => handleView(report)}
+                          className="inline-flex items-center gap-2 text-base font-semibold text-gray-900 hover:opacity-70 transition-opacity underline mr-4"
+                          style={{ fontFamily: 'Bree Serif, serif' }}
+                        >
+                          View File
+                          <FiEye className="w-5 h-5" />
+                        </button>
                         <button
                           onClick={() => handleDownload(report)}
                           className="inline-flex items-center gap-2 text-base font-semibold text-gray-900 hover:opacity-70 transition-opacity underline"
@@ -217,6 +233,16 @@ const ReportsRecommendationPage: React.FC = () => {
           </table>
         </div>
       </div>
+      <ViewContentModal
+        isOpen={viewModalOpen}
+        onClose={() => setViewModalOpen(false)}
+        title={selectedReport?.title || 'Report Details'}
+        content={selectedReport?.content || 'No content available.'}
+        date={selectedReport?.createdAt || ''}
+        doctorName={selectedReport ? `Dr. ${selectedReport.doctorId.firstName} ${selectedReport.doctorId.lastName}` : ''}
+        type={selectedReport?.reportType || 'Report'}
+        onDownload={() => selectedReport && handleDownload(selectedReport)}
+      />
     </div>
   );
 };

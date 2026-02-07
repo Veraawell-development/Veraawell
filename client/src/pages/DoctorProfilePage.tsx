@@ -62,10 +62,15 @@ const DoctorProfilePage: React.FC = () => {
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [isBooking, setIsBooking] = useState(false);
 
+  // Reviews state
+  const [doctorReviews, setDoctorReviews] = useState<any[]>([]);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+
   useEffect(() => {
     generateAvailableDates();
     if (doctorId) {
       fetchDoctorProfile();
+      fetchDoctorReviews();
     }
   }, [doctorId]);
 
@@ -100,6 +105,28 @@ const DoctorProfilePage: React.FC = () => {
       setError(err.message || 'Failed to load doctor profile');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchDoctorReviews = async () => {
+    if (!doctorId) return;
+
+    try {
+      setReviewsLoading(true);
+      const response = await fetch(`${API_BASE_URL}/reviews/doctor/${doctorId}?limit=10`);
+
+      if (response.ok) {
+        const data = await response.json();
+        setDoctorReviews(data.reviews || []);
+      } else {
+        console.error('Failed to fetch reviews');
+        setDoctorReviews([]);
+      }
+    } catch (error) {
+      console.error('Error fetching doctor reviews:', error);
+      setDoctorReviews([]);
+    } finally {
+      setReviewsLoading(false);
     }
   };
 
@@ -198,7 +225,8 @@ const DoctorProfilePage: React.FC = () => {
         ? {
           // Immediate booking - only needs doctorId
           // Backend generates date/time/price automatically
-          doctorId
+          doctorId,
+          mode: booking.mode
         }
         : {
           // Scheduled booking - requires full details
@@ -293,6 +321,26 @@ const DoctorProfilePage: React.FC = () => {
   const rating = doctorProfile.rating.average;
   const fullStars = Math.floor(rating);
 
+  const getDoctorBgColor = (id: string) => {
+    const colors = ['#ABA5D1', '#7DA9A8', '#6DBEDF', '#A8D5BA'];
+    let hash = 0;
+    for (let i = 0; i < id.length; i++) {
+      hash = id.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const index = Math.abs(hash) % colors.length;
+    return colors[index];
+  };
+
+  const hexToRgba = (hex: string, alpha: number) => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  };
+
+  const doctorColor = getDoctorBgColor(doctorProfile.userId._id);
+  const lightBgColor = hexToRgba(doctorColor, 0.15); // 15% opacity for background sections
+
   return (
     <div className="bg-white min-h-screen">
       {/* Hero Section with Background */}
@@ -346,9 +394,9 @@ const DoctorProfilePage: React.FC = () => {
       </div>
 
       {/* Quote and About Section */}
-      <div className="mt-16 py-16 px-4" style={{ backgroundColor: '#E3F0F0' }}>
+      <div className="mt-16 py-16 px-4" style={{ backgroundColor: lightBgColor }}>
         <div className="max-w-4xl mx-auto text-center">
-          <h2 className="text-3xl font-semibold italic mb-8" style={{ color: '#38ABAE' }}>
+          <h2 className="text-3xl font-semibold italic mb-8" style={{ color: doctorColor }}>
             "Who looks outside, dreams; who looks inside, awakes"
           </h2>
           <div className="text-gray-600 text-lg leading-relaxed space-y-4">
@@ -370,7 +418,10 @@ const DoctorProfilePage: React.FC = () => {
         <div className="max-w-6xl mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Left Card */}
-            <div className="bg-[#4DBAB2] rounded-2xl p-8 text-white shadow-2xl">
+            <div
+              className="rounded-2xl p-8 text-white shadow-2xl"
+              style={{ backgroundColor: doctorColor }}
+            >
               <div className="space-y-8">
                 {/* Select Mode */}
                 <div className="flex items-center">
@@ -379,12 +430,14 @@ const DoctorProfilePage: React.FC = () => {
                     <button
                       onClick={() => handleModeChange('video')}
                       className={`${booking.mode === 'video' ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner transition-all`}
+                      style={{ color: doctorColor }}
                     >
                       Video Call
                     </button>
                     <button
                       onClick={() => handleModeChange('voice')}
                       className={`${booking.mode === 'voice' ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner transition-all`}
+                      style={{ color: doctorColor }}
                     >
                       Voice Call
                     </button>
@@ -397,18 +450,21 @@ const DoctorProfilePage: React.FC = () => {
                     <button
                       onClick={() => handleDurationChange(65)}
                       className={`${booking.duration === 65 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner transition-all`}
+                      style={{ color: doctorColor }}
                     >
                       65 Minutes
                     </button>
                     <button
                       onClick={() => handleDurationChange(40)}
                       className={`${booking.duration === 40 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner transition-all`}
+                      style={{ color: doctorColor }}
                     >
                       40 Minutes
                     </button>
                     <button
                       onClick={() => handleDurationChange(25)}
                       className={`${booking.duration === 25 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner transition-all`}
+                      style={{ color: doctorColor }}
                     >
                       25 Minutes
                     </button>
@@ -418,7 +474,10 @@ const DoctorProfilePage: React.FC = () => {
                 <div className="flex items-center">
                   <h3 className="font-bold text-xl w-1/3">Price:</h3>
                   <div className="flex space-x-3">
-                    <div className="bg-[#E0F7FA] text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner">
+                    <div
+                      className="bg-[#E0F7FA] text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner"
+                      style={{ color: doctorColor }}
+                    >
                       Rs. {booking.price}
                     </div>
                   </div>
@@ -428,7 +487,10 @@ const DoctorProfilePage: React.FC = () => {
             </div>
 
             {/* Right Card */}
-            <div className="bg-[#4DBAB2] rounded-2xl p-8 text-white shadow-2xl">
+            <div
+              className="rounded-2xl p-8 text-white shadow-2xl"
+              style={{ backgroundColor: doctorColor }}
+            >
               <div className="space-y-8">
                 {/* Conditional: Only show date/time selection for scheduled bookings */}
                 {!isImmediate ? (
@@ -442,6 +504,7 @@ const DoctorProfilePage: React.FC = () => {
                             key={dateObj.date}
                             onClick={() => handleDateChange(dateObj.date)}
                             className={`${booking.date === dateObj.date ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-4 rounded-lg text-center flex-shrink-0 shadow-inner transition-all`}
+                            style={{ color: doctorColor }}
                           >
                             <div className="text-sm">{dateObj.day.split(' ').slice(0, 2).join(' ')}</div>
                             <div className="font-bold text-xs">{dateObj.day.split(' ')[2]}</div>
@@ -458,6 +521,7 @@ const DoctorProfilePage: React.FC = () => {
                             key={slot}
                             onClick={() => handleTimeSlotChange(slot)}
                             className={`${booking.timeSlot === slot ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner transition-all`}
+                            style={{ color: doctorColor }}
                           >
                             {slot}
                           </button>
@@ -485,6 +549,7 @@ const DoctorProfilePage: React.FC = () => {
                     onClick={handleBookNow}
                     disabled={isImmediate ? isBooking : (isBooking || !booking.date || !booking.timeSlot)}
                     className={`${(isImmediate ? isBooking : (isBooking || !booking.date || !booking.timeSlot)) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-white hover:scale-105'} bg-[#E0F7FA] text-[#38ABAE] font-bold py-3 px-10 rounded-full shadow-md text-xl transition-all w-full`}
+                    style={{ color: doctorColor }}
                   >
                     {isBooking ? 'Booking...' : 'Book Now'}
                   </button>
@@ -496,25 +561,52 @@ const DoctorProfilePage: React.FC = () => {
       </div>
 
       {/* Reviews Section */}
-      <div className="py-16" style={{ backgroundColor: '#E3F0F0' }}>
-        <div className="max-w-7xl mx-auto">
-          <div className="flex overflow-x-auto space-x-8 pb-4">
-            {[...Array(4)].map((_, index) => (
-              <div key={index} className="bg-white p-6 rounded-lg shadow-md flex-shrink-0 w-80">
-                <h3 className="text-2xl font-bold mb-2" style={{ color: '#38ABAE' }}>
-                  {index % 2 === 0 ? 'Neha' : 'Karan'}
-                </h3>
-                <div className="flex text-yellow-500 mb-4">
-                  {[...Array(5)].map((_, i) => (
-                    <svg key={i} className="w-6 h-6 fill-current" viewBox="0 0 20 20"><path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z" /></svg>
-                  ))}
+      <div className="py-16" style={{ backgroundColor: lightBgColor }}>
+        <div className="max-w-7xl mx-auto px-4">
+          <h2 className="text-3xl font-bold mb-8 text-center" style={{ color: doctorColor }}>
+            Patient Reviews
+          </h2>
+
+          {reviewsLoading ? (
+            <div className="text-center py-8">
+              <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-teal-600"></div>
+              <p className="text-gray-600 mt-4">Loading reviews...</p>
+            </div>
+          ) : doctorReviews.length > 0 ? (
+            <div className="flex overflow-x-auto space-x-8 pb-4">
+              {doctorReviews.map((review) => (
+                <div key={review._id} className="bg-white p-6 rounded-lg shadow-md flex-shrink-0 w-80">
+                  <h3 className="text-2xl font-bold mb-2" style={{ color: doctorColor }}>
+                    {review.patientId.firstName} {review.patientId.lastName && review.patientId.lastName.charAt(0) + '.'}
+                  </h3>
+                  <div className="flex text-yellow-500 mb-4">
+                    {[...Array(5)].map((_, i) => (
+                      <svg
+                        key={i}
+                        className={`w-6 h-6 ${i < review.rating ? 'fill-current' : 'fill-gray-300'}`}
+                        viewBox="0 0 20 20"
+                      >
+                        <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z" />
+                      </svg>
+                    ))}
+                  </div>
+                  <p className="text-gray-600 italic leading-relaxed">
+                    "{review.feedback}"
+                  </p>
+                  {review.positives && (
+                    <p className="text-green-600 text-sm mt-3">
+                      <strong>Positives:</strong> {review.positives}
+                    </p>
+                  )}
                 </div>
-                <p className="text-gray-600 italic leading-relaxed">
-                  "I came in feeling lost, and today I feel stronger and more in control of my life. Thank you, Veraawell, for your guidance and patience."
-                </p>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8 text-gray-500">
+              <p className="text-lg">No reviews yet for this doctor.</p>
+              <p className="text-sm mt-2">Be the first to share your experience!</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

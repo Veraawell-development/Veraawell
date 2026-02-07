@@ -1,13 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import EmergencyContactModal from './EmergencyContactModal';
-import FeedbackModal from './FeedbackModal';
+import RatingModal from './RatingModal';
+import SessionReportsModal from './SessionReportsModal';
 
 interface Session {
   _id: string;
   sessionDate: string;
   sessionTime: string;
-  status: 'scheduled' | 'completed' | 'cancelled' | 'no-show';
+  status: 'scheduled' | 'completed' | 'cancelled' | 'no-show' | 'ended';
   patientId: {
     firstName: string;
     lastName: string;
@@ -35,8 +36,10 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
   const [hasEmergencyContact, setHasEmergencyContact] = useState(false);
-  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
-  const [hasReview, setHasReview] = useState(false);
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [showReportsModal, setShowReportsModal] = useState(false);
+  const [hasRating, setHasRating] = useState(false);
+  const [patientEmergencyContact, setPatientEmergencyContact] = useState<any>(null);
 
   const API_BASE_URL = window.location.hostname === 'localhost'
     ? 'http://localhost:5001/api'
@@ -45,9 +48,12 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
   useEffect(() => {
     if (isOpen && userRole === 'patient') {
       checkEmergencyContact();
-      checkReviewStatus();
+      checkRatingStatus();
     }
-  }, [isOpen, userRole]);
+    if (isOpen && userRole === 'doctor' && session) {
+      fetchPatientEmergencyContact();
+    }
+  }, [isOpen, userRole, session]);
 
   const checkEmergencyContact = async () => {
     try {
@@ -71,7 +77,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
     }
   };
 
-  const checkReviewStatus = async () => {
+  const checkRatingStatus = async () => {
     if (!session) return;
 
     try {
@@ -81,30 +87,51 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`${API_BASE_URL}/reviews/check/${session._id}`, {
+      const response = await fetch(`${API_BASE_URL}/sessions/${session._id}`, {
         credentials: 'include',
         headers
       });
 
       if (response.ok) {
         const data = await response.json();
-        setHasReview(data.hasReview);
+        setHasRating(!!(data.rating && data.rating.score));
       }
     } catch (error) {
-      console.error('Error checking review status:', error);
+      console.error('Error checking rating status:', error);
     }
   };
 
-  const handleFeedbackSubmit = async (feedbackData: {
-    rating: number;
-    feedback: string;
-    positives: string;
-    improvements: string;
-    wouldRecommend: boolean;
-  }) => {
+  const fetchPatientEmergencyContact = async () => {
+    if (!session || !session.patientId) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const patientId = typeof session.patientId === 'object' ? (session.patientId as any)._id : session.patientId;
+      const response = await fetch(`${API_BASE_URL}/sessions/patients/${patientId}/emergency-contact`, {
+        credentials: 'include',
+        headers
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setPatientEmergencyContact(data.emergencyContact);
+      }
+    } catch (error) {
+      console.error('Error fetching patient emergency contact:', error);
+    }
+  };
+
+  const handleRatingSubmit = async (ratingData: { score: number; review: string }) => {
     if (!session) return;
 
     try {
+      console.log('[RATING] Submitting rating:', { sessionId: session._id, score: ratingData.score });
+
       const token = localStorage.getItem('token');
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
@@ -113,27 +140,29 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`${API_BASE_URL}/reviews/submit`, {
+      const response = await fetch(`${API_BASE_URL}/ratings/${session._id}/rate`, {
         method: 'POST',
         headers,
         credentials: 'include',
-        body: JSON.stringify({
-          sessionId: session._id,
-          ...feedbackData
-        })
+        body: JSON.stringify(ratingData)
       });
 
+      console.log('[RATING] Response status:', response.status);
+
       if (response.ok) {
-        setHasReview(true);
-        setShowFeedbackModal(false);
-        alert('Thank you for your feedback!');
+        const data = await response.json();
+        console.log('[RATING] Success:', data);
+        setHasRating(true);
+        setShowRatingModal(false);
+        alert('Thank you for your rating!');
       } else {
         const data = await response.json();
-        alert(data.message || 'Failed to submit feedback');
+        console.error('[RATING] Error response:', data);
+        alert(data.message || 'Failed to submit rating');
       }
     } catch (error) {
-      console.error('Error submitting feedback:', error);
-      alert('Failed to submit feedback');
+      console.error('Error submitting rating:', error);
+      alert('Failed to submit rating');
     }
   };
 
@@ -411,7 +440,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
                 style={{ width: '160px', height: '160px', backgroundColor: '#4A5568' }}
               >
                 <img
-                  src={userRole === 'patient' ? '/doctor-01.svg' : '/doctor-02.svg'}
+                  src={userRole === 'patient' ? '/male.jpg' : '/female.jpg'}
                   alt="Profile"
                   className="w-full h-full object-cover"
                   onError={(e) => {
@@ -459,6 +488,51 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
             </div>
           </div>
 
+          {/* Emergency Contact Card (Doctor Only) */}
+          {userRole === 'doctor' && patientEmergencyContact && (
+            <div
+              className="rounded-2xl p-6 border-2"
+              style={{ backgroundColor: '#FEE2E2', borderColor: '#EF4444' }}
+            >
+              <div className="flex items-start gap-3">
+                <div className="flex-shrink-0">
+                  <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                </div>
+                <div className="flex-1">
+                  <h4 className="text-base font-bold mb-3 text-red-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+                    Emergency Contact
+                  </h4>
+                  <div className="space-y-1.5 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>
+                    <p className="text-gray-900">
+                      <span className="font-semibold">Name:</span> {patientEmergencyContact.name}
+                    </p>
+                    <p className="text-gray-900">
+                      <span className="font-semibold">Relationship:</span> {patientEmergencyContact.relationship}
+                    </p>
+                    <p className="text-gray-900">
+                      <span className="font-semibold">Phone:</span>{' '}
+                      <a
+                        href={`tel:${patientEmergencyContact.phone}`}
+                        className="text-red-700 font-bold hover:underline"
+                      >
+                        {patientEmergencyContact.phone}
+                      </a>
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => window.location.href = `tel:${patientEmergencyContact.phone}`}
+                    className="mt-3 px-5 py-2 rounded-lg font-semibold text-white text-sm transition-all hover:shadow-md"
+                    style={{ backgroundColor: '#EF4444', fontFamily: 'Inter, sans-serif' }}
+                  >
+                    Call Emergency Contact
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Action Buttons */}
           <div className="flex justify-center space-x-8 pt-4">
             {canCancelSession() && (
@@ -504,16 +578,31 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
               </div>
             )}
 
-            {session.status === 'completed' && (
+            {(session.status === 'completed' || session.status === 'ended') && (
               <div className="space-y-4">
                 <div className="text-center py-4 px-8 rounded-2xl" style={{ backgroundColor: '#D1FAE5', fontFamily: 'Bree Serif, serif' }}>
                   <p className="text-lg font-semibold" style={{ color: '#065F46' }}>
                     ✓ Session Completed
                   </p>
                 </div>
-                {userRole === 'patient' && !hasReview && (
+
+                {/* View Reports Button */}
+                <button
+                  onClick={() => setShowReportsModal(true)}
+                  className="w-full px-8 py-4 rounded-full text-xl font-bold transition-all hover:scale-105"
+                  style={{
+                    backgroundColor: '#1E293B',
+                    color: '#FFFFFF',
+                    fontFamily: 'Bree Serif, serif',
+                    boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
+                  }}
+                >
+                  View Reports
+                </button>
+
+                {userRole === 'patient' && !hasRating && (
                   <button
-                    onClick={() => setShowFeedbackModal(true)}
+                    onClick={() => setShowRatingModal(true)}
                     className="w-full px-8 py-4 rounded-full text-xl font-bold transition-all hover:scale-105"
                     style={{
                       backgroundColor: '#38ABAE',
@@ -522,13 +611,13 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
                       boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
                     }}
                   >
-                    ⭐ Leave Feedback
+                    Rate Session
                   </button>
                 )}
-                {userRole === 'patient' && hasReview && (
+                {userRole === 'patient' && hasRating && (
                   <div className="text-center py-3 px-6 rounded-2xl" style={{ backgroundColor: '#E0F2FE', fontFamily: 'Inter, sans-serif' }}>
                     <p className="text-sm font-medium" style={{ color: '#075985' }}>
-                      ✓ You have already reviewed this session
+                      You have already rated this session
                     </p>
                   </div>
                 )}
@@ -561,12 +650,20 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
         onSubmit={handleEmergencyContactSubmit}
       />
 
-      {/* Feedback Modal */}
-      <FeedbackModal
-        isOpen={showFeedbackModal}
-        onClose={() => setShowFeedbackModal(false)}
-        onSubmit={handleFeedbackSubmit}
+      {/* Rating Modal */}
+      <RatingModal
+        isOpen={showRatingModal}
+        sessionId={session._id}
         doctorName={`${session.doctorId.firstName} ${session.doctorId.lastName}`}
+        onClose={() => setShowRatingModal(false)}
+        onSubmit={handleRatingSubmit}
+      />
+
+      {/* Reports Modal */}
+      <SessionReportsModal
+        isOpen={showReportsModal}
+        onClose={() => setShowReportsModal(false)}
+        sessionId={session._id}
       />
     </div>
   );

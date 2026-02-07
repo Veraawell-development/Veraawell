@@ -1,20 +1,65 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-
-const reportsData = [
-  { date: '3rd September 2025', psychologist: 'Dr. Riya Singh', downloadLink: '#' },
-  { date: '3rd September 2025', psychologist: 'Dr. Riya Singh', downloadLink: '#' },
-  ...Array(8).fill({ date: '', psychologist: '', downloadLink: '' }),
-];
+import { useAuth } from '../context/AuthContext';
+import { API_CONFIG } from '../config/api';
+import { generateReportPDF } from '../utils/pdfGenerator';
+import logger from '../utils/logger';
+import type { Report } from '../types';
 
 const ReportsPage: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [reports, setReports] = useState<Report[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchReports();
+  }, []);
+
+  const fetchReports = async () => {
+    try {
+      setLoading(true);
+      if (!user) return;
+
+      const response = await fetch(
+        `${API_CONFIG.BASE_URL}/session-tools/reports/patient/${user.userId}`,
+        { credentials: 'include' }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      setReports(data);
+    } catch (error) {
+      logger.error('Error fetching reports:', error);
+      setReports([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDownload = (report: Report) => {
+    generateReportPDF(report);
+  };
 
   const handleLogout = () => {
     console.log('Logout clicked');
     window.location.href = '/';
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-teal-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600 font-serif">Loading reports...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 font-bree-serif">
@@ -24,7 +69,7 @@ const ReportsPage: React.FC = () => {
         <div className="h-full flex flex-col p-4 text-white">
           <div className="space-y-3 mb-6">
             <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2" onClick={() => navigate('/patient-dashboard')}><span className="text-base font-medium">My Dashboard</span></div>
-            <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2"><span className="text-base font-medium">My Calls</span></div>
+            <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2" onClick={() => navigate('/call-history')}><span className="text-base font-medium">My Calls</span></div>
             <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2"><span className="text-base font-medium">My Payments</span></div>
             <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2"><span className="text-base font-medium">My Profile</span></div>
           </div>
@@ -56,20 +101,44 @@ const ReportsPage: React.FC = () => {
               </tr>
             </thead>
             <tbody>
-              {reportsData.map((report, index) => (
-                <tr key={index} className="border-b border-gray-200 h-20">
-                  <td className="p-4 text-gray-700 text-lg border-r-2 border-gray-300">{report.date}</td>
-                  <td className="p-4 text-gray-700 text-lg border-r-2 border-gray-300">{report.psychologist}</td>
-                  <td className="p-4">
-                    {report.downloadLink && (
-                      <a href={report.downloadLink} className="text-blue-600 hover:underline text-lg flex items-center">
-                        Download File
-                        <svg className="w-6 h-6 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V3"></path></svg>
-                      </a>
-                    )}
+              {reports.length === 0 ? (
+                <tr>
+                  <td colSpan={3} className="py-16 text-center">
+                    <p className="text-xl text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>No reports available</p>
+                    <p className="text-gray-400 mt-2" style={{ fontFamily: 'Inter, sans-serif' }}>Your reports will appear here</p>
                   </td>
                 </tr>
-              ))}
+              ) : (
+                <>
+                  {reports.map((report) => (
+                    <tr key={report._id} className="border-b border-gray-200 h-20">
+                      <td className="p-4 text-gray-700 text-lg border-r-2 border-gray-300">
+                        {new Date(report.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })}
+                      </td>
+                      <td className="p-4 text-gray-700 text-lg border-r-2 border-gray-300">
+                        Dr. {report.doctorId.firstName} {report.doctorId.lastName}
+                      </td>
+                      <td className="p-4">
+                        <button
+                          onClick={() => handleDownload(report)}
+                          className="text-blue-600 hover:underline text-lg flex items-center"
+                        >
+                          Download PDF
+                          <svg className="w-6 h-6 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V3"></path></svg>
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                  {/* Empty rows to maintain table height */}
+                  {Array.from({ length: Math.max(0, 8 - reports.length) }).map((_, index) => (
+                    <tr key={`empty-${index}`} className="border-b border-gray-200 h-20">
+                      <td className="p-4 border-r-2 border-gray-300">&nbsp;</td>
+                      <td className="p-4 border-r-2 border-gray-300">&nbsp;</td>
+                      <td className="p-4">&nbsp;</td>
+                    </tr>
+                  ))}
+                </>
+              )}
             </tbody>
           </table>
         </div>

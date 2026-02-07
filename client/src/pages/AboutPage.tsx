@@ -99,7 +99,7 @@ const AboutPage: React.FC = () => {
             {/* Team Member 1 */}
             <div className="text-center">
               <div className="w-[150px] md:w-[294px] h-[200px] md:h-[392px] rounded-[10px] overflow-hidden mb-2 md:mb-4">
-                <img src="/doctor-01.svg" alt="Dr. Riya Gupta" className="w-full h-full object-cover" />
+                <img src="/female.jpg" alt="Dr. Riya Gupta" className="w-full h-full object-cover" />
               </div>
               <div className="bg-white rounded-[10px] h-[60px] md:h-[75px] flex items-center justify-center px-2">
                 <div className="text-[#2F180E] text-[14px] md:text-[20px] font-medium text-center" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -112,7 +112,7 @@ const AboutPage: React.FC = () => {
             {/* Team Member 2 */}
             <div className="text-center">
               <div className="w-[150px] md:w-[294px] h-[200px] md:h-[392px] rounded-[10px] overflow-hidden mb-2 md:mb-4">
-                <img src="/doctor-02.svg" alt="Dr. Riya Gupta" className="w-full h-full object-cover" />
+                <img src="/female.jpg" alt="Dr. Riya Gupta" className="w-full h-full object-cover" />
               </div>
               <div className="bg-white rounded-[10px] h-[60px] md:h-[75px] flex items-center justify-center px-2">
                 <div className="text-[#2F180E] text-[14px] md:text-[20px] font-medium text-center" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -125,7 +125,7 @@ const AboutPage: React.FC = () => {
             {/* Team Member 3 */}
             <div className="text-center">
               <div className="w-[150px] md:w-[294px] h-[200px] md:h-[392px] rounded-[10px] overflow-hidden mb-2 md:mb-4">
-                <img src="/doctor-03.svg" alt="Dr. Riya Gupta" className="w-full h-full object-cover" />
+                <img src="/female.jpg" alt="Dr. Riya Gupta" className="w-full h-full object-cover" />
               </div>
               <div className="bg-white rounded-[10px] h-[60px] md:h-[75px] flex items-center justify-center px-2">
                 <div className="text-[#2F180E] text-[14px] md:text-[20px] font-medium text-center" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -138,7 +138,7 @@ const AboutPage: React.FC = () => {
             {/* Team Member 4 */}
             <div className="text-center">
               <div className="w-[150px] md:w-[294px] h-[200px] md:h-[392px] rounded-[10px] overflow-hidden mb-2 md:mb-4">
-                <img src="/doctor-04.svg" alt="Dr. Riya Gupta" className="w-full h-full object-cover" />
+                <img src="/female.jpg" alt="Dr. Riya Gupta" className="w-full h-full object-cover" />
               </div>
               <div className="bg-white rounded-[10px] h-[60px] md:h-[75px] flex items-center justify-center px-2">
                 <div className="text-[#2F180E] text-[14px] md:text-[20px] font-medium text-center" style={{ fontFamily: 'Inter, sans-serif' }}>

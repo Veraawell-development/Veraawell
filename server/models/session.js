@@ -92,6 +92,46 @@ const sessionSchema = new mongoose.Schema({
     enum: ['Video Calling', 'Voice Calling', 'Cancelled & Refunded'],
     default: 'Video Calling'
   },
+  postSessionReportCompleted: {
+    type: Boolean,
+    default: false
+  },
+  postSessionReportId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Report',
+    default: null
+  },
+  rating: {
+    score: {
+      type: Number,
+      min: 1,
+      max: 5,
+      default: null
+    },
+    review: {
+      type: String,
+      maxlength: 500,
+      default: ''
+    },
+    ratedAt: {
+      type: Date,
+      default: null
+    }
+  },
+  notificationStatus: {
+    reminderSent: {
+      type: Boolean,
+      default: false
+    },
+    startSent: {
+      type: Boolean,
+      default: false
+    },
+    lateSent: {
+      type: Boolean,
+      default: false
+    }
+  },
   createdAt: {
     type: Date,
     default: Date.now
@@ -176,3 +216,5 @@ sessionSchema.statics.getAvailableSlots = async function (doctorId, date) {
 };
 
 module.exports = mongoose.model('Session', sessionSchema);
+
+
