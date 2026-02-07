@@ -106,8 +106,13 @@ const VideoCallRoom: React.FC = () => {
       // This handles cases where user joins late or reconnects
       let initialRemaining = Math.floor((sessionEnd.getTime() - now.getTime()) / 1000);
 
-      // If session hasn't started yet (e.g. joined early), set to full duration
-      if (now < sessionStart) {
+      // ✨ FIX: If session is immediate and was created recently, or if timer would be <= 0
+      // but session just started/is immediate, default to full duration.
+      // This prevents 0:00 issues due to clock drift or timezone mismatches on immediate calls.
+      if (sessionData.sessionType === 'immediate' && initialRemaining <= 0) {
+        initialRemaining = sessionDurationInMinutes * 60;
+      } else if (now < sessionStart) {
+        // If session hasn't started yet (scheduled), set to full duration
         initialRemaining = sessionDurationInMinutes * 60;
       }
 

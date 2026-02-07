@@ -362,6 +362,27 @@ router.post('/book-immediate', verifyToken, async (req, res) => {
       // Don't fail the session booking if conversation creation fails
     }
 
+    // ✨ REAL-TIME UPDATE: Broadcast session booking to patient and doctor
+    const io = req.app.get('io');
+    if (io) {
+      const SocketEmitter = require('../utils/socketEmitter');
+      const emitter = new SocketEmitter(io);
+
+      emitter.emitToUsers([patientId, doctorId], 'session:booked', {
+        session: populatedSession,
+        patientId,
+        doctorId,
+        sessionId: savedSession._id.toString(),
+        timestamp: new Date()
+      });
+
+      console.log('[IMMEDIATE] Session booking broadcasted', {
+        sessionId: savedSession._id.toString().substring(0, 8),
+        patientId: patientId.substring(0, 8),
+        doctorId: doctorId.substring(0, 8)
+      });
+    }
+
     res.status(201).json({
       message: 'Immediate session booked successfully! You can join now.',
       session: populatedSession
