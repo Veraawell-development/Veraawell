@@ -17,10 +17,10 @@ const updateSessionStatuses = async () => {
         let updatedCount = 0;
 
         for (const session of scheduledSessions) {
-            // Parse time manually to ensure correct comparison
+            // Parse time from UTC-based sessionTime
             const [hours, minutes] = session.sessionTime.split(':').map(Number);
             const sessionStart = new Date(session.sessionDate);
-            sessionStart.setHours(hours, minutes, 0, 0);
+            sessionStart.setUTCHours(hours, minutes, 0, 0);
 
             const sessionEnd = new Date(sessionStart.getTime() + (session.duration * 60000));
 

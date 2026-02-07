@@ -288,18 +288,18 @@ router.post('/book-immediate', verifyToken, async (req, res) => {
       timestamp: now.getTime()
     });
 
-    // Use local date to avoid timezone issues
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
+    // Use UTC date/time to avoid timezone issues between server and diverse clients
+    const year = now.getUTCFullYear();
+    const month = String(now.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(now.getUTCDate()).padStart(2, '0');
     const sessionDate = `${year}-${month}-${day}`;
 
-    // Current time for immediate joining
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
+    // Current time in UTC for immediate joining
+    const hours = String(now.getUTCHours()).padStart(2, '0');
+    const minutes = String(now.getUTCMinutes()).padStart(2, '0');
     const sessionTime = `${hours}:${minutes}`;
 
-    console.log('[IMMEDIATE BOOKING] Creating session with:', {
+    console.log('[IMMEDIATE BOOKING] Creating session with (UTC):', {
       patientId: patientId.substring(0, 8),
       doctorId: doctorId.substring(0, 8),
       sessionType: 'immediate',

@@ -95,7 +95,7 @@ const VideoCallRoom: React.FC = () => {
 
       const [hours, minutes] = sessionData.sessionTime.split(':').map(Number);
       const sessionStart = new Date(sessionData.sessionDate);
-      sessionStart.setHours(hours, minutes, 0, 0);
+      sessionStart.setUTCHours(hours, minutes, 0, 0);
 
       // Default to 60 minutes if duration is not set
       const sessionDurationInMinutes = sessionData.duration || 60;
@@ -137,7 +137,7 @@ const VideoCallRoom: React.FC = () => {
             clearInterval(timer);
             setQualityMessage('⏱️ Time\'s up! Session ending...');
             setTimeout(() => {
-              endCall();
+              endCall('timer_expired');
             }, 2000);
             return 0;
           }
@@ -613,8 +613,8 @@ const VideoCallRoom: React.FC = () => {
     }
   };
 
-  const endCall = async () => {
-    console.log('[VIDEO-CALL] 📞 Ending call...', { role: user?.role });
+  const endCall = async (reason: string = 'user_action') => {
+    console.log(`[VIDEO-CALL] 📞 Ending call (Reason: ${reason})...`, { role: user?.role, sessionId });
 
     // Emit socket event to notify other user
     if (socketRef.current && sessionId && user) {
@@ -798,7 +798,7 @@ const VideoCallRoom: React.FC = () => {
       {/* Minimal Header */}
       <div className="absolute top-0 left-0 right-0 z-10 p-6 flex justify-between items-center">
         <button
-          onClick={endCall}
+          onClick={() => navigate(user?.role === 'patient' ? '/patient-dashboard' : '/doctor-dashboard')}
           className="flex items-center gap-2 text-white hover:text-gray-300 transition-colors group"
         >
           <svg className="w-5 h-5 transform group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1068,7 +1068,7 @@ const VideoCallRoom: React.FC = () => {
         )}
 
         <button
-          onClick={endCall}
+          onClick={() => endCall('user_clicked_end')}
           className="w-14 h-14 rounded-full bg-red-500 hover:bg-red-600 text-white transition-all flex items-center justify-center shadow-xl"
           title="End call"
         >
