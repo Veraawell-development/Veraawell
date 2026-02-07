@@ -23,6 +23,25 @@ router.post('/toggle-online', verifyToken, async (req, res) => {
     req.user.lastActiveAt = new Date();
     await req.user.save();
 
+    // ✨ REAL-TIME UPDATE: Broadcast status change to all patients
+    const io = req.app.get('io');
+    if (io) {
+      const SocketEmitter = require('../utils/socketEmitter');
+      const emitter = new SocketEmitter(io);
+
+      emitter.emitToRole('patient', 'doctor:status-change', {
+        doctorId: userId,
+        isOnline: req.user.isOnline,
+        lastActiveAt: req.user.lastActiveAt,
+        timestamp: new Date()
+      });
+
+      logger.info('Doctor status change broadcasted', {
+        doctorId: userId.substring(0, 8),
+        isOnline: req.user.isOnline
+      });
+    }
+
     res.json({
       success: true,
       isOnline: req.user.isOnline,
@@ -62,8 +81,8 @@ router.get('/online-doctors', async (req, res) => {
       isOnline: true,
       approvalStatus: 'approved'
     })
-    .select('firstName lastName email isOnline lastActiveAt profileCompleted')
-    .sort({ lastActiveAt: -1 });
+      .select('firstName lastName email isOnline lastActiveAt profileCompleted')
+      .sort({ lastActiveAt: -1 });
 
     res.json({
       count: onlineDoctors.length,
@@ -78,6 +97,7 @@ router.get('/online-doctors', async (req, res) => {
 // Set doctor offline (called on logout)
 router.post('/set-offline', verifyToken, async (req, res) => {
   try {
+    const userId = req.user._id.toString();
     const userRole = req.user.role;
 
     if (userRole !== 'doctor') {
@@ -88,6 +108,24 @@ router.post('/set-offline', verifyToken, async (req, res) => {
     req.user.isOnline = false;
     req.user.lastActiveAt = new Date();
     await req.user.save();
+
+    // ✨ REAL-TIME UPDATE: Broadcast offline status to all patients
+    const io = req.app.get('io');
+    if (io) {
+      const SocketEmitter = require('../utils/socketEmitter');
+      const emitter = new SocketEmitter(io);
+
+      emitter.emitToRole('patient', 'doctor:status-change', {
+        doctorId: userId,
+        isOnline: false,
+        lastActiveAt: req.user.lastActiveAt,
+        timestamp: new Date()
+      });
+
+      logger.info('Doctor offline status broadcasted', {
+        doctorId: userId.substring(0, 8)
+      });
+    }
 
     res.json({ success: true });
   } catch (error) {

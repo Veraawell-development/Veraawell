@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import DoctorCard from '../components/DoctorCard';
 import { API_CONFIG } from '../config/api';
+import { useDataSocket } from '../hooks/useDataSocket';
 
 interface Doctor {
   _id: string;
@@ -47,6 +48,9 @@ const ChooseProfessionalPage: React.FC = () => {
     ? 'http://localhost:5001/api'
     : 'https://veraawell-backend.onrender.com/api';
 
+  // ✨ REAL-TIME: Connect to data socket
+  const { socket } = useDataSocket();
+
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
@@ -59,6 +63,28 @@ const ChooseProfessionalPage: React.FC = () => {
     };
     loadData();
   }, []);
+
+  // ✨ REAL-TIME: Listen for doctor status changes
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on('doctor:status-change', ({ doctorId, isOnline }) => {
+      console.log('[REAL-TIME] Doctor status changed:', { doctorId: doctorId.substring(0, 8), isOnline });
+
+      // Update online doctors list
+      if (isOnline) {
+        // Doctor came online - fetch updated list
+        fetchOnlineDoctors();
+      } else {
+        // Doctor went offline - remove from list
+        setOnlineDoctors(prev => prev.filter(d => d._id !== doctorId));
+      }
+    });
+
+    return () => {
+      socket.off('doctor:status-change');
+    };
+  }, [socket]);
 
   const fetchDoctors = async () => {
     try {
@@ -364,10 +390,17 @@ const ChooseProfessionalPage: React.FC = () => {
                     bgColor={getDoctorBgColor(doctor.userId._id)}
                     rating={doctor.rating}
                     isPrevious={previousDoctorIds.has(doctor._id)}
-                    onBookSession={() => {
-                      navigate('/book-session', {
+                    onViewProfile={() => {
+                      navigate(`/doctor/${doctor.userId._id}`, {
                         state: {
-                          doctorId: doctor.userId._id,
+                          serviceType: 'General',
+                          bookingType: 'scheduled'
+                        }
+                      });
+                    }}
+                    onBookSession={() => {
+                      navigate(`/book-session/${doctor.userId._id}`, {
+                        state: {
                           serviceType: 'General'
                         }
                       });

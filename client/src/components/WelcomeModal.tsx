@@ -41,12 +41,12 @@ const WelcomeModal: React.FC<WelcomeModalProps> = ({ isOpen, onClose, showClose 
 
   return (
     <div
-      className={`fixed inset-0 z-[9999] flex items-center justify-center px-4 transition-all duration-300 ${isAnimating ? 'opacity-100' : 'opacity-0'
+      className={`fixed inset-0 z-50 flex items-center justify-center px-4 transition-all duration-300 ${isAnimating ? 'opacity-100' : 'opacity-0'
         }`}
       style={{
-        backgroundColor: 'rgba(0, 0, 0, 0.4)',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)'
+        backgroundColor: 'rgba(0, 0, 0, 0.2)',
+        backdropFilter: 'blur(2px)',
+        WebkitBackdropFilter: 'blur(2px)'
       }}
       onClick={showClose ? handleClose : undefined}
     >

@@ -53,6 +53,10 @@ socketHandler(io);
 const { initializeChatSocket } = require('./socket/chatSocket');
 initializeChatSocket(io);
 
+// Initialize Data Socket.IO handler for real-time updates
+const { initializeDataSocket } = require('./socket/dataSocket');
+initializeDataSocket(io);
+
 // Make io available to app if needed
 app.set('io', io);
 

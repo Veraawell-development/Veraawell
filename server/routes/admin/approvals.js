@@ -228,6 +228,23 @@ router.post('/doctors/:doctorId/approve', verifyAdminToken, async (req, res) => 
       timestamp: new Date()
     });
 
+    // ✨ REAL-TIME UPDATE: Notify doctor of approval
+    const io = req.app.get('io');
+    if (io) {
+      const SocketEmitter = require('../../utils/socketEmitter');
+      const emitter = new SocketEmitter(io);
+
+      emitter.emitToUser(doctor._id.toString(), 'doctor:approval-status', {
+        status: 'approved',
+        approvedAt: doctor.approvedAt,
+        timestamp: new Date()
+      });
+
+      console.log('Doctor approval broadcasted', {
+        doctorId: doctor._id.toString().substring(0, 8)
+      });
+    }
+
     res.json({
       message: 'Doctor approved successfully',
       doctor: {
@@ -268,6 +285,23 @@ router.post('/doctors/:doctorId/reject', verifyAdminToken, async (req, res) => {
       reason: doctor.rejectionReason,
       timestamp: new Date()
     });
+
+    // ✨ REAL-TIME UPDATE: Notify doctor of rejection
+    const io = req.app.get('io');
+    if (io) {
+      const SocketEmitter = require('../../utils/socketEmitter');
+      const emitter = new SocketEmitter(io);
+
+      emitter.emitToUser(doctor._id.toString(), 'doctor:approval-status', {
+        status: 'rejected',
+        reason: doctor.rejectionReason,
+        timestamp: new Date()
+      });
+
+      console.log('Doctor rejection broadcasted', {
+        doctorId: doctor._id.toString().substring(0, 8)
+      });
+    }
 
     res.json({
       message: 'Doctor rejected successfully',

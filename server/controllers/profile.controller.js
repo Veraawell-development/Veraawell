@@ -24,6 +24,7 @@ const setupProfile = asyncHandler(async (req, res) => {
 
   const {
     name,
+    fullName,
     phoneNumber,
     dateOfBirth,
     gender,
@@ -40,6 +41,13 @@ const setupProfile = asyncHandler(async (req, res) => {
     quoteAuthor,
     introduction
   } = req.body;
+
+  // Update user's name if fullName is provided (for patients)
+  if (fullName) {
+    const nameParts = fullName.trim().split(' ');
+    user.firstName = nameParts[0] || '';
+    user.lastName = nameParts.slice(1).join(' ') || '';
+  }
 
   // Update user's phone number if provided (for all users)
   if (phoneNumber !== undefined) {

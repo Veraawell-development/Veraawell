@@ -14,6 +14,7 @@ type DoctorCardProps = {
     totalReviews: number;
   };
   onBookSession?: () => void;
+  onViewProfile?: () => void;
   isPrevious?: boolean;
 };
 
@@ -28,10 +29,14 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
   bgColor = '#ABA5D1',
   rating = { average: 0, totalReviews: 0 },
   onBookSession,
+  onViewProfile,
   isPrevious = false,
 }) => {
   return (
-    <div className={`bg-white border rounded-xl overflow-hidden hover:shadow-md transition-all ${isPrevious ? 'border-teal-500 ring-1 ring-teal-500' : 'border-gray-200 hover:border-teal-300'}`}>
+    <div
+      className={`bg-white border rounded-xl overflow-hidden hover:shadow-md transition-all ${onViewProfile ? 'cursor-pointer' : ''} ${isPrevious ? 'border-teal-500 ring-1 ring-teal-500' : 'border-gray-200 hover:border-teal-300'}`}
+      onClick={onViewProfile}
+    >
       {/* Top Section with Image and Info */}
       <div className="flex relative">
         {/* Previous Selection Tag */}
@@ -98,10 +103,13 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
 
           {/* Book Session Button */}
           <button
-            onClick={onBookSession}
+            onClick={(e) => {
+              e.stopPropagation(); // Prevent triggering card click
+              onBookSession?.();
+            }}
             className={`font-semibold py-1.5 px-4 rounded-lg text-xs transition-colors ${isPrevious
-                ? 'bg-teal-700 text-white hover:bg-teal-800 ring-2 ring-teal-700 ring-offset-1'
-                : 'bg-teal-600 text-white hover:bg-teal-700'
+              ? 'bg-teal-700 text-white hover:bg-teal-800 ring-2 ring-teal-700 ring-offset-1'
+              : 'bg-teal-600 text-white hover:bg-teal-700'
               }`}
             style={{ fontFamily: 'Inter, sans-serif' }}
           >

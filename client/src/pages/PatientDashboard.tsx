@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Calendar from '../components/Calendar';
 import SessionModal from '../components/SessionModal';
 import RatingModal from '../components/RatingModal';
@@ -7,14 +7,18 @@ import WelcomeModal from '../components/WelcomeModal';
 import BookingPreferenceModal from '../components/BookingPreferenceModal';
 import EmergencyHotlineModal from '../components/EmergencyHotlineModal';
 import PatientCalendarModal from '../components/PatientCalendarModal';
+import ConnectionStatus from '../components/ConnectionStatus';
 import { useAuth } from '../context/AuthContext';
 import { API_CONFIG } from '../config/api';
 import { formatDate } from '../utils/dateUtils';
 import logger from '../utils/logger';
 import type { Session, Report, Task, JournalEntry } from '../types';
+import { useDataSocket } from '../hooks/useDataSocket';
+import toast from 'react-hot-toast';
 
 const PatientDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
@@ -33,6 +37,9 @@ const PatientDashboard: React.FC = () => {
   const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [sessionToRate, setSessionToRate] = useState<Session | null>(null);
+
+  // ✨ REAL-TIME: Connect to data socket
+  const { socket } = useDataSocket();
 
   useEffect(() => {
     if (!user) return;
@@ -101,6 +108,49 @@ const PatientDashboard: React.FC = () => {
       setShowWelcomeModal(true);
     }
   }, [user]);
+
+  // ✨ REAL-TIME: Listen for session events
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on('session:booked', ({ session }) => {
+      console.log('[REAL-TIME] New session booked:', session);
+      toast.success('New session booked!');
+      setCalendarRefreshTrigger(prev => prev + 1);
+    });
+
+    socket.on('session:cancelled', ({ sessionId, cancelledBy }) => {
+      console.log('[REAL-TIME] Session cancelled:', { sessionId, cancelledBy });
+      toast('A session was cancelled', { icon: 'ℹ️' });
+      setCalendarRefreshTrigger(prev => prev + 1);
+    });
+
+    socket.on('session:status-change', ({ sessionId, status }) => {
+      console.log('[REAL-TIME] Session status changed:', { sessionId, status });
+      setCalendarRefreshTrigger(prev => prev + 1);
+    });
+
+    return () => {
+      socket.off('session:booked');
+      socket.off('session:cancelled');
+      socket.off('session:status-change');
+    };
+  }, [socket]);
+
+  // ✨ FALLBACK REFRESH: Detect navigation state and refresh dashboard
+  useEffect(() => {
+    const state = location.state as { refreshSessions?: boolean };
+    if (state?.refreshSessions) {
+      console.log('[PATIENT-DASHBOARD] 🔄 Refreshing after booking');
+      toast.success('Session booked! Refreshing dashboard...');
+
+      // Trigger calendar refresh
+      setCalendarRefreshTrigger(prev => prev + 1);
+
+      // Clear state to prevent refresh on every render
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, navigate, location.pathname]);
 
   // Check for unrated completed sessions
   const checkForUnratedSessions = async () => {
@@ -327,6 +377,9 @@ const PatientDashboard: React.FC = () => {
 
   return (
     <div className="h-screen overflow-hidden bg-gray-50">
+      {/* Connection Status Indicator */}
+      <ConnectionStatus />
+
       {/* Welcome Modal */}
       <WelcomeModal
         isOpen={showWelcomeModal}
@@ -337,15 +390,15 @@ const PatientDashboard: React.FC = () => {
             localStorage.setItem(`welcomeModal_${user.userId}`, 'true');
           }
         }}
-      />
-
-      {/* Sidebar Overlay - Transparent */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
+      />   {/* Sidebar Overlay - Transparent */}
+      {
+        sidebarOpen && (
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setSidebarOpen(false)}
+          />
+        )
+      }
 
       {/* Sidebar */}
       <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
@@ -731,23 +784,25 @@ const PatientDashboard: React.FC = () => {
       />
 
       {/* Auto Rating Modal */}
-      {sessionToRate && sessionToRate.doctorId && (
-        <RatingModal
-          isOpen={showRatingModal}
-          sessionId={sessionToRate._id}
-          doctorName={`Dr. ${sessionToRate.doctorId.firstName} ${sessionToRate.doctorId.lastName}`}
-          onClose={() => {
-            setShowRatingModal(false);
-            // Mark as dismissed so it doesn't show again
-            const ratedSessions = JSON.parse(localStorage.getItem('ratedSessions') || '[]');
-            ratedSessions.push(sessionToRate._id);
-            localStorage.setItem('ratedSessions', JSON.stringify(ratedSessions));
-            setSessionToRate(null);
-          }}
-          onSubmit={handleRatingSubmit}
-        />
-      )}
-    </div>
+      {
+        sessionToRate && sessionToRate.doctorId && (
+          <RatingModal
+            isOpen={showRatingModal}
+            sessionId={sessionToRate._id}
+            doctorName={`Dr. ${sessionToRate.doctorId.firstName} ${sessionToRate.doctorId.lastName}`}
+            onClose={() => {
+              setShowRatingModal(false);
+              // Mark as dismissed so it doesn't show again
+              const ratedSessions = JSON.parse(localStorage.getItem('ratedSessions') || '[]');
+              ratedSessions.push(sessionToRate._id);
+              localStorage.setItem('ratedSessions', JSON.stringify(ratedSessions));
+              setSessionToRate(null);
+            }}
+            onSubmit={handleRatingSubmit}
+          />
+        )
+      }
+    </div >
   );
 };
 

@@ -21,6 +21,7 @@ interface Session {
     duration: number;
     sessionType: string;
     status: 'scheduled' | 'completed' | 'cancelled' | 'no-show';
+    callMode?: string;
     notes?: string;
 }
 
@@ -99,30 +100,39 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
     };
 
     const filteredSessions = sessions.filter(session => {
-        const now = new Date();
-        now.setHours(0, 0, 0, 0); // Reset to start of day for comparison
+        // 1. Filter by view (upcoming vs past) - STATUS-BASED
+        if (view === 'upcoming') {
+            // Upcoming = scheduled or no-show sessions
+            if (session.status !== 'scheduled' && session.status !== 'no-show') {
+                return false;
+            }
+        } else if (view === 'past') {
+            // Past = completed or cancelled sessions
+            if (session.status !== 'completed' && session.status !== 'cancelled') {
+                return false;
+            }
+        }
 
-        const sessionDate = new Date(session.sessionDate);
-        sessionDate.setHours(0, 0, 0, 0); // Reset to start of day for comparison
+        // 2. Filter by session mode (All/Video/In-person)
+        if (filter !== 'all') {
+            const sessionMode = session.callMode || 'Video Calling';
+            if (filter === 'video' && !sessionMode.toLowerCase().includes('video')) {
+                return false;
+            }
+            if (filter === 'in-person' && !sessionMode.toLowerCase().includes('voice')) {
+                return false;
+            }
+        }
 
-        // Filter by upcoming/past
-        const isUpcoming = (sessionDate >= now || sessionDate.toDateString() === new Date().toDateString()) &&
-            (session.status === 'scheduled' || session.status === 'no-show');
-        const isPast = sessionDate < now || session.status === 'completed' || session.status === 'cancelled';
-
-        if (view === 'upcoming' && !isUpcoming) return false;
-        if (view === 'past' && !isPast) return false;
-
-        // Filter by type - for now, show all since we don't have mode field
-        // TODO: Add logic based on sessionType or add mode field to backend
-        // if (filter === 'video' && session.mode !== 'video') return false;
-        // if (filter === 'in-person' && session.mode !== 'in-person') return false;
-
-        // Filter by selected date
+        // 3. Filter by selected date (if any)
         if (selectedDate) {
+            const sessionDate = new Date(session.sessionDate);
             const selected = new Date(selectedDate);
-            selected.setHours(0, 0, 0, 0);
-            if (sessionDate.getTime() !== selected.getTime()) return false;
+
+            // Compare dates only (ignore time)
+            if (sessionDate.toDateString() !== selected.toDateString()) {
+                return false;
+            }
         }
 
         return true;
@@ -232,6 +242,23 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
         );
     };
 
+    const getStatusBadge = (status: Session['status']) => {
+        const statusConfig = {
+            scheduled: { label: 'Scheduled', bg: 'bg-green-100', text: 'text-green-700' },
+            completed: { label: 'Completed', bg: 'bg-blue-100', text: 'text-blue-700' },
+            cancelled: { label: 'Cancelled', bg: 'bg-red-100', text: 'text-red-700' },
+            'no-show': { label: 'No Show', bg: 'bg-gray-100', text: 'text-gray-700' }
+        };
+
+        const config = statusConfig[status] || statusConfig.scheduled;
+
+        return (
+            <span className={`px-2 py-1 rounded-full text-xs font-semibold ${config.bg} ${config.text}`} style={{ fontFamily: 'Inter, sans-serif' }}>
+                {config.label}
+            </span>
+        );
+    };
+
     const renderSessionCard = (session: Session) => {
         const sessionDate = new Date(session.sessionDate);
         const formattedDate = sessionDate.toLocaleDateString('en-US', {
@@ -249,9 +276,12 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                         {session.doctorId.firstName[0]}{session.doctorId.lastName[0]}
                     </div>
                     <div className="flex-1">
-                        <h4 className="text-lg font-bold text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>
-                            Dr. {session.doctorId.firstName} {session.doctorId.lastName}
-                        </h4>
+                        <div className="flex items-center gap-2 mb-1">
+                            <h4 className="text-lg font-bold text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                Dr. {session.doctorId.firstName} {session.doctorId.lastName}
+                            </h4>
+                            {getStatusBadge(session.status)}
+                        </div>
                         <p className="text-sm text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>
                             {formattedDate} at {formattedTime}
                         </p>
@@ -288,6 +318,27 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                                 style={{ fontFamily: 'Inter, sans-serif' }}
                             >
                                 Cancel
+                            </button>
+                        )}
+                    </div>
+                )}
+                {/* Actions for Past Sessions */}
+                {(session.status === 'completed' || session.status === 'cancelled') && (
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => {/* TODO: View session details */ }}
+                            className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold hover:bg-gray-200 transition-colors text-sm"
+                            style={{ fontFamily: 'Inter, sans-serif' }}
+                        >
+                            View Details
+                        </button>
+                        {session.status === 'completed' && (
+                            <button
+                                onClick={() => {/* TODO: Open rating modal */ }}
+                                className="flex-1 px-4 py-2 bg-teal-50 text-teal-600 rounded-lg font-semibold hover:bg-teal-100 transition-colors text-sm"
+                                style={{ fontFamily: 'Inter, sans-serif' }}
+                            >
+                                Rate Session
                             </button>
                         )}
                     </div>
@@ -409,8 +460,17 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                                     <svg className="w-16 h-16 mx-auto text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                     </svg>
-                                    <p className="text-gray-500 text-lg" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                        No sessions found
+                                    <p className="text-gray-500 text-lg mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                        {view === 'upcoming'
+                                            ? 'No upcoming sessions scheduled'
+                                            : 'No past sessions found'}
+                                    </p>
+                                    <p className="text-gray-400 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                        {view === 'upcoming'
+                                            ? 'Book a new session to get started'
+                                            : selectedDate
+                                                ? 'Try selecting a different date or clear the selection'
+                                                : 'Your completed sessions will appear here'}
                                     </p>
                                 </div>
                             )}

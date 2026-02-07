@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useDataSocket } from '../hooks/useDataSocket';
+import toast from 'react-hot-toast';
 
 interface Article {
     _id: string;
@@ -37,6 +39,9 @@ const ArticlesPage: React.FC = () => {
     const [selectedCategory, setSelectedCategory] = useState('All');
     const [articles, setArticles] = useState<Article[]>([]);
 
+    // ✨ REAL-TIME: Connect to data socket
+    const { socket } = useDataSocket();
+
     const API_BASE_URL = window.location.hostname === 'localhost'
         ? 'http://localhost:5001'
         : 'https://veraawell-backend.onrender.com';
@@ -44,6 +49,28 @@ const ArticlesPage: React.FC = () => {
     useEffect(() => {
         fetchArticles();
     }, [searchQuery, selectedCategory]);
+
+    // ✨ REAL-TIME: Listen for article events
+    useEffect(() => {
+        if (!socket) return;
+
+        socket.on('article:new', ({ article }) => {
+            console.log('[REAL-TIME] New article published:', article);
+            toast.success(`New article: ${article.title}`);
+            fetchArticles(); // Refresh articles list
+        });
+
+        socket.on('article:deleted', ({ articleId }) => {
+            console.log('[REAL-TIME] Article deleted:', articleId);
+            toast('An article was removed', { icon: 'ℹ️' });
+            setArticles(prev => prev.filter(a => a._id !== articleId));
+        });
+
+        return () => {
+            socket.off('article:new');
+            socket.off('article:deleted');
+        };
+    }, [socket]);
 
     const fetchArticles = async () => {
         try {

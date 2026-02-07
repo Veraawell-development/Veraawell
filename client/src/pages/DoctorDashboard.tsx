@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Calendar from '../components/Calendar';
 import WelcomeModal from '../components/WelcomeModal';
+import ConnectionStatus from '../components/ConnectionStatus';
 import { useAuth } from '../context/AuthContext';
 import SessionModal from '../components/SessionModal';
 import type { Session } from '../types';
+import { useDataSocket } from '../hooks/useDataSocket';
+import toast from 'react-hot-toast';
 
 const DoctorDashboard: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
@@ -25,6 +29,9 @@ const DoctorDashboard: React.FC = () => {
     sessions: 0,
     hours: 0
   });
+
+  // ✨ REAL-TIME: Connect to data socket
+  const { socket } = useDataSocket();
 
   const API_BASE_URL = window.location.hostname === 'localhost'
     ? 'http://localhost:5001/api'
@@ -46,6 +53,64 @@ const DoctorDashboard: React.FC = () => {
       }
     }
   }, [user]);
+
+  // ✨ REAL-TIME: Listen for session events
+  useEffect(() => {
+    if (!socket) return;
+
+    socket.on('session:booked', ({ session }) => {
+      console.log('[REAL-TIME] New session booked:', session);
+      toast.success('New session booked!');
+      setCalendarRefreshTrigger(prev => prev + 1);
+      fetchDashboardData(); // Refresh stats
+    });
+
+    socket.on('session:cancelled', ({ sessionId }) => {
+      console.log('[REAL-TIME] Session cancelled:', sessionId);
+      toast('A session was cancelled', { icon: 'ℹ️' });
+      setCalendarRefreshTrigger(prev => prev + 1);
+      fetchDashboardData(); // Refresh stats
+    });
+
+    socket.on('session:status-change', ({ sessionId, status }) => {
+      console.log('[REAL-TIME] Session status changed:', { sessionId, status });
+      setCalendarRefreshTrigger(prev => prev + 1);
+      fetchDashboardData(); // Refresh stats
+    });
+
+    socket.on('doctor:approval-status', ({ status, reason }) => {
+      console.log('[REAL-TIME] Approval status changed:', status);
+      if (status === 'approved') {
+        toast.success('Your account has been approved!');
+      } else if (status === 'rejected') {
+        toast.error(`Account rejected: ${reason || 'No reason provided'}`);
+      }
+      // Refresh user profile to get updated status
+      fetchUserProfile();
+    });
+
+    return () => {
+      socket.off('session:booked');
+      socket.off('session:cancelled');
+      socket.off('session:status-change');
+      socket.off('doctor:approval-status');
+    };
+  }, [socket]);
+
+  // ✨ FALLBACK REFRESH: Detect navigation state and refresh dashboard
+  useEffect(() => {
+    const state = location.state as { refreshSessions?: boolean };
+    if (state?.refreshSessions) {
+      console.log('[DOCTOR-DASHBOARD] 🔄 Refreshing after booking');
+
+      // Trigger calendar and stats refresh
+      setCalendarRefreshTrigger(prev => prev + 1);
+      fetchDashboardData();
+
+      // Clear state to prevent refresh on every render
+      navigate(location.pathname, { replace: true, state: {} });
+    }
+  }, [location.state, navigate, location.pathname]);
 
   const fetchUserProfile = async () => {
     try {
@@ -248,6 +313,9 @@ const DoctorDashboard: React.FC = () => {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#FFFFFF' }}>
+      {/* Connection Status Indicator */}
+      <ConnectionStatus />
+
       {/* Welcome Modal */}
       <WelcomeModal
         isOpen={showWelcomeModal}

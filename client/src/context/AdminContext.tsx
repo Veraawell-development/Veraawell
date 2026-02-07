@@ -22,24 +22,24 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const API_BASE_URL = window.location.hostname === 'localhost' 
-    ? 'http://localhost:5001/api' 
+  const API_BASE_URL = window.location.hostname === 'localhost'
+    ? 'http://localhost:5001/api'
     : 'https://veraawell-backend.onrender.com/api';
 
   const checkAuth = async () => {
     try {
       // Get token from localStorage
       const token = localStorage.getItem('adminToken');
-      
+
       const headers: HeadersInit = {
         'Content-Type': 'application/json'
       };
-      
+
       // Add Authorization header if token exists
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
-      
+
       const response = await fetch(`${API_BASE_URL}/admin/auth/status`, {
         credentials: 'include',
         headers
@@ -81,13 +81,13 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     }
 
     const data = await response.json();
-    
+
     // Store token in localStorage for Authorization header
     if (data.token) {
       localStorage.setItem('adminToken', data.token);
       console.log('[ADMIN] Token stored in localStorage');
     }
-    
+
     setAdmin({
       id: data.admin.id,
       email: data.admin.email,
@@ -104,7 +104,7 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
-      
+
       await fetch(`${API_BASE_URL}/admin/auth/logout`, {
         method: 'POST',
         credentials: 'include',
@@ -119,7 +119,15 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   useEffect(() => {
-    checkAuth();
+    // Only check admin auth if we're on an admin route
+    const isAdminRoute = window.location.pathname.startsWith('/admin');
+
+    if (isAdminRoute) {
+      checkAuth();
+    } else {
+      // Not on admin route, skip auth check
+      setLoading(false);
+    }
   }, []);
 
   return (

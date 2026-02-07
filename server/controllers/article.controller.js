@@ -365,6 +365,22 @@ exports.deleteArticle = async (req, res) => {
 
         logger.info(`Article deleted: ${article.title} by ${req.user.username}`);
 
+        // ✨ REAL-TIME UPDATE: Broadcast article deletion to all patients
+        const io = req.app.get('io');
+        if (io) {
+            const SocketEmitter = require('../utils/socketEmitter');
+            const emitter = new SocketEmitter(io);
+
+            emitter.emitToRole('patient', 'article:deleted', {
+                articleId: article._id.toString(),
+                timestamp: new Date()
+            });
+
+            logger.info('Article deletion broadcasted to patients', {
+                articleId: article._id.toString().substring(0, 8)
+            });
+        }
+
         res.json({ message: 'Article deleted successfully' });
     } catch (error) {
         logger.error('Error deleting article:', error);
@@ -392,6 +408,31 @@ exports.publishArticle = async (req, res) => {
         await article.save();
 
         logger.info(`Article published: ${article.title} by ${req.user.username}`);
+
+        // ✨ REAL-TIME UPDATE: Broadcast new article to all patients
+        const io = req.app.get('io');
+        if (io) {
+            const SocketEmitter = require('../utils/socketEmitter');
+            const emitter = new SocketEmitter(io);
+
+            emitter.emitToRole('patient', 'article:new', {
+                article: {
+                    _id: article._id,
+                    title: article.title,
+                    description: article.description,
+                    category: article.category,
+                    image: article.image,
+                    slug: article.slug,
+                    publishedDate: article.publishedDate
+                },
+                timestamp: new Date()
+            });
+
+            logger.info('New article broadcasted to patients', {
+                articleId: article._id.toString().substring(0, 8),
+                title: article.title
+            });
+        }
 
         res.json({
             message: 'Article published successfully',

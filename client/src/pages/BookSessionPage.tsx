@@ -137,10 +137,10 @@ const BookSessionPage: React.FC = () => {
           doctorId: doctor!.userId._id,
           sessionDate: selectedDate,
           sessionTime: selectedTime,
-
           sessionType,
           mode,
-          price
+          price,
+          duration: 25  // Default to 25 minutes for now
         })
       });
 
@@ -155,7 +155,9 @@ const BookSessionPage: React.FC = () => {
       showSuccess('Session booked successfully! Redirecting to your dashboard...');
 
       setTimeout(() => {
-        navigate('/patient-dashboard');
+        navigate('/patient-dashboard', {
+          state: { refreshSessions: true }
+        });
       }, 1500);
     } catch (error: any) {
       logger.error('Error booking session:', error);

@@ -34,6 +34,7 @@ const VideoCallRoom: React.FC = () => {
   const [_loadingSession, setLoadingSession] = useState(true);
   const [showReportModal, setShowReportModal] = useState(false);
   const [showRatingModal, setShowRatingModal] = useState(false);
+  const [endCallNotification, setEndCallNotification] = useState<{ show: boolean; userName: string }>({ show: false, userName: '' });
 
   const API_BASE_URL = window.location.hostname === 'localhost'
     ? 'http://localhost:5001'
@@ -114,13 +115,25 @@ const VideoCallRoom: React.FC = () => {
 
       const timer = setInterval(() => {
         setDuration(prev => {
+          // Show warning at 5 minutes
+          if (prev === 300) {
+            setQualityMessage('⏰ 5 minutes remaining');
+            setTimeout(() => setQualityMessage(null), 3000);
+          }
+
+          // Show final warning at 1 minute
+          if (prev === 60) {
+            setQualityMessage('⚠️ 1 minute remaining!');
+            setTimeout(() => setQualityMessage(null), 3000);
+          }
+
           if (prev <= 1) {
             // Auto-end call when time runs out
             clearInterval(timer);
-            setQualityMessage('Session ended');
+            setQualityMessage('⏱️ Time\'s up! Session ending...');
             setTimeout(() => {
               endCall();
-            }, 2000); // Give user 2 seconds to see the message
+            }, 2000);
             return 0;
           }
           return prev - 1;
@@ -130,6 +143,13 @@ const VideoCallRoom: React.FC = () => {
       return () => clearInterval(timer);
     }
   }, [connectionState, sessionData]);
+
+  // ✨ FIX: Force chat closed when session loads
+  useEffect(() => {
+    if (sessionData) {
+      setShowChat(false);
+    }
+  }, [sessionData]);
 
   const initializeCall = async () => {
     try {
@@ -258,6 +278,38 @@ const VideoCallRoom: React.FC = () => {
         console.error('[VIDEO-CALL]  Socket error:', data.message);
         setError(data.message);
       });
+
+      // Handle remote user ending call
+      socket.on('call-ended', (data) => {
+        console.log('[VIDEO-CALL] 📞 Remote user ended call:', data);
+
+        // Show notification popup
+        setEndCallNotification({
+          show: true,
+          userName: data.userName || 'The other participant'
+        });
+
+        // After 2 seconds, show appropriate modal
+        setTimeout(() => {
+          setEndCallNotification({ show: false, userName: '' });
+
+          if (user?.role === 'doctor') {
+            setShowReportModal(true);
+          } else {
+            // Mark session complete first for patient
+            fetch(`${API_BASE_URL}/api/sessions/${sessionId}/complete`, {
+              method: 'POST',
+              credentials: 'include'
+            }).then(() => {
+              setShowRatingModal(true);
+            }).catch(err => {
+              console.error('Error marking session complete:', err);
+              setShowRatingModal(true); // Show anyway
+            });
+          }
+        }, 2000);
+      });
+
 
     } catch (err) {
       console.error('[VIDEO-CALL]  Error initializing call:', err);
@@ -557,7 +609,17 @@ const VideoCallRoom: React.FC = () => {
   };
 
   const endCall = async () => {
-    console.log('[VIDEO-CALL] Ending call...', { role: user?.role });
+    console.log('[VIDEO-CALL] 📞 Ending call...', { role: user?.role });
+
+    // Emit socket event to notify other user
+    if (socketRef.current && sessionId && user) {
+      socketRef.current.emit('call-ended', {
+        sessionId,
+        endedBy: user.role,
+        userName: user.firstName || 'User'
+      });
+      console.log('[VIDEO-CALL] 📤 Emitted call-ended event');
+    }
 
     // For doctors: Show report modal instead of ending immediately
     if (user?.role === 'doctor') {
@@ -567,7 +629,7 @@ const VideoCallRoom: React.FC = () => {
 
     // For patients: Mark session as completed FIRST, then show rating modal
     try {
-      console.log('[VIDEO-CALL] Marking session as completed before review...');
+      console.log('[VIDEO-CALL] ✅ Marking session as completed before review...');
 
       const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/complete`, {
         method: 'POST',
@@ -578,13 +640,13 @@ const VideoCallRoom: React.FC = () => {
       });
 
       if (!response.ok) {
-        console.error('[VIDEO-CALL] Failed to mark session as completed:', await response.text());
+        console.error('[VIDEO-CALL] ❌ Failed to mark session as completed:', await response.text());
         // Continue anyway - show rating modal even if completion fails
       } else {
-        console.log('[VIDEO-CALL] Session marked as completed successfully');
+        console.log('[VIDEO-CALL] ✅ Session marked as completed successfully');
       }
     } catch (error) {
-      console.error('[VIDEO-CALL] Error marking session as completed:', error);
+      console.error('[VIDEO-CALL] ❌ Error marking session as completed:', error);
       // Continue anyway - show rating modal even if completion fails
     }
 
@@ -745,8 +807,14 @@ const VideoCallRoom: React.FC = () => {
             {getSignalIcon()}
           </div>
           <div className="w-px h-4 bg-gray-600"></div>
-          <div className={`w-2.5 h-2.5 rounded-full animate-pulse ${duration < 300 ? 'bg-red-500' : 'bg-green-400'}`}></div>
-          <span className={`text-sm font-sans font-semibold ${duration < 300 ? 'text-red-400' : 'text-white'}`}>
+          <div className={`w-2.5 h-2.5 rounded-full ${duration < 60 ? 'bg-red-500 animate-pulse' :
+            duration < 300 ? 'bg-yellow-400 animate-pulse' :
+              'bg-green-400'
+            }`}></div>
+          <span className={`text-sm font-sans font-semibold ${duration < 60 ? 'text-red-400 animate-pulse' :
+            duration < 300 ? 'text-yellow-300' :
+              'text-white'
+            }`}>
             {formatDuration(duration)}
           </span>
         </div>
@@ -1028,6 +1096,36 @@ const VideoCallRoom: React.FC = () => {
           onClose={() => setShowRatingModal(false)}
           onSubmit={handleRatingSubmit}
         />
+      )}
+
+      {/* End Call Notification Popup */}
+      {endCallNotification.show && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100]">
+          <div className="bg-white rounded-2xl p-8 max-w-md mx-4 shadow-2xl">
+            <div className="text-center">
+              {/* Icon */}
+              <div className="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-10 h-10 text-red-500" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M6.62 10.79c1.44 2.83 3.76 5.14 6.59 6.59l2.2-2.2c.27-.27.67-.36 1.02-.24 1.12.37 2.33.57 3.57.57.55 0 1 .45 1 1V20c0 .55-.45 1-1 1-9.39 0-17-7.61-17-17 0-.55.45-1 1-1h3.5c.55 0 1 .45 1 1 0 1.25.2 2.45.57 3.57.11.35.03.74-.25 1.02l-2.2 2.2z" />
+                </svg>
+              </div>
+
+              {/* Title */}
+              <h3 className="text-2xl font-bold text-gray-900 mb-3" style={{ fontFamily: 'Bree Serif, serif' }}>
+                Session Ended
+              </h3>
+
+              {/* Message */}
+              <p className="text-gray-600 text-lg mb-2">
+                <span className="font-semibold text-gray-800">{endCallNotification.userName}</span> has ended the session
+              </p>
+
+              <p className="text-sm text-gray-500">
+                Redirecting to post-session review...
+              </p>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

@@ -49,6 +49,7 @@ class SignalingSocket {
       this.handleScreenShare(socket);
       this.handleChatMessage(socket);
       this.handleConnectionQuality(socket);
+      this.handleCallEnded(socket);
       this.handleDisconnection(socket);
     });
   }
@@ -384,6 +385,32 @@ class SignalingSocket {
           quality,
           stats
         });
+      }
+    });
+  }
+
+  handleCallEnded(socket) {
+    socket.on('call-ended', async (data) => {
+      const { sessionId, endedBy, userName } = data;
+
+      logger.info(`Call ended by ${endedBy} in session ${sessionId}`, {
+        userId: socket.userId,
+        userName
+      });
+
+      // Broadcast to all OTHER users in the room
+      socket.to(sessionId).emit('call-ended', {
+        endedBy,
+        userName,
+        timestamp: new Date()
+      });
+
+      // Log the event
+      if (socket.currentRoom) {
+        const session = await VideoCallSession.findActiveSession(socket.currentRoom);
+        if (session) {
+          await session.addAuditLog('call-ended', socket.userId, `Call ended by ${userName} (${endedBy})`);
+        }
       }
     });
   }

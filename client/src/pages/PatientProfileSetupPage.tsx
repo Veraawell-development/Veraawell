@@ -25,19 +25,21 @@ const PatientProfileSetupPage: React.FC = () => {
 
     const fetchProfile = async () => {
         try {
-            const response = await fetch(`${API_CONFIG.BASE_URL}/auth/profile`, {
+            const response = await fetch(`${API_CONFIG.BASE_URL}/profile/setup`, {
                 credentials: 'include'
             });
             if (response.ok) {
                 const data = await response.json();
-                if (data.dateOfBirth || data.gender || data.phone) {
+                // Check if profile data exists
+                if (data.success && data.profile) {
+                    const profile = data.profile;
                     setFormData({
-                        fullName: data.fullName || `${data.firstName || ''} ${data.lastName || ''}`.trim(),
-                        dateOfBirth: data.dateOfBirth ? new Date(data.dateOfBirth).toISOString().split('T')[0] : '',
-                        gender: data.gender || '',
-                        phone: data.phone || '',
-                        emergencyContactName: data.emergencyContact?.name || '',
-                        emergencyContactPhone: data.emergencyContact?.phone || ''
+                        fullName: profile.name || `${profile.firstName || ''} ${profile.lastName || ''}`.trim(),
+                        dateOfBirth: profile.dateOfBirth ? new Date(profile.dateOfBirth).toISOString().split('T')[0] : '',
+                        gender: profile.gender || '',
+                        phone: profile.phoneNumber || '',
+                        emergencyContactName: profile.emergencyContact?.name || '',
+                        emergencyContactPhone: profile.emergencyContact?.phone || ''
                     });
                 }
             }
@@ -69,7 +71,7 @@ const PatientProfileSetupPage: React.FC = () => {
                     fullName: formData.fullName,
                     dateOfBirth: formData.dateOfBirth,
                     gender: formData.gender,
-                    phone: formData.phone,
+                    phoneNumber: formData.phone,
                     emergencyContact: formData.emergencyContactName ? {
                         name: formData.emergencyContactName,
                         phone: formData.emergencyContactPhone

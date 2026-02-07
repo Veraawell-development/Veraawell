@@ -69,7 +69,7 @@ const userSchema = new mongoose.Schema({
   },
   gender: {
     type: String,
-    enum: ['male', 'female', 'other', null],
+    enum: ['Male', 'Female', 'Other', 'Prefer not to say', null],
     default: null
   },
   isPasswordChanged: { type: Boolean, default: false },

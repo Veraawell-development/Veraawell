@@ -256,6 +256,9 @@ app.post('/api/profile/setup', verifyToken, profileController.setupProfile);
 app.put('/api/profile', verifyToken, profileController.updateProfile);
 app.get('/api/profile/status', verifyToken, profileController.getProfileStatus);
 
+// Patient profile route (alias for backward compatibility)
+app.post('/api/auth/patient-profile', verifyToken, profileController.setupProfile);
+
 
 // Google OAuth routes
 const { getOAuthConfig } = require('./config/auth');

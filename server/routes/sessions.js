@@ -489,6 +489,27 @@ router.post('/book', verifyToken, async (req, res) => {
       // Don't fail the session booking if conversation creation fails
     }
 
+    // ✨ REAL-TIME UPDATE: Broadcast session booking to patient and doctor
+    const io = req.app.get('io');
+    if (io) {
+      const SocketEmitter = require('../utils/socketEmitter');
+      const emitter = new SocketEmitter(io);
+
+      emitter.emitToUsers([patientId, doctorId], 'session:booked', {
+        session: populatedSession,
+        patientId,
+        doctorId,
+        sessionId: session._id.toString(),
+        timestamp: new Date()
+      });
+
+      console.log('Session booking broadcasted to patient and doctor', {
+        sessionId: session._id.toString().substring(0, 8),
+        patientId: patientId.substring(0, 8),
+        doctorId: doctorId.substring(0, 8)
+      });
+    }
+
     res.status(201).json({
       message: 'Session booked successfully',
       session: populatedSession
@@ -928,6 +949,29 @@ router.post('/:sessionId/cancel', verifyToken, async (req, res) => {
     } catch (releaseError) {
       console.error('Error releasing slot during cancellation:', releaseError);
       // Don't fail the request if release fails, just log it
+    }
+
+    // ✨ REAL-TIME UPDATE: Broadcast session cancellation to patient and doctor
+    const io = req.app.get('io');
+    if (io) {
+      const SocketEmitter = require('../utils/socketEmitter');
+      const emitter = new SocketEmitter(io);
+
+      const patientId = session.patientId.toString();
+      const doctorId = session.doctorId.toString();
+
+      emitter.emitToUsers([patientId, doctorId], 'session:cancelled', {
+        sessionId: session._id.toString(),
+        patientId,
+        doctorId,
+        cancelledBy: userId,
+        timestamp: new Date()
+      });
+
+      console.log('Session cancellation broadcasted to patient and doctor', {
+        sessionId: session._id.toString().substring(0, 8),
+        cancelledBy: userId.substring(0, 8)
+      });
     }
 
     res.json({ message: 'Session cancelled successfully' });
