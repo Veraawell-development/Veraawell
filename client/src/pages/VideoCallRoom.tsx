@@ -149,12 +149,12 @@ const VideoCallRoom: React.FC = () => {
     }
   }, [connectionState, sessionData]);
 
-  // ✨ FIX: Force chat closed when session loads
+  // ✨ FIX: Force chat closed when session loads or when modals appear
   useEffect(() => {
-    if (sessionData) {
+    if (sessionData || showRatingModal || showReportModal) {
       setShowChat(false);
     }
-  }, [sessionData]);
+  }, [sessionData, showRatingModal, showReportModal]);
 
   const initializeCall = async () => {
     try {
@@ -284,9 +284,10 @@ const VideoCallRoom: React.FC = () => {
         setError(data.message);
       });
 
-      // Handle remote user ending call
       socket.on('call-ended', (data) => {
         console.log('[VIDEO-CALL] 📞 Remote user ended call:', data);
+        // Explicitly close chat sidebar when call ends
+        setShowChat(false);
 
         // Show notification popup
         setEndCallNotification({
@@ -615,6 +616,9 @@ const VideoCallRoom: React.FC = () => {
 
   const endCall = async (reason: string = 'user_action') => {
     console.log(`[VIDEO-CALL] 📞 Ending call (Reason: ${reason})...`, { role: user?.role, sessionId });
+
+    // Explicitly close chat sidebar
+    setShowChat(false);
 
     // Emit socket event to notify other user
     if (socketRef.current && sessionId && user) {
@@ -969,7 +973,7 @@ const VideoCallRoom: React.FC = () => {
       )}
 
       {/* Patient Chat Panel */}
-      {user?.role === 'patient' && (
+      {user?.role === 'patient' && !showRatingModal && (
         <>
           {/* Chat Sidebar */}
           <div className="fixed inset-0 z-50 overflow-hidden pointer-events-none">
