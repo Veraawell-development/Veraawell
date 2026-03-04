@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import DoctorCard from '../components/DoctorCard';
 import { API_CONFIG } from '../config/api';
 import { useDataSocket } from '../hooks/useDataSocket';
+import BackToDashboard from '../components/BackToDashboard';
 
 interface Doctor {
   _id: string;
@@ -40,7 +41,8 @@ const ChooseProfessionalPage: React.FC = () => {
   const [previousDoctorIds, setPreviousDoctorIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'online' | 'all'>('online');
+  const initialViewMode = (location.state as any)?.bookingType === 'later' ? 'all' : 'online';
+  const [viewMode, setViewMode] = useState<'online' | 'all'>(initialViewMode);
 
   const serviceType = (location.state as any)?.serviceType || 'General';
 
@@ -200,6 +202,7 @@ const ChooseProfessionalPage: React.FC = () => {
       {/* Hero Section */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-5xl mx-auto px-4 py-12 md:py-16">
+          <BackToDashboard />
           <div className="text-center max-w-3xl mx-auto">
             <h1 className="text-3xl md:text-4xl font-bold mb-4 text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
               Find Your Therapist

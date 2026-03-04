@@ -19,33 +19,16 @@ router.post('/toggle-online', verifyToken, async (req, res) => {
 
     // req.user is already the User model instance
     // Toggle online status
-    req.user.isOnline = !req.user.isOnline;
-    req.user.lastActiveAt = new Date();
-    await req.user.save();
-
-    // ✨ REAL-TIME UPDATE: Broadcast status change to all patients
+    const newStatus = !req.user.isOnline;
+    const { updateDoctorStatus } = require('../services/doctorStatus.service');
     const io = req.app.get('io');
-    if (io) {
-      const SocketEmitter = require('../utils/socketEmitter');
-      const emitter = new SocketEmitter(io);
 
-      emitter.emitToRole('patient', 'doctor:status-change', {
-        doctorId: userId,
-        isOnline: req.user.isOnline,
-        lastActiveAt: req.user.lastActiveAt,
-        timestamp: new Date()
-      });
-
-      logger.info('Doctor status change broadcasted', {
-        doctorId: userId.substring(0, 8),
-        isOnline: req.user.isOnline
-      });
-    }
+    await updateDoctorStatus(userId, newStatus, io);
 
     res.json({
       success: true,
-      isOnline: req.user.isOnline,
-      lastActiveAt: req.user.lastActiveAt
+      isOnline: newStatus,
+      lastActiveAt: new Date()
     });
   } catch (error) {
     logger.error('Error toggling online status', { error: error.message, userId: req.user._id.toString() });
@@ -105,27 +88,10 @@ router.post('/set-offline', verifyToken, async (req, res) => {
     }
 
     // req.user is already the User model instance
-    req.user.isOnline = false;
-    req.user.lastActiveAt = new Date();
-    await req.user.save();
-
-    // ✨ REAL-TIME UPDATE: Broadcast offline status to all patients
+    const { updateDoctorStatus } = require('../services/doctorStatus.service');
     const io = req.app.get('io');
-    if (io) {
-      const SocketEmitter = require('../utils/socketEmitter');
-      const emitter = new SocketEmitter(io);
 
-      emitter.emitToRole('patient', 'doctor:status-change', {
-        doctorId: userId,
-        isOnline: false,
-        lastActiveAt: req.user.lastActiveAt,
-        timestamp: new Date()
-      });
-
-      logger.info('Doctor offline status broadcasted', {
-        doctorId: userId.substring(0, 8)
-      });
-    }
+    await updateDoctorStatus(userId, false, io);
 
     res.json({ success: true });
   } catch (error) {

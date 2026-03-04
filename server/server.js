@@ -70,6 +70,18 @@ async function startServer() {
     // Connect to database
     await connectDatabase();
 
+    // Reset all doctor statuses to offline on startup to clear stale records
+    try {
+      const User = require('./models/user');
+      const result = await User.updateMany(
+        { role: 'doctor', isOnline: true },
+        { $set: { isOnline: false } }
+      );
+      logger.info(`Reset ${result.modifiedCount} doctor(s) to offline on startup`);
+    } catch (resetError) {
+      logger.error('Failed to reset doctor statuses on startup', { error: resetError.message });
+    }
+
     // Initialize WhatsApp Client (non-blocking)
     const { initializeWhatsApp } = require('./services/whatsapp');
     const { startScheduler } = require('./services/scheduler');

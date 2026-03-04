@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FiPhone, FiDownload } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
+import BackToDashboard from '../components/BackToDashboard';
 
 interface CallRecord {
   _id: string;
@@ -20,8 +21,8 @@ const CallHistoryPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
 
-  const API_BASE_URL = window.location.hostname === 'localhost' 
-    ? 'http://localhost:5001/api' 
+  const API_BASE_URL = window.location.hostname === 'localhost'
+    ? 'http://localhost:5001/api'
     : 'https://veraawell-backend.onrender.com/api';
 
   useEffect(() => {
@@ -67,7 +68,7 @@ const CallHistoryPage: React.FC = () => {
     const day = date.getDate();
     const month = date.toLocaleString('en-US', { month: 'long' });
     const year = date.getFullYear();
-    
+
     const suffix = (day: number) => {
       if (day > 3 && day < 21) return 'th';
       switch (day % 10) {
@@ -77,7 +78,7 @@ const CallHistoryPage: React.FC = () => {
         default: return 'th';
       }
     };
-    
+
     return `${day}${suffix(day)} ${month},${year}`;
   };
 
@@ -123,6 +124,7 @@ const CallHistoryPage: React.FC = () => {
 
       {/* Content */}
       <div className="px-6 py-8 max-w-4xl mx-auto">
+        <BackToDashboard />
         {error && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-6">
             {error}
@@ -178,7 +180,7 @@ const CallHistoryPage: React.FC = () => {
                       <button
                         onClick={() => handleDownloadReceipt(call._id)}
                         className="inline-flex items-center gap-2 px-6 py-2 rounded-full font-bold text-base transition-all shadow-md hover:shadow-lg"
-                        style={{ 
+                        style={{
                           backgroundColor: '#FFFFFF',
                           color: '#000000',
                           fontFamily: 'Bree Serif, serif',

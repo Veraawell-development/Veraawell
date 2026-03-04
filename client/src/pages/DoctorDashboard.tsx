@@ -8,6 +8,8 @@ import SessionModal from '../components/SessionModal';
 import type { Session } from '../types';
 import { useDataSocket } from '../hooks/useDataSocket';
 import toast from 'react-hot-toast';
+import InstantRequestModal from '../components/InstantRequestModal';
+import PostSessionReportModal from '../components/PostSessionReportModal';
 
 const DoctorDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -16,6 +18,7 @@ const DoctorDashboard: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [isActive, setIsActive] = useState(true);
+  const [isStatusLoading, setIsStatusLoading] = useState(false);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
   const [recentNotes, setRecentNotes] = useState<any[]>([]);
@@ -29,6 +32,9 @@ const DoctorDashboard: React.FC = () => {
     sessions: 0,
     hours: 0
   });
+  const [incomingRequest, setIncomingRequest] = useState<Session | null>(null);
+  const [showPostSessionReport, setShowPostSessionReport] = useState(false);
+  const [pendingReportData, setPendingReportData] = useState<any>(null);
 
   // ✨ REAL-TIME: Connect to data socket
   const { socket } = useDataSocket();
@@ -60,7 +66,14 @@ const DoctorDashboard: React.FC = () => {
 
     socket.on('session:booked', ({ session }) => {
       console.log('[REAL-TIME] New session booked:', session);
-      toast.success('New session booked!');
+
+      // ✨ NEW: If it's an immediate session, show the request modal
+      if (session.sessionType === 'immediate') {
+        setIncomingRequest(session);
+      } else {
+        toast.success('New session booked!');
+      }
+
       setCalendarRefreshTrigger(prev => prev + 1);
       fetchDashboardData(); // Refresh stats
     });
@@ -97,17 +110,21 @@ const DoctorDashboard: React.FC = () => {
     };
   }, [socket]);
 
-  // ✨ FALLBACK REFRESH: Detect navigation state and refresh dashboard
+  // ✨ FALLBACK REFRESH & MANDATORY REPORT: Detect navigation state
   useEffect(() => {
-    const state = location.state as { refreshSessions?: boolean };
-    if (state?.refreshSessions) {
-      console.log('[DOCTOR-DASHBOARD] 🔄 Refreshing after booking');
+    const state = location.state as { refreshSessions?: boolean; pendingReport?: any };
 
-      // Trigger calendar and stats refresh
+    if (state?.pendingReport) {
+      console.log('[DOCTOR-DASHBOARD] 📝 Found pending report:', state.pendingReport);
+      setPendingReportData(state.pendingReport);
+      setShowPostSessionReport(true);
+
+      // Clear state to prevent modal popping up again on refresh
+      navigate(location.pathname, { replace: true, state: { ...state, pendingReport: undefined } });
+    } else if (state?.refreshSessions) {
+      console.log('[DOCTOR-DASHBOARD] 🔄 Refreshing after booking');
       setCalendarRefreshTrigger(prev => prev + 1);
       fetchDashboardData();
-
-      // Clear state to prevent refresh on every render
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.state, navigate, location.pathname]);
@@ -157,7 +174,7 @@ const DoctorDashboard: React.FC = () => {
       });
       if (notesResponse.ok) {
         const notes = await notesResponse.json();
-        setRecentNotes(notes.slice(0, 5));
+        setRecentNotes(notes.slice(0, 4));
       }
 
       // Fetch tasks assigned by this doctor
@@ -167,7 +184,7 @@ const DoctorDashboard: React.FC = () => {
       });
       if (tasksResponse.ok) {
         const tasks = await tasksResponse.json();
-        setAssignedTasks(tasks.slice(0, 5));
+        setAssignedTasks(tasks.slice(0, 4));
       }
 
       // Fetch reports created by this doctor
@@ -177,7 +194,7 @@ const DoctorDashboard: React.FC = () => {
       });
       if (reportsResponse.ok) {
         const reports = await reportsResponse.json();
-        setRecentReports(reports.slice(0, 5));
+        setRecentReports(reports.slice(0, 4));
       }
 
       // Fetch stats
@@ -247,6 +264,9 @@ const DoctorDashboard: React.FC = () => {
   };
 
   const toggleOnlineStatus = async () => {
+    if (isStatusLoading) return;
+
+    setIsStatusLoading(true);
     try {
       const token = localStorage.getItem('token');
       const headers: HeadersInit = {
@@ -265,9 +285,15 @@ const DoctorDashboard: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         setIsActive(data.isOnline);
+        toast.success(`You are now ${data.isOnline ? 'Online' : 'Offline'}`);
+      } else {
+        toast.error('Failed to change status');
       }
     } catch (error) {
       console.error('Error toggling online status:', error);
+      toast.error('Failed to change status');
+    } finally {
+      setIsStatusLoading(false);
     }
   };
 
@@ -309,6 +335,41 @@ const DoctorDashboard: React.FC = () => {
   const handleSessionClick = (session: Session) => {
     setSelectedSession(session);
     setIsSessionModalOpen(true);
+  };
+
+  // ✨ NEW: Handle Instant Request Actions
+  const handleAcceptRequest = async (sessionId: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL.replace('/api', '')}/api/sessions/${sessionId}/accept`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      if (response.ok) {
+        setIncomingRequest(null);
+        navigate(`/video-call/${sessionId}`);
+      }
+    } catch (error) {
+      console.error('Error accepting request:', error);
+      toast.error('Failed to accept request');
+    }
+  };
+
+  const handleDelayRequest = async (sessionId: string, minutes: number, note: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL.replace('/api', '')}/api/sessions/${sessionId}/delay`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ delayMinutes: minutes, doctorNote: note }),
+        credentials: 'include'
+      });
+      if (response.ok) {
+        setIncomingRequest(null);
+        toast.success(`Patient notified of ${minutes}m delay`);
+      }
+    } catch (error) {
+      console.error('Error delaying request:', error);
+      toast.error('Failed to notify patient');
+    }
   };
 
   return (
@@ -479,11 +540,12 @@ const DoctorDashboard: React.FC = () => {
               {/* Online Status Toggle Button */}
               <button
                 onClick={toggleOnlineStatus}
-                className="flex items-center gap-2 px-6 py-2 rounded-full font-serif font-semibold text-white transition-all duration-300 hover:opacity-90"
+                disabled={isStatusLoading}
+                className={`flex items-center gap-2 px-6 py-2 rounded-full font-serif font-semibold text-white transition-all duration-300 hover:opacity-90 ${isStatusLoading ? 'cursor-not-allowed opacity-70' : ''}`}
                 style={{ backgroundColor: isActive ? '#10B981' : '#6B7280' }}
               >
                 <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-white animate-pulse' : 'bg-gray-300'}`}></div>
-                {isActive ? 'Online' : 'Offline'}
+                {isStatusLoading ? 'Switching...' : (isActive ? 'Online' : 'Offline')}
               </button>
             </div>
           </div>
@@ -657,6 +719,17 @@ const DoctorDashboard: React.FC = () => {
         </div>
       </div>
 
+      {/* Instant Session Request Modal */}
+      {incomingRequest && (
+        <InstantRequestModal
+          session={incomingRequest}
+          isOpen={!!incomingRequest}
+          onAccept={handleAcceptRequest}
+          onDelay={handleDelayRequest}
+          onClose={() => setIncomingRequest(null)}
+        />
+      )}
+
       {/* Session Modal */}
       <SessionModal
         session={selectedSession}
@@ -667,6 +740,29 @@ const DoctorDashboard: React.FC = () => {
           setSelectedSession(null);
         }}
       />
+
+      {/* Mandatory Post-Session Clinical Report */}
+      {pendingReportData && (
+        <PostSessionReportModal
+          isOpen={showPostSessionReport}
+          sessionId={pendingReportData.sessionId}
+          patientId={pendingReportData.patientId}
+          patientName={pendingReportData.patientName}
+          doctorName={`${user?.firstName || ''} ${user?.lastName || ''}`.trim()}
+          sessionDuration={pendingReportData.sessionDuration}
+          onSubmit={() => {
+            setShowPostSessionReport(false);
+            setPendingReportData(null);
+            fetchDashboardData(); // Refresh to show new report in list
+            toast.success('Report submitted successfully!');
+          }}
+          onCancel={() => {
+            // Even if cancelled, we might want to keep it available or warn
+            setShowPostSessionReport(false);
+            toast('Report draft saved. Please complete it from the Reports section.', { icon: '📝' });
+          }}
+        />
+      )}
     </div>
   );
 };

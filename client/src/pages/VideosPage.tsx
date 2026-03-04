@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { videos, videoCategories } from '../data/videos';
+import BackToDashboard from '../components/BackToDashboard';
 
 const VideosPage: React.FC = () => {
     const navigate = useNavigate();
@@ -38,6 +39,7 @@ const VideosPage: React.FC = () => {
             </div>
 
             <div className="max-w-7xl mx-auto px-4 py-12">
+                <BackToDashboard className="mb-8" />
                 {/* Header */}
                 <div className="flex items-center justify-between mb-8">
                     <div>
@@ -70,8 +72,8 @@ const VideosPage: React.FC = () => {
                             key={category}
                             onClick={() => setSelectedCategory(category)}
                             className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${selectedCategory === category
-                                    ? 'bg-teal-600 text-white'
-                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                ? 'bg-teal-600 text-white'
+                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                                 }`}
                             style={{ fontFamily: 'Inter, sans-serif' }}
                         >

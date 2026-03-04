@@ -136,6 +136,15 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
         }
 
         return true;
+    }).sort((a, b) => {
+        const dateA = new Date(`${a.sessionDate} ${a.sessionTime}`);
+        const dateB = new Date(`${b.sessionDate} ${b.sessionTime}`);
+
+        if (view === 'past') {
+            return dateB.getTime() - dateA.getTime(); // Latest first
+        } else {
+            return dateA.getTime() - dateB.getTime(); // Soonest first
+        }
     });
 
     const renderCalendar = () => {

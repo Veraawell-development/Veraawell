@@ -9,6 +9,7 @@ import {
   FaInfoCircle
 } from 'react-icons/fa';
 import { Toaster, toast } from 'react-hot-toast';
+import BackToDashboard from '../components/BackToDashboard';
 
 interface TimeSlot {
   time: string;
@@ -268,14 +269,14 @@ const ManageCalendar: React.FC = () => {
       </header>
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-
+        <BackToDashboard />
         {/* Strategy Switcher */}
         <div className="bg-white rounded-2xl shadow-sm p-1 mb-8 max-w-lg mx-auto flex">
           <button
             onClick={() => setAvailabilityType('same_slots')}
             className={`flex-1 py-3 px-6 rounded-xl text-sm font-semibold transition-all duration-200 ${availabilityType === 'same_slots'
-                ? 'bg-teal-600 text-white shadow-md'
-                : 'text-gray-500 hover:bg-gray-50'
+              ? 'bg-teal-600 text-white shadow-md'
+              : 'text-gray-500 hover:bg-gray-50'
               }`}
           >
             Same slots every day
@@ -283,8 +284,8 @@ const ManageCalendar: React.FC = () => {
           <button
             onClick={() => setAvailabilityType('different_slots')}
             className={`flex-1 py-3 px-6 rounded-xl text-sm font-semibold transition-all duration-200 ${availabilityType === 'different_slots'
-                ? 'bg-teal-600 text-white shadow-md'
-                : 'text-gray-500 hover:bg-gray-50'
+              ? 'bg-teal-600 text-white shadow-md'
+              : 'text-gray-500 hover:bg-gray-50'
               }`}
           >
             Different slots per day
@@ -367,8 +368,8 @@ const ManageCalendar: React.FC = () => {
                       key={slot}
                       onClick={() => toggleSlot(slot)}
                       className={`py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-2 ${selected
-                          ? 'bg-teal-600 text-white shadow-md transform scale-105'
-                          : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
+                        ? 'bg-teal-600 text-white shadow-md transform scale-105'
+                        : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
                         }`}
                     >
                       {selected && <FaCheck className="text-xs" />}
@@ -425,8 +426,8 @@ const ManageCalendar: React.FC = () => {
                           {session.patientId.firstName} {session.patientId.lastName}
                         </span>
                         <span className={`text-xs px-2 py-1 rounded-full font-medium ${session.status === 'confirmed' || session.status === 'scheduled'
-                            ? 'bg-green-100 text-green-700'
-                            : 'bg-gray-200 text-gray-600'
+                          ? 'bg-green-100 text-green-700'
+                          : 'bg-gray-200 text-gray-600'
                           }`}>
                           {session.status}
                         </span>

@@ -7,6 +7,7 @@ import { API_CONFIG } from '../config/api';
 import { formatDate } from '../utils/dateUtils';
 import logger from '../utils/logger';
 import type { Report } from '../types';
+import BackToDashboard from '../components/BackToDashboard';
 
 const ReportsRecommendationPage: React.FC = () => {
   const [reports, setReports] = useState<Report[]>([]);
@@ -163,6 +164,7 @@ const ReportsRecommendationPage: React.FC = () => {
 
       {/* Content */}
       <div className="max-w-6xl mx-auto px-4 py-8">
+        <BackToDashboard />
         <div className="bg-white border-2 border-gray-300">
           <table className="w-full">
             <thead>

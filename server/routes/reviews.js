@@ -56,10 +56,10 @@ router.post('/submit', verifyToken, async (req, res) => {
       return res.status(403).json({ message: 'You can only review your own sessions' });
     }
 
-    // Check if review already exists
-    const existingReview = await Review.findOne({ sessionId, patientId });
+    // Check if review already exists for this type
+    const existingReview = await Review.findOne({ sessionId, patientId, reviewType: reviewType || 'doctor' });
     if (existingReview) {
-      return res.status(400).json({ message: 'You have already reviewed this session' });
+      return res.status(400).json({ message: `You have already submitted a ${reviewType || 'doctor'} review for this session` });
     }
 
     // Create review
@@ -80,6 +80,27 @@ router.post('/submit', verifyToken, async (req, res) => {
     });
 
     await review.save();
+
+    // If it's a doctor review, update the session's rating field for compatibility
+    if ((reviewType || 'doctor') === 'doctor') {
+      try {
+        await Session.findByIdAndUpdate(sessionId, {
+          rating: {
+            score: rating,
+            review: feedback,
+            ratedAt: new Date()
+          }
+        });
+
+        // Also trigger the doctor's average rating update
+        const ratingsRoute = require('./ratings');
+        if (ratingsRoute.updateDoctorRating) {
+          await ratingsRoute.updateDoctorRating(session.doctorId);
+        }
+      } catch (syncError) {
+        console.error('[REVIEW] Error syncing session rating:', syncError);
+      }
+    }
 
     console.log('[REVIEW] Review submitted successfully');
 

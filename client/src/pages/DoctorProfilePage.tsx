@@ -5,7 +5,7 @@ import { API_BASE_URL } from '../config/api';
 
 interface BookingState {
   mode: 'video' | 'voice';
-  duration: 65 | 40 | 25;
+  duration: number;
   price: number;
   date: string;
   timeSlot: string;
@@ -27,6 +27,9 @@ interface DoctorProfile {
   pricing: {
     min: number;
     max: number;
+    session20?: number;
+    session40?: number;
+    session55?: number;
   };
   profileImage: string;
   bio: string;
@@ -52,8 +55,8 @@ const DoctorProfilePage: React.FC = () => {
 
   const [booking, setBooking] = useState<BookingState>({
     mode: 'video',
-    duration: 65,
-    price: 2000,
+    duration: 20, // Default to 20
+    price: 0,
     date: '',
     timeSlot: ''
   });
@@ -73,6 +76,16 @@ const DoctorProfilePage: React.FC = () => {
       fetchDoctorReviews();
     }
   }, [doctorId]);
+
+  // Update initial booking price once profile is loaded
+  useEffect(() => {
+    if (doctorProfile) {
+      setBooking(prev => ({
+        ...prev,
+        price: doctorProfile.pricing.session20 || doctorProfile.pricing.min
+      }));
+    }
+  }, [doctorProfile]);
 
   useEffect(() => {
     if (doctorId && booking.date) {
@@ -181,12 +194,15 @@ const DoctorProfilePage: React.FC = () => {
     setBooking(prev => ({ ...prev, mode }));
   };
 
-  const handleDurationChange = (duration: 65 | 40 | 25) => {
-    let price = 2000;
-    if (duration === 40) price = 1200;
-    if (duration === 25) price = 0;
+  const handleDurationChange = (duration: number) => {
+    if (!doctorProfile) return;
 
-    setBooking(prev => ({ ...prev, duration, price }));
+    let price = doctorProfile.pricing.min;
+    if (duration === 20) price = (doctorProfile.pricing.session20 !== undefined && doctorProfile.pricing.session20 !== null) ? doctorProfile.pricing.session20 : doctorProfile.pricing.min;
+    if (duration === 40) price = (doctorProfile.pricing.session40 !== undefined && doctorProfile.pricing.session40 !== null) ? doctorProfile.pricing.session40 : (doctorProfile.pricing.session20 || doctorProfile.pricing.min);
+    if (duration === 55) price = (doctorProfile.pricing.session55 !== undefined && doctorProfile.pricing.session55 !== null) ? doctorProfile.pricing.session55 : doctorProfile.pricing.max;
+
+    setBooking(prev => ({ ...prev, duration: duration as any, price }));
   };
 
   const handleDateChange = (date: string) => {
@@ -221,24 +237,19 @@ const DoctorProfilePage: React.FC = () => {
         ? `${API_BASE_URL}/sessions/book-immediate`
         : `${API_BASE_URL}/sessions/book`;
 
-      const requestBody = isImmediate
-        ? {
-          // Immediate booking - only needs doctorId
-          // Backend generates date/time/price automatically
-          doctorId,
-          mode: booking.mode
-        }
-        : {
-          // Scheduled booking - requires full details
-          doctorId,
+      const requestBody = {
+        doctorId,
+        mode: booking.mode,
+        duration: booking.duration,
+        price: booking.price,
+        // Scheduled specific fields
+        ...(!isImmediate && {
           sessionDate: booking.date,
           sessionTime: booking.timeSlot,
           sessionType: 'scheduled',
-          mode: booking.mode,
-          duration: booking.duration,
-          price: booking.price,
           serviceType: serviceType || 'General'
-        };
+        })
+      };
 
       console.log('📞 Booking request:', {
         endpoint,
@@ -447,27 +458,16 @@ const DoctorProfilePage: React.FC = () => {
                 <div className="flex items-center">
                   <h3 className="font-bold text-xl w-1/3">Select Duration:</h3>
                   <div className="flex space-x-3">
-                    <button
-                      onClick={() => handleDurationChange(65)}
-                      className={`${booking.duration === 65 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner transition-all`}
-                      style={{ color: doctorColor }}
-                    >
-                      65 Minutes
-                    </button>
-                    <button
-                      onClick={() => handleDurationChange(40)}
-                      className={`${booking.duration === 40 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner transition-all`}
-                      style={{ color: doctorColor }}
-                    >
-                      40 Minutes
-                    </button>
-                    <button
-                      onClick={() => handleDurationChange(25)}
-                      className={`${booking.duration === 25 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner transition-all`}
-                      style={{ color: doctorColor }}
-                    >
-                      25 Minutes
-                    </button>
+                    {[20, 40, 55].map((dur) => (
+                      <button
+                        key={dur}
+                        onClick={() => handleDurationChange(dur)}
+                        className={`${booking.duration === dur ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner transition-all flex flex-col items-center`}
+                        style={{ color: doctorColor }}
+                      >
+                        <span>{dur} Minutes</span>
+                      </button>
+                    ))}
                   </div>
                 </div>
                 {/* Price */}
@@ -475,29 +475,29 @@ const DoctorProfilePage: React.FC = () => {
                   <h3 className="font-bold text-xl w-1/3">Price:</h3>
                   <div className="flex flex-wrap gap-3">
                     <div
-                      className={`font-semibold py-2 px-5 rounded-full shadow-inner transition-all flex flex-col items-center ${booking.duration === 65 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA] opacity-90'}`}
+                      className={`font-semibold py-2 px-5 rounded-full shadow-inner transition-all flex flex-col items-center ${booking.duration === 20 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA] opacity-90'}`}
                       style={{ color: doctorColor }}
                     >
-                      <span className="text-xs opacity-75">65 Mins</span>
-                      <span>Rs. 2000</span>
+                      <span className="text-xs opacity-75">20 Mins</span>
+                      <span>Rs. {doctorProfile.pricing.session20 || doctorProfile.pricing.min}</span>
                     </div>
                     <div
                       className={`font-semibold py-2 px-5 rounded-full shadow-inner transition-all flex flex-col items-center ${booking.duration === 40 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA] opacity-90'}`}
                       style={{ color: doctorColor }}
                     >
                       <span className="text-xs opacity-75">40 Mins</span>
-                      <span>Rs. 1200</span>
+                      <span>Rs. {doctorProfile.pricing.session40 || (doctorProfile.pricing.session20 || doctorProfile.pricing.min) * 2}</span>
                     </div>
                     <div
-                      className={`font-semibold py-2 px-5 rounded-full shadow-inner transition-all flex flex-col items-center ${booking.duration === 25 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA] opacity-90'}`}
+                      className={`font-semibold py-2 px-5 rounded-full shadow-inner transition-all flex flex-col items-center ${booking.duration === 55 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA] opacity-90'}`}
                       style={{ color: doctorColor }}
                     >
-                      <span className="text-xs opacity-75">25 Mins</span>
-                      <span>Free</span>
+                      <span className="text-xs opacity-75">55 Mins</span>
+                      <span>Rs. {doctorProfile.pricing.session55 || doctorProfile.pricing.max}</span>
                     </div>
                   </div>
                 </div>
-                <p className="text-sm pt-4 font-medium">Note: The session for the duration of 25 minutes is a discovery session where you can discuss your problems and discuss the way forward.</p>
+                <p className="text-sm pt-4 font-medium">Note: The session for the duration of 20 minutes is a discovery session where you can discuss your problems and discuss the way forward.</p>
               </div>
             </div>
 

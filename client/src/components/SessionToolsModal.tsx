@@ -16,7 +16,7 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
   patientId,
   patientName
 }) => {
-  const [activeTab, setActiveTab] = useState<'notes' | 'tasks' | 'report' | 'chat'>('notes');
+  const [activeTab, setActiveTab] = useState<'notes' | 'tasks' | 'chat'>('notes');
   const [saving, setSaving] = useState(false);
 
   // Notes state
@@ -32,10 +32,6 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
   const [taskDueDate, setTaskDueDate] = useState('');
   const [taskPriority, setTaskPriority] = useState<'low' | 'medium' | 'high'>('medium');
 
-  // Report state
-  const [reportTitle, setReportTitle] = useState('');
-  const [reportType, setReportType] = useState<'assessment' | 'progress' | 'diagnosis' | 'treatment-plan' | 'other'>('progress');
-  const [reportContent, setReportContent] = useState('');
 
   const API_BASE_URL = window.location.hostname === 'localhost'
     ? 'http://localhost:5001/api'
@@ -82,7 +78,7 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
       setProgressInsights('');
       setTherapeuticTechniques('');
     } catch (error: any) {
-      console.error('❌ Error saving notes:', error);
+      console.error(' Error saving notes:', error);
       alert(`Failed to save notes: ${error.message}`);
     } finally {
       setSaving(false);
@@ -131,60 +127,13 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
       setTaskDueDate('');
       setTaskPriority('medium');
     } catch (error: any) {
-      console.error('❌ Error creating task:', error);
+      console.error(' Error creating task:', error);
       alert(`Failed to create task: ${error.message}`);
     } finally {
       setSaving(false);
     }
   };
 
-  const handleSaveReport = async () => {
-    try {
-      if (!reportTitle || !reportContent) {
-        alert('Please fill in report title and content');
-        return;
-      }
-
-      setSaving(true);
-      console.log(' Saving report:', { sessionId, patientId, title: reportTitle });
-
-      const response = await fetch(`${API_BASE_URL}/session-tools/reports`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          sessionId,
-          patientId,
-          title: reportTitle,
-          reportType,
-          content: reportContent,
-          isSharedWithPatient: true
-        })
-      });
-
-      console.log(' Report response status:', response.status);
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-        console.error(' Report error:', errorData);
-        throw new Error(errorData.message || 'Failed to create report');
-      }
-
-      const result = await response.json();
-      console.log(' Report saved:', result);
-
-      alert('Report created successfully!');
-      // Clear form
-      setReportTitle('');
-      setReportContent('');
-      setReportType('progress');
-    } catch (error: any) {
-      console.error('❌ Error creating report:', error);
-      alert(`Failed to create report: ${error.message}`);
-    } finally {
-      setSaving(false);
-    }
-  };
 
   return (
     <div className="fixed inset-0 z-50 overflow-hidden pointer-events-none">
@@ -221,7 +170,7 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
         {/* Tabs - Pill Style */}
         <div className="px-6 py-4">
           <div className="flex bg-gray-800 p-1 rounded-xl">
-            {(['notes', 'tasks', 'report', 'chat'] as const).map((tab) => (
+            {(['notes', 'tasks', 'chat'] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
@@ -361,46 +310,6 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
             </div>
           )}
 
-          {/* REPORT TAB */}
-          {activeTab === 'report' && (
-            <div className="space-y-5 animate-fadeIn">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Report Title</label>
-                <input
-                  type="text"
-                  value={reportTitle}
-                  onChange={(e) => setReportTitle(e.target.value)}
-                  placeholder="Report Name..."
-                  className="w-full p-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Type</label>
-                <select
-                  value={reportType}
-                  onChange={(e) => setReportType(e.target.value as any)}
-                  className="w-full p-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all"
-                >
-                  <option value="progress">Progress Report</option>
-                  <option value="assessment">Assessment</option>
-                  <option value="diagnosis">Diagnosis</option>
-                  <option value="treatment-plan">Treatment Plan</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-400 mb-2">Content</label>
-                <textarea
-                  value={reportContent}
-                  onChange={(e) => setReportContent(e.target.value)}
-                  placeholder="Write report..."
-                  className="w-full h-64 p-3 bg-gray-800/50 border border-gray-700 rounded-xl text-white placeholder-gray-500 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all resize-none"
-                />
-              </div>
-            </div>
-          )}
 
           {/* CHAT TAB */}
           {activeTab === 'chat' && (
@@ -423,7 +332,6 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
               onClick={() => {
                 if (activeTab === 'notes') handleSaveNotes();
                 else if (activeTab === 'tasks') handleSaveTask();
-                else if (activeTab === 'report') handleSaveReport();
               }}
               disabled={saving}
               className="px-8 py-2.5 bg-gradient-to-r from-teal-600 to-teal-500 text-white text-sm font-bold rounded-xl shadow-lg hover:shadow-teal-500/20 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
@@ -434,7 +342,7 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
                   Saving...
                 </span>
               ) : (
-                `Save ${activeTab === 'notes' ? 'Notes' : activeTab === 'tasks' ? 'Task' : 'Report'}`
+                activeTab === 'tasks' ? 'Allot Task' : 'Save Notes'
               )}
             </button>
           </div>

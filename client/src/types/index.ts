@@ -130,6 +130,9 @@ export interface Doctor {
   pricing: {
     min: number;
     max: number;
+    session20?: number;
+    session40?: number;
+    session55?: number;
   };
   profileImage?: string;
   bio?: string;

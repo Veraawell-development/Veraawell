@@ -34,6 +34,19 @@ const sessionSchema = new mongoose.Schema({
     enum: ['scheduled', 'completed', 'cancelled', 'no-show'],
     default: 'scheduled'
   },
+  acceptanceStatus: {
+    type: String,
+    enum: ['pending', 'accepted', 'delayed'],
+    default: 'pending'
+  },
+  delayMinutes: {
+    type: Number,
+    default: 0
+  },
+  doctorNote: {
+    type: String,
+    default: ''
+  },
   price: {
     type: Number,
     required: true

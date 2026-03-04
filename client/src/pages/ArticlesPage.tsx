@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useDataSocket } from '../hooks/useDataSocket';
 import toast from 'react-hot-toast';
+import BackToDashboard from '../components/BackToDashboard';
 
 interface Article {
     _id: string;
@@ -118,6 +119,7 @@ const ArticlesPage: React.FC = () => {
             </div>
 
             <div className="max-w-7xl mx-auto px-4 py-12">
+                <BackToDashboard className="mb-8" />
                 {/* Header */}
                 <div className="flex items-center justify-between mb-8">
                     <div>

@@ -5,7 +5,7 @@ interface RatingModalProps {
     sessionId: string;
     doctorName: string;
     onClose: () => void;
-    onSubmit: (rating: { score: number; review: string }) => void;
+    onSubmit?: (rating: { score: number; review: string }) => void;
 }
 
 const RatingModal: React.FC<RatingModalProps> = ({
@@ -15,13 +15,16 @@ const RatingModal: React.FC<RatingModalProps> = ({
     onClose,
     onSubmit
 }) => {
-    const [score, setScore] = useState<number>(0);
-    const [hoveredScore, setHoveredScore] = useState<number>(0);
-    const [feedback, setFeedback] = useState('');
-    const [reviewType, setReviewType] = useState<'doctor' | 'platform'>('doctor');
-    const [positives, setPositives] = useState('');
-    const [improvements, setImprovements] = useState('');
-    const [wouldRecommend, setWouldRecommend] = useState(true);
+    // Part 1: Doctor Rating (Mandatory)
+    const [doctorScore, setDoctorScore] = useState<number>(0);
+    const [doctorHoveredScore, setDoctorHoveredScore] = useState<number>(0);
+    const [doctorFeedback, setDoctorFeedback] = useState('');
+
+    // Part 2: Platform Rating (Optional)
+    const [platformScore, setPlatformScore] = useState<number>(0);
+    const [platformHoveredScore, setPlatformHoveredScore] = useState<number>(0);
+    const [platformFeedback, setPlatformFeedback] = useState('');
+
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState('');
 
@@ -32,284 +35,191 @@ const RatingModal: React.FC<RatingModalProps> = ({
     if (!isOpen) return null;
 
     const handleSubmit = async () => {
-        // Validate sessionId first
-        if (!sessionId || sessionId.trim() === '') {
+        if (!sessionId) {
             setError('Invalid session. Please refresh and try again.');
-            console.error('[RATING] No valid session ID available:', { sessionId });
             return;
         }
 
-        if (score === 0) {
-            setError('Please select a rating');
-            return;
-        }
-
-        if (!feedback.trim()) {
-            setError('Please provide your feedback');
+        if (doctorScore === 0) {
+            setError(`Please provide a rating for ${doctorName}`);
             return;
         }
 
         setIsSubmitting(true);
         setError('');
 
-        // Debug logging
-        const payload = {
-            sessionId,
-            rating: score,
-            feedback,
-            positives,
-            improvements,
-            wouldRecommend,
-            reviewType
-        };
-
-        console.log('[RATING] Submitting review with payload:', {
-            ...payload,
-            feedback: feedback.substring(0, 50) + '...',
-            sessionIdLength: sessionId.length,
-            sessionIdType: typeof sessionId
-        });
-
         try {
-            const response = await fetch(`${API_BASE_URL}/reviews/submit`, {
+            // 1. Submit Doctor Review (Mandatory)
+            const doctorPayload = {
+                sessionId,
+                rating: doctorScore,
+                feedback: doctorFeedback || 'No additional comments provided.',
+                reviewType: 'doctor'
+            };
+
+            const doctorRes = await fetch(`${API_BASE_URL}/reviews/submit`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include', // Use cookies instead of Authorization header
-                body: JSON.stringify(payload)
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(doctorPayload)
             });
 
-            const data = await response.json();
-
-            console.log('[RATING] Response received:', {
-                status: response.status,
-                ok: response.ok,
-                data
-            });
-
-            if (!response.ok) {
-                throw new Error(data.message || 'Failed to submit review');
+            if (!doctorRes.ok) {
+                const data = await doctorRes.json();
+                throw new Error(data.message || 'Failed to submit doctor review');
             }
 
-            // Also call original onSubmit for backward compatibility
-            await onSubmit({ score, review: feedback });
+            // 2. Submit Platform Review (Optional)
+            if (platformScore > 0) {
+                const platformPayload = {
+                    sessionId,
+                    rating: platformScore,
+                    feedback: platformFeedback || 'No additional comments provided.',
+                    reviewType: 'platform'
+                };
 
-            // Reset state
-            setScore(0);
-            setHoveredScore(0);
-            setFeedback('');
-            setPositives('');
-            setImprovements('');
-            setError('');
+                await fetch(`${API_BASE_URL}/reviews/submit`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    credentials: 'include',
+                    body: JSON.stringify(platformPayload)
+                });
+            }
+
+            if (onSubmit) {
+                onSubmit({ score: doctorScore, review: doctorFeedback });
+            }
+
             onClose();
         } catch (err: any) {
-            setError(err.message || 'Failed to submit review');
+            setError(err.message || 'Failed to submit feedback');
             setIsSubmitting(false);
         }
     };
 
-    // Prevent closing modal by clicking outside (mandatory rating)
-    const handleBackdropClick = (e: React.MouseEvent) => {
-        e.stopPropagation();
-    };
+    const StarRating = ({
+        score,
+        setScore,
+        hoverScore,
+        setHoverScore,
+        label
+    }: {
+        score: number,
+        setScore: (s: number) => void,
+        hoverScore: number,
+        setHoverScore: (s: number) => void,
+        label: string
+    }) => (
+        <div className="text-center">
+            <p className="text-gray-700 font-medium mb-3">{label}</p>
+            <div className="flex justify-center gap-2">
+                {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                        key={star}
+                        type="button"
+                        onClick={() => setScore(star)}
+                        onMouseEnter={() => setHoverScore(star)}
+                        onMouseLeave={() => setHoverScore(0)}
+                        className="transition-transform hover:scale-110 focus:outline-none"
+                        disabled={isSubmitting}
+                    >
+                        <span className={`text-4xl ${star <= (hoverScore || score) ? 'text-[#FFB800]' : 'text-gray-200'}`}>
+                            ★
+                        </span>
+                    </button>
+                ))}
+            </div>
+        </div>
+    );
 
     return (
-        <div
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-            onClick={handleBackdropClick}
-        >
-            <div
-                className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl"
-                onClick={(e) => e.stopPropagation()}
-            >
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[100] p-4">
+            <div className="bg-white rounded-3xl max-w-xl w-full max-h-[90vh] overflow-y-auto shadow-2xl scale-in-center">
                 {/* Header */}
-                <div className="bg-gradient-to-r from-[#7DA9A8] to-[#6B9998] text-white p-6 rounded-t-2xl">
-                    <h2 className="text-2xl font-bold">Rate Your Session</h2>
-                    <p className="text-sm opacity-90 mt-1">with {doctorName}</p>
+                <div className="bg-teal-600 text-white p-8 rounded-t-3xl text-center relative">
+                    <h2 className="text-3xl font-bold font-serif">Session Feedback</h2>
+                    <p className="text-teal-50 opacity-90 mt-2">Your feedback helps us improve Veerawell</p>
                 </div>
 
-                <div className="p-6 space-y-6">
-                    {/* Star Rating */}
-                    <div>
-                        <label className="block text-gray-700 font-semibold mb-3">
-                            How would you rate your experience?
-                        </label>
-                        <div className="flex justify-center gap-2">
-                            {[1, 2, 3, 4, 5].map((star) => (
-                                <button
-                                    key={star}
-                                    type="button"
-                                    onClick={() => setScore(star)}
-                                    onMouseEnter={() => setHoveredScore(star)}
-                                    onMouseLeave={() => setHoveredScore(0)}
-                                    className="transition-transform hover:scale-110 focus:outline-none"
-                                    disabled={isSubmitting}
-                                >
-                                    <span
-                                        className={`text-5xl ${star <= (hoveredScore || score)
-                                            ? 'text-[#FFB800]'
-                                            : 'text-gray-300'
-                                            }`}
-                                    >
-                                        ★
-                                    </span>
-                                </button>
-                            ))}
+                <div className="p-8 space-y-10">
+                    {/* Section 1: Doctor Rating */}
+                    <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100">
+                        <div className="flex items-center gap-3 mb-6">
+                            <div className="w-10 h-10 bg-teal-100 text-teal-700 rounded-full flex items-center justify-center font-bold">1</div>
+                            <h3 className="text-lg font-bold text-gray-800">Rate {doctorName} <span className="text-red-500 font-normal text-sm ml-1">(Mandatory)</span></h3>
                         </div>
-                        {score > 0 && (
-                            <p className="text-center text-lg font-semibold text-gray-700 mt-3">
-                                {score === 5 && 'Excellent!'}
-                                {score === 4 && 'Very Good'}
-                                {score === 3 && 'Good'}
-                                {score === 2 && 'Fair'}
-                                {score === 1 && 'Needs Improvement'}
-                            </p>
-                        )}
-                    </div>
 
-                    {/* Review Type */}
-                    <div>
-                        <label className="block text-gray-700 font-semibold mb-3">
-                            This review is for:
-                        </label>
-                        <div className="space-y-2">
-                            <label className="flex items-center p-4 border-2 rounded-xl cursor-pointer transition-all hover:bg-gray-50"
-                                style={{
-                                    borderColor: reviewType === 'doctor' ? '#7DA9A8' : '#E5E7EB',
-                                    backgroundColor: reviewType === 'doctor' ? '#F0F9F9' : 'white'
-                                }}
-                            >
-                                <input
-                                    type="radio"
-                                    name="reviewType"
-                                    value="doctor"
-                                    checked={reviewType === 'doctor'}
-                                    onChange={(e) => setReviewType(e.target.value as 'doctor')}
-                                    className="w-5 h-5 text-[#7DA9A8] focus:ring-[#7DA9A8]"
-                                />
-                                <div className="ml-3">
-                                    <span className="font-medium text-gray-900">{doctorName}</span>
-                                    <p className="text-sm text-gray-600">Will appear on doctor's profile</p>
-                                </div>
-                            </label>
-
-                            <label className="flex items-center p-4 border-2 rounded-xl cursor-pointer transition-all hover:bg-gray-50"
-                                style={{
-                                    borderColor: reviewType === 'platform' ? '#7DA9A8' : '#E5E7EB',
-                                    backgroundColor: reviewType === 'platform' ? '#F0F9F9' : 'white'
-                                }}
-                            >
-                                <input
-                                    type="radio"
-                                    name="reviewType"
-                                    value="platform"
-                                    checked={reviewType === 'platform'}
-                                    onChange={(e) => setReviewType(e.target.value as 'platform')}
-                                    className="w-5 h-5 text-[#7DA9A8] focus:ring-[#7DA9A8]"
-                                />
-                                <div className="ml-3">
-                                    <span className="font-medium text-gray-900">Veraawell Platform</span>
-                                    <p className="text-sm text-gray-600">Will appear on homepage</p>
-                                </div>
-                            </label>
-                        </div>
-                    </div>
-
-                    {/* Feedback */}
-                    <div>
-                        <label htmlFor="feedback" className="block text-gray-700 font-semibold mb-2">
-                            Your Feedback <span className="text-red-500">*</span>
-                        </label>
-                        <textarea
-                            id="feedback"
-                            value={feedback}
-                            onChange={(e) => setFeedback(e.target.value)}
-                            className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-[#7DA9A8] focus:ring-2 focus:ring-[#7DA9A8]/20 transition-all resize-none"
-                            rows={4}
-                            placeholder="Share your thoughts about your experience..."
-                            required
+                        <StarRating
+                            score={doctorScore}
+                            setScore={setDoctorScore}
+                            hoverScore={doctorHoveredScore}
+                            setHoverScore={setDoctorHoveredScore}
+                            label="How was your session today?"
                         />
-                    </div>
 
-                    {/* Optional fields */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label htmlFor="positives" className="block text-gray-700 font-medium mb-2 text-sm">
-                                What went well? (Optional)
-                            </label>
+                        <div className="mt-6">
                             <textarea
-                                id="positives"
-                                value={positives}
-                                onChange={(e) => setPositives(e.target.value)}
-                                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-[#7DA9A8] focus:ring-2 focus:ring-[#7DA9A8]/20 transition-all resize-none"
+                                value={doctorFeedback}
+                                onChange={(e) => setDoctorFeedback(e.target.value)}
+                                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all resize-none text-sm"
                                 rows={3}
-                                placeholder="What did you appreciate?"
-                            />
-                        </div>
-
-                        <div>
-                            <label htmlFor="improvements" className="block text-gray-700 font-medium mb-2 text-sm">
-                                Areas for improvement (Optional)
-                            </label>
-                            <textarea
-                                id="improvements"
-                                value={improvements}
-                                onChange={(e) => setImprovements(e.target.value)}
-                                className="w-full px-4 py-3 border-2 border-gray-200 rounded-xl focus:border-[#7DA9A8] focus:ring-2 focus:ring-[#7DA9A8]/20 transition-all resize-none"
-                                rows={3}
-                                placeholder="Any suggestions?"
+                                placeholder="Any comments or suggestions for the doctor? (Optional)"
                             />
                         </div>
                     </div>
 
-                    {/* Would Recommend */}
-                    <div className="flex items-center">
-                        <input
-                            type="checkbox"
-                            id="wouldRecommend"
-                            checked={wouldRecommend}
-                            onChange={(e) => setWouldRecommend(e.target.checked)}
-                            className="w-5 h-5 text-[#7DA9A8] focus:ring-[#7DA9A8] rounded"
+                    {/* Section 2: Platform Rating */}
+                    <div className="bg-gray-50 p-6 rounded-2xl border border-gray-100">
+                        <div className="flex items-center gap-3 mb-6">
+                            <div className="w-10 h-10 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-bold">2</div>
+                            <h3 className="text-lg font-bold text-gray-800">Rate the Platform <span className="text-gray-400 font-normal text-sm ml-1">(Optional)</span></h3>
+                        </div>
+
+                        <StarRating
+                            score={platformScore}
+                            setScore={setPlatformScore}
+                            hoverScore={platformHoveredScore}
+                            setHoverScore={setPlatformHoveredScore}
+                            label="How was your experience with Veerawell?"
                         />
-                        <label htmlFor="wouldRecommend" className="ml-3 text-gray-700 font-medium">
-                            I would recommend this to others
-                        </label>
+
+                        <div className="mt-6">
+                            <textarea
+                                value={platformFeedback}
+                                onChange={(e) => setPlatformFeedback(e.target.value)}
+                                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none text-sm"
+                                rows={3}
+                                placeholder="Tell us how we can make our app better... (Optional)"
+                            />
+                        </div>
                     </div>
 
-                    {/* Error */}
+                    {/* Error Display */}
                     {error && (
-                        <div className="bg-red-50 border-2 border-red-200 text-red-700 px-4 py-3 rounded-xl">
+                        <div className="bg-red-50 text-red-600 p-4 rounded-xl text-sm font-medium border border-red-100 animate-shake">
                             {error}
                         </div>
                     )}
 
-                    {/* Submit Button */}
-                    <button
-                        type="button"
-                        onClick={handleSubmit}
-                        disabled={isSubmitting || score === 0}
-                        className="w-full px-6 py-4 bg-gradient-to-r from-[#7DA9A8] to-[#6B9998] text-white rounded-xl font-semibold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                        {isSubmitting ? (
-                            <span className="flex items-center justify-center gap-2">
-                                <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                Submitting...
-                            </span>
-                        ) : (
-                            'Submit Review'
-                        )}
-                    </button>
+                    {/* Footer Actions */}
+                    <div className="flex flex-col gap-4">
+                        <button
+                            onClick={handleSubmit}
+                            disabled={isSubmitting || doctorScore === 0}
+                            className="w-full py-4 bg-teal-600 hover:bg-teal-700 text-white rounded-2xl font-bold shadow-lg shadow-teal-600/20 transition-all transform active:scale-[0.98] disabled:opacity-50 disabled:grayscale"
+                        >
+                            {isSubmitting ? 'Submitting...' : 'Submit All Feedback'}
+                        </button>
 
-                    {/* Helper text */}
-                    {score === 0 && (
-                        <p className="text-center text-xs text-gray-500">
-                            Please select a rating and provide feedback to continue
-                        </p>
-                    )}
+                        {!isSubmitting && (
+                            <button
+                                onClick={onClose}
+                                className="text-gray-400 text-sm hover:text-gray-600 transition-colors"
+                            >
+                                Do this later
+                            </button>
+                        )}
+                    </div>
                 </div>
             </div>
         </div>

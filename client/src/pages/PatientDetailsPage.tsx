@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiMenu } from 'react-icons/fi';
+import BackToDashboard from '../components/BackToDashboard';
 
 interface Patient {
   _id: string;
@@ -17,8 +18,8 @@ const PatientDetailsPage: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigate = useNavigate();
 
-  const API_BASE_URL = window.location.hostname === 'localhost' 
-    ? 'http://localhost:5001/api' 
+  const API_BASE_URL = window.location.hostname === 'localhost'
+    ? 'http://localhost:5001/api'
     : 'https://veraawell-backend.onrender.com/api';
 
   useEffect(() => {
@@ -28,7 +29,7 @@ const PatientDetailsPage: React.FC = () => {
   const fetchPatients = async () => {
     try {
       setLoading(true);
-      
+
       const response = await fetch(`${API_BASE_URL}/patients/doctor-patients`, {
         credentials: 'include'
       });
@@ -70,12 +71,11 @@ const PatientDetailsPage: React.FC = () => {
       )}
 
       {/* Sidebar */}
-      <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${
-        sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-      }`} style={{ backgroundColor: '#7DA9A8' }}>
+      <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        }`} style={{ backgroundColor: '#7DA9A8' }}>
         <div className="h-full flex flex-col p-4 text-white font-serif">
           <div className="space-y-3 mb-6">
-            <div 
+            <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
               onClick={() => { navigate('/doctor-dashboard'); setSidebarOpen(false); }}
             >
@@ -84,8 +84,8 @@ const PatientDetailsPage: React.FC = () => {
               </svg>
               <span className="text-base font-medium">My Dashboard</span>
             </div>
-            
-            <div 
+
+            <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
               onClick={() => { navigate('/patient-details'); setSidebarOpen(false); }}
             >
@@ -94,8 +94,8 @@ const PatientDetailsPage: React.FC = () => {
               </svg>
               <span className="text-base font-medium">My Patients</span>
             </div>
-            
-            <div 
+
+            <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
               onClick={() => { navigate('/call-history'); setSidebarOpen(false); }}
             >
@@ -125,6 +125,7 @@ const PatientDetailsPage: React.FC = () => {
       {/* Content */}
       <div className="px-8 py-8">
         <div className="max-w-6xl mx-auto">
+          <BackToDashboard />
           {/* Table Header */}
           <div className="grid grid-cols-4 gap-6 px-8 py-4 font-bold text-xl text-black" style={{ backgroundColor: '#B8E6E6', fontFamily: 'Bree Serif, serif' }}>
             <div className="text-left">Name</div>
@@ -145,10 +146,10 @@ const PatientDetailsPage: React.FC = () => {
               </div>
             ) : (
               patients.map((patient, index) => (
-                <div 
+                <div
                   key={patient._id}
                   className="grid grid-cols-4 gap-6 px-8 py-4 hover:opacity-90 transition-opacity cursor-pointer"
-                  style={{ 
+                  style={{
                     backgroundColor: index % 2 === 0 ? '#D4F1F1' : '#FFFFFF',
                     fontFamily: 'Bree Serif, serif'
                   }}

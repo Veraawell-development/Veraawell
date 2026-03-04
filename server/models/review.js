@@ -122,8 +122,8 @@ reviewSchema.statics.getDoctorStats = async function (doctorId) {
   };
 };
 
-// Prevent duplicate reviews for same session
-reviewSchema.index({ sessionId: 1, patientId: 1 }, { unique: true });
+// Prevent duplicate reviews of the same type for same session
+reviewSchema.index({ sessionId: 1, patientId: 1, reviewType: 1 }, { unique: true });
 
 const Review = mongoose.model('Review', reviewSchema);
 

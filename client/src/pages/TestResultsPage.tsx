@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { MENTAL_HEALTH_TESTS } from '../data/mentalHealthTests';
 import { API_CONFIG } from '../config/api';
+import BackToDashboard from '../components/BackToDashboard';
 
 const TestResultsPage: React.FC = () => {
     const { id } = useParams<{ id: string }>();
@@ -113,6 +114,7 @@ const TestResultsPage: React.FC = () => {
 
             {/* Results Content */}
             <div className="max-w-4xl mx-auto px-4 py-8">
+                <BackToDashboard />
                 <div className="bg-white rounded-2xl shadow-xl p-8">
                     {/* Header */}
                     <div className="text-center mb-8">

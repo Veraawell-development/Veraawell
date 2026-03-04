@@ -38,6 +38,18 @@ const doctorProfileSchema = new mongoose.Schema({
       type: Number,
       required: true,
       min: 0
+    },
+    session20: {
+      type: Number,
+      default: 0
+    },
+    session40: {
+      type: Number,
+      default: 0
+    },
+    session55: {
+      type: Number,
+      default: 0
     }
   },
   profileImage: {

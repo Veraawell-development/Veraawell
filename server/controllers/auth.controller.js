@@ -24,10 +24,12 @@ const register = asyncHandler(async (req, res) => {
     success: true,
     message: 'Registration successful',
     user: {
+      userId: user._id,
       username: user.email,
       role: user.role,
       firstName: user.firstName,
-      lastName: user.lastName
+      lastName: user.lastName,
+      emergencyContact: user.emergencyContact || { name: null, phone: null }
     },
     token // Send token to client for WebSocket auth (stored in memory)
   });
@@ -51,7 +53,8 @@ const login = asyncHandler(async (req, res) => {
       email: user.email,
       role: user.role,
       firstName: user.firstName,
-      lastName: user.lastName
+      lastName: user.lastName,
+      emergencyContact: user.emergencyContact || { name: null, phone: null }
     },
     token // Send token to client for WebSocket auth (stored in memory)
   });
@@ -62,16 +65,14 @@ const login = asyncHandler(async (req, res) => {
  */
 const logout = asyncHandler(async (req, res) => {
   // Set doctor offline if they're logging out
-  // Note: req.user might not be set if called without auth, so check optional
   try {
     if (req.user && req.user.role === 'doctor') {
-      req.user.isOnline = false;
-      req.user.lastActiveAt = new Date();
-      await req.user.save();
-      logger.info('Doctor set offline on logout', { userId: req.user._id });
+      const { updateDoctorStatus } = require('../services/doctorStatus.service');
+      const io = req.app.get('io');
+      await updateDoctorStatus(req.user._id, false, io);
     }
   } catch (error) {
-    logger.error('Error setting doctor offline', { error: error.message });
+    logger.error('Error setting doctor offline on logout', { error: error.message });
   }
 
   // Clear cookies
@@ -178,7 +179,8 @@ const getProtected = asyncHandler(async (req, res) => {
       email: user.email,
       role: user.role,
       firstName: user.firstName,
-      lastName: user.lastName
+      lastName: user.lastName,
+      emergencyContact: user.emergencyContact || { name: null, phone: null }
     },
     // Send token to client for WebSocket auth (stored in memory)
     token: req.cookies.token || null

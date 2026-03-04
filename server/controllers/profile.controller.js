@@ -79,8 +79,11 @@ const setupProfile = asyncHandler(async (req, res) => {
       specialization: specialization || [],
       treatsFor: specialization || [],
       pricing: {
-        min: pricing?.session20 || pricing?.session40 || 0,
-        max: pricing?.session55 || pricing?.session40 || 0
+        session20: pricing?.session20 || 0,
+        session40: pricing?.session40 || 0,
+        session55: pricing?.session55 || 0,
+        min: Math.min(...[pricing?.session20, pricing?.session40, pricing?.session55].filter(p => p > 0)) || 0,
+        max: Math.max(...[pricing?.session20, pricing?.session40, pricing?.session55].filter(p => p > 0)) || 0
       },
       modeOfSession: modeOfSession || [],
       quote: quote || '',

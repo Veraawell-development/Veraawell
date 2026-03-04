@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_CONFIG } from '../config/api';
+import BackToDashboard from '../components/BackToDashboard';
 
 interface Therapist {
     doctor: {
@@ -101,6 +102,7 @@ const MyTherapistPage: React.FC = () => {
 
             {/* Main Content */}
             <div className="max-w-5xl mx-auto px-4 py-8">
+                <BackToDashboard />
                 {/* Filter Pills */}
                 <div className="flex gap-3 mb-8">
                     <button

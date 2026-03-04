@@ -12,6 +12,10 @@ interface User {
   firstName: string;
   lastName: string;
   profileCompleted?: boolean;
+  emergencyContact?: {
+    name: string | null;
+    phone: string | null;
+  };
 }
 
 interface AuthContextType {

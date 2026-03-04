@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiMenu, FiCheckSquare } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
+import BackToDashboard from '../components/BackToDashboard';
 
 interface PatientTask {
   _id: string;
   patientName: string;
   lastDate: string;
+  rawDate: Date;
   tasks: string; // Summary of tasks (e.g. latest title)
   patientId: string;
 }
@@ -67,12 +69,13 @@ const DoctorTasksPage: React.FC = () => {
         _id: data.patientId,
         patientName: data.patientName,
         lastDate: formatDate(data.lastDate),
+        rawDate: data.lastDate,
         tasks: data.latestTask, // Showing truncated title of latest task
         patientId: data.patientId
       }));
 
-      // Sort by date descending
-      groupedTasks.sort((a, b) => new Date(b.lastDate).getTime() - new Date(a.lastDate).getTime());
+      // Sort by date descending (raw Date objects)
+      groupedTasks.sort((a, b) => b.rawDate.getTime() - a.rawDate.getTime());
 
       setTasks(groupedTasks);
     } catch (error) {
@@ -149,6 +152,7 @@ const DoctorTasksPage: React.FC = () => {
       </div>
 
       <div className="px-4 py-8 max-w-6xl mx-auto">
+        <BackToDashboard />
         {tasks.length === 0 ? (
           <div className="text-center py-20 bg-white rounded-3xl shadow-sm border border-gray-100">
             <div className="bg-teal-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">

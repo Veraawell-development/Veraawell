@@ -241,7 +241,7 @@ router.get('/tasks/doctor/:doctorId', verifyToken, async (req, res) => {
     const tasks = await Task.find({ doctorId })
       .populate('patientId', 'firstName lastName')
       .populate('sessionId', 'sessionDate sessionTime')
-      .sort({ dueDate: 1, createdAt: -1 });
+      .sort({ createdAt: -1, dueDate: 1 });
 
     res.json(tasks);
   } catch (error) {

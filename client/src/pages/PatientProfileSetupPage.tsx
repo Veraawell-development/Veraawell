@@ -2,12 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { API_CONFIG } from '../config/api';
+import BackToDashboard from '../components/BackToDashboard';
 
 const PatientProfileSetupPage: React.FC = () => {
     const navigate = useNavigate();
     const { user } = useAuth();
     const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [isEditing, setIsEditing] = useState(true);
 
     const [formData, setFormData] = useState({
         fullName: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
@@ -41,6 +43,7 @@ const PatientProfileSetupPage: React.FC = () => {
                         emergencyContactName: profile.emergencyContact?.name || '',
                         emergencyContactPhone: profile.emergencyContact?.phone || ''
                     });
+                    setIsEditing(false);
                 }
             }
         } catch (error) {
@@ -98,6 +101,7 @@ const PatientProfileSetupPage: React.FC = () => {
             {/* Header */}
             <div className="bg-white border-b border-gray-200">
                 <div className="max-w-3xl mx-auto px-4 py-6">
+                    <BackToDashboard />
                     <h1 className="text-3xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
                         Complete Your Profile
                     </h1>
@@ -120,9 +124,23 @@ const PatientProfileSetupPage: React.FC = () => {
 
                     {/* Basic Information */}
                     <div className="mb-8">
-                        <h2 className="text-xl font-bold text-gray-900 mb-4" style={{ fontFamily: 'Bree Serif, serif' }}>
-                            Basic Information
-                        </h2>
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+                                Basic Information
+                            </h2>
+                            <button
+                                type="button"
+                                onClick={() => setIsEditing(true)}
+                                disabled={isEditing}
+                                className={`flex items-center gap-1.5 transition-colors ${isEditing ? 'text-gray-400 cursor-not-allowed' : 'text-teal-600 hover:text-teal-700'}`}
+                                style={{ fontFamily: 'Inter, sans-serif' }}
+                            >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                </svg>
+                                <span className="text-sm font-medium">edit details</span>
+                            </button>
+                        </div>
 
                         {/* Full Name */}
                         <div className="mb-4">
@@ -133,7 +151,8 @@ const PatientProfileSetupPage: React.FC = () => {
                                 type="text"
                                 value={formData.fullName}
                                 onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                disabled={!isEditing}
+                                className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${!isEditing ? 'bg-gray-50 text-gray-500' : ''}`}
                                 style={{ fontFamily: 'Inter, sans-serif' }}
                                 required
                             />
@@ -148,7 +167,8 @@ const PatientProfileSetupPage: React.FC = () => {
                                 type="date"
                                 value={formData.dateOfBirth}
                                 onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                disabled={!isEditing}
+                                className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${!isEditing ? 'bg-gray-50 text-gray-500' : ''}`}
                                 style={{ fontFamily: 'Inter, sans-serif' }}
                                 required
                             />
@@ -162,7 +182,8 @@ const PatientProfileSetupPage: React.FC = () => {
                             <select
                                 value={formData.gender}
                                 onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                disabled={!isEditing}
+                                className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${!isEditing ? 'bg-gray-50 text-gray-500' : ''}`}
                                 style={{ fontFamily: 'Inter, sans-serif' }}
                                 required
                             >
@@ -183,7 +204,8 @@ const PatientProfileSetupPage: React.FC = () => {
                                 type="tel"
                                 value={formData.phone}
                                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                disabled={!isEditing}
+                                className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${!isEditing ? 'bg-gray-50 text-gray-500' : ''}`}
                                 style={{ fontFamily: 'Inter, sans-serif' }}
                                 placeholder="+91 1234567890"
                                 required
@@ -209,7 +231,8 @@ const PatientProfileSetupPage: React.FC = () => {
                                 type="text"
                                 value={formData.emergencyContactName}
                                 onChange={(e) => setFormData({ ...formData, emergencyContactName: e.target.value })}
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                disabled={!isEditing}
+                                className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${!isEditing ? 'bg-gray-50 text-gray-500' : ''}`}
                                 style={{ fontFamily: 'Inter, sans-serif' }}
                                 placeholder="e.g., John Doe"
                             />
@@ -224,7 +247,8 @@ const PatientProfileSetupPage: React.FC = () => {
                                 type="tel"
                                 value={formData.emergencyContactPhone}
                                 onChange={(e) => setFormData({ ...formData, emergencyContactPhone: e.target.value })}
-                                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500"
+                                disabled={!isEditing}
+                                className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${!isEditing ? 'bg-gray-50 text-gray-500' : ''}`}
                                 style={{ fontFamily: 'Inter, sans-serif' }}
                                 placeholder="+91 1234567890"
                             />
@@ -232,24 +256,26 @@ const PatientProfileSetupPage: React.FC = () => {
                     </div>
 
                     {/* Submit Button */}
-                    <div className="flex gap-4">
-                        <button
-                            type="button"
-                            onClick={() => navigate('/patient-dashboard')}
-                            className="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
-                            style={{ fontFamily: 'Inter, sans-serif' }}
-                        >
-                            Cancel
-                        </button>
-                        <button
-                            type="submit"
-                            disabled={isSaving}
-                            className="flex-1 px-6 py-3 text-white rounded-lg font-semibold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                            style={{ backgroundColor: '#0093AE', fontFamily: 'Inter, sans-serif' }}
-                        >
-                            {isSaving ? 'Saving...' : 'Save Profile'}
-                        </button>
-                    </div>
+                    {isEditing && (
+                        <div className="flex gap-4">
+                            <button
+                                type="button"
+                                onClick={() => navigate('/patient-dashboard')}
+                                className="px-6 py-3 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
+                                style={{ fontFamily: 'Inter, sans-serif' }}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                type="submit"
+                                disabled={isSaving}
+                                className="flex-1 px-6 py-3 text-white rounded-lg font-semibold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                style={{ backgroundColor: '#0093AE', fontFamily: 'Inter, sans-serif' }}
+                            >
+                                {isSaving ? 'Saving...' : 'Save Profile'}
+                            </button>
+                        </div>
+                    )}
                 </form>
             </div>
         </div>

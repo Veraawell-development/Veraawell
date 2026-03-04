@@ -7,6 +7,7 @@ import { formatDate } from '../utils/dateUtils';
 import logger from '../utils/logger';
 import { useToast } from '../hooks/useToast';
 import type { JournalEntry } from '../types';
+import BackToDashboard from '../components/BackToDashboard';
 
 const MyJournalPage: React.FC = () => {
   const [entries, setEntries] = useState<JournalEntry[]>([]);
@@ -214,6 +215,7 @@ const MyJournalPage: React.FC = () => {
 
       {/* Content */}
       <div className="max-w-6xl mx-auto px-4 py-8">
+        <BackToDashboard />
         <div className="bg-white rounded-2xl shadow-xl overflow-hidden border border-gray-200">
           <div className="flex flex-col md:flex-row min-h-[600px]">
             {/* Date Sidebar */}

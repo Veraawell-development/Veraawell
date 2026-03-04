@@ -2,11 +2,13 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ProfileImageUpload from '../components/ProfileImageUpload';
+import BackToDashboard from '../components/BackToDashboard';
 
 const ProfileSetupPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [isSaving, setIsSaving] = useState(false);
+  const [isEditing, setIsEditing] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
@@ -71,9 +73,9 @@ const ProfileSetupPage: React.FC = () => {
               type: data.profile.type || '',
               experience: data.profile.experience || '',
               specialization: data.profile.specialization || [],
-              price20: data.profile.price20 || '',
-              price40: data.profile.price40 || '',
-              price55: data.profile.price55 || '',
+              price20: data.profile.pricing?.session20 || '',
+              price40: data.profile.pricing?.session40 || '',
+              price55: data.profile.pricing?.session55 || '',
               // Ensure modeOfSession is always an array (handle legacy string data)
               modeOfSession: Array.isArray(data.profile.modeOfSession)
                 ? data.profile.modeOfSession
@@ -82,6 +84,7 @@ const ProfileSetupPage: React.FC = () => {
               quoteAuthor: data.profile.quoteAuthor || '',
               introduction: data.profile.introduction || ''
             });
+            setIsEditing(false); // Disable editing if profile data is loaded
           }
         }
       } catch (err) {
@@ -186,6 +189,7 @@ const ProfileSetupPage: React.FC = () => {
       {/* Modern Header */}
       <div className="sticky top-0 z-10 backdrop-blur-md bg-white/80 border-b border-gray-200 shadow-sm">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
+          <BackToDashboard className="!mb-4" />
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
@@ -281,11 +285,26 @@ const ProfileSetupPage: React.FC = () => {
                   <p className="text-sm text-gray-500 mt-1">{getStepDescription()}</p>
                 </div>
               </div>
+
+              {/* Edit Details Button */}
+              {!isEditing && (
+                <button
+                  type="button"
+                  onClick={() => setIsEditing(true)}
+                  className="flex items-center gap-1.5 transition-colors text-teal-600 hover:text-teal-700"
+                  style={{ fontFamily: 'Inter, sans-serif' }}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                  <span className="text-sm font-medium">edit details</span>
+                </button>
+              )}
             </div>
 
             {/* Step Content - Scrollable if needed */}
             <div className="flex-1 overflow-y-auto px-8 py-6">
-              <div className="space-y-6 max-w-2xl">
+              <fieldset disabled={!isEditing} className={`space-y-6 max-w-2xl transition-opacity duration-200 ${!isEditing ? 'opacity-70' : ''}`}>
 
                 {/* STEP 1: Basic Information */}
                 {currentStep === 1 && (
@@ -739,7 +758,7 @@ const ProfileSetupPage: React.FC = () => {
                   </>
                 )}
 
-              </div>
+              </fieldset>
             </div>
 
             {/* Navigation Buttons */}
@@ -789,7 +808,7 @@ const ProfileSetupPage: React.FC = () => {
                           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                           </svg>
-                          <span>Complete Setup</span>
+                          <span>{isEditing ? 'Complete Setup' : 'Go to Dashboard'}</span>
                         </>
                       )}
                     </button>

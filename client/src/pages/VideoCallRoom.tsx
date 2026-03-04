@@ -2,10 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { io, Socket } from 'socket.io-client';
+import { useDataSocket } from '../hooks/useDataSocket';
 import SessionToolsModal from '../components/SessionToolsModal';
 import SessionChat from '../components/SessionChat';
-import PostSessionReportModal from '../components/PostSessionReportModal';
-import RatingModal from '../components/RatingModal';
+// RatingModal removed - feedback is handled by PatientDashboard
 
 const VideoCallRoom: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -32,9 +32,37 @@ const VideoCallRoom: React.FC = () => {
   const [showChat, setShowChat] = useState(false);
   const [sessionData, setSessionData] = useState<any>(null);
   const [_loadingSession, setLoadingSession] = useState(true);
-  const [showReportModal, setShowReportModal] = useState(false);
-  const [showRatingModal, setShowRatingModal] = useState(false);
+  // RatingModal removed - PatientDashboard owns the only feedback modal
   const [endCallNotification, setEndCallNotification] = useState<{ show: boolean; userName: string }>({ show: false, userName: '' });
+  const [acceptanceStatus, setAcceptanceStatus] = useState<'pending' | 'accepted' | 'delayed'>('pending');
+  const [delayMinutes, setDelayMinutes] = useState(0);
+  const [doctorNote, setDoctorNote] = useState('');
+
+  // ✨ Mandatory Emergency Contact State
+  const [showEmergencyModal, setShowEmergencyModal] = useState(false);
+  const [savingContact, setSavingContact] = useState(false);
+  const [newEmergencyContact, setNewEmergencyContact] = useState({ name: '', phone: '' });
+
+  // ✨ REAL-TIME: Listen for session updates via data socket (backup)
+  const { socket: dataSocket } = useDataSocket();
+
+  useEffect(() => {
+    if (!dataSocket) return;
+
+    const handleStatusUpdate = (data: any) => {
+      console.log('[VIDEO-ROOM] Status update via DataSocket:', data);
+      if (data.sessionId === sessionId) {
+        if (data.acceptanceStatus) setAcceptanceStatus(data.acceptanceStatus);
+        if (data.delayMinutes) setDelayMinutes(data.delayMinutes);
+        if (data.doctorNote) setDoctorNote(data.doctorNote);
+      }
+    };
+
+    dataSocket.on('session:status-update', handleStatusUpdate);
+    return () => {
+      dataSocket.off('session:status-update', handleStatusUpdate);
+    };
+  }, [dataSocket, sessionId]);
 
   const API_BASE_URL = window.location.hostname === 'localhost'
     ? 'http://localhost:5001'
@@ -56,11 +84,50 @@ const VideoCallRoom: React.FC = () => {
       const data = await response.json();
       console.log(' Session data received:', data);
       setSessionData(data);
+
+      // Initialize states from fetched data
+      if (data.acceptanceStatus) setAcceptanceStatus(data.acceptanceStatus);
+      if (data.delayMinutes) setDelayMinutes(data.delayMinutes);
+      if (data.doctorNote) setDoctorNote(data.doctorNote);
     } catch (error) {
       console.error('Error fetching session data:', error);
       setError('Failed to load session details');
     } finally {
       setLoadingSession(false);
+    }
+  };
+
+  const saveEmergencyContact = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newEmergencyContact.name || !newEmergencyContact.phone) return;
+
+    setSavingContact(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/profile/setup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          emergencyContact: {
+            name: newEmergencyContact.name,
+            phone: newEmergencyContact.phone
+          }
+        })
+      });
+
+      if (response.ok) {
+        setShowEmergencyModal(false);
+        // We'll also update the local user object manually if we can, 
+        // but Since we don't have a setter for user in AuthContext we rely on modal closure.
+      } else {
+        const data = await response.json();
+        setError(data.message || 'Failed to save emergency contact');
+      }
+    } catch (err) {
+      console.error('Error saving emergency contact:', err);
+      setError('Failed to save emergency contact');
+    } finally {
+      setSavingContact(false);
     }
   };
 
@@ -74,6 +141,15 @@ const VideoCallRoom: React.FC = () => {
 
   useEffect(() => {
     if (!sessionId || !user) return;
+
+    // ✨ Mandatory Check: Ensure patient has emergency contact
+    if (user.role === 'patient') {
+      const hasContact = user.emergencyContact?.name && user.emergencyContact?.phone;
+      if (!hasContact) {
+        console.log('[VIDEO-ROOM] Emergency contact missing. Prompting user.');
+        setShowEmergencyModal(true);
+      }
+    }
 
     fetchSessionData();
 
@@ -160,11 +236,7 @@ const VideoCallRoom: React.FC = () => {
     setShowChat(false);
   }, []);
 
-  useEffect(() => {
-    if (showRatingModal || showReportModal) {
-      setShowChat(false);
-    }
-  }, [showRatingModal, showReportModal]);
+
 
   const initializeCall = async () => {
     try {
@@ -237,25 +309,43 @@ const VideoCallRoom: React.FC = () => {
       socket.on('room-joined', (data) => {
         console.log('[VIDEO-CALL]  Joined room:', data);
         setError(null); // Clear any previous errors
-        // Check if there are other users in the room
+
+        // ✨ FIX: Only set remoteUserJoined if there's someone with a DIFFERENT role
         if (data.otherUsers && data.otherUsers.length > 0) {
-          console.log('[VIDEO-CALL] 👥 Other users in room:', data.otherUsers);
-          setRemoteUserJoined(true);
-          // Only doctor creates offer when joining an existing room
-          if (user?.role === 'doctor') {
-            console.log('[VIDEO-CALL]  Doctor initiating call as offerer');
-            createOffer(stream);
+          console.log('[VIDEO-CALL] 👥 Other users detected:', data.otherUsers.map((u: any) => u.role));
+          const hasOppositeRole = data.otherUsers.some((u: any) => u.role !== user?.role);
+
+          if (hasOppositeRole) {
+            console.log('[VIDEO-CALL] ✅ Opposite participant found in room. Syncing...');
+            setRemoteUserJoined(true);
+            // Only doctor creates offer when joining an existing room
+            if (user?.role === 'doctor') {
+              createOffer(stream);
+            }
+          } else {
+            console.log('[VIDEO-CALL] ℹ️ Only same-role participants found. Staying in Waiting Room.');
+            setRemoteUserJoined(false);
           }
+        } else {
+          console.log('[VIDEO-CALL] ℹ️ Room is empty. Staying in Waiting Room.');
+          setRemoteUserJoined(false);
         }
       });
 
       socket.on('user-joined', async (data) => {
-        console.log('[VIDEO-CALL]  Remote user joined:', data.role);
-        setRemoteUserJoined(true);
-        // Only doctor creates offer when someone joins
-        if (user?.role === 'doctor') {
-          console.log('[VIDEO-CALL]  Doctor initiating call as offerer');
-          await createOffer(stream);
+        console.log('[VIDEO-CALL]  User joined event:', data.role);
+
+        // ✨ FIX: Only set remoteUserJoined if the joining user has a DIFFERENT role
+        if (data.role !== user?.role) {
+          console.log('[VIDEO-CALL] ✅ Opposite participant joined. Closing Waiting Room.');
+          setRemoteUserJoined(true);
+          // Only doctor creates offer when someone joins
+          if (user?.role === 'doctor') {
+            console.log('[VIDEO-CALL]  Doctor initiating call as offerer');
+            await createOffer(stream);
+          }
+        } else {
+          console.log('[VIDEO-CALL] ℹ️ Same role user joined (probably a reconnection). Keeping Waiting Room.');
         }
       });
 
@@ -305,25 +395,42 @@ const VideoCallRoom: React.FC = () => {
           userName: data.userName || 'The other participant'
         });
 
-        // After 2 seconds, show appropriate modal
+        // After 2 seconds, navigate to dashboard with appropriate state
         setTimeout(() => {
           setEndCallNotification({ show: false, userName: '' });
+          cleanup();
 
           if (user?.role === 'doctor') {
-            setShowReportModal(true);
+            navigate('/doctor-dashboard', {
+              state: {
+                pendingReport: {
+                  sessionId: sessionId || '',
+                  patientId: sessionData?.patientId?._id || sessionData?.patientId,
+                  patientName: `${sessionData?.patientId?.firstName || ''} ${sessionData?.patientId?.lastName || ''}`.trim(),
+                  sessionDuration: sessionData?.duration || 60
+                }
+              }
+            });
           } else {
-            // Mark session complete first for patient
+            // Patient Side: Mark complete and show rating on dashboard
             fetch(`${API_BASE_URL}/api/sessions/${sessionId}/complete`, {
               method: 'POST',
               credentials: 'include'
-            }).then(() => {
-              setShowRatingModal(true);
-            }).catch(err => {
-              console.error('Error marking session complete:', err);
-              setShowRatingModal(true); // Show anyway
-            });
+            }).catch(console.error);
+            navigate('/patient-dashboard', { state: { showRating: true, sessionId } });
           }
         }, 2000);
+      });
+
+      socket.on('session:status-update', (data) => {
+        console.log('[VIDEO-CALL] Received session status update:', data);
+        if (data.acceptanceStatus) setAcceptanceStatus(data.acceptanceStatus);
+        if (data.delayMinutes) setDelayMinutes(data.delayMinutes);
+        if (data.doctorNote) setDoctorNote(data.doctorNote);
+
+        if (data.acceptanceStatus === 'accepted') {
+          showQualityMessage('Doctor has accepted and is joining!');
+        }
       });
 
 
@@ -619,13 +726,13 @@ const VideoCallRoom: React.FC = () => {
           audio: audioTrack.enabled
         });
 
-        console.log('[VIDEO-CALL] 🎤 Audio toggled:', audioTrack.enabled);
+        console.log('[VIDEO-CALL]  Audio toggled:', audioTrack.enabled);
       }
     }
   };
 
   const endCall = async (reason: string = 'user_action') => {
-    console.log(`[VIDEO-CALL] 📞 Ending call (Reason: ${reason})...`, { role: user?.role, sessionId });
+    console.log(`[VIDEO-CALL]  Ending call (Reason: ${reason})...`, { role: user?.role, sessionId });
 
     // Explicitly close chat sidebar
     setShowChat(false);
@@ -637,40 +744,40 @@ const VideoCallRoom: React.FC = () => {
         endedBy: user.role,
         userName: user.firstName || 'User'
       });
-      console.log('[VIDEO-CALL] 📤 Emitted call-ended event');
+      console.log('[VIDEO-CALL]  Emitted call-ended event');
     }
 
-    // For doctors: Show report modal instead of ending immediately
+    // Cleanup immediately for both
+    cleanup();
+
+    // For doctors: Navigate to dashboard with state to trigger mandatory report
     if (user?.role === 'doctor') {
-      setShowReportModal(true);
+      navigate('/doctor-dashboard', {
+        state: {
+          pendingReport: {
+            sessionId: sessionId || '',
+            patientId: sessionData?.patientId?._id || sessionData?.patientId,
+            patientName: `${sessionData?.patientId?.firstName || ''} ${sessionData?.patientId?.lastName || ''}`.trim(),
+            sessionDuration: sessionData?.duration || 60
+          }
+        }
+      });
       return;
     }
 
-    // For patients: Mark session as completed FIRST, then show rating modal
-    try {
-      console.log('[VIDEO-CALL] ✅ Marking session as completed before review...');
-
-      const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/complete`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include'
-      });
-
-      if (!response.ok) {
-        console.error('[VIDEO-CALL] ❌ Failed to mark session as completed:', await response.text());
-        // Continue anyway - show rating modal even if completion fails
-      } else {
-        console.log('[VIDEO-CALL] ✅ Session marked as completed successfully');
+    // For patients: Mark session as completed (background) and navigate to dashboard
+    if (user?.role === 'patient') {
+      try {
+        fetch(`${API_BASE_URL}/api/sessions/${sessionId}/complete`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include'
+        });
+      } catch (e) {
+        console.error('Error marking completion:', e);
       }
-    } catch (error) {
-      console.error('[VIDEO-CALL] ❌ Error marking session as completed:', error);
-      // Continue anyway - show rating modal even if completion fails
+      navigate('/patient-dashboard', { state: { showRating: true, sessionId } });
     }
-
-    // Show rating modal (session should now be completed)
-    setShowRatingModal(true);
   };
 
   const handleEndCall = () => {
@@ -685,39 +792,6 @@ const VideoCallRoom: React.FC = () => {
     navigate(user?.role === 'patient' ? '/patient-dashboard' : '/doctor-dashboard');
   };
 
-  const handleReportSubmit = () => {
-    setShowReportModal(false);
-    handleEndCall();
-  };
-
-  const handleRatingSubmit = async (ratingData: { score: number; review: string }) => {
-    try {
-      console.log('[RATING] Submitting rating from video call:', { sessionId, score: ratingData.score });
-
-      const response = await fetch(`${API_BASE_URL}/api/ratings/${sessionId}/rate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify(ratingData)
-      });
-
-      if (response.ok) {
-        console.log('[RATING] Rating submitted successfully');
-        // Close rating modal and end call
-        setShowRatingModal(false);
-        handleEndCall();
-      } else {
-        const data = await response.json();
-        console.error('[RATING] Error response:', data);
-        alert(data.message || 'Failed to submit rating');
-      }
-    } catch (error) {
-      console.error('Error submitting rating:', error);
-      alert('Failed to submit rating. Please try again.');
-    }
-  };
 
   const isVoiceMode = sessionData?.callMode === 'Voice Calling';
 
@@ -774,7 +848,7 @@ const VideoCallRoom: React.FC = () => {
     // Stop all local stream tracks (camera and microphone)
     if (localStream) {
       localStream.getTracks().forEach(track => {
-        console.log('[VIDEO-CALL] 🛑 Stopping track:', track.kind);
+        console.log('[VIDEO-CALL] Stopping track:', track.kind);
         track.stop();
       });
       setLocalStream(null);
@@ -899,15 +973,94 @@ const VideoCallRoom: React.FC = () => {
               {user?.role === 'patient' ? 'Therapist' : 'Patient'}
             </div>
 
-            {/* Waiting Overlay */}
-            {!remoteUserJoined && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-90">
+            {/* Waiting Overlay / Waiting Room (Patient Only) */}
+            {user?.role === 'patient' && !remoteUserJoined && (
+              <div className="absolute inset-0 flex items-center justify-center bg-gray-950 z-[100]">
+                {/* Background Pattern */}
+                <div className="absolute inset-0 opacity-10 bg-[radial-gradient(#4DBAB2_1px,transparent_1px)] [background-size:20px_20px]"></div>
+
+                <div className="text-center text-white relative z-10 p-8 max-w-sm mx-auto">
+                  {/* Status Card */}
+                  <div className="bg-gray-900/80 backdrop-blur-md rounded-3xl p-8 border border-white/10 shadow-2xl">
+                    <div className="mb-8 relative">
+                      <div className="w-24 h-24 border-4 border-teal-500/30 border-t-teal-500 rounded-full animate-spin mx-auto relative z-10"></div>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <svg className="w-8 h-8 text-teal-400 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                      </div>
+                    </div>
+
+                    <h2 className="text-2xl font-bold mb-4 font-serif">Waiting Room</h2>
+
+                    <div className="space-y-4 mb-6">
+                      {acceptanceStatus === 'pending' && (
+                        <div className="animate-in fade-in duration-500">
+                          <p className="text-teal-400 font-bold text-lg">Calling Doctor...</p>
+                          <p className="text-gray-400 text-sm mt-2">Connecting you with {sessionData?.doctorId ? `Dr. ${sessionData.doctorId.lastName}` : 'your therapist'}.</p>
+                        </div>
+                      )}
+
+                      {acceptanceStatus === 'accepted' && (
+                        <div className="animate-in zoom-in duration-500">
+                          <div className="bg-teal-500/20 text-teal-300 py-2 px-4 rounded-full text-sm font-bold inline-block mb-3 border border-teal-500/30">
+                            Ready
+                          </div>
+                          <p className="text-white font-bold text-lg">Doctor is joining!</p>
+                          <p className="text-gray-400 text-sm mt-1">Starting the video session in a moment.</p>
+                        </div>
+                      )}
+
+                      {acceptanceStatus === 'delayed' && (
+                        <div className="animate-in slide-in-from-top-4 duration-500 bg-gray-800/50 p-6 rounded-2xl border border-white/5">
+                          <p className="text-yellow-400 font-bold text-lg mb-1">Doctor will join in {delayMinutes}m</p>
+                          {doctorNote && (
+                            <p className="text-gray-300 text-sm italic mb-2">"{doctorNote}"</p>
+                          )}
+                          <div className="w-full bg-gray-700 h-1.5 rounded-full overflow-hidden mt-4">
+                            <div className="bg-yellow-500 h-full animate-[shimmer_2s_infinite]"></div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="text-[10px] text-gray-500 uppercase tracking-widest font-bold">
+                      Keep this screen open
+                    </div>
+                  </div>
+
+                  <div className="pt-6">
+                    <button
+                      onClick={() => endCall('user_clicked_end')}
+                      className="px-8 py-3 bg-red-500/20 hover:bg-red-500/40 text-red-400 border border-red-500/30 rounded-2xl font-bold transition-all"
+                    >
+                      Leave Waiting Room
+                    </button>
+                  </div>
+
+                  <p className="mt-8 text-xs text-gray-500/80">
+                    If you're having trouble, check your internet connection or try refreshing the page.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Waiting Overlay (Doctor Only) */}
+            {!remoteUserJoined && user?.role === 'doctor' && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-90 z-[60]">
                 <div className="text-center text-white">
                   <div className="mb-6">
-                    <div className="w-12 h-12 border-3 border-white border-t-transparent rounded-full animate-spin mx-auto"></div>
+                    <div className="w-12 h-12 border-3 border-teal-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
                   </div>
-                  <h2 className="text-xl font-light mb-2">Waiting for {user?.role === 'patient' ? 'therapist' : 'patient'}</h2>
-                  <p className="text-xs text-gray-400">Session will begin shortly...</p>
+                  <h2 className="text-xl font-serif mb-2">Waiting for patient to join...</h2>
+                  <p className="text-xs text-gray-400 italic mb-8">Please stay here, the session will start automatically.</p>
+
+                  <button
+                    onClick={() => endCall('user_clicked_end')}
+                    className="px-6 py-2 bg-red-600 hover:bg-red-700 text-white rounded-full font-bold text-sm shadow-lg transition-all"
+                  >
+                    End Session
+                  </button>
                 </div>
               </div>
             )}
@@ -983,7 +1136,7 @@ const VideoCallRoom: React.FC = () => {
       )}
 
       {/* Patient Chat Panel - ✨ AGGRESSIVE FIX: Only render if showChat is TRUE */}
-      {user?.role === 'patient' && !showRatingModal && showChat && (
+      {user?.role === 'patient' && showChat && (
         <>
           {/* Chat Sidebar */}
           <div className="fixed inset-0 z-50 overflow-hidden pointer-events-none">
@@ -1092,30 +1245,9 @@ const VideoCallRoom: React.FC = () => {
         </button>
       </div>
 
-      {/* Post-Session Report Modal (Doctor Only) */}
-      {user?.role === 'doctor' && sessionData && (
-        <PostSessionReportModal
-          isOpen={showReportModal}
-          sessionId={sessionId || ''}
-          patientId={sessionData.patientId?._id || sessionData.patientId}
-          patientName={`${sessionData.patientId?.firstName || ''} ${sessionData.patientId?.lastName || ''}`.trim()}
-          sessionDate={sessionData.sessionDate}
-          sessionDuration={sessionData.duration || 60}
-          onSubmit={handleReportSubmit}
-          onCancel={() => setShowReportModal(false)}
-        />
-      )}
+      {/* Post-Session Report Modal (Legacy - Moved to Dashboard) */}
 
-      {/* Rating Modal (Patient Only) */}
-      {user?.role === 'patient' && sessionData && (
-        <RatingModal
-          isOpen={showRatingModal}
-          sessionId={sessionId || ''}
-          doctorName={sessionData?.doctorId ? `Dr. ${sessionData.doctorId.lastName || sessionData.doctorId.firstName}` : 'Doctor'}
-          onClose={() => setShowRatingModal(false)}
-          onSubmit={handleRatingSubmit}
-        />
-      )}
+      {/* Rating Modal removed - PatientDashboard handles all feedback */}
 
       {/* End Call Notification Popup */}
       {endCallNotification.show && (
@@ -1143,6 +1275,68 @@ const VideoCallRoom: React.FC = () => {
                 Redirecting to post-session review...
               </p>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Emergency Contact Modal (Patient Only) */}
+      {showEmergencyModal && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm z-[200] p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-300">
+            <div className="bg-teal-600 p-8 text-white relative">
+              <div className="absolute top-0 right-0 p-8 opacity-10">
+                <svg className="w-24 h-24" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
+                </svg>
+              </div>
+              <h2 className="text-3xl font-bold font-serif mb-2">Safety First</h2>
+              <p className="text-teal-100/80 text-sm leading-relaxed">
+                Please provide an emergency contact before we begin your session.
+              </p>
+            </div>
+
+            <form onSubmit={saveEmergencyContact} className="p-8 space-y-6">
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 transition-colors group-focus-within:text-teal-600">
+                    Contact Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={newEmergencyContact.name}
+                    onChange={(e) => setNewEmergencyContact({ ...newEmergencyContact, name: e.target.value })}
+                    className="w-full bg-gray-50 border-gray-200 border-2 rounded-2xl px-5 py-4 focus:border-teal-500 focus:bg-white focus:outline-none transition-all font-medium text-gray-800"
+                    placeholder="e.g. Spouse, Parent, Friend"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">
+                    Contact Phone
+                  </label>
+                  <div className="relative">
+                    <span className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 font-bold border-r pr-3 mr-3 border-gray-200">+91</span>
+                    <input
+                      type="tel"
+                      required
+                      pattern="[0-9]{10}"
+                      value={newEmergencyContact.phone}
+                      onChange={(e) => setNewEmergencyContact({ ...newEmergencyContact, phone: e.target.value })}
+                      className="w-full bg-gray-50 border-gray-200 border-2 rounded-2xl pl-20 pr-5 py-4 focus:border-teal-500 focus:bg-white focus:outline-none transition-all font-medium text-gray-800"
+                      placeholder="1234567890"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                disabled={savingContact}
+                className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-5 rounded-2xl shadow-lg shadow-teal-600/20 transition-all transform hover:-translate-y-0.5 active:translate-y-0 active:shadow-inner disabled:opacity-50"
+              >
+                {savingContact ? 'Saving Profile...' : 'Start Session Safely'}
+              </button>
+            </form>
           </div>
         </div>
       )}

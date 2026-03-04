@@ -55,6 +55,10 @@ const authenticateSocket = (socket, next) => {
     }
 };
 
+// Track active doctor connections to prevent accidental offline status
+// userId -> Set of socket IDs
+const doctorConnections = new Map();
+
 /**
  * Initialize Data Socket Namespace
  * @param {Server} io - Socket.IO server instance
@@ -77,6 +81,15 @@ const initializeDataSocket = (io) => {
             username
         });
 
+        // Track doctor connections
+        if (userRole === 'doctor') {
+            if (!doctorConnections.has(userId)) {
+                doctorConnections.set(userId, new Set());
+            }
+            doctorConnections.get(userId).add(socket.id);
+            logger.debug(`Doctor ${userId.substring(0, 8)} connection tracked. Total: ${doctorConnections.get(userId).size}`);
+        }
+
         // Join user to their personal room for targeted events
         socket.join(`user:${userId}`);
         logger.debug(`User joined personal room: user:${userId.substring(0, 8)}...`);
@@ -86,11 +99,41 @@ const initializeDataSocket = (io) => {
         logger.debug(`User joined role room: role:${userRole}`);
 
         // Handle disconnection
-        socket.on('disconnect', () => {
+        socket.on('disconnect', async () => {
             logger.info('User disconnected from data socket', {
                 userId: userId?.substring(0, 8) + '...',
                 role: userRole
             });
+
+            // If a doctor disconnects, check if they have other active tabs
+            if (userRole === 'doctor') {
+                const connections = doctorConnections.get(userId);
+                if (connections) {
+                    connections.delete(socket.id);
+                    logger.debug(`Doctor ${userId.substring(0, 8)} disconnected. Remaining: ${connections.size}`);
+
+                    // Only set offline if NO connections remain after grace period
+                    if (connections.size === 0) {
+                        doctorConnections.delete(userId);
+
+                        try {
+                            const { updateDoctorStatus } = require('../services/doctorStatus.service');
+                            // 5 second grace period to allow for page refreshes
+                            setTimeout(async () => {
+                                // Check if they reconnected during the grace period
+                                if (!doctorConnections.has(userId)) {
+                                    logger.info(`Doctor ${userId.substring(0, 8)} still offline after grace period. Updating status.`);
+                                    await updateDoctorStatus(userId, false, io);
+                                } else {
+                                    logger.debug(`Doctor ${userId.substring(0, 8)} reconnected during grace period. Staying online.`);
+                                }
+                            }, 5000);
+                        } catch (error) {
+                            logger.error('Error setting doctor offline on disconnect', { error: error.message });
+                        }
+                    }
+                }
+            }
         });
 
         // Optional: Handle client-side events if needed

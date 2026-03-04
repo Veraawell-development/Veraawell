@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MENTAL_HEALTH_TESTS } from '../data/mentalHealthTests';
 import { API_CONFIG } from '../config/api';
+import BackToDashboard from '../components/BackToDashboard';
 
 const MyTestsPage: React.FC = () => {
     const navigate = useNavigate();
@@ -100,6 +101,7 @@ const MyTestsPage: React.FC = () => {
 
             {/* Content */}
             <div className="max-w-4xl mx-auto px-4 py-8">
+                <BackToDashboard />
                 {/* Filter Pills */}
                 <div className="flex flex-wrap gap-2 mb-8">
                     {testTypes.map((type) => (

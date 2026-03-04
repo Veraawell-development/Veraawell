@@ -65,17 +65,17 @@ const PatientDashboard: React.FC = () => {
 
         if (reportsRes.ok) {
           const reports = await reportsRes.json();
-          setRecentReports(reports.slice(0, 2));
+          setRecentReports(reports.slice(0, 4));
         }
 
         if (tasksRes.ok) {
           const tasks = await tasksRes.json();
-          setPendingTasks(tasks.slice(0, 1));
+          setPendingTasks(tasks.slice(0, 4));
         }
 
         if (journalRes.ok) {
           const journals = await journalRes.json();
-          setRecentJournal(journals.slice(0, 1));
+          setRecentJournal(journals.slice(0, 4));
         }
 
         if (unreadRes.ok) {
@@ -100,7 +100,7 @@ const PatientDashboard: React.FC = () => {
 
     loadDashboardData();
     setCalendarRefreshTrigger(prev => prev + 1);
-    checkForUnratedSessions();
+    checkForPendingFeedback();
 
     // Show welcome modal only once
     const hasSeenWelcome = localStorage.getItem(`welcomeModal_${user.userId}`);
@@ -139,120 +139,59 @@ const PatientDashboard: React.FC = () => {
 
   // ✨ FALLBACK REFRESH: Detect navigation state and refresh dashboard
   useEffect(() => {
-    const state = location.state as { refreshSessions?: boolean };
+    const state = location.state as { refreshSessions?: boolean; showRating?: boolean; sessionId?: string };
+
     if (state?.refreshSessions) {
       console.log('[PATIENT-DASHBOARD] 🔄 Refreshing after booking');
       toast.success('Session booked! Refreshing dashboard...');
-
-      // Trigger calendar refresh
       setCalendarRefreshTrigger(prev => prev + 1);
+    }
 
-      // Clear state to prevent refresh on every render
+    // If navigated from VideoCallRoom with showRating, trigger the feedback check
+    if (state?.showRating) {
+      console.log('[PATIENT-DASHBOARD] ⭐ Post-call: checking for pending feedback');
+      checkForPendingFeedback();
+    }
+
+    // Clear state to prevent repeat triggers on refresh
+    if (state?.refreshSessions || state?.showRating) {
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.state, navigate, location.pathname]);
 
-  // Check for unrated completed sessions
-  const checkForUnratedSessions = async () => {
+  // Single source of truth: Ask the backend if there's a session needing feedback
+  const checkForPendingFeedback = async () => {
     try {
-      console.log('[AUTO-RATING] Checking for unrated sessions...');
-
-      const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/call-history`, {
+      console.log('[FEEDBACK] Checking backend for pending feedback...');
+      const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/pending-feedback`, {
         credentials: 'include'
       });
 
-      console.log('[AUTO-RATING] Response status:', response.status);
+      if (!response.ok) {
+        console.error('[FEEDBACK] API error:', response.status);
+        return;
+      }
 
-      if (response.ok) {
-        const sessions = await response.json();
-        console.log('[AUTO-RATING] Total sessions:', sessions.length);
-        console.log('[AUTO-RATING] Sessions:', sessions);
+      const data = await response.json();
+      console.log('[FEEDBACK] Backend response:', data);
 
-        // Find the most recent completed session without a rating
-        const unratedSession = sessions.find((session: Session) => {
-          console.log(`[AUTO-RATING] Session ${session._id}:`, {
-            status: session.status,
-            hasRating: !!session.rating,
-            ratingScore: session.rating?.score,
-            doctorName: `${session.doctorId?.firstName} ${session.doctorId?.lastName}`
-          });
-
-          // Check if session is completed (might be 'ended' or other status)
-          const isCompleted = session.status === 'completed' || session.status === 'ended';
-          const hasNoRating = !session.rating || !session.rating.score;
-
-          return isCompleted && hasNoRating;
-        });
-
-        console.log('[AUTO-RATING] Unrated session found:', unratedSession);
-
-        if (unratedSession) {
-          // Check if we've already shown rating modal for this session
-          const ratedSessions = JSON.parse(localStorage.getItem('ratedSessions') || '[]');
-          console.log('[AUTO-RATING] Previously rated sessions:', ratedSessions);
-
-          if (!ratedSessions.includes(unratedSession._id)) {
-            console.log('[AUTO-RATING] Showing rating modal for session:', unratedSession._id);
-            setSessionToRate(unratedSession);
-            setShowRatingModal(true);
-          } else {
-            console.log('[AUTO-RATING] Session already rated/dismissed');
-          }
-        } else {
-          console.log('[AUTO-RATING] No unrated sessions found');
-        }
+      if (data.session) {
+        console.log('[FEEDBACK] Showing modal for session:', data.session._id);
+        setSessionToRate(data.session);
+        setShowRatingModal(true);
+      } else {
+        console.log('[FEEDBACK] No pending feedback');
       }
     } catch (error) {
-      console.error('[AUTO-RATING] Error checking for unrated sessions:', error);
-      logger.error('Error checking for unrated sessions:', error);
+      console.error('[FEEDBACK] Error checking pending feedback:', error);
     }
   };
 
   // Handle rating submission
   const handleRatingSubmit = async (ratingData: { score: number; review: string }) => {
-    if (!sessionToRate) return;
-
-    try {
-      console.log('[RATING] Submitting rating from dashboard:', { sessionId: sessionToRate._id, score: ratingData.score });
-
-      const token = localStorage.getItem('token');
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(`${API_CONFIG.BASE_URL}/ratings/${sessionToRate._id}/rate`, {
-        method: 'POST',
-        headers,
-        credentials: 'include',
-        body: JSON.stringify(ratingData)
-      });
-
-      console.log('[RATING] Response status:', response.status);
-
-      if (response.ok) {
-        const data = await response.json();
-        console.log('[RATING] Success:', data);
-
-        // Mark this session as rated
-        const ratedSessions = JSON.parse(localStorage.getItem('ratedSessions') || '[]');
-        ratedSessions.push(sessionToRate._id);
-        localStorage.setItem('ratedSessions', JSON.stringify(ratedSessions));
-
-        setShowRatingModal(false);
-        setSessionToRate(null);
-        alert('Thank you for your rating!');
-      } else {
-        const data = await response.json();
-        console.error('[RATING] Error response:', data);
-        alert(data.message || 'Failed to submit rating');
-      }
-    } catch (error) {
-      console.error('Error submitting rating:', error);
-      alert('Failed to submit rating');
-    }
+    console.log('[PATIENT-DASHBOARD] Rating submitted:', ratingData);
+    setCalendarRefreshTrigger(prev => prev + 1);
+    toast.success('Thank you for your feedback!');
   };
 
   // Removed individual fetch functions - now using parallel loading in useEffect
@@ -581,9 +520,6 @@ const PatientDashboard: React.FC = () => {
               >
                 Book Session
               </button>
-              <div className="px-5 py-2.5 border-2 border-gray-900 rounded-full">
-                <span className="text-gray-900 font-medium text-base" style={{ fontFamily: 'Inter, sans-serif' }}>Bal: Rs. 500</span>
-              </div>
             </div>
           </div>
         </div>
@@ -784,25 +720,19 @@ const PatientDashboard: React.FC = () => {
       />
 
       {/* Auto Rating Modal */}
-      {
-        sessionToRate && sessionToRate.doctorId && (
-          <RatingModal
-            isOpen={showRatingModal}
-            sessionId={sessionToRate._id}
-            doctorName={`Dr. ${sessionToRate.doctorId.firstName} ${sessionToRate.doctorId.lastName}`}
-            onClose={() => {
-              setShowRatingModal(false);
-              // Mark as dismissed so it doesn't show again
-              const ratedSessions = JSON.parse(localStorage.getItem('ratedSessions') || '[]');
-              ratedSessions.push(sessionToRate._id);
-              localStorage.setItem('ratedSessions', JSON.stringify(ratedSessions));
-              setSessionToRate(null);
-            }}
-            onSubmit={handleRatingSubmit}
-          />
-        )
-      }
-    </div >
+      {sessionToRate && (
+        <RatingModal
+          isOpen={showRatingModal}
+          sessionId={sessionToRate._id}
+          doctorName={sessionToRate.doctorId?.lastName ? `Dr. ${sessionToRate.doctorId.firstName || ''} ${sessionToRate.doctorId.lastName}` : 'your therapist'}
+          onClose={() => {
+            setShowRatingModal(false);
+            setSessionToRate(null);
+          }}
+          onSubmit={handleRatingSubmit}
+        />
+      )}
+    </div>
   );
 };
 

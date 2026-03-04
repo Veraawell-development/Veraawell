@@ -153,3 +153,4 @@ async function updateDoctorRating(doctorId) {
 }
 
 module.exports = router;
+module.exports.updateDoctorRating = updateDoctorRating;

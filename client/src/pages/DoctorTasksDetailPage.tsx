@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FiMenu, FiCheckSquare, FiArrowLeft, FiCalendar, FiFlag } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
+import BackToDashboard from '../components/BackToDashboard';
 
 interface Task {
   _id: string;
@@ -134,6 +135,7 @@ const DoctorTasksDetailPage: React.FC = () => {
       </div>
 
       <div className="px-4 py-8 max-w-5xl mx-auto">
+        <BackToDashboard />
         <div className="flex items-center mb-6">
           <button
             onClick={() => navigate('/doctor-tasks')}

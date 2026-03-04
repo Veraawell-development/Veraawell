@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
+    "@react-pdf/renderer": "^4.3.2",
     "@tailwindcss/vite": "^4.1.11",
     "jspdf": "^4.0.0",
     "lucide-react": "^0.562.0",

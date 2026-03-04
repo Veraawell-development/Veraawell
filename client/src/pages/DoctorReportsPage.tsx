@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiMenu, FiDownload } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
+import BackToDashboard from '../components/BackToDashboard';
 
 interface PatientReport {
   _id: string;
@@ -159,6 +160,7 @@ const DoctorReportsPage: React.FC = () => {
       </div>
 
       <div className="px-4 py-8 max-w-6xl mx-auto">
+        <BackToDashboard />
         {reports.length === 0 ? (
           <div className="text-center py-20 bg-white rounded-3xl shadow-sm border border-gray-100">
             <div className="bg-teal-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">

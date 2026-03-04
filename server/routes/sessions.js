@@ -6,6 +6,7 @@ const Session = require('../models/session');
 const Conversation = require('../models/conversation');
 const User = require('../models/user');
 const DoctorProfile = require('../models/doctorProfile');
+const Review = require('../models/review');
 const { verifyToken } = require('../middleware/auth.middleware');
 const { updateSessionStatuses } = require('../utils/sessionUpdater');
 
@@ -152,6 +153,68 @@ router.get('/my-doctors', verifyToken, async (req, res) => {
   }
 });
 
+// Get sessions that need patient feedback (SERVER-SIDE source of truth)
+router.get('/pending-feedback', verifyToken, async (req, res) => {
+  try {
+    const userId = req.user._id.toString();
+    const userRole = req.user.role;
+
+    if (userRole !== 'patient') {
+      return res.json({ session: null });
+    }
+
+    // Only look for sessions in the last 72 hours (widened slightly to be safe)
+    const threeDaysAgo = new Date(Date.now() - (72 * 60 * 60 * 1000));
+
+    console.log(`[PENDING-FEEDBACK] Checking sessions for user ${userId.substring(0, 8)} since:`, threeDaysAgo.toISOString());
+
+    // Find all completed sessions for this patient in the last 72 hours
+    const completedSessions = await Session.find({
+      patientId: mongoose.Types.ObjectId(userId),
+      status: 'completed',
+      sessionDate: { $gte: threeDaysAgo }
+    })
+      .populate('doctorId', 'firstName lastName')
+      .sort({ sessionDate: -1, sessionTime: -1 })
+      .lean();
+
+    console.log(`[PENDING-FEEDBACK] Found ${completedSessions.length} recently completed sessions.`);
+
+    // For each completed session, check if a doctor review exists
+    for (const session of completedSessions) {
+      console.log(`[PENDING-FEEDBACK] Checking session ${session._id.toString().substring(0, 8)} - Date: ${session.sessionDate}`);
+
+      const existingReview = await Review.findOne({
+        sessionId: mongoose.Types.ObjectId(session._id),
+        patientId: mongoose.Types.ObjectId(userId),
+        reviewType: 'doctor'
+      });
+
+      if (existingReview) {
+        console.log(`[PENDING-FEEDBACK] ✅ Review FOUND for session ${session._id.toString().substring(0, 8)} (Review ID: ${existingReview._id})`);
+      } else {
+        console.log(`[PENDING-FEEDBACK] ❌ NO review found for session ${session._id.toString().substring(0, 8)} - TRIGGERING MODAL`);
+        return res.json({
+          session: {
+            _id: session._id,
+            sessionDate: session.sessionDate,
+            sessionTime: session.sessionTime,
+            status: session.status,
+            doctorId: session.doctorId,
+            sessionType: session.sessionType
+          }
+        });
+      }
+    }
+
+    console.log('[PENDING-FEEDBACK] No unreviewed recent sessions found');
+    return res.json({ session: null });
+  } catch (error) {
+    console.error('[PENDING-FEEDBACK] Error:', error);
+    res.status(500).json({ message: 'Failed to check pending feedback', error: error.message });
+  }
+});
+
 // Get call history for the authenticated user
 router.get('/call-history', verifyToken, async (req, res) => {
   try {
@@ -214,7 +277,8 @@ router.get('/call-history', verifyToken, async (req, res) => {
         paymentStatus: session.paymentStatus,
         sessionType: session.sessionType,
         status: session.status,
-        callStatus: session.callStatus
+        callStatus: session.callStatus,
+        rating: session.rating
       };
     });
 
@@ -266,7 +330,7 @@ router.get('/doctors/:doctorId/slots/:date', async (req, res) => {
 // Book an immediate session (for testing video calls)
 router.post('/book-immediate', verifyToken, async (req, res) => {
   try {
-    let { doctorId, mode } = req.body;
+    let { doctorId, mode, duration, price } = req.body;
     const patientId = req.user._id.toString();
 
     // If no doctorId provided or it's a test ID, use the current user as doctor
@@ -300,14 +364,13 @@ router.post('/book-immediate', verifyToken, async (req, res) => {
     const sessionTime = `${hours}:${minutes}`;
 
     console.log('[IMMEDIATE BOOKING] Creating session with (UTC):', {
-      patientId: patientId.substring(0, 8),
-      doctorId: doctorId.substring(0, 8),
+      patientId: patientId.toString().substring(0, 8),
+      doctorId: doctorId.toString().substring(0, 8),
       sessionType: 'immediate',
       sessionDate,
       sessionTime,
-      year,
-      month,
-      day,
+      duration,
+      price,
       mode: mode || 'video'
     });
 
@@ -317,8 +380,8 @@ router.post('/book-immediate', verifyToken, async (req, res) => {
       sessionDate: new Date(sessionDate),
       sessionTime,
       sessionType: 'immediate',
-      duration: 60,
-      price: 0,
+      duration: duration || 20,
+      price: price || 0,
       paymentStatus: 'paid',
       paymentId: `immediate_${Date.now()}`,
       meetingLink: null,
@@ -1174,6 +1237,110 @@ router.get('/my-therapists', verifyToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching therapists:', error);
     res.status(500).json({ message: 'Failed to fetch therapists' });
+  }
+});
+
+// Accept an instant session request
+router.post('/:sessionId/accept', verifyToken, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const userId = req.user._id.toString();
+
+    if (req.user.role !== 'doctor') {
+      return res.status(403).json({ message: 'Only doctors can accept sessions' });
+    }
+
+    const session = await Session.findById(sessionId)
+      .populate('patientId', 'firstName lastName')
+      .populate('doctorId', 'firstName lastName');
+
+    if (!session) {
+      return res.status(404).json({ message: 'Session not found' });
+    }
+
+    if (session.doctorId._id.toString() !== userId) {
+      return res.status(403).json({ message: 'You are not assigned to this session' });
+    }
+
+    session.acceptanceStatus = 'accepted';
+    session.status = 'scheduled';
+    await session.save();
+
+    // Broadcast update to patient and doctor
+    const io = req.app.get('io');
+    if (io) {
+      // Broadcast to specific users via data socket
+      const SocketEmitter = require('../utils/socketEmitter');
+      const emitter = new SocketEmitter(io);
+      const updateData = {
+        sessionId,
+        acceptanceStatus: 'accepted',
+        message: 'Doctor has accepted the request and is joining.'
+      };
+      emitter.emitToUsers([session.patientId._id.toString(), userId], 'session:status-update', updateData);
+
+      // Also broadcast to the session's room in the root namespace
+      io.to(sessionId).emit('session:status-update', updateData);
+    }
+
+    res.json({ success: true, message: 'Session accepted successfully', session });
+  } catch (error) {
+    console.error('Error accepting session:', error);
+    res.status(500).json({ message: 'Failed to accept session' });
+  }
+});
+
+// Delay an instant session request
+router.post('/:sessionId/delay', verifyToken, async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { delayMinutes, doctorNote } = req.body;
+    const userId = req.user._id.toString();
+
+    if (req.user.role !== 'doctor') {
+      return res.status(403).json({ message: 'Only doctors can delay sessions' });
+    }
+
+    const session = await Session.findById(sessionId)
+      .populate('patientId', 'firstName lastName')
+      .populate('doctorId', 'firstName lastName');
+
+    if (!session) {
+      return res.status(404).json({ message: 'Session not found' });
+    }
+
+    if (session.doctorId._id.toString() !== userId) {
+      return res.status(403).json({ message: 'You are not assigned to this session' });
+    }
+
+    session.acceptanceStatus = 'delayed';
+    session.delayMinutes = delayMinutes || 5;
+    session.doctorNote = doctorNote || '';
+    await session.save();
+
+    // Broadcast update to patient and doctor
+    const io = req.app.get('io');
+    if (io) {
+      // Broadcast to specific users via data socket
+      const SocketEmitter = require('../utils/socketEmitter');
+      const emitter = new SocketEmitter(io);
+      const updateData = {
+        sessionId,
+        acceptanceStatus: 'delayed',
+        delayMinutes: session.delayMinutes,
+        doctorNote: session.doctorNote,
+        message: `Doctor will join in ${session.delayMinutes} minutes.`
+      };
+      emitter.emitToUsers([session.patientId._id.toString(), userId], 'session:status-update', updateData);
+
+      // Also broadcast to the session's room in the root namespace
+      io.to(sessionId).emit('session:status-update', updateData);
+    }
+
+    res.json({ success: true, message: 'Session delayed successfully', session });
+  } catch (error) {
+    console.error('Error delaying session:', error);
+    res.status(500).json({ message: 'Failed to delay session' });
   }
 });
 

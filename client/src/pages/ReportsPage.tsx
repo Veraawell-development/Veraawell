@@ -5,6 +5,7 @@ import { API_CONFIG } from '../config/api';
 import { generateReportPDF } from '../utils/pdfGenerator';
 import logger from '../utils/logger';
 import type { Report } from '../types';
+import BackToDashboard from '../components/BackToDashboard';
 
 const ReportsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -90,57 +91,60 @@ const ReportsPage: React.FC = () => {
           <h1 className="text-3xl font-bold">Reports & Recommendation</h1>
         </div>
 
-        {/* Table */}
-        <div className="bg-white shadow-lg">
-          <table className="w-full border-collapse">
-            <thead>
-              <tr className="border-b-2 border-gray-300">
-                <th className="p-4 text-left text-xl font-bold text-gray-800 border-r-2 border-gray-300">DATE</th>
-                <th className="p-4 text-left text-xl font-bold text-gray-800 border-r-2 border-gray-300">PSYCHOLOGIST</th>
-                <th className="p-4 text-left text-xl font-bold text-gray-800">DOWNLOADS</th>
-              </tr>
-            </thead>
-            <tbody>
-              {reports.length === 0 ? (
-                <tr>
-                  <td colSpan={3} className="py-16 text-center">
-                    <p className="text-xl text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>No reports available</p>
-                    <p className="text-gray-400 mt-2" style={{ fontFamily: 'Inter, sans-serif' }}>Your reports will appear here</p>
-                  </td>
+        {/* Content Area */}
+        <div className="max-w-7xl mx-auto px-6 py-8">
+          <BackToDashboard />
+          <div className="bg-white shadow-lg">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b-2 border-gray-300">
+                  <th className="p-4 text-left text-xl font-bold text-gray-800 border-r-2 border-gray-300">DATE</th>
+                  <th className="p-4 text-left text-xl font-bold text-gray-800 border-r-2 border-gray-300">PSYCHOLOGIST</th>
+                  <th className="p-4 text-left text-xl font-bold text-gray-800">DOWNLOADS</th>
                 </tr>
-              ) : (
-                <>
-                  {reports.map((report) => (
-                    <tr key={report._id} className="border-b border-gray-200 h-20">
-                      <td className="p-4 text-gray-700 text-lg border-r-2 border-gray-300">
-                        {new Date(report.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })}
-                      </td>
-                      <td className="p-4 text-gray-700 text-lg border-r-2 border-gray-300">
-                        Dr. {report.doctorId.firstName} {report.doctorId.lastName}
-                      </td>
-                      <td className="p-4">
-                        <button
-                          onClick={() => handleDownload(report)}
-                          className="text-blue-600 hover:underline text-lg flex items-center"
-                        >
-                          Download PDF
-                          <svg className="w-6 h-6 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V3"></path></svg>
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {/* Empty rows to maintain table height */}
-                  {Array.from({ length: Math.max(0, 8 - reports.length) }).map((_, index) => (
-                    <tr key={`empty-${index}`} className="border-b border-gray-200 h-20">
-                      <td className="p-4 border-r-2 border-gray-300">&nbsp;</td>
-                      <td className="p-4 border-r-2 border-gray-300">&nbsp;</td>
-                      <td className="p-4">&nbsp;</td>
-                    </tr>
-                  ))}
-                </>
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {reports.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="py-16 text-center">
+                      <p className="text-xl text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>No reports available</p>
+                      <p className="text-gray-400 mt-2" style={{ fontFamily: 'Inter, sans-serif' }}>Your reports will appear here</p>
+                    </td>
+                  </tr>
+                ) : (
+                  <>
+                    {reports.map((report) => (
+                      <tr key={report._id} className="border-b border-gray-200 h-20">
+                        <td className="p-4 text-gray-700 text-lg border-r-2 border-gray-300">
+                          {new Date(report.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' })}
+                        </td>
+                        <td className="p-4 text-gray-700 text-lg border-r-2 border-gray-300">
+                          Dr. {report.doctorId.firstName} {report.doctorId.lastName}
+                        </td>
+                        <td className="p-4">
+                          <button
+                            onClick={() => handleDownload(report)}
+                            className="text-blue-600 hover:underline text-lg flex items-center"
+                          >
+                            Download PDF
+                            <svg className="w-6 h-6 ml-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V3"></path></svg>
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                    {/* Empty rows to maintain table height */}
+                    {Array.from({ length: Math.max(0, 8 - reports.length) }).map((_, index) => (
+                      <tr key={`empty-${index}`} className="border-b border-gray-200 h-20">
+                        <td className="p-4 border-r-2 border-gray-300">&nbsp;</td>
+                        <td className="p-4 border-r-2 border-gray-300">&nbsp;</td>
+                        <td className="p-4">&nbsp;</td>
+                      </tr>
+                    ))}
+                  </>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

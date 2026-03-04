@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
+import BackToDashboard from '../components/BackToDashboard';
 
 interface Article {
     _id: string;
@@ -128,6 +129,7 @@ const ArticleDetailPage: React.FC = () => {
 
             {/* Article Content */}
             <div className="max-w-4xl mx-auto px-4 py-12">
+                <BackToDashboard className="mb-8" />
                 {/* Article Header */}
                 <div className="mb-8">
                     <span className="inline-block px-4 py-1.5 bg-teal-100 text-teal-700 rounded-full text-sm font-medium mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>

@@ -9,6 +9,7 @@ import logger from '../utils/logger';
 import { useToast } from '../hooks/useToast';
 import type { Task } from '../types';
 import { generateTaskPDF } from '../utils/pdfGenerator';
+import BackToDashboard from '../components/BackToDashboard';
 
 const PendingTasksPage: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -38,7 +39,11 @@ const PendingTasksPage: React.FC = () => {
       }
 
       const data = await response.json();
-      setTasks(data);
+      // Ensure latest task is on top
+      const sortedTasks = Array.isArray(data)
+        ? data.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        : [];
+      setTasks(sortedTasks);
     } catch (error) {
       logger.error('Error fetching pending tasks:', error);
       showError('Failed to load tasks');
@@ -161,6 +166,7 @@ const PendingTasksPage: React.FC = () => {
 
       {/* Content */}
       <div className="max-w-5xl mx-auto px-4 py-8">
+        <BackToDashboard />
         <div className="bg-white border-2 border-gray-300">
           <table className="w-full">
             <thead>
