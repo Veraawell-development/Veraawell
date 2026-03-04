@@ -88,10 +88,9 @@ function getOAuthConfig() {
 function getCookieConfig() {
   return {
     httpOnly: true,
-    secure: isProduction(),
-    sameSite: isProduction() ? 'none' : 'lax',
+    secure: true, // Always secure for cross-site cookies
+    sameSite: 'none', // Required for cross-site (Vercel -> Render)
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    domain: undefined, // No domain restriction for cross-origin (Vercel <-> Render)
     path: '/'
   };
 }
@@ -101,10 +100,11 @@ function getCookieConfig() {
  */
 function getSessionCookieConfig() {
   return {
-    secure: isProduction(),
-    sameSite: isProduction() ? 'none' : 'lax',
+    httpOnly: true,
+    secure: true,
+    sameSite: 'none',
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    domain: undefined // No domain restriction for cross-origin (Vercel <-> Render)
+    path: '/'
   };
 }
 

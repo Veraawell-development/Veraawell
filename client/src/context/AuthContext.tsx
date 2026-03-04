@@ -1,8 +1,8 @@
 import React, { createContext, useState, useContext, useCallback } from 'react';
 import type { ReactNode } from 'react';
 
-const API_BASE_URL = window.location.hostname === 'localhost' 
-  ? 'http://localhost:5001/api' 
+const API_BASE_URL = window.location.hostname === 'localhost'
+  ? 'http://localhost:5001/api'
   : 'https://veraawell-backend.onrender.com/api';
 
 interface User {
@@ -41,8 +41,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const checkAuth = useCallback(async () => {
     setLoading(true);
-    
+
     try {
+      // Check if cookies are enabled/blocked (especially for Safari ITP)
+      const areCookiesEnabled = navigator.cookieEnabled;
+      if (!areCookiesEnabled) {
+        console.warn('[Auth] Cookies appear to be disabled in this browser.');
+      }
+
       // Use cookies only - no localStorage or Authorization header needed
       // Backend will read token from HTTP-only cookie
       const res = await fetch(`${API_BASE_URL}/protected`, {
@@ -51,10 +57,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           'Content-Type': 'application/json',
         },
       });
-      
+
       if (res.ok) {
         const data = await res.json();
-        
+
         // Fetch profile status (only if authenticated)
         const profileRes = await fetch(`${API_BASE_URL}/profile/status`, {
           credentials: 'include',
@@ -62,19 +68,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             'Content-Type': 'application/json',
           },
         });
-        
+
         let profileCompleted = false;
         if (profileRes.ok) {
           const profileData = await profileRes.json();
           profileCompleted = profileData.profileCompleted;
         }
-        
+
         setIsLoggedIn(true);
         setUser({
           ...data.user,
           profileCompleted
         });
-        
+
         // Store token in state only for WebSocket auth (temporary)
         // Token is already in HTTP-only cookie set by backend
         if (data.token) {

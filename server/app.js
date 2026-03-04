@@ -150,34 +150,24 @@ app.use(mongoSanitize({
 }));
 
 // Session middleware with MongoDB store
-// NOTE: Session store will be initialized AFTER database connection in server.js
-// This prevents the session store from trying to connect before the main DB connection
-let sessionStore = null;
+// Using a lazy store or initializing early to ensure routes have access to req.session
+const sessionStore = createSessionStore();
 
-function initializeSessionMiddleware() {
-  const { createSessionStore } = require('./config/database');
-  sessionStore = createSessionStore();
+app.use(session({
+  secret: getSessionSecret(),
+  resave: false,
+  saveUninitialized: false,
+  store: sessionStore,
+  cookie: getSessionCookieConfig()
+}));
 
-  app.use(session({
-    secret: getSessionSecret(),
-    resave: false,
-    saveUninitialized: false,
-    store: sessionStore,
-    cookie: getSessionCookieConfig()
-  }));
+// Initialize Passport
+app.use(passport.initialize());
+app.use(passport.session());
 
-  // Initialize Passport AFTER session middleware
-  app.use(passport.initialize());
-  app.use(passport.session());
+appLogger.info('Session and Passport middleware initialized');
 
-  appLogger.info('Session middleware initialized with MongoDB store');
-  appLogger.info('Passport initialized with session support');
-}
-
-// Export the initialization function
-module.exports.initializeSessionMiddleware = initializeSessionMiddleware;
-
-// Passport serialization (configured but not initialized yet)
+// Passport serialization
 passport.serializeUser((user, done) => {
   done(null, user.id);
 });
@@ -353,4 +343,3 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 module.exports = app;
-module.exports.initializeSessionMiddleware = initializeSessionMiddleware;

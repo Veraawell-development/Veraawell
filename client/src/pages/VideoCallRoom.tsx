@@ -126,6 +126,12 @@ const VideoCallRoom: React.FC = () => {
             setTimeout(() => setQualityMessage(null), 3000);
           }
 
+          // Show warning at 2 minutes (✨ NEW)
+          if (prev === 120) {
+            setQualityMessage('⏰ 2 minutes remaining');
+            setTimeout(() => setQualityMessage(null), 3000);
+          }
+
           // Show final warning at 1 minute
           if (prev === 60) {
             setQualityMessage('⚠️ 1 minute remaining!');

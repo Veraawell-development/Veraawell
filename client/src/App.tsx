@@ -101,17 +101,27 @@ function AppRoutes() {
 
         await waitForLoad();
 
+        // Set a maximum wait time for initialization to prevent hanging on Safari
+        const initializationTimeout = setTimeout(() => {
+          if (!isAppReady) {
+            console.warn('[App] Initialization taking too long, forcing ready state');
+            setIsAppReady(true);
+            sessionStorage.setItem('appInitialized', 'true');
+          }
+        }, 5000); // 5 second timeout
+
         // Try to check auth silently (don't fail if not logged in)
-        checkAuth().catch((error) => {
+        await checkAuth().catch((error) => {
           console.log('[App] Auth check failed on first load:', error?.message || 'User not logged in');
         });
 
+        clearTimeout(initializationTimeout);
         // Mark as initialized
         sessionStorage.setItem('appInitialized', 'true');
         setIsAppReady(true);
       } catch (error) {
         console.error('Failed to initialize app:', error);
-        // Continue anyway
+        // Continue anyway to show the UI
         sessionStorage.setItem('appInitialized', 'true');
         setIsAppReady(true);
       }

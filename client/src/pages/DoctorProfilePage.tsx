@@ -473,12 +473,27 @@ const DoctorProfilePage: React.FC = () => {
                 {/* Price */}
                 <div className="flex items-center">
                   <h3 className="font-bold text-xl w-1/3">Price:</h3>
-                  <div className="flex space-x-3">
+                  <div className="flex flex-wrap gap-3">
                     <div
-                      className="bg-[#E0F7FA] text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner"
+                      className={`font-semibold py-2 px-5 rounded-full shadow-inner transition-all flex flex-col items-center ${booking.duration === 65 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA] opacity-90'}`}
                       style={{ color: doctorColor }}
                     >
-                      Rs. {booking.price}
+                      <span className="text-xs opacity-75">65 Mins</span>
+                      <span>Rs. 2000</span>
+                    </div>
+                    <div
+                      className={`font-semibold py-2 px-5 rounded-full shadow-inner transition-all flex flex-col items-center ${booking.duration === 40 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA] opacity-90'}`}
+                      style={{ color: doctorColor }}
+                    >
+                      <span className="text-xs opacity-75">40 Mins</span>
+                      <span>Rs. 1200</span>
+                    </div>
+                    <div
+                      className={`font-semibold py-2 px-5 rounded-full shadow-inner transition-all flex flex-col items-center ${booking.duration === 25 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA] opacity-90'}`}
+                      style={{ color: doctorColor }}
+                    >
+                      <span className="text-xs opacity-75">25 Mins</span>
+                      <span>Free</span>
                     </div>
                   </div>
                 </div>

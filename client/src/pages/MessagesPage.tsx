@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { FiMenu, FiSend, FiX } from 'react-icons/fi';
+import { FiSend, FiX } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { io, Socket } from 'socket.io-client';
@@ -319,13 +319,14 @@ const MessagesPage: React.FC = () => {
       {/* Header */}
       <div style={{ backgroundColor: '#78BE9F' }}>
         <div className="px-6 py-4 flex items-center justify-center relative">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="absolute left-6 text-white hover:text-gray-200"
-          >
-            <FiMenu className="w-8 h-8" />
-          </button>
           <h1 className="text-3xl font-bold text-white" style={{ fontFamily: 'Bree Serif, serif' }}>My Messages</h1>
+          <button
+            onClick={() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard')}
+            className="absolute right-6 bg-white/20 hover:bg-white/30 text-white px-4 py-1.5 rounded-full text-sm font-semibold transition-all backdrop-blur-sm border border-white/30"
+            style={{ fontFamily: 'Inter, sans-serif' }}
+          >
+            Dashboard
+          </button>
         </div>
       </div>
 
@@ -420,6 +421,15 @@ const MessagesPage: React.FC = () => {
                     : ' Active now'}
                 </p>
               </div>
+              <button
+                onClick={() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard')}
+                className="hidden lg:flex items-center gap-2 text-[#38ABAE] hover:text-[#2d8a8c] font-semibold text-sm transition-colors border border-[#38ABAE]/20 px-4 py-2 rounded-lg hover:bg-[#38ABAE]/5"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
+                </svg>
+                Back to Dashboard
+              </button>
             </div>
 
             {/* Messages Area */}

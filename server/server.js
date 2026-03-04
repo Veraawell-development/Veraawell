@@ -70,11 +70,6 @@ async function startServer() {
     // Connect to database
     await connectDatabase();
 
-    // Initialize session middleware AFTER database connection
-    const { initializeSessionMiddleware } = require('./app');
-    initializeSessionMiddleware();
-    logger.info('Session middleware initialized');
-
     // Initialize WhatsApp Client (non-blocking)
     const { initializeWhatsApp } = require('./services/whatsapp');
     const { startScheduler } = require('./services/scheduler');
