@@ -51,7 +51,8 @@ async function registerUser(userData) {
     specialization,
     licenseNumber,
     jobRole,
-    professionalMessage
+    professionalMessage,
+    heardAboutUs
   } = userData;
 
   // FOR EMAIL/PASSWORD SIGNUP: Check OTP verification (skip for Google OAuth users)
@@ -109,6 +110,9 @@ async function registerUser(userData) {
     }
     if (professionalMessage) {
       newUserData.professionalMessage = professionalMessage.trim();
+    }
+    if (heardAboutUs) {
+      newUserData.heardAboutUs = heardAboutUs;
     }
     logger.info('Doctor registration - setting approvalStatus to pending');
   } else {

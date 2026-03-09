@@ -15,9 +15,10 @@ const CareerPage: React.FC = () => {
     specialization: '',
     licenseNumber: '',
     jobRole: '',
-    professionalMessage: ''
+    professionalMessage: '',
+    heardAboutUs: ''
   });
-  const [documents, setDocuments] = useState<File[]>([]);
+  const [documents, setDocuments] = useState<{ file: File, uploading: boolean, error?: string, uploaded?: boolean }[]>([]);
   const [uploadedDocs, setUploadedDocs] = useState<{ fileName: string, fileUrl: string, fileType: string, cloudinaryPublicId: string }[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -39,6 +40,15 @@ const CareerPage: React.FC = () => {
     'Neuropsychologist',
     'Health Psychologist',
     'Forensic Psychologist',
+    'Other'
+  ];
+
+  const heardAboutUsOptions = [
+    'LinkedIn',
+    'Facebook',
+    'Instagram',
+    'Friend/Colleague',
+    'Search Engine',
     'Other'
   ];
 
@@ -88,8 +98,47 @@ const CareerPage: React.FC = () => {
       return;
     }
 
-    setDocuments(prev => [...prev, ...validFiles]);
+    setDocuments(prev => [...prev, ...validFiles.map(file => ({ file, uploading: false }))]);
     setError('');
+  };
+
+  const uploadSingleDocument = async (index: number) => {
+    const doc = documents[index];
+    if (doc.uploaded || doc.uploading) return;
+
+    setDocuments(prev => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index], uploading: true, error: undefined };
+      return copy;
+    });
+
+    const formDataObj = new FormData();
+    formDataObj.append('document', doc.file);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/upload/doctor-document`, {
+        method: 'POST',
+        body: formDataObj
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setUploadedDocs(prev => [...prev, data.document]);
+        setDocuments(prev => prev.filter((_, i) => i !== index));
+        toast.success(`Uploaded ${doc.file.name}`);
+      } else {
+        throw new Error(data.message || 'Failed to upload document');
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Upload failed';
+      setDocuments(prev => {
+        const copy = [...prev];
+        copy[index] = { ...copy[index], uploading: false, error: message };
+        return copy;
+      });
+      toast.error(`Failed to upload ${doc.file.name}: ${message}`);
+    }
   };
 
   const removeDocument = (index: number) => {
@@ -219,6 +268,7 @@ const CareerPage: React.FC = () => {
           licenseNumber: formData.licenseNumber,
           jobRole: formData.jobRole,
           professionalMessage: formData.professionalMessage,
+          heardAboutUs: formData.heardAboutUs,
           documents: pendingDocs
         })
       });
@@ -254,7 +304,8 @@ const CareerPage: React.FC = () => {
           specialization: '',
           licenseNumber: '',
           jobRole: '',
-          professionalMessage: ''
+          professionalMessage: '',
+          heardAboutUs: ''
         });
         setDocuments([]);
         setUploadedDocs([]);
@@ -533,19 +584,22 @@ const CareerPage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* License Number */}
+                {/* Where did you hear about us */}
                 <div>
                   <label className="block font-medium mb-2 text-[14px] md:text-[18px]" style={{ color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-                    License Number (Optional)
+                    Where did you hear about us?
                   </label>
-                  <input
-                    type="text"
-                    value={formData.licenseNumber}
-                    onChange={(e) => setFormData({ ...formData, licenseNumber: e.target.value })}
-                    placeholder="Professional license or registration number"
+                  <select
+                    value={formData.heardAboutUs}
+                    onChange={(e) => setFormData({ ...formData, heardAboutUs: e.target.value })}
                     className="w-full rounded-lg border px-4 py-3 text-[14px] md:text-[16px] focus:outline-none focus:border-[#C17B5C]"
                     style={{ borderColor: '#E5E5E5', backgroundColor: 'white', fontFamily: 'Inter, sans-serif' }}
-                  />
+                  >
+                    <option value="">Select an option</option>
+                    {heardAboutUsOptions.map(option => (
+                      <option key={option} value={option}>{option}</option>
+                    ))}
+                  </select>
                 </div>
 
                 {/* Upload Documents */}
@@ -598,21 +652,49 @@ const CareerPage: React.FC = () => {
                         </div>
                       ))}
                       {documents.map((doc, index) => (
-                        <div key={`pending-${index}`} className="flex items-center justify-between p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            <FileText className="w-4 h-4 md:w-5 md:h-5 text-gray-600 flex-shrink-0" />
-                            <span className="text-xs md:text-sm text-gray-700 truncate" style={{ fontFamily: 'Inter, sans-serif' }}>
-                              {doc.name}
-                            </span>
-                            <span className="text-xs text-gray-500">({(doc.size / 1024).toFixed(1)} KB)</span>
+                        <div key={`pending-${index}`} className="flex flex-col gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 flex-1 min-w-0">
+                              <FileText className="w-4 h-4 md:w-5 md:h-5 text-gray-600 flex-shrink-0" />
+                              <span className="text-xs md:text-sm text-gray-700 truncate" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                {doc.file.name}
+                              </span>
+                              <span className="text-xs text-gray-500">({(doc.file.size / 1024).toFixed(1)} KB)</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => removeDocument(index)}
+                              className="text-gray-600 hover:text-gray-800 flex-shrink-0"
+                              disabled={doc.uploading}
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => removeDocument(index)}
-                            className="text-gray-600 hover:text-gray-800 flex-shrink-0"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
+
+                          {doc.error && (
+                            <p className="text-[10px] text-red-500 font-medium">{doc.error}</p>
+                          )}
+
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => uploadSingleDocument(index)}
+                              disabled={doc.uploading}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#C17B5C] text-white rounded text-[12px] font-semibold hover:opacity-90 disabled:opacity-50 transition-all"
+                            >
+                              {doc.uploading ? (
+                                <>
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  Uploading...
+                                </>
+                              ) : (
+                                <>
+                                  <Upload className="w-3.5 h-3.5" />
+                                  Upload
+                                </>
+                              )}
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -708,10 +790,10 @@ const CareerPage: React.FC = () => {
             </div>
           )}
         </div>
-      </div>
+      </div >
 
       {/* OTP Verification Modal */}
-      <OTPVerificationModal
+      < OTPVerificationModal
         isOpen={showOTPModal}
         email={otpEmail}
         userType="doctor"

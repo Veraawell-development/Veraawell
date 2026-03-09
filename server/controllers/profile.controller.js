@@ -82,8 +82,19 @@ const setupProfile = asyncHandler(async (req, res) => {
         session20: pricing?.session20 || 0,
         session40: pricing?.session40 || 0,
         session55: pricing?.session55 || 0,
-        min: Math.min(...[pricing?.session20, pricing?.session40, pricing?.session55].filter(p => p > 0)) || 0,
-        max: Math.max(...[pricing?.session20, pricing?.session40, pricing?.session55].filter(p => p > 0)) || 0
+        min: Math.min(...[
+          pricing?.session20, pricing?.session40, pricing?.session55,
+          pricing?.audio?.session20, pricing?.audio?.session40, pricing?.audio?.session55
+        ].filter(p => p > 0)) || 0,
+        max: Math.max(...[
+          pricing?.session20, pricing?.session40, pricing?.session55,
+          pricing?.audio?.session20, pricing?.audio?.session40, pricing?.audio?.session55
+        ].filter(p => p > 0)) || 0,
+        audio: {
+          session20: pricing?.audio?.session20 || 0,
+          session40: pricing?.audio?.session40 || 0,
+          session55: pricing?.audio?.session55 || 0,
+        }
       },
       modeOfSession: modeOfSession || [],
       quote: quote || '',
@@ -164,9 +175,12 @@ const getProfile = asyncHandler(async (req, res) => {
         experience: doctorProfile.experience?.toString() || '',
         specialization: doctorProfile.specialization || [],
         priceDiscovery: '',
-        price20: doctorProfile.pricing?.min?.toString() || '',
-        price40: doctorProfile.pricing?.min?.toString() || '',
-        price55: doctorProfile.pricing?.max?.toString() || '',
+        price20: doctorProfile.pricing?.session20?.toString() || doctorProfile.pricing?.min?.toString() || '',
+        price40: doctorProfile.pricing?.session40?.toString() || doctorProfile.pricing?.min?.toString() || '',
+        price55: doctorProfile.pricing?.session55?.toString() || doctorProfile.pricing?.max?.toString() || '',
+        audioPrice20: doctorProfile.pricing?.audio?.session20?.toString() || '',
+        audioPrice40: doctorProfile.pricing?.audio?.session40?.toString() || '',
+        audioPrice55: doctorProfile.pricing?.audio?.session55?.toString() || '',
         modeOfSession: doctorProfile.modeOfSession || [],
         quote: doctorProfile.quote || '',
         quoteAuthor: doctorProfile.quoteAuthor || '',

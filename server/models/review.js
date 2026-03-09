@@ -94,7 +94,7 @@ reviewSchema.index({ doctorId: 1, approvedForDisplay: 1 });
 // Static method to calculate doctor's average rating
 reviewSchema.statics.getDoctorStats = async function (doctorId) {
   const stats = await this.aggregate([
-    { $match: { doctorId: mongoose.Types.ObjectId(doctorId) } },
+    { $match: { doctorId: new mongoose.Types.ObjectId(doctorId) } },
     {
       $group: {
         _id: '$doctorId',

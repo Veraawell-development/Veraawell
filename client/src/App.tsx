@@ -19,13 +19,8 @@ import DoctorDashboard from './pages/DoctorDashboard';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
 import AdminLogin from './pages/admin/AdminLogin';
-import OldAdminDashboard from './pages/admin/AdminDashboard';
-import AdminForgotPassword from './pages/admin/AdminForgotPassword';
-import AdminResetPassword from './pages/admin/AdminResetPassword';
-import AdminReviews from './pages/admin/AdminReviews';
 import AdminLoginPage from './pages/AdminLoginPage';
 import AdminSignupPage from './pages/AdminSignupPage';
-import AdminDashboard from './pages/AdminDashboard';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import PartnerPage from './pages/PartnerPage';
 import ResourcesPage from './pages/ResourcesPage';
@@ -187,7 +182,7 @@ function AppRoutes() {
         } else if (role === 'doctor') {
           navigate('/doctor-dashboard', { replace: true });
         } else if (['admin', 'super_admin'].includes(role)) {
-          navigate('/admin/dashboard', { replace: true });
+          navigate('/super-admin-dashboard', { replace: true });
         }
       }
     }
@@ -233,13 +228,8 @@ function AppRoutes() {
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/admin/login" element={<AdminLogin />} />
-        <Route path="/admin/dashboard" element={<OldAdminDashboard />} />
-        <Route path="/admin/reviews" element={<AdminReviews />} />
-        <Route path="/admin/forgot-password" element={<AdminForgotPassword />} />
-        <Route path="/admin/reset-password/:token" element={<AdminResetPassword />} />
         <Route path="/admin-login" element={<AdminLoginPage />} />
         <Route path="/admin-signup" element={<AdminSignupPage />} />
-        <Route path="/admin-dashboard" element={<AdminDashboard />} />
         <Route path="/super-admin-dashboard" element={<SuperAdminDashboard />} />
         <Route path="/partner" element={<PartnerPage />} />
         <Route path="/resources" element={<ResourcesPage />} />

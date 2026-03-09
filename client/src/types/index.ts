@@ -133,6 +133,11 @@ export interface Doctor {
     session20?: number;
     session40?: number;
     session55?: number;
+    audio?: {
+      session20?: number;
+      session40?: number;
+      session55?: number;
+    };
   };
   profileImage?: string;
   bio?: string;

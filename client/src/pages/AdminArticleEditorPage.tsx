@@ -5,6 +5,7 @@ import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { ArrowLeft, Save, Send, Star, Loader2, Tag, FileText, Layout, User, Image as ImageIcon } from 'lucide-react';
 import ImageUpload from '../components/ImageUpload';
+import toast from 'react-hot-toast';
 
 const AdminArticleEditorPage: React.FC = () => {
     const navigate = useNavigate();
@@ -139,7 +140,7 @@ const AdminArticleEditorPage: React.FC = () => {
 
     const handleSubmit = async (publishNow = false) => {
         if (!formData.title || !formData.description || !formData.content) {
-            alert('Please fill in title, description and content');
+            toast.error('Please fill in title, description and content');
             return;
         }
 
@@ -189,15 +190,15 @@ const AdminArticleEditorPage: React.FC = () => {
                     }));
                 }
 
-                alert(isEditMode ? 'Article updated successfully' : 'Article created successfully');
+                toast.success(isEditMode ? 'Article updated successfully' : 'Article created successfully');
                 if (!isEditMode) navigate('/admin/articles');
             } else {
                 const data = await response.json();
-                alert(data.message || 'Failed to save article');
+                toast.error(data.message || 'Failed to save article');
             }
         } catch (error) {
             console.error('Error saving article:', error);
-            alert('Failed to save article');
+            toast.error('Failed to save article');
         } finally {
             setSaving(false);
         }
@@ -220,15 +221,45 @@ const AdminArticleEditorPage: React.FC = () => {
         }));
     };
 
+    const imageHandler = React.useCallback(() => {
+        const input = document.createElement('input');
+        input.setAttribute('type', 'file');
+        input.setAttribute('accept', 'image/*');
+        input.click();
+
+        input.onchange = async () => {
+            const file = input.files ? input.files[0] : null;
+            if (!file) return;
+
+            const toastId = toast.loading('Uploading image...');
+            try {
+                const imageUrl = await handleImageUpload(file);
+                const quill = (quillRef.current as any)?.getEditor();
+                if (quill) {
+                    const range = quill.getSelection(true);
+                    quill.insertEmbed(range.index, 'image', imageUrl);
+                }
+                toast.success('Image inserted successfully', { id: toastId });
+            } catch (error: any) {
+                toast.error(error.message || 'Failed to upload image', { id: toastId });
+            }
+        };
+    }, []);
+
     const quillModules = useMemo(() => ({
-        toolbar: [
-            [{ 'header': [2, 3, 4, false] }],
-            ['bold', 'italic', 'underline', 'strike'],
-            [{ 'list': 'ordered' }, { 'list': 'bullet' }],
-            ['link', 'blockquote'],
-            ['clean']
-        ]
-    }), []);
+        toolbar: {
+            container: [
+                [{ 'header': [2, 3, 4, false] }],
+                ['bold', 'italic', 'underline', 'strike'],
+                [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+                ['image', 'video', 'link', 'blockquote'],
+                ['clean']
+            ],
+            handlers: {
+                image: imageHandler
+            }
+        }
+    }), [imageHandler]);
 
     if (adminLoading || loading) {
         return (

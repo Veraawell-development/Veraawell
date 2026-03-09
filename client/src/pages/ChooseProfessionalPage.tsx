@@ -193,9 +193,23 @@ const ChooseProfessionalPage: React.FC = () => {
     return '/male.jpg';
   };
 
-  // Get current doctors based on view mode
-  const currentDoctors = viewMode === 'online' ? onlineDoctors : doctors;
-  const currentCount = viewMode === 'online' ? onlineDoctors.length : doctors.length;
+  // Get current doctors based on view mode and sort them by service preference
+  const currentDoctors = (viewMode === 'online' ? onlineDoctors : doctors).sort((a, b) => {
+    if (serviceType === 'General') return 0;
+
+    const aTreats = (a.treatsFor || []).map((s: string) => s.toLowerCase());
+    const bTreats = (b.treatsFor || []).map((s: string) => s.toLowerCase());
+    const lowerService = serviceType.toLowerCase();
+
+    const aMatches = aTreats.includes(lowerService);
+    const bMatches = bTreats.includes(lowerService);
+
+    if (aMatches && !bMatches) return -1;
+    if (!aMatches && bMatches) return 1;
+    return 0;
+  });
+
+  const currentCount = currentDoctors.length;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -402,9 +416,10 @@ const ChooseProfessionalPage: React.FC = () => {
                       });
                     }}
                     onBookSession={() => {
-                      navigate(`/book-session/${doctor.userId._id}`, {
+                      navigate(`/doctor/${doctor.userId._id}`, {
                         state: {
-                          serviceType: 'General'
+                          serviceType: 'General',
+                          bookingType: 'scheduled'
                         }
                       });
                     }}

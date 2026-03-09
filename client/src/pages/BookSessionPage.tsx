@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import EmergencyContactModal from '../components/EmergencyContactModal';
 import { API_CONFIG } from '../config/api';
-import BackToDashboard from '../components/BackToDashboard';
 import logger from '../utils/logger';
 import { useToast } from '../hooks/useToast';
 import type { Doctor } from '../types';
@@ -78,19 +77,67 @@ const BookSessionPage: React.FC = () => {
         throw new Error('Failed to fetch available slots');
       }
       const data = await response.json();
-      setAvailableSlots(data.availableSlots);
+
+      // Filter out slots that have already passed on today's date
+      const now = new Date();
+      const [year, month, day] = selectedDate.split('-').map(Number);
+      const isToday = (
+        now.getFullYear() === year &&
+        now.getMonth() + 1 === month &&
+        now.getDate() === day
+      );
+
+      const filteredSlots = (data.availableSlots as string[]).filter((slot: string) => {
+        if (!isToday) return true; // future dates — show everything
+        const [timeVal, period] = slot.split(' ');
+        let [h, m] = timeVal.split(':').map(Number);
+        if (period === 'PM' && h !== 12) h += 12;
+        if (period === 'AM' && h === 12) h = 0;
+        const slotDate = new Date(year, month - 1, day, h, m, 0, 0);
+        return slotDate > now;
+      });
+
+      setAvailableSlots(filteredSlots);
     } catch (error) {
       logger.error('Error fetching available slots:', error);
       setAvailableSlots([]);
     }
   };
 
+  // Generate next 14 days using LOCAL date parts (avoids UTC timezone shift for IST etc.)
+  const getNextDays = () => {
+    const days = [];
+    const today = new Date();
+    for (let i = 0; i < 14; i++) {
+      const date = new Date(today);
+      date.setDate(today.getDate() + i);
+      const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+      const dayNum = date.getDate();
+      const monthName = date.toLocaleDateString('en-US', { month: 'short' });
+      days.push({ dateStr, dayName, dayNum, monthName });
+    }
+    return days;
+  };
+
+  const nextDays = getNextDays();
+
   const [duration, setDuration] = useState(20); // Default to 20 mins
 
   const getPriceForDuration = (dur: number) => {
     if (!doctor) return 0;
 
-    // Map duration to specific price field
+    // Use audio pricing if mode is voice, fallback to regular pricing if audio price not set
+    if (mode === 'voice' && doctor.pricing.audio) {
+      switch (dur) {
+        case 20: return doctor.pricing.audio.session20 || doctor.pricing.session20 || doctor.pricing.min;
+        case 40: return doctor.pricing.audio.session40 || doctor.pricing.session40 || (doctor.pricing.session20 || doctor.pricing.min);
+        case 55: return doctor.pricing.audio.session55 || doctor.pricing.session55 || doctor.pricing.max;
+        default: return doctor.pricing.min;
+      }
+    }
+
+    // Map duration to specific price field for video
     switch (dur) {
       case 20: return (doctor.pricing.session20 !== undefined && doctor.pricing.session20 !== null) ? doctor.pricing.session20 : doctor.pricing.min;
       case 40: return (doctor.pricing.session40 !== undefined && doctor.pricing.session40 !== null) ? doctor.pricing.session40 : (doctor.pricing.session20 || doctor.pricing.min);
@@ -182,17 +229,6 @@ const BookSessionPage: React.FC = () => {
     }
   };
 
-  const getMinDate = () => {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    return tomorrow.toISOString().split('T')[0];
-  };
-
-  const getMaxDate = () => {
-    const maxDate = new Date();
-    maxDate.setDate(maxDate.getDate() + 30); // 30 days from now
-    return maxDate.toISOString().split('T')[0];
-  };
 
   // Remove loading screen for faster page load
 
@@ -373,24 +409,34 @@ const BookSessionPage: React.FC = () => {
                 </div>
               </div>
 
-              {/* Date Selection */}
+              {/* Date Selection – visual 14-day strip */}
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
                   Select Date
                 </label>
-                <div className="relative">
-                  <input
-                    type="date"
-                    value={selectedDate}
-                    onChange={(e) => {
-                      setSelectedDate(e.target.value);
-                      setSelectedTime(''); // Reset time when date changes
-                    }}
-                    min={getMinDate()}
-                    max={getMaxDate()}
-                    className="w-full p-4 pl-4 pr-10 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 text-sm font-semibold text-gray-800 transition-all outline-none"
-                    style={{ fontFamily: 'Inter, sans-serif' }}
-                  />
+                <div className="flex gap-2.5 overflow-x-auto pb-2 scrollbar-hide">
+                  {nextDays.map(({ dateStr, dayName, dayNum, monthName }) => {
+                    const isSelected = selectedDate === dateStr;
+                    return (
+                      <button
+                        key={dateStr}
+                        type="button"
+                        onClick={() => {
+                          setSelectedDate(dateStr);
+                          setSelectedTime('');
+                        }}
+                        className={`flex-shrink-0 w-14 h-18 py-3 px-1 rounded-xl flex flex-col items-center justify-center border transition-all duration-200 ${isSelected
+                          ? 'bg-teal-600 text-white border-teal-600 shadow-md shadow-teal-500/20'
+                          : 'bg-gray-50/70 text-gray-600 border-gray-100 hover:border-teal-300 hover:bg-teal-50/30'
+                          }`}
+                        style={{ fontFamily: 'Inter, sans-serif' }}
+                      >
+                        <span className={`text-[10px] font-bold uppercase tracking-wider mb-1 ${isSelected ? 'text-teal-100' : 'text-gray-400'}`}>{dayName}</span>
+                        <span className={`text-lg font-bold leading-none ${isSelected ? 'text-white' : 'text-gray-800'}`}>{dayNum}</span>
+                        <span className={`text-[10px] mt-1 font-medium ${isSelected ? 'text-teal-100' : 'text-gray-400'}`}>{monthName}</span>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 

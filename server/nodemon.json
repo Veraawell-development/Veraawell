@@ -1,0 +1,11 @@
+{
+    "ignore": [
+        ".wwebjs_auth",
+        "logs",
+        "node_modules",
+        "client",
+        "tmp"
+    ],
+    "ext": "js,json",
+    "delay": "2500"
+}

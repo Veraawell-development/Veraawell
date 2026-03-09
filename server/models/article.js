@@ -149,7 +149,6 @@ articleSchema.statics.findPublished = function (filter = {}) {
 };
 
 // Indexes for better query performance
-articleSchema.index({ slug: 1 });
 articleSchema.index({ status: 1, publishedDate: -1 });
 articleSchema.index({ category: 1 });
 articleSchema.index({ featured: 1 });

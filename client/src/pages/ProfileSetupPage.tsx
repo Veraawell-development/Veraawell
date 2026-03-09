@@ -30,6 +30,9 @@ const ProfileSetupPage: React.FC = () => {
     price20: '',
     price40: '',
     price55: '',
+    audioPrice20: '',
+    audioPrice40: '',
+    audioPrice55: '',
     modeOfSession: [] as string[],
     quote: '',
     quoteAuthor: '',
@@ -73,9 +76,12 @@ const ProfileSetupPage: React.FC = () => {
               type: data.profile.type || '',
               experience: data.profile.experience || '',
               specialization: data.profile.specialization || [],
-              price20: data.profile.pricing?.session20 || '',
-              price40: data.profile.pricing?.session40 || '',
-              price55: data.profile.pricing?.session55 || '',
+              price20: data.profile.price20 || '',
+              price40: data.profile.price40 || '',
+              price55: data.profile.price55 || '',
+              audioPrice20: data.profile.audioPrice20 || '',
+              audioPrice40: data.profile.audioPrice40 || '',
+              audioPrice55: data.profile.audioPrice55 || '',
               // Ensure modeOfSession is always an array (handle legacy string data)
               modeOfSession: Array.isArray(data.profile.modeOfSession)
                 ? data.profile.modeOfSession
@@ -116,7 +122,12 @@ const ProfileSetupPage: React.FC = () => {
           pricing: {
             session20: parseFloat(formData.price20) || 0,
             session40: parseFloat(formData.price40) || 0,
-            session55: parseFloat(formData.price55) || 0
+            session55: parseFloat(formData.price55) || 0,
+            audio: {
+              session20: parseFloat(formData.audioPrice20) || 0,
+              session40: parseFloat(formData.audioPrice40) || 0,
+              session55: parseFloat(formData.audioPrice55) || 0
+            }
           }
         })
       });
@@ -565,7 +576,7 @@ const ProfileSetupPage: React.FC = () => {
                     {/* Pricing */}
                     <div className="space-y-2">
                       <label className="block text-sm font-medium text-gray-700">
-                        Session Pricing (INR)
+                        Session Pricing - Video Calls (INR)
                       </label>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="space-y-1.5">
@@ -621,6 +632,78 @@ const ProfileSetupPage: React.FC = () => {
                                 : 'border-gray-300 bg-gray-50 hover:border-gray-400'
                                 } focus:outline-none`}
                               placeholder="1500"
+                              min="0"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <p className="text-xs text-gray-500 flex items-center gap-1.5 mt-2">
+                        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                        </svg>
+                        Enter amounts in Indian Rupees (INR) without currency symbols
+                      </p>
+                    </div>
+
+                    {/* Audio Pricing */}
+                    <div className="space-y-2 pt-4 border-t border-gray-100">
+                      <label className="block text-sm font-medium text-gray-700">
+                        Session Pricing - Audio Calls (INR)
+                      </label>
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-gray-600">20 Minutes</label>
+                          <div className="relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">₹</span>
+                            <input
+                              type="number"
+                              value={formData.audioPrice20}
+                              onChange={(e) => setFormData({ ...formData, audioPrice20: e.target.value })}
+                              onFocus={() => setFocusedField('audioPrice20')}
+                              onBlur={() => setFocusedField(null)}
+                              className={`w-full pl-8 pr-4 py-3 border rounded-xl transition-all duration-200 ${focusedField === 'audioPrice20'
+                                ? 'border-teal-500 ring-4 ring-teal-100 bg-white'
+                                : 'border-gray-300 bg-gray-50 hover:border-gray-400'
+                                } focus:outline-none`}
+                              placeholder="300"
+                              min="0"
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-gray-600">40 Minutes</label>
+                          <div className="relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">₹</span>
+                            <input
+                              type="number"
+                              value={formData.audioPrice40}
+                              onChange={(e) => setFormData({ ...formData, audioPrice40: e.target.value })}
+                              onFocus={() => setFocusedField('audioPrice40')}
+                              onBlur={() => setFocusedField(null)}
+                              className={`w-full pl-8 pr-4 py-3 border rounded-xl transition-all duration-200 ${focusedField === 'audioPrice40'
+                                ? 'border-teal-500 ring-4 ring-teal-100 bg-white'
+                                : 'border-gray-300 bg-gray-50 hover:border-gray-400'
+                                } focus:outline-none`}
+                              placeholder="600"
+                              min="0"
+                            />
+                          </div>
+                        </div>
+                        <div className="space-y-1.5">
+                          <label className="text-xs font-medium text-gray-600">55 Minutes</label>
+                          <div className="relative">
+                            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">₹</span>
+                            <input
+                              type="number"
+                              value={formData.audioPrice55}
+                              onChange={(e) => setFormData({ ...formData, audioPrice55: e.target.value })}
+                              onFocus={() => setFocusedField('audioPrice55')}
+                              onBlur={() => setFocusedField(null)}
+                              className={`w-full pl-8 pr-4 py-3 border rounded-xl transition-all duration-200 ${focusedField === 'audioPrice55'
+                                ? 'border-teal-500 ring-4 ring-teal-100 bg-white'
+                                : 'border-gray-300 bg-gray-50 hover:border-gray-400'
+                                } focus:outline-none`}
+                              placeholder="900"
                               min="0"
                             />
                           </div>

@@ -197,6 +197,19 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null,
     trim: true
+  },
+  heardAboutUs: {
+    type: String,
+    enum: [
+      null,
+      'LinkedIn',
+      'Facebook',
+      'Instagram',
+      'Friend/Colleague',
+      'Search Engine',
+      'Other'
+    ],
+    default: null
   }
 }, {
   timestamps: true,

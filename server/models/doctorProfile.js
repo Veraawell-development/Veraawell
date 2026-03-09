@@ -50,6 +50,20 @@ const doctorProfileSchema = new mongoose.Schema({
     session55: {
       type: Number,
       default: 0
+    },
+    audio: {
+      session20: {
+        type: Number,
+        default: 0
+      },
+      session40: {
+        type: Number,
+        default: 0
+      },
+      session55: {
+        type: Number,
+        default: 0
+      }
     }
   },
   profileImage: {

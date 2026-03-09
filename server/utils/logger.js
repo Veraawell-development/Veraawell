@@ -30,9 +30,19 @@ class Logger {
     const timestamp = new Date().toISOString();
     const context = `[${this.context}]`;
     const levelTag = `[${level.toUpperCase()}]`;
-    
-    if (Object.keys(data).length > 0) {
-      return `${timestamp} ${context} ${levelTag} ${message} ${JSON.stringify(data)}`;
+
+    // Handle Error objects in data
+    let formattedData = data;
+    if (data instanceof Error) {
+      formattedData = {
+        message: data.message,
+        stack: data.stack,
+        ...data
+      };
+    }
+
+    if (Object.keys(formattedData).length > 0) {
+      return `${timestamp} ${context} ${levelTag} ${message} ${JSON.stringify(formattedData)}`;
     }
     return `${timestamp} ${context} ${levelTag} ${message}`;
   }

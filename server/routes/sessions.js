@@ -370,9 +370,35 @@ router.post('/book-immediate', verifyToken, async (req, res) => {
       sessionDate,
       sessionTime,
       duration,
-      price,
       mode: mode || 'video'
     });
+
+    // Server-side price validation based on mode and duration
+    const DoctorProfile = require('../models/doctorProfile');
+    const doctorProfile = await DoctorProfile.findOne({ userId: doctorId });
+    let finalPrice = price || 0; // fallback but we prefer DB derived
+
+    if (doctorProfile) {
+      let calculatedPrice = 0;
+      const dur = parseInt(duration) || 20;
+
+      if (mode === 'voice' && doctorProfile.pricing.audio) {
+        switch (dur) {
+          case 20: calculatedPrice = doctorProfile.pricing.audio.session20 || doctorProfile.pricing.session20 || doctorProfile.pricing.min; break;
+          case 40: calculatedPrice = doctorProfile.pricing.audio.session40 || doctorProfile.pricing.session40 || doctorProfile.pricing.session20 || doctorProfile.pricing.min; break;
+          case 55: calculatedPrice = doctorProfile.pricing.audio.session55 || doctorProfile.pricing.session55 || doctorProfile.pricing.max; break;
+          default: calculatedPrice = doctorProfile.pricing.min;
+        }
+      } else {
+        switch (dur) {
+          case 20: calculatedPrice = (doctorProfile.pricing.session20 !== undefined && doctorProfile.pricing.session20 !== null) ? doctorProfile.pricing.session20 : doctorProfile.pricing.min; break;
+          case 40: calculatedPrice = (doctorProfile.pricing.session40 !== undefined && doctorProfile.pricing.session40 !== null) ? doctorProfile.pricing.session40 : (doctorProfile.pricing.session20 || doctorProfile.pricing.min); break;
+          case 55: calculatedPrice = (doctorProfile.pricing.session55 !== undefined && doctorProfile.pricing.session55 !== null) ? doctorProfile.pricing.session55 : doctorProfile.pricing.max; break;
+          default: calculatedPrice = doctorProfile.pricing.min;
+        }
+      }
+      finalPrice = calculatedPrice;
+    }
 
     const session = new Session({
       patientId: patientId,
@@ -381,11 +407,11 @@ router.post('/book-immediate', verifyToken, async (req, res) => {
       sessionTime,
       sessionType: 'immediate',
       duration: duration || 20,
-      price: price || 0,
+      price: finalPrice,
       paymentStatus: 'paid',
       paymentId: `immediate_${Date.now()}`,
       meetingLink: null,
-      callMode: mode === 'voice' ? 'Voice Calling' : 'Video Calling'
+      callMode: mode === 'voice' ? 'voice' : 'video' // Enforcing basic values over 'Voice Calling' / 'Video Calling' which may break client logic
     });
 
     const savedSession = await session.save();
@@ -467,6 +493,20 @@ router.post('/book', verifyToken, async (req, res) => {
       return res.status(400).json({ message: 'Missing required fields' });
     }
 
+    // Explicitly prevent booking a time slot that has already passed for the given date
+    const now = new Date();
+    const [timeVal, period] = sessionTime.split(' ');
+    let [hours, minutes] = timeVal.split(':').map(Number);
+    if (period === 'PM' && hours !== 12) hours += 12;
+    if (period === 'AM' && hours === 12) hours = 0;
+
+    const requestedDateTime = new Date(sessionDate);
+    requestedDateTime.setHours(hours, minutes, 0, 0);
+
+    if (requestedDateTime < now) {
+      return res.status(400).json({ message: 'Cannot book a time slot in the past' });
+    }
+
     // Check if the slot is still available
     const existingSession = await Session.findOne({
       doctorId,
@@ -478,6 +518,35 @@ router.post('/book', verifyToken, async (req, res) => {
     if (existingSession) {
       return res.status(400).json({ message: 'This time slot is no longer available' });
     }
+
+    // Server-side price validation based on mode and duration
+    const DoctorProfile = require('../models/doctorProfile');
+    const doctorProfile = await DoctorProfile.findOne({ userId: doctorId });
+    if (!doctorProfile) {
+      return res.status(400).json({ message: 'Doctor profile not found' });
+    }
+
+    let calculatedPrice = 0;
+    const dur = parseInt(duration) || 20;
+
+    if (mode === 'voice' && doctorProfile.pricing.audio) {
+      switch (dur) {
+        case 20: calculatedPrice = doctorProfile.pricing.audio.session20 || doctorProfile.pricing.session20 || doctorProfile.pricing.min; break;
+        case 40: calculatedPrice = doctorProfile.pricing.audio.session40 || doctorProfile.pricing.session40 || doctorProfile.pricing.session20 || doctorProfile.pricing.min; break;
+        case 55: calculatedPrice = doctorProfile.pricing.audio.session55 || doctorProfile.pricing.session55 || doctorProfile.pricing.max; break;
+        default: calculatedPrice = doctorProfile.pricing.min;
+      }
+    } else {
+      switch (dur) {
+        case 20: calculatedPrice = (doctorProfile.pricing.session20 !== undefined && doctorProfile.pricing.session20 !== null) ? doctorProfile.pricing.session20 : doctorProfile.pricing.min; break;
+        case 40: calculatedPrice = (doctorProfile.pricing.session40 !== undefined && doctorProfile.pricing.session40 !== null) ? doctorProfile.pricing.session40 : (doctorProfile.pricing.session20 || doctorProfile.pricing.min); break;
+        case 55: calculatedPrice = (doctorProfile.pricing.session55 !== undefined && doctorProfile.pricing.session55 !== null) ? doctorProfile.pricing.session55 : doctorProfile.pricing.max; break;
+        default: calculatedPrice = doctorProfile.pricing.min;
+      }
+    }
+
+    // Overwrite the client price with our mathematically valid server price.
+    const finalPrice = calculatedPrice;
 
     // Check against DoctorAvailability model
     const DoctorAvailability = require('../models/doctorAvailability');
@@ -507,19 +576,29 @@ router.post('/book', verifyToken, async (req, res) => {
     const meetingLink = `/video-call/${sessionId}`;
 
     // Create new session
+    // NOTE: sessionType enum = ['discovery', 'regular', 'follow-up', 'immediate']
+    // Frontend sends 'scheduled' — map to 'regular' (the standard booked session type)
+    const sessionTypeMap = { scheduled: 'regular', regular: 'regular', discovery: 'discovery', 'follow-up': 'follow-up', immediate: 'immediate' };
+    const resolvedSessionType = sessionTypeMap[sessionType] || 'regular';
+
+    // NOTE: callMode enum = ['Video Calling', 'Voice Calling', 'Cancelled & Refunded']
+    // Frontend sends 'video' or 'voice' — map to full strings
+    const callModeMap = { video: 'Video Calling', voice: 'Voice Calling' };
+    const resolvedCallMode = callModeMap[mode] || 'Video Calling';
+
     const session = new Session({
       patientId,
       doctorId,
       sessionDate: new Date(sessionDate),
       sessionTime,
-      sessionType: sessionType || 'regular',
+      sessionType: resolvedSessionType,
       duration: duration || 60,
-      price,
+      price: finalPrice,
       paymentStatus: 'paid', // Mock payment - always paid
       paymentId: `mock_payment_${Date.now()}`,
       meetingLink,
       sessionNotes: `Service Type: ${serviceType || 'General'}`,
-      callMode: mode === 'voice' ? 'Voice Calling' : 'Video Calling'
+      callMode: resolvedCallMode
     });
 
     // Save availability booking FIRST
@@ -714,18 +793,42 @@ router.get('/doctors', async (req, res) => {
       return '/male.jpg';
     };
 
-    // Map profiles with gender-based images ONLY if no valid image exists
+    // Compute LIVE ratings for all doctors in a single aggregation (efficient bulk query)
+    const Review = require('../models/review');
+    const mongoose = require('mongoose');
+
+    const doctorIds = validProfiles.map(p => p.userId?._id).filter(Boolean);
+    const ratingAggregation = await Review.aggregate([
+      { $match: { doctorId: { $in: doctorIds.map(id => new mongoose.Types.ObjectId(id)) }, reviewType: 'doctor' } },
+      { $group: { _id: '$doctorId', average: { $avg: '$rating' }, totalReviews: { $sum: 1 } } }
+    ]);
+
+    // Build a quick lookup map: doctorUserId -> { average, totalReviews }
+    const ratingMap = {};
+    ratingAggregation.forEach(r => {
+      ratingMap[r._id.toString()] = {
+        average: Math.round(r.average * 10) / 10,
+        totalReviews: r.totalReviews
+      };
+    });
+
+    // Map profiles: inject live rating, fix images
     const result = validProfiles.map((profile) => {
-      // Only assign placeholder if profile has NO image or has old placeholder
-      // DO NOT overwrite valid Cloudinary URLs!
       if (!profile.profileImage ||
         profile.profileImage.trim() === '' ||
         profile.profileImage.includes('doctor-0') ||
         profile.profileImage === '/doctor-placeholder.svg') {
         profile.profileImage = getGenderBasedImage(profile.userId);
       }
-      // If profileImage exists and is a valid URL (Cloudinary), keep it as-is
-      return profile;
+
+      const profileObj = profile.toObject();
+      const doctorUserId = profileObj.userId?._id?.toString();
+      // ALWAYS override stored rating with live-calculated one
+      // If no reviews exist in the Review collection, default to 0 (not the stale DB value)
+      profileObj.rating = (doctorUserId && ratingMap[doctorUserId])
+        ? ratingMap[doctorUserId]
+        : { average: 0, totalReviews: 0 };
+      return profileObj;
     });
 
     console.log('[DOCTORS] Returning', result.length, 'doctors');
@@ -777,8 +880,25 @@ router.get('/doctors/:doctorId', async (req, res) => {
         populatedProfile.profileImage = genderBasedImage;
       }
 
-      console.log('Returning populated profile with image:', populatedProfile.profileImage);
-      return res.json(populatedProfile);
+      // Compute LIVE average rating from ALL submitted doctor reviews (regardless of display approval)
+      const Review = require('../models/review');
+      const mongoose = require('mongoose');
+      const ratingStats = await Review.aggregate([
+        { $match: { doctorId: new mongoose.Types.ObjectId(doctorId), reviewType: 'doctor' } },
+        { $group: { _id: null, average: { $avg: '$rating' }, totalReviews: { $sum: 1 } } }
+      ]);
+
+      // ALWAYS use live-calculated rating; never fall back to stale stored profile values
+      const liveRating = ratingStats.length > 0
+        ? { average: Math.round(ratingStats[0].average * 10) / 10, totalReviews: ratingStats[0].totalReviews }
+        : { average: 0, totalReviews: 0 };
+
+      // Convert to plain object so we can override the stored rating
+      const profileObj = populatedProfile.toObject();
+      profileObj.rating = liveRating;
+
+      console.log('Returning populated profile with image:', profileObj.profileImage);
+      return res.json(profileObj);
     } else {
       // Return default profile structure for doctors without profiles
       console.log('Returning default profile with image:', assignedImage);

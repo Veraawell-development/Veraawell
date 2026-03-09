@@ -149,7 +149,10 @@ process.on('uncaughtException', (error) => {
 });
 
 process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled Rejection', { reason, promise });
+  logger.error('Unhandled Rejection', {
+    reason: reason instanceof Error ? reason.stack : reason,
+    promise
+  });
   logger.info('Server will continue running...');
 });
 

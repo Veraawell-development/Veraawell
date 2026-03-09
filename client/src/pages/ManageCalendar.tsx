@@ -37,6 +37,7 @@ interface UpcomingSession {
 const ManageCalendar: React.FC = () => {
   const navigate = useNavigate();
   const [availabilityType, setAvailabilityType] = useState<'same_slots' | 'different_slots'>('same_slots');
+  const [isEditing, setIsEditing] = useState(false);
 
   // State for "Same Slots" mode
   const [activeDates, setActiveDates] = useState<string[]>([]); // Dates user wants to be active
@@ -68,7 +69,8 @@ const ManageCalendar: React.FC = () => {
     for (let i = 0; i < count; i++) {
       const date = new Date(today);
       date.setDate(today.getDate() + i);
-      const dateStr = date.toISOString().split('T')[0];
+      // Use LOCAL date parts to avoid UTC timezone shift (e.g. IST +5:30 would push midnight to prev UTC day)
+      const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
       const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
       const dayNum = date.getDate();
       const monthName = date.toLocaleDateString('en-US', { month: 'short' });
@@ -140,14 +142,34 @@ const ManageCalendar: React.FC = () => {
   const handleDateClick = (dateStr: string) => {
     setCurrentViewDate(dateStr);
 
-    // In "Same Slots" mode, clicking a date toggles it as active/inactive
-    if (availabilityType === 'same_slots') {
+    // Only toggle the active dates if we are actively EDITING the default weekly schedule
+    if (isEditing && availabilityType === 'same_slots') {
       setActiveDates(prev =>
         prev.includes(dateStr)
           ? prev.filter(d => d !== dateStr)
           : [...prev, dateStr]
       );
     }
+  };
+
+  // Helper function to check if a specific time slot on a given date has already passed
+  const isSlotInPast = (dateStr: string, timeStr: string) => {
+    const now = new Date();
+
+    // Parse the dateStr directly into local year, month, date to avoid UTC shift
+    const [year, month, day] = dateStr.split('-').map(Number);
+
+    // Parse the 09:00 AM format
+    const [timeVal, period] = timeStr.split(' ');
+    let [hours, minutes] = timeVal.split(':').map(Number);
+
+    if (period === 'PM' && hours !== 12) hours += 12;
+    if (period === 'AM' && hours === 12) hours = 0;
+
+    // Create Date entirely in local timezone (month is 0-indexed)
+    const slotDate = new Date(year, month - 1, day, hours, minutes, 0, 0);
+
+    return slotDate < now;
   };
 
   const toggleSlot = (slot: string) => {
@@ -188,21 +210,41 @@ const ManageCalendar: React.FC = () => {
   };
 
   const isSlotSelected = (slot: string) => {
-    if (availabilityType === 'same_slots') {
-      return defaultSlots.includes(slot);
+    const dayOverride = customAvailability.find(d => d.date === currentViewDate);
+
+    if (isEditing) {
+      // In Edit Mode, show the slots corresponding to the active tab
+      if (availabilityType === 'same_slots') {
+        return defaultSlots.includes(slot);
+      } else { // different_slots
+        return dayOverride?.slots.some(s => s.time === slot) || false;
+      }
     } else {
-      const day = customAvailability.find(d => d.date === currentViewDate);
-      return day?.slots.some(s => s.time === slot) || false;
+      // In View Mode, use the unified cascade logic
+      if (dayOverride && dayOverride.slots.length > 0) {
+        return dayOverride.slots.some(s => s.time === slot);
+      }
+      if (activeDates.includes(currentViewDate)) {
+        return defaultSlots.includes(slot);
+      }
+      return false;
     }
   };
 
   const isDateActive = (dateStr: string) => {
+    const hasOverride = customAvailability.some(d => d.date === dateStr && d.slots.length > 0);
+    const hasDefault = activeDates.includes(dateStr);
+
+    if (!isEditing) {
+      // In view mode, a date is active if it has EITHER an override or is a default active day
+      return hasOverride || hasDefault;
+    }
+
+    // In edit mode, it reflects the chosen tab
     if (availabilityType === 'same_slots') {
-      return activeDates.includes(dateStr);
+      return hasDefault;
     } else {
-      // In different_slots, a date is "active" if it has any slots
-      const day = customAvailability.find(d => d.date === dateStr);
-      return day && day.slots.length > 0 ? true : false;
+      return hasOverride;
     }
   };
 
@@ -212,9 +254,9 @@ const ManageCalendar: React.FC = () => {
 
       const payload = {
         availabilityType,
-        defaultSlots: availabilityType === 'same_slots' ? defaultSlots : [],
-        activeDates: availabilityType === 'same_slots' ? activeDates : [],
-        customAvailability: availabilityType === 'different_slots' ? customAvailability : []
+        defaultSlots,
+        activeDates,
+        customAvailability
       };
 
       const token = localStorage.getItem('token');
@@ -230,6 +272,7 @@ const ManageCalendar: React.FC = () => {
 
       if (response.ok) {
         toast.success('Availability saved successfully!');
+        setIsEditing(false); // Return to view mode on successful save
       } else {
         toast.error('Failed to save availability');
       }
@@ -239,6 +282,16 @@ const ManageCalendar: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleEditClick = () => {
+    setIsEditing(true);
+  };
+
+  const handleCancelClick = () => {
+    // Optionally trigger a refetch here to discard local unsaved changes
+    fetchAvailability();
+    setIsEditing(false);
   };
 
   return (
@@ -269,43 +322,58 @@ const ManageCalendar: React.FC = () => {
       </header>
 
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <BackToDashboard />
-        {/* Strategy Switcher */}
-        <div className="bg-white rounded-2xl shadow-sm p-1 mb-8 max-w-lg mx-auto flex">
-          <button
-            onClick={() => setAvailabilityType('same_slots')}
-            className={`flex-1 py-3 px-6 rounded-xl text-sm font-semibold transition-all duration-200 ${availabilityType === 'same_slots'
-              ? 'bg-teal-600 text-white shadow-md'
-              : 'text-gray-500 hover:bg-gray-50'
-              }`}
-          >
-            Same slots every day
-          </button>
-          <button
-            onClick={() => setAvailabilityType('different_slots')}
-            className={`flex-1 py-3 px-6 rounded-xl text-sm font-semibold transition-all duration-200 ${availabilityType === 'different_slots'
-              ? 'bg-teal-600 text-white shadow-md'
-              : 'text-gray-500 hover:bg-gray-50'
-              }`}
-          >
-            Different slots per day
-          </button>
+        <div className="flex justify-between items-center mb-6">
+          <BackToDashboard />
+          {!isEditing && (
+            <button
+              onClick={handleEditClick}
+              className="px-6 py-2.5 bg-teal-600 text-white rounded-full font-bold shadow-md hover:bg-teal-700 transition-colors flex items-center gap-2"
+            >
+              <FaSave className="w-4 h-4" /> Edit Availability
+            </button>
+          )}
         </div>
+
+        {/* Strategy Switcher - Only visible during editing */}
+        {isEditing && (
+          <div className="bg-white rounded-2xl shadow-sm p-1 mb-8 max-w-lg mx-auto flex">
+            <button
+              onClick={() => setAvailabilityType('same_slots')}
+              className={`flex-1 py-3 px-6 rounded-xl text-sm font-semibold transition-all duration-200 ${availabilityType === 'same_slots'
+                ? 'bg-teal-600 text-white shadow-md'
+                : 'text-gray-500 hover:bg-gray-50'
+                }`}
+            >
+              Weekly Default Setup
+            </button>
+            <button
+              onClick={() => setAvailabilityType('different_slots')}
+              className={`flex-1 py-3 px-6 rounded-xl text-sm font-semibold transition-all duration-200 ${availabilityType === 'different_slots'
+                ? 'bg-teal-600 text-white shadow-md'
+                : 'text-gray-500 hover:bg-gray-50'
+                }`}
+            >
+              Specific Date Override
+            </button>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
           {/* Left Column: Calendar & Slots */}
           <div className="lg:col-span-2 space-y-6">
 
-            {/* Context Message */}
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-start gap-3">
-              <FaInfoCircle className="text-blue-500 mt-1 flex-shrink-0" />
-              <p className="text-sm text-blue-700">
-                {availabilityType === 'same_slots'
-                  ? "Select the days you are available, then choose the time slots that apply to ALL those days."
-                  : "Select a specific date below, then customize your hours for that day."}
-              </p>
-            </div>
+            {/* Context Message - Only via Edit Mode */}
+            {isEditing && (
+              <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-start gap-3">
+                <FaInfoCircle className="text-blue-500 mt-1 flex-shrink-0" />
+                <p className="text-sm text-blue-700">
+                  {availabilityType === 'same_slots'
+                    ? "Select the days you are returning to your default weekly availability, then choose the slots that apply."
+                    : "Select a specific date below to override the default schedule with custom hours."}
+                </p>
+              </div>
+            )}
 
             {/* Date Strip */}
             <div className="bg-white rounded-2xl shadow-sm p-6">
@@ -322,14 +390,23 @@ const ManageCalendar: React.FC = () => {
                 {nextDays.map(({ dateStr, dayName, dayNum }) => {
                   const isActive = isDateActive(dateStr);
                   const isViewing = currentViewDate === dateStr;
+                  const hasOverride = customAvailability.some(d => d.date === dateStr && d.slots.length > 0);
 
-                  // Style logic depends on mode
+                  // Style logic depends on mode AND editing state
                   let buttonStyle = "bg-white border text-gray-600 hover:border-teal-300";
-                  if (availabilityType === 'same_slots') {
-                    if (isActive) buttonStyle = "bg-teal-600 text-white border-teal-600 shadow-md";
-                  } else {
+
+                  if (!isEditing) {
                     if (isViewing) buttonStyle = "ring-2 ring-teal-500 border-teal-500 bg-teal-50 text-teal-800";
-                    if (isActive && !isViewing) buttonStyle = "bg-teal-100 text-teal-800 border-teal-200"; // Has slots separate from view
+                    else if (hasOverride) buttonStyle = "bg-purple-50 text-purple-800 border-purple-200"; // Override indicator in view mode
+                    else if (isActive) buttonStyle = "bg-teal-50 text-teal-800 border-teal-200"; // Default active
+                  } else {
+                    if (availabilityType === 'same_slots') {
+                      if (isActive) buttonStyle = "bg-teal-600 text-white border-teal-600 shadow-md";
+                    } else {
+                      if (isViewing) buttonStyle = "ring-2 ring-teal-500 border-teal-500 bg-teal-50 text-teal-800";
+                      else if (hasOverride) buttonStyle = "bg-purple-100 text-purple-800 border-purple-200"; // Override visual
+                      else if (isActive) buttonStyle = "bg-teal-100 text-teal-800 border-teal-200"; // Standard active
+                    }
                   }
 
                   return (
@@ -340,7 +417,10 @@ const ManageCalendar: React.FC = () => {
                     >
                       <span className="text-xs font-bold uppercase mb-1">{dayName}</span>
                       <span className="text-xl font-bold">{dayNum}</span>
-                      {isActive && availabilityType === 'different_slots' && (
+                      {hasOverride && (
+                        <div className="w-1.5 h-1.5 bg-purple-500 rounded-full mt-1"></div>
+                      )}
+                      {!hasOverride && isActive && isEditing && availabilityType === 'different_slots' && (
                         <div className="w-1.5 h-1.5 bg-teal-500 rounded-full mt-1"></div>
                       )}
                     </button>
@@ -363,46 +443,91 @@ const ManageCalendar: React.FC = () => {
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
                 {TIME_SLOTS.map((slot) => {
                   const selected = isSlotSelected(slot);
+                  const inPast = isSlotInPast(currentViewDate, slot);
+
+                  // Check if this specific slot is already booked by a patient
+                  const bookedSession = upcomingSessions.find(s => {
+                    const sessionDateStr = new Date(s.sessionDate).toISOString().split('T')[0];
+                    return sessionDateStr === currentViewDate && s.sessionTime === slot;
+                  });
+
+                  const isButtonDisabled = !isEditing || inPast || !!bookedSession;
+
+                  let buttonClass = '';
+                  let statusLabel = null;
+
+                  if (bookedSession) {
+                    // Distinct "Booked" style
+                    buttonClass = 'bg-teal-700 text-white shadow-inner cursor-not-allowed border-2 border-teal-800 flex-col py-2 px-1';
+                    statusLabel = (
+                      <span className="text-[10px] font-bold uppercase truncate w-full text-center px-1">
+                        Booked: {bookedSession.patientId.firstName}
+                      </span>
+                    );
+                  } else if (inPast) {
+                    // Visually disabled / struck-through for past time
+                    buttonClass = 'bg-gray-100 text-gray-400 opacity-40 line-through cursor-not-allowed';
+                  } else if (selected) {
+                    buttonClass = isEditing
+                      ? 'bg-teal-600 text-white shadow-md transform scale-105'
+                      : 'bg-teal-500 text-white opacity-90';
+                  } else {
+                    buttonClass = isEditing
+                      ? 'bg-gray-50 text-gray-600 hover:bg-gray-100 cursor-pointer'
+                      : 'bg-gray-50 text-gray-400 opacity-50 cursor-not-allowed';
+                  }
+
                   return (
                     <button
                       key={slot}
-                      onClick={() => toggleSlot(slot)}
-                      className={`py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-2 ${selected
-                        ? 'bg-teal-600 text-white shadow-md transform scale-105'
-                        : 'bg-gray-50 text-gray-600 hover:bg-gray-100'
-                        }`}
+                      onClick={() => isEditing && !inPast && !bookedSession && toggleSlot(slot)}
+                      disabled={isButtonDisabled}
+                      className={`min-h-[60px] rounded-xl text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-1 ${buttonClass}`}
+                      title={bookedSession ? `Booked with ${bookedSession.patientId.firstName} ${bookedSession.patientId.lastName}` : ''}
                     >
-                      {selected && <FaCheck className="text-xs" />}
-                      {slot}
+                      {selected && !inPast && !bookedSession && <FaCheck className="text-xs" />}
+                      <span className={bookedSession ? 'text-[12px]' : ''}>{slot}</span>
+                      {statusLabel}
                     </button>
                   );
                 })}
               </div>
 
               {/* Hint */}
-              <div className="mt-8 pt-6 border-t border-gray-100 text-center">
-                <p className="text-sm text-gray-500">
-                  Tap slots to add/remove them from your schedule.
-                </p>
-              </div>
+              {isEditing && (
+                <div className="mt-8 pt-6 border-t border-gray-100 text-center">
+                  <p className="text-sm text-gray-500">
+                    Tap slots to add/remove them from your schedule.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Save Action */}
-            <div className="flex justify-end pt-4 pb-12">
-              <button
-                onClick={handleSave}
-                disabled={loading}
-                className={`flex items-center gap-2 px-8 py-4 rounded-full font-bold text-white shadow-lg transition-all transform hover:-translate-y-1 ${loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-gray-900 hover:bg-gray-800'
-                  }`}
-              >
-                {loading ? (
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                ) : (
-                  <FaSave />
-                )}
-                Save Availability
-              </button>
-            </div>
+            {isEditing && (
+              <div className="flex justify-end pt-4 pb-12 gap-4">
+                <button
+                  onClick={handleCancelClick}
+                  disabled={loading}
+                  className="px-6 py-4 rounded-full font-bold text-gray-600 hover:bg-gray-100 transition-all font-sans"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={loading}
+                  className={`flex items-center gap-2 px-8 py-4 rounded-full font-bold text-white shadow-lg transition-all transform hover:-translate-y-1 ${loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-gray-900 hover:bg-gray-800'
+                    }`}
+                >
+                  {loading ? (
+                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  ) : (
+                    <FaSave />
+                  )}
+                  Save Availability
+                </button>
+              </div>
+            )}
 
           </div>
 

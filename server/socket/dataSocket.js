@@ -120,12 +120,16 @@ const initializeDataSocket = (io) => {
                             const { updateDoctorStatus } = require('../services/doctorStatus.service');
                             // 5 second grace period to allow for page refreshes
                             setTimeout(async () => {
-                                // Check if they reconnected during the grace period
-                                if (!doctorConnections.has(userId)) {
-                                    logger.info(`Doctor ${userId.substring(0, 8)} still offline after grace period. Updating status.`);
-                                    await updateDoctorStatus(userId, false, io);
-                                } else {
-                                    logger.debug(`Doctor ${userId.substring(0, 8)} reconnected during grace period. Staying online.`);
+                                try {
+                                    // Check if they reconnected during the grace period
+                                    if (!doctorConnections.has(userId)) {
+                                        logger.info(`Doctor ${userId.substring(0, 8)} still offline after grace period. Updating status.`);
+                                        await updateDoctorStatus(userId, false, io);
+                                    } else {
+                                        logger.debug(`Doctor ${userId.substring(0, 8)} reconnected during grace period. Staying online.`);
+                                    }
+                                } catch (timeoutError) {
+                                    logger.error('Error in doctor disconnect grace period timeout', { error: timeoutError.message });
                                 }
                             }, 5000);
                         } catch (error) {

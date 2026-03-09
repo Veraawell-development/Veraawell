@@ -5,6 +5,7 @@ import {
     FileText, Plus, Edit, Trash2, Star, Eye, Search,
     Filter, Loader2, AlertCircle, CheckCircle, Clock, ChevronLeft, ChevronRight
 } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 interface Article {
     _id: string;
@@ -39,6 +40,10 @@ const AdminArticlesPage: React.FC = () => {
     const [selectedStatus, setSelectedStatus] = useState('All');
     const [page, setPage] = useState(1);
     const [pagination, setPagination] = useState<PaginationData | null>(null);
+
+    // UX States
+    const [articleToDelete, setArticleToDelete] = useState<{ id: string, title: string } | null>(null);
+    const [actionLoading, setActionLoading] = useState<string | null>(null);
 
     const API_BASE_URL = window.location.hostname === 'localhost'
         ? 'http://localhost:5001'
@@ -129,8 +134,14 @@ const AdminArticlesPage: React.FC = () => {
         }
     };
 
-    const handleDelete = async (id: string, title: string) => {
-        if (!confirm(`Are you sure you want to delete "${title}"?`)) return;
+    const requestDelete = (id: string, title: string) => {
+        setArticleToDelete({ id, title });
+    };
+
+    const confirmDelete = async () => {
+        if (!articleToDelete) return;
+        const { id } = articleToDelete;
+        setActionLoading(id);
 
         try {
             const token = localStorage.getItem('adminToken');
@@ -153,17 +164,21 @@ const AdminArticlesPage: React.FC = () => {
                 } else if (articles.length <= 1) {
                     fetchArticles();
                 }
-                alert('Article deleted successfully');
+                toast.success('Article deleted successfully');
             } else {
-                alert('Failed to delete article');
+                toast.error('Failed to delete article');
             }
         } catch (error) {
             console.error('Error deleting article:', error);
-            alert('Failed to delete article');
+            toast.error('Failed to delete article');
+        } finally {
+            setActionLoading(null);
+            setArticleToDelete(null);
         }
     };
 
     const handleToggleFeatured = async (id: string) => {
+        setActionLoading(id + '-feature');
         try {
             const token = localStorage.getItem('adminToken');
             const headers: HeadersInit = {};
@@ -179,9 +194,15 @@ const AdminArticlesPage: React.FC = () => {
 
             if (response.ok) {
                 fetchArticles();
+                toast.success('Featured status updated');
+            } else {
+                toast.error('Failed to update featured status');
             }
         } catch (error) {
             console.error('Error toggling featured:', error);
+            toast.error('An error occurred');
+        } finally {
+            setActionLoading(null);
         }
     };
 
@@ -364,24 +385,27 @@ const AdminArticlesPage: React.FC = () => {
                                                                 e.stopPropagation();
                                                                 handleToggleFeatured(article._id);
                                                             }}
-                                                            className={`p-1.5 rounded-md hover:bg-gray-100 transition-colors ${article.featured ? 'text-yellow-500' : 'text-gray-400 hover:text-yellow-500'}`}
+                                                            disabled={actionLoading !== null}
+                                                            className={`p-1.5 rounded-md hover:bg-gray-100 transition-colors ${article.featured ? 'text-yellow-500' : 'text-gray-400 hover:text-yellow-500'} disabled:opacity-50`}
                                                             title={article.featured ? "Unfeature" : "Feature"}
                                                         >
-                                                            <Star className={`w-4 h-4 ${article.featured ? 'fill-current' : ''}`} />
+                                                            {actionLoading === article._id + '-feature' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Star className={`w-4 h-4 ${article.featured ? 'fill-current' : ''}`} />}
                                                         </button>
                                                         <button
                                                             onClick={() => navigate(`/admin/articles/edit/${article._id}`)}
-                                                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+                                                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors disabled:opacity-50"
                                                             title="Edit"
+                                                            disabled={actionLoading !== null}
                                                         >
                                                             <Edit className="w-4 h-4" />
                                                         </button>
                                                         <button
-                                                            onClick={() => handleDelete(article._id, article.title)}
-                                                            className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                                                            onClick={() => requestDelete(article._id, article.title)}
+                                                            className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
                                                             title="Delete"
+                                                            disabled={actionLoading !== null}
                                                         >
-                                                            <Trash2 className="w-4 h-4" />
+                                                            {actionLoading === article._id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
                                                         </button>
                                                     </div>
                                                 </td>
@@ -419,6 +443,40 @@ const AdminArticlesPage: React.FC = () => {
                     )}
                 </div>
             </div>
+
+            {/* Delete Confirmation Modal */}
+            {articleToDelete && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+                    <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+                        <div className="p-6">
+                            <div className="w-12 h-12 rounded-full bg-red-100 flex items-center justify-center mb-4">
+                                <AlertCircle className="w-6 h-6 text-red-600" />
+                            </div>
+                            <h3 className="text-xl font-bold text-gray-900 mb-2">Delete Article</h3>
+                            <p className="text-gray-500 mb-6">
+                                Are you sure you want to delete <span className="font-semibold text-gray-900">"{articleToDelete.title}"</span>? This action cannot be undone.
+                            </p>
+                            <div className="flex gap-3 justify-end">
+                                <button
+                                    onClick={() => setArticleToDelete(null)}
+                                    disabled={actionLoading !== null}
+                                    className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors font-medium"
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    onClick={confirmDelete}
+                                    disabled={actionLoading !== null}
+                                    className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors font-medium flex items-center gap-2"
+                                >
+                                    {actionLoading === articleToDelete.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                                    Delete
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

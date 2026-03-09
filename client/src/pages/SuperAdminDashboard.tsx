@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
-import { FiMenu, FiLogOut, FiUsers, FiUserCheck, FiClock } from 'react-icons/fi';
+import { FiMenu, FiLogOut, FiUsers, FiUserCheck, FiClock, FiTrendingUp, FiDollarSign, FiFileText, FiActivity } from 'react-icons/fi';
 
 interface PendingUser {
   _id: string;
@@ -33,24 +33,44 @@ interface Statistics {
     rejected: number;
     total: number;
   };
-  admins: {
-    pending: number;
-    approved: number;
-    rejected: number;
-    total: number;
-  };
   patients: {
     total: number;
   };
 }
 
+interface Analytics {
+  sessions: {
+    total: number;
+    completed: number;
+    cancelled: number;
+    upcoming: number;
+    last30Days: number;
+    last7Days: number;
+  };
+  revenue: {
+    total: number;
+    last30Days: number;
+    averagePerSession: string;
+  };
+  content: {
+    reports: number;
+    tasks: number;
+    completedTasks: number;
+  };
+  growth: {
+    newPatients30Days: number;
+    newDoctors30Days: number;
+  };
+  topDoctors: Array<{ name: string; sessionCount: number }>;
+}
+
 const SuperAdminDashboard: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [pendingAdmins, setPendingAdmins] = useState<PendingUser[]>([]);
+  const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [pendingDoctors, setPendingDoctors] = useState<PendingUser[]>([]);
   const [statistics, setStatistics] = useState<Statistics | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'admins' | 'doctors'>('admins');
+  const [activeTab, setActiveTab] = useState<'analytics' | 'doctors'>('analytics');
   const [viewingDocument, setViewingDocument] = useState<{ url: string, fileName: string, fileType: string } | null>(null);
   const navigate = useNavigate();
   const { admin, logout, loading: adminLoading } = useAdmin();
@@ -66,8 +86,8 @@ const SuperAdminDashboard: React.FC = () => {
       navigate('/admin-login');
       return;
     }
-    if (admin.role !== 'super_admin') {
-      navigate('/admin-dashboard');
+    if (!['admin', 'super_admin'].includes(admin.role)) {
+      navigate('/admin-login');
       return;
     }
     fetchData();
@@ -104,21 +124,21 @@ const SuperAdminDashboard: React.FC = () => {
         alert(`Failed to fetch statistics: ${statsRes.status} ${error}`);
       }
 
-      // Fetch pending admins
-      console.log('[SUPER ADMIN] Fetching pending admins...');
-      const adminsRes = await fetch(`${API_BASE_URL}/admin/approvals/admins/pending`, {
+      // Fetch analytics
+      console.log('[SUPER ADMIN] Fetching analytics...');
+      const analyticsRes = await fetch(`${API_BASE_URL}/admin/approvals/analytics`, {
         credentials: 'include',
         headers
       });
-      console.log('[SUPER ADMIN] Admins response status:', adminsRes.status);
-      if (adminsRes.ok) {
-        const admins = await adminsRes.json();
-        console.log('[SUPER ADMIN] Pending admins received:', admins.length, admins);
-        setPendingAdmins(admins);
+      console.log('[SUPER ADMIN] Analytics response status:', analyticsRes.status);
+      if (analyticsRes.ok) {
+        const analyticsData = await analyticsRes.json();
+        console.log('[SUPER ADMIN] Analytics received:', analyticsData);
+        setAnalytics(analyticsData);
       } else {
-        const error = await adminsRes.text();
-        console.error('[SUPER ADMIN] Admins error:', adminsRes.status, error);
-        alert(`Failed to fetch pending admins: ${adminsRes.status} ${error}`);
+        const error = await analyticsRes.text();
+        console.error('[SUPER ADMIN] Analytics error:', analyticsRes.status, error);
+        // non-fatal
       }
 
       // Fetch pending doctors
@@ -147,7 +167,7 @@ const SuperAdminDashboard: React.FC = () => {
     }
   };
 
-  const handleApprove = async (userId: string, type: 'admin' | 'doctor') => {
+  const handleApprove = async (doctorId: string) => {
     try {
       const token = localStorage.getItem('adminToken');
       const headers: HeadersInit = {};
@@ -155,18 +175,14 @@ const SuperAdminDashboard: React.FC = () => {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const endpoint = type === 'admin'
-        ? `/admin/approvals/admins/${userId}/approve`
-        : `/admin/approvals/doctors/${userId}/approve`;
-
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      const response = await fetch(`${API_BASE_URL}/admin/approvals/doctors/${doctorId}/approve`, {
         method: 'POST',
         credentials: 'include',
         headers
       });
 
       if (response.ok) {
-        alert(`${type === 'admin' ? 'Admin' : 'Doctor'} approved successfully!`);
+        alert('Doctor approved successfully!');
         fetchData(); // Refresh data
       } else {
         const error = await response.json();
@@ -178,7 +194,7 @@ const SuperAdminDashboard: React.FC = () => {
     }
   };
 
-  const handleReject = async (userId: string, type: 'admin' | 'doctor') => {
+  const handleReject = async (doctorId: string) => {
     const reason = prompt('Enter rejection reason (optional):');
 
     try {
@@ -188,11 +204,7 @@ const SuperAdminDashboard: React.FC = () => {
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const endpoint = type === 'admin'
-        ? `/admin/approvals/admins/${userId}/reject`
-        : `/admin/approvals/doctors/${userId}/reject`;
-
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+      const response = await fetch(`${API_BASE_URL}/admin/approvals/doctors/${doctorId}/reject`, {
         method: 'POST',
         headers,
         credentials: 'include',
@@ -200,7 +212,7 @@ const SuperAdminDashboard: React.FC = () => {
       });
 
       if (response.ok) {
-        alert(`${type === 'admin' ? 'Admin' : 'Doctor'} rejected`);
+        alert('Doctor rejected');
         fetchData(); // Refresh data
       } else {
         const error = await response.json();
@@ -351,19 +363,7 @@ const SuperAdminDashboard: React.FC = () => {
         <div className="px-6 py-8 max-w-7xl mx-auto">
           {/* Statistics Cards */}
           {statistics && (
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-              <div className="bg-white rounded-xl shadow-md p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>Pending Admins</p>
-                    <p className="text-3xl font-bold mt-2" style={{ fontFamily: 'Bree Serif, serif', color: '#E07A5F' }}>
-                      {statistics.admins.pending}
-                    </p>
-                  </div>
-                  <FiClock className="w-12 h-12 text-orange-400" />
-                </div>
-              </div>
-
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
               <div className="bg-white rounded-xl shadow-md p-6">
                 <div className="flex items-center justify-between">
                   <div>
@@ -406,14 +406,14 @@ const SuperAdminDashboard: React.FC = () => {
           <div className="bg-white rounded-xl shadow-md overflow-hidden">
             <div className="flex border-b">
               <button
-                onClick={() => setActiveTab('admins')}
-                className={`flex-1 px-6 py-4 font-semibold transition-colors ${activeTab === 'admins'
+                onClick={() => setActiveTab('analytics')}
+                className={`flex-1 px-6 py-4 font-semibold transition-colors ${activeTab === 'analytics'
                   ? 'bg-purple-50 text-purple-700 border-b-2 border-purple-700'
                   : 'text-gray-600 hover:bg-gray-50'
                   }`}
                 style={{ fontFamily: 'Bree Serif, serif' }}
               >
-                Pending Admins ({pendingAdmins.length})
+                Analytics
               </button>
               <button
                 onClick={() => setActiveTab('doctors')}
@@ -427,53 +427,123 @@ const SuperAdminDashboard: React.FC = () => {
               </button>
             </div>
 
-            {/* Pending Admins Tab */}
-            {activeTab === 'admins' && (
+            {/* Analytics Tab */}
+            {activeTab === 'analytics' && analytics && (
               <div className="p-6">
-                {pendingAdmins.length === 0 ? (
-                  <div className="text-center py-12">
-                    <FiUserCheck className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                    <p className="text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>
-                      No pending admin requests
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {pendingAdmins.map((user) => (
-                      <div key={user._id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                        <div className="flex items-center justify-between">
-                          <div className="flex-1">
-                            <h3 className="text-lg font-bold" style={{ fontFamily: 'Bree Serif, serif' }}>
-                              {user.firstName} {user.lastName}
-                            </h3>
-                            <p className="text-sm text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>
-                              {user.email}
-                            </p>
-                            <p className="text-xs text-gray-500 mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>
-                              Applied: {formatDate(user.createdAt)}
-                            </p>
-                          </div>
-                          <div className="flex gap-3">
-                            <button
-                              onClick={() => handleApprove(user._id, 'admin')}
-                              className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
-                              style={{ fontFamily: 'Bree Serif, serif' }}
-                            >
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => handleReject(user._id, 'admin')}
-                              className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
-                              style={{ fontFamily: 'Bree Serif, serif' }}
-                            >
-                              Reject
-                            </button>
-                          </div>
-                        </div>
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+                  <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>Total Sessions</p>
+                        <p className="text-3xl font-bold mt-2" style={{ fontFamily: 'Bree Serif, serif', color: '#7DA9A8' }}>
+                          {analytics.sessions.total}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+                          {analytics.sessions.last7Days} this week
+                        </p>
                       </div>
-                    ))}
+                      <FiActivity className="w-12 h-12 text-teal-500" />
+                    </div>
                   </div>
-                )}
+
+                  <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>Total Revenue</p>
+                        <p className="text-3xl font-bold mt-2" style={{ fontFamily: 'Bree Serif, serif', color: '#10B981' }}>
+                          ₹{analytics.revenue.total.toLocaleString()}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+                          ₹{analytics.revenue.last30Days.toLocaleString()} last 30 days
+                        </p>
+                      </div>
+                      <FiDollarSign className="w-12 h-12 text-green-500" />
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>Reports Created</p>
+                        <p className="text-3xl font-bold mt-2" style={{ fontFamily: 'Bree Serif, serif', color: '#ABA5D1' }}>
+                          {analytics.content.reports}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+                          {analytics.content.tasks} tasks assigned
+                        </p>
+                      </div>
+                      <FiFileText className="w-12 h-12 text-purple-400" />
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>User Growth</p>
+                        <p className="text-3xl font-bold mt-2" style={{ fontFamily: 'Bree Serif, serif', color: '#E07A5F' }}>
+                          +{analytics.growth.newPatients30Days}
+                        </p>
+                        <p className="text-xs text-gray-500 mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+                          New patients (30 days)
+                        </p>
+                      </div>
+                      <FiTrendingUp className="w-12 h-12 text-orange-400" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Session Breakdown */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+                    <h3 className="text-lg font-bold mb-4" style={{ fontFamily: 'Bree Serif, serif' }}>Session Status</h3>
+                    <div className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>Completed</span>
+                        <span className="font-bold text-green-600" style={{ fontFamily: 'Bree Serif, serif' }}>
+                          {analytics.sessions.completed}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>Upcoming</span>
+                        <span className="font-bold text-blue-600" style={{ fontFamily: 'Bree Serif, serif' }}>
+                          {analytics.sessions.upcoming}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>Cancelled</span>
+                        <span className="font-bold text-red-600" style={{ fontFamily: 'Bree Serif, serif' }}>
+                          {analytics.sessions.cancelled}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center pt-3 border-t border-gray-100">
+                        <span className="text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>Avg. Revenue/Session</span>
+                        <span className="font-bold text-teal-600" style={{ fontFamily: 'Bree Serif, serif' }}>
+                          ₹{analytics.revenue.averagePerSession}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-white rounded-xl shadow-md p-6 border border-gray-100">
+                    <h3 className="text-lg font-bold mb-4" style={{ fontFamily: 'Bree Serif, serif' }}>Top Performing Doctors</h3>
+                    <div className="space-y-3">
+                      {analytics.topDoctors.length === 0 ? (
+                        <p className="text-gray-500 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>No data available</p>
+                      ) : (
+                        analytics.topDoctors.map((doctor, index) => (
+                          <div key={index} className="flex justify-between items-center">
+                            <span className="text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>
+                              {index + 1}. {doctor.name}
+                            </span>
+                            <span className="font-bold text-teal-600" style={{ fontFamily: 'Bree Serif, serif' }}>
+                              {doctor.sessionCount} sessions
+                            </span>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 
@@ -553,14 +623,14 @@ const SuperAdminDashboard: React.FC = () => {
                           </div>
                           <div className="flex gap-3">
                             <button
-                              onClick={() => handleApprove(user._id, 'doctor')}
+                              onClick={() => handleApprove(user._id)}
                               className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors"
                               style={{ fontFamily: 'Bree Serif, serif' }}
                             >
                               Approve
                             </button>
                             <button
-                              onClick={() => handleReject(user._id, 'doctor')}
+                              onClick={() => handleReject(user._id)}
                               className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors"
                               style={{ fontFamily: 'Bree Serif, serif' }}
                             >

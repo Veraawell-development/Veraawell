@@ -17,7 +17,7 @@ const AdminLoginPage: React.FC = () => {
 
     try {
       await login(email, password);
-      navigate('/admin-dashboard');
+      navigate('/super-admin-dashboard');
     } catch (err: any) {
       setError(err.message || 'Login failed');
     } finally {
@@ -85,7 +85,7 @@ const AdminLoginPage: React.FC = () => {
               type="submit"
               disabled={loading}
               className="w-full py-3 rounded-lg font-semibold text-white transition-colors disabled:opacity-50"
-              style={{ 
+              style={{
                 backgroundColor: '#7DA9A8',
                 fontFamily: 'Bree Serif, serif'
               }}
@@ -96,15 +96,15 @@ const AdminLoginPage: React.FC = () => {
 
           {/* Links */}
           <div className="mt-6 text-center space-y-2">
-            <Link 
-              to="/admin-signup" 
+            <Link
+              to="/admin-signup"
               className="block text-sm hover:underline"
               style={{ color: '#7DA9A8', fontFamily: 'Inter, sans-serif' }}
             >
               Don't have an account? Sign up
             </Link>
-            <Link 
-              to="/" 
+            <Link
+              to="/"
               className="block text-sm text-gray-500 hover:underline"
               style={{ fontFamily: 'Inter, sans-serif' }}
             >

@@ -63,21 +63,19 @@ doctorAvailabilitySchema.index({ doctorId: 1, 'bookedSlots.date': 1 });
 doctorAvailabilitySchema.methods.getAvailableSlotsForDate = function (dateStr) {
   let slots = [];
 
-  if (this.availabilityType === 'same_slots') {
-    // Return default slots ONLY if date is in active dates
-    if (this.activeDates && this.activeDates.includes(dateStr)) {
-      slots = this.defaultSlots.map(time => ({
-        time,
-        isBooked: false,
-        sessionId: null
-      }));
-    } else {
-      slots = [];
-    }
-  } else {
-    // Find custom availability for the date
-    const dayAvailability = this.customAvailability.find(day => day.date === dateStr);
-    slots = dayAvailability ? JSON.parse(JSON.stringify(dayAvailability.slots)) : [];
+  // First check if there is a custom override for this specific date
+  const dayAvailability = this.customAvailability.find(day => day.date === dateStr);
+
+  if (dayAvailability && dayAvailability.slots.length > 0) {
+    // If a custom override exists and has slots, use those slots
+    slots = JSON.parse(JSON.stringify(dayAvailability.slots));
+  } else if (this.activeDates && this.activeDates.includes(dateStr)) {
+    // Fall back to default slots if date is in activeDates and no override exists
+    slots = this.defaultSlots.map(time => ({
+      time,
+      isBooked: false,
+      sessionId: null
+    }));
   }
 
   // Filter out booked slots logic

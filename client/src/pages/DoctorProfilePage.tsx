@@ -30,6 +30,11 @@ interface DoctorProfile {
     session20?: number;
     session40?: number;
     session55?: number;
+    audio?: {
+      session20?: number;
+      session40?: number;
+      session55?: number;
+    };
   };
   profileImage: string;
   bio: string;
@@ -61,7 +66,27 @@ const DoctorProfilePage: React.FC = () => {
     timeSlot: ''
   });
 
-  const [availableDates, setAvailableDates] = useState<Array<{ date: string; day: string }>>([]);
+  const getPriceForDurationAndMode = (dur: number, selectedMode: 'video' | 'voice') => {
+    if (!doctorProfile) return 0;
+
+    if (selectedMode === 'voice' && doctorProfile.pricing.audio) {
+      switch (dur) {
+        case 20: return doctorProfile.pricing.audio.session20 || doctorProfile.pricing.session20 || doctorProfile.pricing.min;
+        case 40: return doctorProfile.pricing.audio.session40 || doctorProfile.pricing.session40 || (doctorProfile.pricing.session20 || doctorProfile.pricing.min);
+        case 55: return doctorProfile.pricing.audio.session55 || doctorProfile.pricing.session55 || doctorProfile.pricing.max;
+        default: return doctorProfile.pricing.min;
+      }
+    }
+
+    switch (dur) {
+      case 20: return (doctorProfile.pricing.session20 !== undefined && doctorProfile.pricing.session20 !== null) ? doctorProfile.pricing.session20 : doctorProfile.pricing.min;
+      case 40: return (doctorProfile.pricing.session40 !== undefined && doctorProfile.pricing.session40 !== null) ? doctorProfile.pricing.session40 : (doctorProfile.pricing.session20 || doctorProfile.pricing.min);
+      case 55: return (doctorProfile.pricing.session55 !== undefined && doctorProfile.pricing.session55 !== null) ? doctorProfile.pricing.session55 : doctorProfile.pricing.max;
+      default: return doctorProfile.pricing.min;
+    }
+  };
+
+  const [availableDates, setAvailableDates] = useState<Array<{ date: string; day: string; dayNum: number; monthName: string }>>([]);
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [isBooking, setIsBooking] = useState(false);
 
@@ -82,7 +107,7 @@ const DoctorProfilePage: React.FC = () => {
     if (doctorProfile) {
       setBooking(prev => ({
         ...prev,
-        price: doctorProfile.pricing.session20 || doctorProfile.pricing.min
+        price: getPriceForDurationAndMode(prev.duration, prev.mode)
       }));
     }
   }, [doctorProfile]);
@@ -126,7 +151,7 @@ const DoctorProfilePage: React.FC = () => {
 
     try {
       setReviewsLoading(true);
-      const response = await fetch(`${API_BASE_URL}/reviews/doctor/${doctorId}?limit=10`);
+      const response = await fetch(`${API_BASE_URL}/reviews/doctor/${doctorId}?limit=10&includeAll=true`);
 
       if (response.ok) {
         const data = await response.json();
@@ -150,9 +175,22 @@ const DoctorProfilePage: React.FC = () => {
 
       if (response.ok) {
         const data = await response.json();
-        setAvailableSlots(data.availableSlots || []);
-        // Reset selected time slot if it's no longer available
-        if (booking.timeSlot && !data.availableSlots.includes(booking.timeSlot)) {
+        const now = new Date();
+        const [year, month, day] = date.split('-').map(Number);
+        const isToday = now.getFullYear() === year && now.getMonth() + 1 === month && now.getDate() === day;
+
+        const filteredSlots = (data.availableSlots as string[]).filter((slot: string) => {
+          if (!isToday) return true;
+          const [timeVal, period] = slot.split(' ');
+          let [h, m] = timeVal.split(':').map(Number);
+          if (period === 'PM' && h !== 12) h += 12;
+          if (period === 'AM' && h === 12) h = 0;
+          const slotDate = new Date(year, month - 1, day, h, m, 0, 0);
+          return slotDate > now;
+        });
+
+        setAvailableSlots(filteredSlots);
+        if (booking.timeSlot && !filteredSlots.includes(booking.timeSlot)) {
           setBooking(prev => ({ ...prev, timeSlot: '' }));
         }
       } else {
@@ -166,43 +204,42 @@ const DoctorProfilePage: React.FC = () => {
   };
 
   const generateAvailableDates = () => {
-    const dates: Array<{ date: string; day: string }> = [];
+    const dates: Array<{ date: string; day: string; dayNum: number; monthName: string }> = [];
     const today = new Date();
 
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 14; i++) {
       const date = new Date(today);
       date.setDate(today.getDate() + i);
 
-      const dateStr = date.toISOString().split('T')[0];
-      const dayStr = date.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase();
+      // Use local date parts to avoid UTC timezone shift
+      const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      const dayStr = date.toLocaleDateString('en-US', { weekday: 'short' });
+      const dayNum = date.getDate();
+      const monthName = date.toLocaleDateString('en-US', { month: 'short' });
       const dayMonth = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
 
-      dates.push({ date: dateStr, day: `${dayMonth} ${dayStr}` });
+      dates.push({ date: dateStr, day: `${dayMonth} ${dayStr}`, dayNum, monthName });
     }
 
     setAvailableDates(dates);
-    if (bookingType === 'now') {
-      // Don't auto-set slot here, let fetchAvailableSlots handle it or user select
-      setBooking(prev => ({ ...prev, date: dates[0].date }));
-    } else {
-      // Default to first date
-      setBooking(prev => ({ ...prev, date: dates[0].date }));
-    }
+    setBooking(prev => ({ ...prev, date: dates[0].date }));
   };
 
-  const handleModeChange = (mode: 'video' | 'voice') => {
-    setBooking(prev => ({ ...prev, mode }));
+  const handleModeChange = (newMode: 'video' | 'voice') => {
+    setBooking(prev => ({
+      ...prev,
+      mode: newMode,
+      price: getPriceForDurationAndMode(prev.duration, newMode)
+    }));
   };
 
   const handleDurationChange = (duration: number) => {
     if (!doctorProfile) return;
-
-    let price = doctorProfile.pricing.min;
-    if (duration === 20) price = (doctorProfile.pricing.session20 !== undefined && doctorProfile.pricing.session20 !== null) ? doctorProfile.pricing.session20 : doctorProfile.pricing.min;
-    if (duration === 40) price = (doctorProfile.pricing.session40 !== undefined && doctorProfile.pricing.session40 !== null) ? doctorProfile.pricing.session40 : (doctorProfile.pricing.session20 || doctorProfile.pricing.min);
-    if (duration === 55) price = (doctorProfile.pricing.session55 !== undefined && doctorProfile.pricing.session55 !== null) ? doctorProfile.pricing.session55 : doctorProfile.pricing.max;
-
-    setBooking(prev => ({ ...prev, duration: duration as any, price }));
+    setBooking(prev => ({
+      ...prev,
+      duration: duration as any,
+      price: getPriceForDurationAndMode(duration, prev.mode)
+    }));
   };
 
   const handleDateChange = (date: string) => {
@@ -214,7 +251,7 @@ const DoctorProfilePage: React.FC = () => {
   };
 
   const handleBookNow = async () => {
-    // Validation: scheduled bookings need date/time, immediate bookings don't
+    // Scheduled bookings need date + timeSlot; immediate bookings don't
     if (!isImmediate && (!booking.date || !booking.timeSlot)) {
       toast.error('Please select both date and time slot');
       return;
@@ -223,16 +260,10 @@ const DoctorProfilePage: React.FC = () => {
     setIsBooking(true);
 
     try {
-      // Get token from localStorage
       const token = localStorage.getItem('token');
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      // Use different endpoints and payloads for immediate vs scheduled
       const endpoint = isImmediate
         ? `${API_BASE_URL}/sessions/book-immediate`
         : `${API_BASE_URL}/sessions/book`;
@@ -242,7 +273,6 @@ const DoctorProfilePage: React.FC = () => {
         mode: booking.mode,
         duration: booking.duration,
         price: booking.price,
-        // Scheduled specific fields
         ...(!isImmediate && {
           sessionDate: booking.date,
           sessionTime: booking.timeSlot,
@@ -251,11 +281,7 @@ const DoctorProfilePage: React.FC = () => {
         })
       };
 
-      console.log('📞 Booking request:', {
-        endpoint,
-        isImmediate,
-        payload: requestBody
-      });
+      console.log('📞 Booking request:', { endpoint, isImmediate, payload: requestBody });
 
       const response = await fetch(endpoint, {
         method: 'POST',
@@ -267,17 +293,11 @@ const DoctorProfilePage: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         console.log('✅ Booking successful:', data);
-
-        // Different success messages
         const successMessage = isImmediate
-          ? 'Immediate session booked! You can join now from your dashboard.'
-          : 'Session scheduled successfully! Check your dashboard for details.';
+          ? 'Instant session booked! Join from your dashboard.'
+          : 'Session scheduled! Check your dashboard for details.';
         toast.success(successMessage);
-
-        // Navigate immediately
-        setTimeout(() => {
-          navigate('/patient-dashboard');
-        }, 500);
+        setTimeout(() => { navigate('/patient-dashboard'); }, 500);
       } else {
         const error = await response.json();
         console.error('❌ Booking failed:', error);
@@ -382,16 +402,19 @@ const DoctorProfilePage: React.FC = () => {
           <div className="w-2/3 pl-12 pb-4">
             <div className="flex justify-between items-center">
               <h1 className="text-5xl font-bold text-gray-800">{doctorName}</h1>
-              <div className="flex text-yellow-500">
-                {[...Array(5)].map((_, i) => (
-                  <svg
-                    key={i}
-                    className={`w-8 h-8 ${i < fullStars ? 'fill-current' : 'fill-gray-300'}`}
-                    viewBox="0 0 20 20"
-                  >
-                    <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z" />
-                  </svg>
-                ))}
+              <div className="flex items-center gap-2">
+                <div className="flex text-yellow-500">
+                  {[...Array(5)].map((_, i) => (
+                    <svg
+                      key={i}
+                      className={`w-8 h-8 ${i < fullStars ? 'fill-current' : 'fill-gray-300'}`}
+                      viewBox="0 0 20 20"
+                    >
+                      <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z" />
+                    </svg>
+                  ))}
+                </div>
+                <span className="text-2xl font-semibold text-gray-700">{rating.toFixed(2)}</span>
               </div>
             </div>
             <div className="mt-4 text-lg text-gray-700 space-y-2">
@@ -479,21 +502,21 @@ const DoctorProfilePage: React.FC = () => {
                       style={{ color: doctorColor }}
                     >
                       <span className="text-xs opacity-75">20 Mins</span>
-                      <span>Rs. {doctorProfile.pricing.session20 || doctorProfile.pricing.min}</span>
+                      <span>Rs. {getPriceForDurationAndMode(20, booking.mode)}</span>
                     </div>
                     <div
                       className={`font-semibold py-2 px-5 rounded-full shadow-inner transition-all flex flex-col items-center ${booking.duration === 40 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA] opacity-90'}`}
                       style={{ color: doctorColor }}
                     >
                       <span className="text-xs opacity-75">40 Mins</span>
-                      <span>Rs. {doctorProfile.pricing.session40 || (doctorProfile.pricing.session20 || doctorProfile.pricing.min) * 2}</span>
+                      <span>Rs. {getPriceForDurationAndMode(40, booking.mode)}</span>
                     </div>
                     <div
                       className={`font-semibold py-2 px-5 rounded-full shadow-inner transition-all flex flex-col items-center ${booking.duration === 55 ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA] opacity-90'}`}
                       style={{ color: doctorColor }}
                     >
                       <span className="text-xs opacity-75">55 Mins</span>
-                      <span>Rs. {doctorProfile.pricing.session55 || doctorProfile.pricing.max}</span>
+                      <span>Rs. {getPriceForDurationAndMode(55, booking.mode)}</span>
                     </div>
                   </div>
                 </div>
@@ -507,47 +530,8 @@ const DoctorProfilePage: React.FC = () => {
               style={{ backgroundColor: doctorColor }}
             >
               <div className="space-y-8">
-                {/* Conditional: Only show date/time selection for scheduled bookings */}
-                {!isImmediate ? (
-                  <>
-                    {/* Select Date */}
-                    <div>
-                      <h3 className="font-bold text-xl mb-4">Select Date:</h3>
-                      <div className="flex space-x-3 overflow-x-auto pb-2">
-                        {availableDates.map((dateObj) => (
-                          <button
-                            key={dateObj.date}
-                            onClick={() => handleDateChange(dateObj.date)}
-                            className={`${booking.date === dateObj.date ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-4 rounded-lg text-center flex-shrink-0 shadow-inner transition-all`}
-                            style={{ color: doctorColor }}
-                          >
-                            <div className="text-sm">{dateObj.day.split(' ').slice(0, 2).join(' ')}</div>
-                            <div className="font-bold text-xs">{dateObj.day.split(' ')[2]}</div>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    {/* Select Slot */}
-                    <div>
-                      <h3 className="font-bold text-xl mb-4">Select Slot:</h3>
-                      <div className="flex flex-wrap gap-3">
-                        {availableSlots.length > 0 ? availableSlots.map((slot) => (
-                          <button
-                            key={slot}
-                            onClick={() => handleTimeSlotChange(slot)}
-                            className={`${booking.timeSlot === slot ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'} text-[#38ABAE] font-semibold py-2 px-5 rounded-full shadow-inner transition-all`}
-                            style={{ color: doctorColor }}
-                          >
-                            {slot}
-                          </button>
-                        )) : (
-                          <p className="text-white opacity-80 italic">No available slots for this date</p>
-                        )}
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  /* For immediate bookings, show a message */
+                {/* Immediate booking: show instant session card. Scheduled: show date + slot picker. */}
+                {isImmediate ? (
                   <div className="text-center py-8">
                     <div className="bg-white/10 rounded-xl p-6 mb-4">
                       <svg className="w-16 h-16 mx-auto mb-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -557,16 +541,65 @@ const DoctorProfilePage: React.FC = () => {
                       <p className="text-white/90">This doctor is available now. Click "Book Now" to start your session immediately!</p>
                     </div>
                   </div>
+                ) : (
+                  /* Scheduled booking — 14-day date strip + slot grid */
+                  <>
+                    {/* Select Date */}
+                    <div>
+                      <h3 className="font-bold text-xl mb-4">Select Date:</h3>
+                      <div className="flex space-x-2.5 overflow-x-auto pb-2 scrollbar-hide">
+                        {availableDates.map((dateObj) => (
+                          <button
+                            key={dateObj.date}
+                            onClick={() => handleDateChange(dateObj.date)}
+                            className={`${booking.date === dateObj.date ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA] hover:bg-white/80'
+                              } font-semibold py-3 px-3 rounded-xl text-center flex-shrink-0 shadow-inner transition-all flex flex-col items-center min-w-[56px]`}
+                            style={{ color: doctorColor }}
+                          >
+                            <span className="text-[10px] font-bold uppercase opacity-70">{dateObj.day.split(' ')[1]?.toUpperCase()}</span>
+                            <span className="text-xl font-bold leading-none">{dateObj.dayNum}</span>
+                            <span className="text-[10px] font-medium opacity-70">{dateObj.monthName}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Select Slot */}
+                    <div>
+                      <h3 className="font-bold text-xl mb-4">Select Slot:</h3>
+                      <div className="flex flex-wrap gap-3">
+                        {availableSlots.length > 0 ? availableSlots.map((slot) => (
+                          <button
+                            key={slot}
+                            onClick={() => handleTimeSlotChange(slot)}
+                            className={`${booking.timeSlot === slot ? 'bg-white ring-2 ring-blue-400' : 'bg-[#E0F7FA]'
+                              } font-semibold py-2 px-5 rounded-full shadow-inner transition-all`}
+                            style={{ color: doctorColor }}
+                          >
+                            {slot}
+                          </button>
+                        )) : (
+                          <p className="text-white opacity-80 italic">
+                            {booking.date ? 'No available slots for this date' : 'Select a date to see slots'}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </>
                 )}
 
-                <div className="text-center pt-4 space-y-3">
+                {/* Book Button */}
+                <div className="text-center pt-4">
                   <button
                     onClick={handleBookNow}
                     disabled={isImmediate ? isBooking : (isBooking || !booking.date || !booking.timeSlot)}
-                    className={`${(isImmediate ? isBooking : (isBooking || !booking.date || !booking.timeSlot)) ? 'opacity-50 cursor-not-allowed' : 'hover:bg-white hover:scale-105'} bg-[#E0F7FA] text-[#38ABAE] font-bold py-3 px-10 rounded-full shadow-md text-xl transition-all w-full`}
+                    className={`${(isImmediate ? isBooking : (isBooking || !booking.date || !booking.timeSlot))
+                      ? 'opacity-50 cursor-not-allowed'
+                      : 'hover:bg-white hover:scale-105'
+                      } bg-[#E0F7FA] font-bold py-3 px-10 rounded-full shadow-md text-xl transition-all w-full`}
                     style={{ color: doctorColor }}
                   >
-                    {isBooking ? 'Booking...' : 'Book Now'}
+                    {isBooking ? 'Booking...' : isImmediate ? 'Book Now' : 'Schedule Session'}
                   </button>
                 </div>
               </div>

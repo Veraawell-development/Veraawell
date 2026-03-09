@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const multer = require('multer');
 const cloudinary = require('../config/cloudinary');
-const { verifyToken } = require('../middleware/auth.middleware');
+const { verifyToken, verifyAdminToken } = require('../middleware/auth.middleware');
 
 // Configure multer for memory storage
 const storage = multer.memoryStorage();
@@ -138,8 +138,47 @@ router.post('/doctor-documents', documentUpload.array('documents', 5), async (re
     }
 });
 
+// Upload single doctor document (for immediate feedback)
+router.post('/doctor-document', documentUpload.single('document'), async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ message: 'No document file provided' });
+        }
+
+        // Convert buffer to base64
+        const b64 = Buffer.from(req.file.buffer).toString('base64');
+        const dataURI = `data:${req.file.mimetype};base64,${b64}`;
+
+        // Determine resource type (image or raw for PDFs)
+        const resourceType = req.file.mimetype === 'application/pdf' ? 'raw' : 'image';
+
+        // Upload to Cloudinary
+        const result = await cloudinary.uploader.upload(dataURI, {
+            folder: 'veerawell/doctor-documents',
+            resource_type: resourceType,
+            public_id: `doc_${Date.now()}_${Math.random().toString(36).substring(7)}`
+        });
+
+        res.json({
+            success: true,
+            document: {
+                fileName: req.file.originalname,
+                fileUrl: result.secure_url,
+                fileType: req.file.mimetype,
+                cloudinaryPublicId: result.public_id
+            }
+        });
+    } catch (error) {
+        console.error('Document upload error:', error);
+        res.status(500).json({
+            message: 'Failed to upload document',
+            error: error.message
+        });
+    }
+});
+
 // Upload article image
-router.post('/article-image', verifyToken, upload.single('image'), async (req, res) => {
+router.post('/article-image', verifyAdminToken, upload.single('image'), async (req, res) => {
     try {
         if (!req.file) {
             return res.status(400).json({ message: 'No image file provided' });

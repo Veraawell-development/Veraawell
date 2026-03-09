@@ -1,7 +1,8 @@
 const Article = require('../models/article');
-const logger = require('../utils/logger');
-const createDOMPurify = require('isomorphic-dompurify');
-const DOMPurify = createDOMPurify();
+const { createLogger } = require('../utils/logger');
+const logger = createLogger('ARTICLE-CONTROLLER');
+const { asyncHandler } = require('../middleware/error.middleware');
+const DOMPurify = require('isomorphic-dompurify');
 const validator = require('validator');
 
 // Escape special regex characters to prevent NoSQL injection
@@ -13,7 +14,7 @@ function escapeRegex(str) {
 // @desc    Get all published articles (public)
 // @route   GET /api/articles
 // @access  Public
-exports.getPublishedArticles = async (req, res) => {
+exports.getPublishedArticles = asyncHandler(async (req, res) => {
     try {
         const {
             page = 1,
@@ -67,12 +68,12 @@ exports.getPublishedArticles = async (req, res) => {
         logger.error('Error fetching published articles:', error);
         res.status(500).json({ message: 'Failed to fetch articles', error: error.message });
     }
-};
+});
 
-// @desc    Get single article by slug (public)
+// @desc    Get single article by slug
 // @route   GET /api/articles/:slug
 // @access  Public
-exports.getArticleBySlug = async (req, res) => {
+exports.getArticleBySlug = asyncHandler(async (req, res) => {
     try {
         const { slug } = req.params;
 
@@ -87,12 +88,12 @@ exports.getArticleBySlug = async (req, res) => {
         logger.error('Error fetching article:', error);
         res.status(500).json({ message: 'Failed to fetch article', error: error.message });
     }
-};
+});
 
 // @desc    Increment article view count
 // @route   POST /api/articles/:id/view
 // @access  Public
-exports.incrementViews = async (req, res) => {
+exports.incrementViews = asyncHandler(async (req, res) => {
     try {
         const { id } = req.params;
 
@@ -111,12 +112,12 @@ exports.incrementViews = async (req, res) => {
         logger.error('Error incrementing views:', error);
         res.status(500).json({ message: 'Failed to increment views', error: error.message });
     }
-};
+});
 
 // @desc    Increment article like count
 // @route   POST /api/articles/:id/like
 // @access  Public
-exports.incrementLikes = async (req, res) => {
+exports.incrementLikes = asyncHandler(async (req, res) => {
     try {
         const { id } = req.params;
 
@@ -135,14 +136,14 @@ exports.incrementLikes = async (req, res) => {
         logger.error('Error incrementing likes:', error);
         res.status(500).json({ message: 'Failed to increment likes', error: error.message });
     }
-};
+});
 
 // ============= ADMIN ENDPOINTS =============
 
-// @desc    Get all articles (admin)
+// @desc    Get all articles for admin
 // @route   GET /api/articles/admin/all
 // @access  Super Admin
-exports.getAllArticles = async (req, res) => {
+exports.getAllArticles = asyncHandler(async (req, res) => {
     try {
         const {
             page = 1,
@@ -192,15 +193,15 @@ exports.getAllArticles = async (req, res) => {
             }
         });
     } catch (error) {
-        logger.error('Error fetching all articles:', error);
+        logger.error('Error fetching all articles for admin:', error);
         res.status(500).json({ message: 'Failed to fetch articles', error: error.message });
     }
-};
+});
 
-// @desc    Get single article by ID (admin)
+// @desc    Get single article by ID for admin
 // @route   GET /api/admin/articles/:id
 // @access  Super Admin
-exports.getArticleById = async (req, res) => {
+exports.getArticleById = asyncHandler(async (req, res) => {
     try {
         const { id } = req.params;
 
@@ -215,12 +216,12 @@ exports.getArticleById = async (req, res) => {
         logger.error('Error fetching article:', error);
         res.status(500).json({ message: 'Failed to fetch article', error: error.message });
     }
-};
+});
 
 // @desc    Create new article
 // @route   POST /api/admin/articles
 // @access  Super Admin
-exports.createArticle = async (req, res) => {
+exports.createArticle = asyncHandler(async (req, res) => {
     try {
         const {
             title,
@@ -248,8 +249,8 @@ exports.createArticle = async (req, res) => {
 
         // Sanitize content but allow safe HTML for rich text
         const sanitizedContent = DOMPurify.sanitize(content, {
-            ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'h2', 'h3', 'h4', 'ul', 'ol', 'li', 'a', 'blockquote'],
-            ALLOWED_ATTR: ['href', 'target']
+            ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'h2', 'h3', 'h4', 'ul', 'ol', 'li', 'a', 'blockquote', 'img', 'iframe', 'figure', 'figcaption'],
+            ALLOWED_ATTR: ['href', 'target', 'src', 'alt', 'width', 'height', 'style', 'class', 'allowfullscreen', 'frameborder', 'title']
         });
 
         // Sanitize tags array
@@ -272,7 +273,7 @@ exports.createArticle = async (req, res) => {
             category,
             tags: sanitizedTags,
             author: sanitizedAuthor,
-            authorId: req.user._id,
+            authorId: req.admin._id,
             image: image || '',
             featured: featured || false,
             status: status || 'draft'
@@ -282,7 +283,7 @@ exports.createArticle = async (req, res) => {
         article.readTime = article.calculateReadTime();
         await article.save();
 
-        logger.info(`Article created: ${article.title} by ${req.user.username}`);
+        logger.info(`Article created: ${article.title} by ${req.admin._id}`);
 
         res.status(201).json({
             message: 'Article created successfully',
@@ -300,12 +301,12 @@ exports.createArticle = async (req, res) => {
 
         res.status(500).json({ message: 'Failed to create article', error: error.message });
     }
-};
+});
 
 // @desc    Update article
 // @route   PUT /api/admin/articles/:id
 // @access  Super Admin
-exports.updateArticle = async (req, res) => {
+exports.updateArticle = asyncHandler(async (req, res) => {
     try {
         const { id } = req.params;
         const updateData = req.body;
@@ -314,6 +315,22 @@ exports.updateArticle = async (req, res) => {
 
         if (!article) {
             return res.status(404).json({ message: 'Article not found' });
+        }
+
+        // Sanitize specific fields before update if they exist
+        if (updateData.title) updateData.title = DOMPurify.sanitize(updateData.title, { ALLOWED_TAGS: [] }).trim();
+        if (updateData.description) updateData.description = DOMPurify.sanitize(updateData.description, { ALLOWED_TAGS: [] }).trim();
+        if (updateData.author) updateData.author = DOMPurify.sanitize(updateData.author, { ALLOWED_TAGS: [] }).trim();
+        if (updateData.tags) {
+            updateData.tags = updateData.tags.map(tag =>
+                DOMPurify.sanitize(tag, { ALLOWED_TAGS: [] }).trim()
+            ).filter(tag => tag.length > 0);
+        }
+        if (updateData.content) {
+            updateData.content = DOMPurify.sanitize(updateData.content, {
+                ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'h2', 'h3', 'h4', 'ul', 'ol', 'li', 'a', 'blockquote', 'img', 'iframe', 'figure', 'figcaption'],
+                ALLOWED_ATTR: ['href', 'target', 'src', 'alt', 'width', 'height', 'style', 'class', 'allowfullscreen', 'frameborder', 'title']
+            });
         }
 
         // Update fields
@@ -330,7 +347,7 @@ exports.updateArticle = async (req, res) => {
 
         await article.save();
 
-        logger.info(`Article updated: ${article.title} by ${req.user.username}`);
+        logger.info(`Article updated: ${article.title} by ${req.admin?._id || 'unknown'}`);
 
         res.json({
             message: 'Article updated successfully',
@@ -348,12 +365,12 @@ exports.updateArticle = async (req, res) => {
 
         res.status(500).json({ message: 'Failed to update article', error: error.message });
     }
-};
+});
 
 // @desc    Delete article
 // @route   DELETE /api/admin/articles/:id
 // @access  Super Admin
-exports.deleteArticle = async (req, res) => {
+exports.deleteArticle = asyncHandler(async (req, res) => {
     try {
         const { id } = req.params;
 
@@ -363,7 +380,7 @@ exports.deleteArticle = async (req, res) => {
             return res.status(404).json({ message: 'Article not found' });
         }
 
-        logger.info(`Article deleted: ${article.title} by ${req.user.username}`);
+        logger.info(`Article deleted: ${article.title} by ${req.admin._id}`);
 
         // ✨ REAL-TIME UPDATE: Broadcast article deletion to all patients
         const io = req.app.get('io');
@@ -386,12 +403,12 @@ exports.deleteArticle = async (req, res) => {
         logger.error('Error deleting article:', error);
         res.status(500).json({ message: 'Failed to delete article', error: error.message });
     }
-};
+});
 
-// @desc    Publish article (change status to published)
+// @desc    Publish article
 // @route   POST /api/admin/articles/:id/publish
 // @access  Super Admin
-exports.publishArticle = async (req, res) => {
+exports.publishArticle = asyncHandler(async (req, res) => {
     try {
         const { id } = req.params;
 
@@ -407,7 +424,7 @@ exports.publishArticle = async (req, res) => {
         }
         await article.save();
 
-        logger.info(`Article published: ${article.title} by ${req.user.username}`);
+        logger.info(`Article published: ${article.title} by ${req.admin._id}`);
 
         // ✨ REAL-TIME UPDATE: Broadcast new article to all patients
         const io = req.app.get('io');
@@ -442,12 +459,12 @@ exports.publishArticle = async (req, res) => {
         logger.error('Error publishing article:', error);
         res.status(500).json({ message: 'Failed to publish article', error: error.message });
     }
-};
+});
 
 // @desc    Toggle featured status
 // @route   POST /api/admin/articles/:id/feature
 // @access  Super Admin
-exports.toggleFeatured = async (req, res) => {
+exports.toggleFeatured = asyncHandler(async (req, res) => {
     try {
         const { id } = req.params;
 
@@ -470,5 +487,5 @@ exports.toggleFeatured = async (req, res) => {
         logger.error('Error toggling featured status:', error);
         res.status(500).json({ message: 'Failed to toggle featured status', error: error.message });
     }
-};
+});
 
