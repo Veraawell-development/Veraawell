@@ -11,7 +11,7 @@ CRITICAL ISSUES
    Issue: Old monolithic index.js still exists alongside new modular architecture (app.js + server.js)
    Impact: Confusion, potential conflicts, maintenance overhead
    Note: ARCHITECTURE.md states "index.js - OLD - to be removed (kept for reference)"
-   Recommendation: Remove index.js after final verification
+   Recommendation: Remove index.js after final verificationn
 
 2. HARDCODED JWT SECRET FALLBACK IN PRODUCTION
    Location: /server/socket/chatSocket.js:5
