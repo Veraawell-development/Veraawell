@@ -780,17 +780,7 @@ const VideoCallRoom: React.FC = () => {
     }
   };
 
-  const handleEndCall = () => {
-    if (socketRef.current && sessionId && user) {
-      socketRef.current.emit('leave-room', {
-        sessionId,
-        userId: user.userId,
-        role: user.role
-      });
-    }
-    cleanup();
-    navigate(user?.role === 'patient' ? '/patient-dashboard' : '/doctor-dashboard');
-  };
+
 
 
   const isVoiceMode = sessionData?.callMode === 'Voice Calling';

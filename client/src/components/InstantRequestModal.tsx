@@ -21,7 +21,14 @@ const InstantRequestModal: React.FC<InstantRequestModalProps> = ({ session, isOp
             try {
                 const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/1359/1359-preview.mp3');
                 audio.loop = true;
-                audio.play().catch(e => console.log('Audio play failed:', e));
+                const playAudio = async () => {
+                    try {
+                        await audio.play();
+                    } catch (e) {
+                        console.log('Audio play failed:', e);
+                    }
+                };
+                playAudio();
                 audioRef.current = audio;
             } catch (err) {
                 console.log('Audio initialization failed');

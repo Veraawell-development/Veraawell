@@ -155,7 +155,7 @@ const CareerPage: React.FC = () => {
     setUploading(true);
     const formDataObj = new FormData();
     documents.forEach(doc => {
-      formDataObj.append('documents', doc);
+      formDataObj.append('documents', doc.file);
     });
 
     try {

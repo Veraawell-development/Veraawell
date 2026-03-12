@@ -10,7 +10,12 @@ const mentalHealthAssessmentSchema = new mongoose.Schema({
     testType: {
         type: String,
         required: true,
-        enum: ['depression', 'anxiety', 'adhd', 'dla20'],
+        enum: [
+            'depression', 'anxiety', 'adhd', 'dla20',
+            'ptsd', 'addiction', 'social-anxiety',
+            'post-partum', 'bipolar', 'eating-disorder',
+            'gambling'
+        ],
         index: true
     },
     responses: [{

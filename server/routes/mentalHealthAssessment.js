@@ -19,7 +19,12 @@ router.post('/', verifyToken, async (req, res) => {
         }
 
         // Validate test type
-        const validTestTypes = ['depression', 'anxiety', 'adhd', 'dla20'];
+        const validTestTypes = [
+            'depression', 'anxiety', 'adhd', 'dla20',
+            'ptsd', 'addiction', 'social-anxiety',
+            'post-partum', 'bipolar', 'eating-disorder',
+            'gambling'
+        ];
         if (!validTestTypes.includes(testType)) {
             return res.status(400).json({
                 message: 'Invalid test type. Must be one of: depression, anxiety, adhd, dla20'
@@ -81,7 +86,12 @@ router.get('/latest/:testType', verifyToken, async (req, res) => {
         const { testType } = req.params;
 
         // Validate test type
-        const validTestTypes = ['depression', 'anxiety', 'adhd', 'dla20'];
+        const validTestTypes = [
+            'depression', 'anxiety', 'adhd', 'dla20',
+            'ptsd', 'addiction', 'social-anxiety',
+            'post-partum', 'bipolar', 'eating-disorder',
+            'gambling'
+        ];
         if (!validTestTypes.includes(testType)) {
             return res.status(400).json({
                 message: 'Invalid test type. Must be one of: depression, anxiety, adhd, dla20'
