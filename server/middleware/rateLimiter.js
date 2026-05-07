@@ -4,6 +4,7 @@
  */
 
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = require('express-rate-limit');
 
 /**
  * Rate limiter for OTP send endpoint
@@ -18,9 +19,10 @@ const otpSendLimiter = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { trustProxy: false },
     // Use email from request body as key (more accurate than IP)
     keyGenerator: (req) => {
-        return req.body.email || req.ip;
+        return req.body.email || ipKeyGenerator(req);
     }
 });
 
@@ -37,8 +39,9 @@ const otpVerifyLimiter = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { trustProxy: false },
     keyGenerator: (req) => {
-        return req.body.email || req.ip;
+        return req.body.email || ipKeyGenerator(req);
     }
 });
 
@@ -55,8 +58,9 @@ const otpResendLimiter = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { trustProxy: false },
     keyGenerator: (req) => {
-        return req.body.email || req.ip;
+        return req.body.email || ipKeyGenerator(req);
     }
 });
 

@@ -1,11 +1,28 @@
 {
+    "watch": [
+        ".",
+        "routes",
+        "controllers",
+        "services",
+        "middleware",
+        "models",
+        "socket",
+        "utils",
+        "config"
+    ],
     "ignore": [
         ".wwebjs_auth",
+        ".wwebjs_cache",
         "logs",
         "node_modules",
-        "client",
+        "scripts",
+        "docs",
+        "migrations",
         "tmp"
     ],
     "ext": "js,json",
-    "delay": "2500"
+    "delay": "1000",
+    "env": {
+        "NODE_ENV": "development"
+    }
 }

@@ -3,6 +3,8 @@ const router = express.Router();
 const articleController = require('../controllers/article.controller');
 const { verifyAdminToken, verifySuperAdmin } = require('../middleware/auth.middleware');
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = require('express-rate-limit');
+
 
 // Rate limiter for public article list - prevent excessive scraping
 const articlesListLimiter = rateLimit({
@@ -13,7 +15,8 @@ const articlesListLimiter = rateLimit({
         message: 'Too many requests from this IP. Please try again later.'
     },
     standardHeaders: true,
-    legacyHeaders: false
+    legacyHeaders: false,
+    validate: { trustProxy: false }
 });
 
 // Rate limiter for article interactions (view/like) - prevent fraud
@@ -25,11 +28,12 @@ const interactionLimiter = rateLimit({
         message: 'Too many interactions. Please slow down.'
     },
     keyGenerator: (req) => {
-        // Use user ID if authenticated, otherwise use IP
-        return req.user?._id?.toString() || req.ip;
+        // Use user ID if authenticated, otherwise use IPv6-safe IP
+        return req.user?._id?.toString() || ipKeyGenerator(req);
     },
     standardHeaders: true,
-    legacyHeaders: false
+    legacyHeaders: false,
+    validate: { trustProxy: false }
 });
 
 // Rate limiter for search - prevent abuse
@@ -42,7 +46,8 @@ const searchLimiter = rateLimit({
     },
     skip: (req) => !req.query.search, // Only apply when search param exists
     standardHeaders: true,
-    legacyHeaders: false
+    legacyHeaders: false,
+    validate: { trustProxy: false }
 });
 
 
