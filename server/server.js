@@ -23,7 +23,6 @@ try {
 // Import modules after validation
 const { connectDatabase, closeDatabase } = require('./config/database');
 const { CORS_ORIGINS } = require('./config/constants');
-const showBanner = require('./banner');
 const app = require('./app');
 
 // Create HTTP server
@@ -74,36 +73,21 @@ async function startServer() {
       logger.error('Failed to reset doctor statuses on startup', { error: resetError.message });
     }
 
-    // Initialize WhatsApp Client (non-blocking)
-    const { initializeWhatsApp } = require('./services/whatsapp');
+    // Start scheduler (session reminders, status updates)
     const { startScheduler } = require('./services/scheduler');
-
-    logger.info('Initializing WhatsApp notification service...');
-
-    // Start WhatsApp initialization in background
-    initializeWhatsApp()
-      .then(() => {
-        logger.info('WhatsApp notification service started successfully');
-        // Start scheduler after WhatsApp is ready
-        startScheduler();
-      })
-      .catch((error) => {
-        logger.error('Failed to initialize WhatsApp service:', error.message || error);
-        logger.warn('Server will continue without WhatsApp notifications');
-      });
+    startScheduler();
 
     // Start HTTP server
     httpServer.listen(PORT, () => {
-      showBanner();
-      logger.info(`Server running on port ${PORT}`);
-      logger.info('Socket.IO server initialized for video calling');
-      logger.info('Environment variables:');
-      logger.info(`- MONGO_URI: ${getEnv('MONGO_URI') ? 'Set' : 'Not set'}`);
-      logger.info(`- GOOGLE_CLIENT_ID: ${getEnv('GOOGLE_CLIENT_ID') ? 'Set' : 'Not set'}`);
-      logger.info(`- GOOGLE_CLIENT_SECRET: ${getEnv('GOOGLE_CLIENT_SECRET') ? 'Set' : 'Not set'}`);
-      logger.info(`- JWT_SECRET: ${getEnv('JWT_SECRET') ? 'Set' : 'Not set'}`);
-      logger.info(`- SESSION_SECRET: ${getEnv('SESSION_SECRET') ? 'Set' : 'Not set'}`);
-      logger.info(`- NODE_ENV: ${process.env.NODE_ENV || 'development'}`);
+      const env = process.env.NODE_ENV || 'development';
+      logger.info('--------------------------------------------------');
+      logger.info(`  Veraawell API Server`);
+      logger.info(`  Port     : ${PORT}`);
+      logger.info(`  Env      : ${env}`);
+      logger.info(`  DB       : ${getEnv('MONGO_URI') ? 'Connected' : 'NOT SET'}`);
+      logger.info(`  OAuth    : ${getEnv('GOOGLE_CLIENT_ID') ? 'Configured' : 'NOT SET'}`);
+      logger.info(`  Sockets  : Enabled (WebSocket + polling)`);
+      logger.info('--------------------------------------------------');
     });
   } catch (error) {
     logger.error('Failed to start server', { error: error.message });
