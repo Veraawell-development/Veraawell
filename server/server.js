@@ -45,17 +45,9 @@ const io = new Server(httpServer, {
   }
 });
 
-// Initialize Socket.IO handlers
-const socketHandler = require('./socketHandler');
-socketHandler(io);
-
-// Initialize Chat Socket.IO handler
-const { initializeChatSocket } = require('./socket/chatSocket');
-initializeChatSocket(io);
-
-// Initialize Data Socket.IO handler for real-time updates
-const { initializeDataSocket } = require('./socket/dataSocket');
-initializeDataSocket(io);
+// Initialize all Socket.IO handlers via bootstrapper
+const { initializeSockets } = require('./socket');
+initializeSockets(io);
 
 // Make io available to app if needed
 app.set('io', io);
