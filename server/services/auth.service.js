@@ -87,7 +87,7 @@ async function registerUser(userData) {
     email: email.toLowerCase().trim(),
     username: (username || email).toLowerCase().trim(),
     password,
-    phoneNo: phoneNo || '',
+    phoneNumber: phoneNo || '',
     role,
     resetToken: null,
     resetTokenExpiry: null

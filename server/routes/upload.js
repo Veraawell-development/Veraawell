@@ -107,14 +107,14 @@ router.post('/doctor-documents', documentUpload.array('documents', 5), async (re
             const b64 = Buffer.from(file.buffer).toString('base64');
             const dataURI = `data:${file.mimetype};base64,${b64}`;
 
-            // Determine resource type (image or raw for PDFs)
-            const resourceType = file.mimetype === 'application/pdf' ? 'raw' : 'image';
+            const extension = file.originalname.split('.').pop();
+            const publicId = `doc_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
             // Upload to Cloudinary
             const result = await cloudinary.uploader.upload(dataURI, {
                 folder: 'veerawell/doctor-documents',
-                resource_type: resourceType,
-                public_id: `doc_${Date.now()}_${Math.random().toString(36).substring(7)}`
+                resource_type: 'auto',
+                public_id: `${publicId}.${extension}`
             });
 
             uploadedDocuments.push({
@@ -149,14 +149,14 @@ router.post('/doctor-document', documentUpload.single('document'), async (req, r
         const b64 = Buffer.from(req.file.buffer).toString('base64');
         const dataURI = `data:${req.file.mimetype};base64,${b64}`;
 
-        // Determine resource type (image or raw for PDFs)
-        const resourceType = req.file.mimetype === 'application/pdf' ? 'raw' : 'image';
+        const extension = req.file.originalname.split('.').pop();
+        const publicId = `doc_${Date.now()}_${Math.random().toString(36).substring(7)}`;
 
         // Upload to Cloudinary
         const result = await cloudinary.uploader.upload(dataURI, {
             folder: 'veerawell/doctor-documents',
-            resource_type: resourceType,
-            public_id: `doc_${Date.now()}_${Math.random().toString(36).substring(7)}`
+            resource_type: 'auto',
+            public_id: `${publicId}.${extension}`
         });
 
         res.json({
