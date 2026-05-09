@@ -35,6 +35,14 @@ services:
       - key: ADMIN_JWT_SECRET
         sync: false # Must be set manually in dashboard
       
+      # Cloudinary Config - Set in Render Dashboard
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      
       # Frontend URL - Update after Vercel deployment
       - key: FRONTEND_URL
         value: https://veraawell.vercel.app # Update with your actual Vercel URL
