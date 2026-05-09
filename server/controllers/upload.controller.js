@@ -78,7 +78,7 @@ const uploadDoctorDocuments = async (req, res) => {
       const dataURI = `data:${file.mimetype};base64,${b64}`;
       const extension = file.originalname.split('.').pop();
       const publicId = `doc_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-      const result = await cloudinary.uploader.upload(dataURI, { folder: 'veerawell/doctor-documents', resource_type: 'auto', public_id: `${publicId}.${extension}` });
+      const result = await cloudinary.uploader.upload(dataURI, { folder: 'veerawell/doctor-documents', resource_type: 'auto', public_id: publicId });
       uploadedDocuments.push({ fileName: file.originalname, fileUrl: result.secure_url, fileType: file.mimetype, cloudinaryPublicId: result.public_id });
     }
     logger.info('Doctor documents uploaded', { count: uploadedDocuments.length });
@@ -97,7 +97,7 @@ const uploadDoctorDocument = async (req, res) => {
     const dataURI = `data:${req.file.mimetype};base64,${b64}`;
     const extension = req.file.originalname.split('.').pop();
     const publicId = `doc_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-    const result = await cloudinary.uploader.upload(dataURI, { folder: 'veerawell/doctor-documents', resource_type: 'auto', public_id: `${publicId}.${extension}` });
+    const result = await cloudinary.uploader.upload(dataURI, { folder: 'veerawell/doctor-documents', resource_type: 'auto', public_id: publicId });
     logger.info('Single doctor document uploaded', { fileName: req.file.originalname });
     res.json({ success: true, document: { fileName: req.file.originalname, fileUrl: result.secure_url, fileType: req.file.mimetype, cloudinaryPublicId: result.public_id } });
   } catch (error) {
