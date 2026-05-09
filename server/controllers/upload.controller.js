@@ -5,6 +5,7 @@
  */
 
 const multer = require('multer');
+const fs = require('fs');
 const cloudinary = require('../config/cloudinary');
 const { createLogger } = require('../utils/logger');
 
@@ -26,7 +27,7 @@ const imageUpload = multer({
 
 /** For doctor documents — PDF and images */
 const documentUpload = multer({
-  storage,
+  dest: 'uploads/',
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowed = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
@@ -74,17 +75,24 @@ const uploadDoctorDocuments = async (req, res) => {
     if (!req.files || req.files.length === 0) return res.status(400).json({ success: false, message: 'No document files provided' });
     const uploadedDocuments = [];
     for (const file of req.files) {
-      const b64 = Buffer.from(file.buffer).toString('base64');
-      const dataURI = `data:${file.mimetype};base64,${b64}`;
-      const extension = file.originalname.split('.').pop();
       const publicId = `doc_${Date.now()}_${Math.random().toString(36).substring(7)}`;
       const resourceType = file.mimetype === 'application/pdf' ? 'raw' : 'image';
-      const result = await cloudinary.uploader.upload(dataURI, { folder: 'veerawell/doctor-documents', resource_type: resourceType, public_id: publicId });
+      const result = await cloudinary.uploader.upload(file.path, { folder: 'veerawell/doctor-documents', resource_type: resourceType, public_id: publicId });
+      
+      // Delete temp file after upload
+      fs.unlinkSync(file.path);
+      
       uploadedDocuments.push({ fileName: file.originalname, fileUrl: result.secure_url, fileType: file.mimetype, cloudinaryPublicId: result.public_id });
     }
     logger.info('Doctor documents uploaded', { count: uploadedDocuments.length });
     res.json({ success: true, documents: uploadedDocuments });
   } catch (error) {
+    // Cleanup temp files on error
+    if (req.files) {
+      req.files.forEach(file => {
+        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+      });
+    }
     logger.error('Doctor document upload error', { error: error.message });
     res.status(500).json({ success: false, message: 'Failed to upload documents', error: error.message });
   }
@@ -94,15 +102,22 @@ const uploadDoctorDocuments = async (req, res) => {
 const uploadDoctorDocument = async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ success: false, message: 'No document file provided' });
-    const b64 = Buffer.from(req.file.buffer).toString('base64');
-    const dataURI = `data:${req.file.mimetype};base64,${b64}`;
-    const extension = req.file.originalname.split('.').pop();
+    
     const publicId = `doc_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     const resourceType = req.file.mimetype === 'application/pdf' ? 'raw' : 'image';
-    const result = await cloudinary.uploader.upload(dataURI, { folder: 'veerawell/doctor-documents', resource_type: resourceType, public_id: publicId });
+    
+    const result = await cloudinary.uploader.upload(req.file.path, { folder: 'veerawell/doctor-documents', resource_type: resourceType, public_id: publicId });
+    
+    // Delete temp file after upload
+    fs.unlinkSync(req.file.path);
+    
     logger.info('Single doctor document uploaded', { fileName: req.file.originalname });
     res.json({ success: true, document: { fileName: req.file.originalname, fileUrl: result.secure_url, fileType: req.file.mimetype, cloudinaryPublicId: result.public_id } });
   } catch (error) {
+    // Cleanup temp file on error
+    if (req.file && req.file.path) {
+      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+    }
     logger.error('Single document upload error', { error: error.message });
     res.status(500).json({ success: false, message: 'Failed to upload document', error: error.message });
   }
