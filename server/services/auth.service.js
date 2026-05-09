@@ -55,8 +55,8 @@ async function registerUser(userData) {
     heardAboutUs
   } = userData;
 
-  // FOR EMAIL/PASSWORD SIGNUP: Check OTP verification (skip for Google OAuth users)
-  // Google OAuth users don't need OTP as Google verifies their email
+  // FOR EMAIL/PASSWORD SIGNUP: Skip OTP verification for now as requested
+  /*
   if (!userData.googleId) {
     const OTP = require('../models/otp');
     const otpRecord = await OTP.findOne({
@@ -73,6 +73,7 @@ async function registerUser(userData) {
     await OTP.deleteMany({ email: email.toLowerCase(), verified: true });
     logger.info('OTP verification passed, OTP records cleaned up', { email });
   }
+  */
 
   // Check if user already exists
   const existingUser = await User.findOne({ email: email.toLowerCase() });
