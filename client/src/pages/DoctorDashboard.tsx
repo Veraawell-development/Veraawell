@@ -173,8 +173,9 @@ const DoctorDashboard: React.FC = () => {
         headers
       });
       if (notesResponse.ok) {
-        const notes = await notesResponse.json();
-        setRecentNotes(notes.slice(0, 4));
+        const data = await notesResponse.json();
+        const notesArray = data.notes || [];
+        setRecentNotes(notesArray.slice(0, 4));
       }
 
       // Fetch tasks assigned by this doctor
@@ -183,8 +184,9 @@ const DoctorDashboard: React.FC = () => {
         headers
       });
       if (tasksResponse.ok) {
-        const tasks = await tasksResponse.json();
-        setAssignedTasks(tasks.slice(0, 4));
+        const data = await tasksResponse.json();
+        const tasksArray = data.tasks || [];
+        setAssignedTasks(tasksArray.slice(0, 4));
       }
 
       // Fetch reports created by this doctor
@@ -193,8 +195,9 @@ const DoctorDashboard: React.FC = () => {
         headers
       });
       if (reportsResponse.ok) {
-        const reports = await reportsResponse.json();
-        setRecentReports(reports.slice(0, 4));
+        const data = await reportsResponse.json();
+        const reportsArray = data.reports || [];
+        setRecentReports(reportsArray.slice(0, 4));
       }
 
       // Fetch stats

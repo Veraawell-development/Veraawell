@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useDataSocket } from '../hooks/useDataSocket';
 import toast from 'react-hot-toast';
 import BackToDashboard from '../components/BackToDashboard';
-import { Search, ArrowRight, Clock, User, Home } from 'lucide-react';
+import { Search, ArrowRight, Clock, Home } from 'lucide-react';
 
 interface Article {
     _id: string;

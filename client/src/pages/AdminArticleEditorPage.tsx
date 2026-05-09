@@ -5,12 +5,11 @@ import ReactQuill from 'react-quill-new';
 import 'react-quill-new/dist/quill.snow.css';
 import { 
     ArrowLeft, Save, Send, Star, Loader2, Tag, FileText, Layout, User, 
-    Image as ImageIcon, Menu, LogOut, Users, Activity, ChevronLeftSquare, ChevronRightSquare 
+    Image as ImageIcon, Menu, LogOut, Activity, ChevronLeftSquare, ChevronRightSquare 
 } from 'lucide-react';
 import { LuStethoscope } from 'react-icons/lu';
 import ImageUpload from '../components/ImageUpload';
 import toast from 'react-hot-toast';
-import { motion, AnimatePresence } from 'framer-motion';
 
 const AdminArticleEditorPage: React.FC = () => {
     const navigate = useNavigate();

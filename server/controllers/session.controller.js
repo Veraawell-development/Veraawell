@@ -65,10 +65,10 @@ const getPendingFeedback = asyncHandler(async (req, res) => {
   if (req.user.role !== 'patient') return res.json({ session: null });
   const userId = req.user._id.toString();
   const threeDaysAgo = new Date(Date.now() - 72 * 60 * 60 * 1000);
-  const completedSessions = await Session.find({ patientId: mongoose.Types.ObjectId(userId), status: 'completed', sessionDate: { $gte: threeDaysAgo } })
+  const completedSessions = await Session.find({ patientId: new mongoose.Types.ObjectId(userId), status: 'completed', sessionDate: { $gte: threeDaysAgo } })
     .populate('doctorId', 'firstName lastName').sort({ sessionDate: -1, sessionTime: -1 }).lean();
   for (const session of completedSessions) {
-    const review = await Review.findOne({ sessionId: mongoose.Types.ObjectId(session._id), patientId: mongoose.Types.ObjectId(userId), reviewType: 'doctor' });
+    const review = await Review.findOne({ sessionId: new mongoose.Types.ObjectId(session._id), patientId: new mongoose.Types.ObjectId(userId), reviewType: 'doctor' });
     if (!review) return res.json({ session: { _id: session._id, sessionDate: session.sessionDate, sessionTime: session.sessionTime, status: session.status, doctorId: session.doctorId, sessionType: session.sessionType } });
   }
   res.json({ session: null });
@@ -110,7 +110,7 @@ const bookImmediate = asyncHandler(async (req, res) => {
   const sessionTime = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
   const finalPrice = await calculateSessionPrice(doctorId, mode, duration, price);
 
-  const session = new Session({ patientId, doctorId, sessionDate: new Date(sessionDate), sessionTime, sessionType: 'immediate', duration: duration || 20, price: finalPrice, paymentStatus: 'paid', paymentId: `immediate_${Date.now()}`, callMode: mode === 'voice' ? 'voice' : 'video' });
+  const session = new Session({ patientId, doctorId, sessionDate: new Date(sessionDate), sessionTime, sessionType: 'immediate', duration: duration || 20, price: finalPrice, paymentStatus: 'paid', paymentId: `immediate_${Date.now()}`, callMode: CALL_MODE_MAP[mode] || 'Video Calling' });
   const saved = await session.save();
   saved.meetingLink = `/video-call/${saved._id}`;
   await saved.save();

@@ -36,8 +36,9 @@ const ReportsRecommendationPage: React.FC = () => {
       }
 
       const data = await response.json();
-      logger.info('Reports received:', data.length);
-      setReports(data);
+      const reportsArray = data.reports || [];
+      logger.info('Reports received:', reportsArray.length);
+      setReports(reportsArray);
     } catch (error) {
       logger.error('Error fetching reports:', error);
       setReports([]);
@@ -61,7 +62,7 @@ const ReportsRecommendationPage: React.FC = () => {
     markAsViewed(report._id);
 
     // Create a text file with report content
-    const content = `${report.title}\n\nType: ${report.reportType}\n\nDate: ${formatDate(report.createdAt)}\nDoctor: Dr. ${report.doctorId.firstName} ${report.doctorId.lastName}\n\n${report.content}`;
+    const content = `${report.title}\n\nType: ${report.reportType}\n\nDate: ${formatDate(report.createdAt)}\nDoctor: Dr. ${report.doctorId?.firstName || 'Unknown'} ${report.doctorId?.lastName || ''}\n\n${report.content}`;
     const blob = new Blob([content], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -199,7 +200,7 @@ const ReportsRecommendationPage: React.FC = () => {
                         {formatDate(report.createdAt)}
                       </td>
                       <td className="py-4 px-6 text-center text-base font-medium text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
-                        Dr. {report.doctorId.firstName} {report.doctorId.lastName}
+                        Dr. {report.doctorId?.firstName || 'Unknown'} {report.doctorId?.lastName || ''}
                       </td>
                       <td className="py-4 px-6 text-center">
                         <button
@@ -241,7 +242,7 @@ const ReportsRecommendationPage: React.FC = () => {
         title={selectedReport?.title || 'Report Details'}
         content={selectedReport?.content || 'No content available.'}
         date={selectedReport?.createdAt || ''}
-        doctorName={selectedReport ? `Dr. ${selectedReport.doctorId.firstName} ${selectedReport.doctorId.lastName}` : ''}
+        doctorName={selectedReport ? `Dr. ${selectedReport.doctorId?.firstName || 'Unknown'} ${selectedReport.doctorId?.lastName || ''}` : ''}
         type={selectedReport?.reportType || 'Report'}
         onDownload={() => selectedReport && handleDownload(selectedReport)}
       />

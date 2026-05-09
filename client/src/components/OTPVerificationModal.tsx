@@ -157,16 +157,16 @@ export default function OTPVerificationModal({
 
                 {/* Header */}
                 <div className="text-center mb-6">
-                    <div className="w-16 h-16 bg-gradient-to-br from-teal-400 to-teal-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                        <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="w-14 h-14 bg-teal-50 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <svg className="w-6 h-6 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                         </svg>
                     </div>
-                    <h2 className="text-2xl font-bold text-gray-800 mb-2">Verify Your Email</h2>
-                    <p className="text-gray-600 text-sm">
+                    <h2 className="text-2xl font-bold text-gray-900 mb-2 font-sans">Verify Your Email</h2>
+                    <p className="text-gray-600 text-sm font-sans">
                         We sent a 6-digit code to
                     </p>
-                    <p className="text-teal-600 font-semibold mt-1">{maskEmail(email)}</p>
+                    <p className="text-teal-600 font-semibold mt-1 font-sans">{maskEmail(email)}</p>
                 </div>
 
                 {/* OTP Input */}
@@ -228,11 +228,9 @@ export default function OTPVerificationModal({
                 </div>
 
                 {/* Info */}
-                <div className="mt-6 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-                    <p className="text-blue-700 text-xs text-center">
-                        💡 Check your spam folder if you don't see the email
-                    </p>
-                </div>
+                <p className="text-gray-500 text-xs text-center mt-6 font-sans">
+                    Check your spam folder if you don't see the email
+                </p>
             </div>
         </div>
     );

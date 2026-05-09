@@ -75,6 +75,7 @@ function validateRegistration(req, res, next) {
   }
 
   if (Object.keys(errors).length > 0) {
+    console.log('[VALIDATION-ERROR] Failed fields:', errors, 'Received body:', req.body);
     throw new ValidationError('Validation failed', errors);
   }
 

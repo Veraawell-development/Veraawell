@@ -231,6 +231,9 @@ app.get('/api/test-google-routes', (req, res) => {
 });
 
 // Authentication routes
+app.post('/api/auth/validate-registration', validateRegistration, (req, res) => {
+  res.json({ success: true, message: 'Validation successful' });
+});
 app.post('/api/auth/register', validateRegistration, authController.register);
 app.post('/api/auth/login', validateLogin, authController.login);
 app.post('/api/auth/logout', verifyToken, authController.logout);

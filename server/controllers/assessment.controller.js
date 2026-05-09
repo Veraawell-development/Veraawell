@@ -3,6 +3,7 @@
  * Handles mental health self-assessment tests — save, retrieve, and stats
  */
 
+const mongoose = require('mongoose');
 const MentalHealthAssessment = require('../models/mentalHealthAssessment');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { NotFoundError } = require('../utils/errors');
@@ -39,7 +40,8 @@ const getHistory = asyncHandler(async (req, res) => {
 const getSummaryStats = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const stats = await MentalHealthAssessment.aggregate([
-    { $match: { userId } },
+    { $match: { userId: new mongoose.Types.ObjectId(userId) } },
+    { $sort: { completedAt: 1 } },
     { $group: { _id: '$testType', count: { $sum: 1 }, latestScore: { $last: '$scores.total' }, latestSeverity: { $last: '$scores.severity' }, latestDate: { $last: '$completedAt' } } }
   ]);
   res.json({ success: true, stats });

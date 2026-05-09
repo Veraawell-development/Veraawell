@@ -105,36 +105,17 @@ const initializeDataSocket = (io) => {
                 role: userRole
             });
 
-            // If a doctor disconnects, check if they have other active tabs
             if (userRole === 'doctor') {
                 const connections = doctorConnections.get(userId);
                 if (connections) {
                     connections.delete(socket.id);
                     logger.debug(`Doctor ${userId.substring(0, 8)} disconnected. Remaining: ${connections.size}`);
 
-                    // Only set offline if NO connections remain after grace period
+                    // Removed auto-offline on disconnect as per user request.
+                    // Doctors stay online until they manually toggle off or log out.
                     if (connections.size === 0) {
                         doctorConnections.delete(userId);
-
-                        try {
-                            const { updateDoctorStatus } = require('../services/doctorStatus.service');
-                            // 5 second grace period to allow for page refreshes
-                            setTimeout(async () => {
-                                try {
-                                    // Check if they reconnected during the grace period
-                                    if (!doctorConnections.has(userId)) {
-                                        logger.info(`Doctor ${userId.substring(0, 8)} still offline after grace period. Updating status.`);
-                                        await updateDoctorStatus(userId, false, io);
-                                    } else {
-                                        logger.debug(`Doctor ${userId.substring(0, 8)} reconnected during grace period. Staying online.`);
-                                    }
-                                } catch (timeoutError) {
-                                    logger.error('Error in doctor disconnect grace period timeout', { error: timeoutError.message });
-                                }
-                            }, 5000);
-                        } catch (error) {
-                            logger.error('Error setting doctor offline on disconnect', { error: error.message });
-                        }
+                        logger.debug(`Doctor ${userId.substring(0, 8)} has no active connections, but staying online.`);
                     }
                 }
             }

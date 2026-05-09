@@ -158,8 +158,13 @@ const MyTestsPage: React.FC = () => {
                 {!loading && assessments.length > 0 && (
                     <div className="space-y-3">
                         {assessments.map((assessment) => {
-                            const test = MENTAL_HEALTH_TESTS[assessment.testType];
-                            const severityColors = getSeverityColor(assessment.scores.severity);
+                            const test = MENTAL_HEALTH_TESTS[assessment.testType] || {
+                                name: assessment.testType,
+                                fullName: assessment.testType,
+                                scoring: { maxScore: 100 }
+                            };
+                            const safeSeverity = assessment.scores?.severity || 'minimal';
+                            const severityColors = getSeverityColor(safeSeverity);
 
                             return (
                                 <div
@@ -177,7 +182,7 @@ const MyTestsPage: React.FC = () => {
                                                     <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full ${severityColors.bg}`}>
                                                         <div className={`w-1.5 h-1.5 rounded-full ${severityColors.dot}`}></div>
                                                         <span className={`text-xs font-semibold ${severityColors.text}`} style={{ fontFamily: 'Inter, sans-serif' }}>
-                                                            {assessment.scores.severity.charAt(0).toUpperCase() + assessment.scores.severity.slice(1).replace('-', ' ')}
+                                                            {safeSeverity.charAt(0).toUpperCase() + safeSeverity.slice(1).replace('-', ' ')}
                                                         </span>
                                                     </div>
                                                 </div>
@@ -202,13 +207,13 @@ const MyTestsPage: React.FC = () => {
                                                         Score
                                                     </span>
                                                     <span className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                                        {assessment.scores.total} / {test.scoring.maxScore}
+                                                        {assessment.scores?.total || 0} / {test.scoring.maxScore}
                                                     </span>
                                                 </div>
                                                 <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
                                                     <div
                                                         className="h-full bg-gradient-to-r from-teal-500 to-cyan-600 rounded-full transition-all"
-                                                        style={{ width: `${assessment.scores.percentage}%` }}
+                                                        style={{ width: `${assessment.scores?.percentage || 0}%` }}
                                                     />
                                                 </div>
                                             </div>

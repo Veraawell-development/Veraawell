@@ -25,6 +25,15 @@ const ViewContentModal: React.FC<ViewContentModalProps> = ({
 }) => {
     if (!isOpen) return null;
 
+    let parsedContent: any = null;
+    try {
+        if (content.trim().startsWith('{') && content.trim().endsWith('}')) {
+            parsedContent = JSON.parse(content);
+        }
+    } catch (e) {
+        parsedContent = null;
+    }
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
             <div
@@ -66,12 +75,62 @@ const ViewContentModal: React.FC<ViewContentModalProps> = ({
                 {/* Content */}
                 <div className="flex-1 overflow-y-auto p-8">
                     <div className="prose prose-teal max-w-none">
-                        <div
-                            className="text-gray-800 text-base leading-relaxed whitespace-pre-wrap"
-                            style={{ fontFamily: 'Inter, sans-serif' }}
-                        >
-                            {content}
-                        </div>
+                        {parsedContent ? (
+                            <div className="space-y-6 text-gray-800" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                {parsedContent.mood && (
+                                    <div>
+                                        <h3 className="text-lg font-bold text-gray-900 mb-1" style={{ fontFamily: 'Bree Serif, serif' }}>Mood</h3>
+                                        <p className="capitalize">{parsedContent.mood}</p>
+                                    </div>
+                                )}
+                                {parsedContent.progress !== undefined && (
+                                    <div>
+                                        <h3 className="text-lg font-bold text-gray-900 mb-1" style={{ fontFamily: 'Bree Serif, serif' }}>Progress</h3>
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-full bg-gray-200 rounded-full h-3 max-w-xs">
+                                                <div className="bg-teal-600 h-3 rounded-full" style={{ width: `${(parsedContent.progress / 10) * 100}%` }}></div>
+                                            </div>
+                                            <span className="font-medium">{parsedContent.progress}/10</span>
+                                        </div>
+                                    </div>
+                                )}
+                                {parsedContent.observations && Array.isArray(parsedContent.observations) && parsedContent.observations.length > 0 && (
+                                    <div>
+                                        <h3 className="text-lg font-bold text-gray-900 mb-1" style={{ fontFamily: 'Bree Serif, serif' }}>Observations</h3>
+                                        <ul className="list-disc pl-5 space-y-1">
+                                            {parsedContent.observations.map((obs: string, i: number) => (
+                                                <li key={i}>{obs}</li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                )}
+                                {parsedContent.summary && (
+                                    <div>
+                                        <h3 className="text-lg font-bold text-gray-900 mb-1" style={{ fontFamily: 'Bree Serif, serif' }}>Summary</h3>
+                                        <p className="whitespace-pre-wrap">{parsedContent.summary}</p>
+                                    </div>
+                                )}
+                                {parsedContent.recommendations && (
+                                    <div>
+                                        <h3 className="text-lg font-bold text-gray-900 mb-1" style={{ fontFamily: 'Bree Serif, serif' }}>Recommendations</h3>
+                                        <p className="whitespace-pre-wrap">{parsedContent.recommendations}</p>
+                                    </div>
+                                )}
+                                {parsedContent.diagnosis && (
+                                    <div>
+                                        <h3 className="text-lg font-bold text-gray-900 mb-1" style={{ fontFamily: 'Bree Serif, serif' }}>Diagnosis</h3>
+                                        <p className="whitespace-pre-wrap">{parsedContent.diagnosis}</p>
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            <div
+                                className="text-gray-800 text-base leading-relaxed whitespace-pre-wrap"
+                                style={{ fontFamily: 'Inter, sans-serif' }}
+                            >
+                                {content}
+                            </div>
+                        )}
                     </div>
                 </div>
 

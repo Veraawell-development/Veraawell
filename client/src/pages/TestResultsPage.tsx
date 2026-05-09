@@ -38,7 +38,7 @@ const TestResultsPage: React.FC = () => {
 
             if (response.ok) {
                 const data = await response.json();
-                setAssessment(data);
+                setAssessment(data.assessment);
             } else {
                 console.error('Failed to fetch assessment');
                 navigate('/patient-dashboard');
@@ -66,8 +66,13 @@ const TestResultsPage: React.FC = () => {
         return null;
     }
 
-    const test = MENTAL_HEALTH_TESTS[assessment.testType];
-    const { total, severity, percentage } = assessment.scores;
+    const test = MENTAL_HEALTH_TESTS[assessment.testType] || {
+        name: assessment.testType,
+        fullName: assessment.testType,
+        scoring: { maxScore: 100 }
+    };
+    const { total, severity, percentage } = assessment.scores || { total: 0, severity: 'minimal', percentage: 0 };
+    const safeSeverity = severity || 'minimal';
 
     const getSeverityColor = (sev: string) => {
         switch (sev) {
@@ -80,7 +85,7 @@ const TestResultsPage: React.FC = () => {
         }
     };
 
-    const colors = getSeverityColor(severity);
+    const colors = getSeverityColor(safeSeverity);
 
     return (
         <div className="min-h-screen" style={{ backgroundColor: '#E0EAEA' }}>
@@ -125,13 +130,13 @@ const TestResultsPage: React.FC = () => {
                             {test.fullName}
                         </p>
                         <p className="text-sm text-gray-500 mt-2" style={{ fontFamily: 'Inter, sans-serif' }}>
-                            Completed: {new Date(assessment.completedAt).toLocaleDateString('en-US', {
+                            Completed: {assessment.completedAt ? new Date(assessment.completedAt).toLocaleDateString('en-US', {
                                 year: 'numeric',
                                 month: 'long',
                                 day: 'numeric',
                                 hour: '2-digit',
                                 minute: '2-digit'
-                            })}
+                            }) : 'N/A'}
                         </p>
                     </div>
 
@@ -141,7 +146,7 @@ const TestResultsPage: React.FC = () => {
                             <h3 className="text-xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>Your Score</h3>
                             <div className={`px-4 py-2 rounded-full ${colors.bg} ${colors.border} border-2`}>
                                 <span className={`font-bold text-lg ${colors.text}`} style={{ fontFamily: 'Inter, sans-serif' }}>
-                                    {severity.charAt(0).toUpperCase() + severity.slice(1).replace('-', ' ')}
+                                    {safeSeverity.charAt(0).toUpperCase() + safeSeverity.slice(1).replace('-', ' ')}
                                 </span>
                             </div>
                         </div>
@@ -172,7 +177,7 @@ const TestResultsPage: React.FC = () => {
                                 What This Means
                             </h3>
                             <p className="text-gray-700 leading-relaxed" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                {assessment.interpretation.description}
+                                {typeof assessment.interpretation === 'string' ? assessment.interpretation : assessment.interpretation?.description || 'No description available'}
                             </p>
                         </div>
                     )}

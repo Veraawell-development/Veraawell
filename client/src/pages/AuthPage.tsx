@@ -12,7 +12,7 @@ import toast from 'react-hot-toast';
 // ── Animation variants ────────────────────────────────────────────────────────
 const fadeUp = {
   initial: { opacity: 0, y: 12 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] } },
+  animate: { opacity: 1, y: 0, transition: { duration: 0.3, ease: "easeInOut" as any } },
   exit:    { opacity: 0, y: -8,  transition: { duration: 0.18 } },
 };
 const stagger = { animate: { transition: { staggerChildren: 0.055 } } };
@@ -74,7 +74,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
 
   const navigate = useNavigate();
   const location = useLocation();
-  const { setAuthToken } = useAuth();
+  const { setAuthToken, checkAuth } = useAuth();
   const redirectMessage = location.state?.message;
   const redirectFrom = location.state?.from;
   const redirectServiceType = location.state?.serviceType;
@@ -119,6 +119,25 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
     if (registerPassword !== registerConfirm) return setRegisterMsg('Passwords do not match');
     setLoading(true);
     try {
+      // Step 1: Validate registration data on server before sending OTP!
+      const validateRes = await fetch(`${API_BASE_URL}/auth/validate-registration`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ firstName, lastName: '', email, username: email, password: registerPassword, phoneNo, role: 'patient' }),
+      });
+      const validateData = await validateRes.json();
+      
+      if (!validateRes.ok) {
+        if (validateData.errors) {
+          const errorMsgs = Object.values(validateData.errors).join(', ');
+          setRegisterMsg(errorMsgs);
+        } else {
+          setRegisterMsg(validateData.message || 'Validation failed');
+        }
+        setLoading(false);
+        return; // Stop here!
+      }
+
+      // Step 2: If validation passes, send OTP!
       const res = await fetch(`${API_BASE_URL}/otp/send`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.toLowerCase(), userType: 'patient' }),
@@ -140,9 +159,18 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
       if (res.ok) {
         toast.success('Account created!');
         if (data.token) setAuthToken(data.token);
+        await checkAuth();
         setFirstName(''); setEmail(''); setPhoneNo(''); setRegisterPassword(''); setRegisterConfirm('');
         setLoading(false); navigate('/patient-dashboard');
-      } else { setRegisterMsg(data.message || 'Registration failed'); setLoading(false); }
+      } else {
+        if (data.errors) {
+          const errorMsgs = Object.values(data.errors).join(', ');
+          setRegisterMsg(errorMsgs);
+        } else {
+          setRegisterMsg(data.message || 'Registration failed');
+        }
+        setLoading(false);
+      }
     } catch { setRegisterMsg('Network error. Please try again.'); setLoading(false); }
   };
 

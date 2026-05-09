@@ -27,7 +27,6 @@ interface Conversation {
 const MessagesPage: React.FC = () => {
   const navigate = useNavigate();
   const { user, token } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -289,86 +288,78 @@ const MessagesPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#E0EAEA' }}>
-      {/* Sidebar Overlay */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40" onClick={() => setSidebarOpen(false)} />
-      )}
-
-      {/* Sidebar */}
-      <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`} style={{ backgroundColor: '#7DA9A8' }}>
-        <div className="h-full flex flex-col p-4 text-white">
-          <div className="space-y-3 mb-6" style={{ fontFamily: 'Bree Serif, serif' }}>
-            <div
-              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
-              onClick={() => { navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard'); setSidebarOpen(false); }}
-            >
-              <span className="text-base font-medium">My Dashboard</span>
-            </div>
-            <div
-              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
-              onClick={() => { navigate('/messages'); setSidebarOpen(false); }}
-            >
-              <span className="text-base font-medium">My Messages</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
+    <div className="h-screen flex flex-col bg-slate-50">
       {/* Header */}
-      <div style={{ backgroundColor: '#78BE9F' }}>
-        <div className="px-6 py-4 flex items-center justify-center relative">
-          <h1 className="text-3xl font-bold text-white" style={{ fontFamily: 'Bree Serif, serif' }}>My Messages</h1>
+      <div className="bg-white border-b border-slate-100 px-6 py-4 flex items-center justify-between sticky top-0 z-10 shadow-sm">
+        <div className="flex items-center gap-4">
           <button
             onClick={() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard')}
-            className="absolute right-6 bg-white/20 hover:bg-white/30 text-white px-4 py-1.5 rounded-full text-sm font-semibold transition-all backdrop-blur-sm border border-white/30"
+            className="text-slate-600 hover:text-slate-800 transition-colors"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+          </button>
+          <h1 className="text-2xl font-bold text-slate-900" style={{ fontFamily: 'Bree Serif, serif' }}>Messages</h1>
+        </div>
+        
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleSyncConversations}
+            disabled={syncing}
+            className="text-sm text-cyan-600 hover:text-cyan-700 font-semibold transition-colors disabled:opacity-50"
             style={{ fontFamily: 'Inter, sans-serif' }}
           >
-            Dashboard
+            {syncing ? 'Syncing...' : 'Sync Sessions'}
           </button>
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-400 to-teal-500 flex items-center justify-center text-white font-bold text-sm">
+            {user?.firstName?.charAt(0) || user?.username?.charAt(0) || 'U'}
+          </div>
         </div>
       </div>
 
       {/* Main Content */}
-      <div className="flex h-[calc(100vh-80px)]">
+      <div className="flex-1 flex overflow-hidden">
         {/* Conversations List */}
-        <div className={`${selectedConversation ? 'hidden md:block' : 'block'} w-full md:w-96 bg-white border-r border-gray-100 flex flex-col`}>
-          <div className="p-4 border-b border-gray-100 bg-white sticky top-0 z-10">
-            <h2 className="text-xl font-bold text-gray-800" style={{ fontFamily: 'Bree Serif, serif' }}>Conversations</h2>
+        <div className={`${selectedConversation ? 'hidden md:flex' : 'flex'} w-full md:w-80 bg-white border-r border-slate-100 flex-col`}>
+          <div className="p-4 border-b border-slate-50">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search conversations..."
+                className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-100 rounded-lg text-sm focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all"
+                style={{ fontFamily: 'Inter, sans-serif' }}
+              />
+              <svg className="w-4 h-4 text-slate-400 absolute left-3 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+            </div>
           </div>
-          <div className="overflow-y-auto flex-1 p-3 space-y-2">
+          
+          <div className="overflow-y-auto flex-1 p-2 space-y-1">
             {conversations.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-64 text-center p-4">
-                <div className="w-16 h-16 mb-4 rounded-full bg-teal-50 flex items-center justify-center">
-                  <svg className="w-8 h-8 text-teal-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                <div className="w-16 h-16 mb-4 rounded-full bg-slate-50 flex items-center justify-center">
+                  <svg className="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
                   </svg>
                 </div>
-                <p className="text-gray-500 font-medium" style={{ fontFamily: 'Bree Serif, serif' }}>No conversations yet</p>
-                <button
-                  onClick={handleSyncConversations}
-                  disabled={syncing}
-                  className="mt-4 text-sm text-teal-600 hover:text-teal-700 font-semibold"
-                >
-                  {syncing ? 'Syncing...' : 'Sync Sessions'}
-                </button>
+                <p className="text-slate-500 font-medium text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>No conversations yet</p>
               </div>
             ) : (
               conversations.map((conversation) => (
                 <div
                   key={conversation._id}
                   onClick={() => handleSelectConversation(conversation)}
-                  className={`group flex items-center gap-4 p-4 rounded-xl cursor-pointer transition-all duration-200 ${selectedConversation?._id === conversation._id
-                    ? 'bg-[#38ABAE] shadow-md transform scale-[1.02]'
-                    : 'hover:bg-gray-50'
+                  className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-all ${selectedConversation?._id === conversation._id
+                    ? 'bg-gradient-to-r from-cyan-50 to-teal-50 border border-cyan-100'
+                    : 'hover:bg-slate-50 border border-transparent'
                     }`}
                 >
-                  <div className={`relative flex-shrink-0 w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold shadow-sm ${selectedConversation?._id === conversation._id ? 'bg-white text-[#38ABAE]' : 'bg-[#FF9F1C] text-white'
-                    }`}>
+                  <div className="relative flex-shrink-0 w-12 h-12 rounded-full bg-gradient-to-br from-orange-400 to-pink-500 flex items-center justify-center text-white font-bold text-lg shadow-sm">
                     {conversation.userName.charAt(0)}
                     {conversation.unreadCount > 0 && (
-                      <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center ring-2 ring-white">
+                      <div className="absolute -top-1 -right-1 bg-rose-500 text-white text-[10px] font-bold rounded-full w-5 h-5 flex items-center justify-center ring-2 ring-white">
                         {conversation.unreadCount}
                       </div>
                     )}
@@ -376,17 +367,14 @@ const MessagesPage: React.FC = () => {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-0.5">
-                      <h3 className={`font-bold text-base truncate ${selectedConversation?._id === conversation._id ? 'text-white' : 'text-gray-900'
-                        }`} style={{ fontFamily: 'Bree Serif, serif' }}>
+                      <h3 className="font-bold text-sm text-slate-900 truncate" style={{ fontFamily: 'Bree Serif, serif' }}>
                         {conversation.userName}
                       </h3>
-                      <span className={`text-xs ${selectedConversation?._id === conversation._id ? 'text-teal-100' : 'text-gray-400'
-                        }`} style={{ fontFamily: 'Inter, sans-serif' }}>
+                      <span className="text-xs text-slate-400" style={{ fontFamily: 'Inter, sans-serif' }}>
                         {conversation.lastMessageTime?.split('T')[0] || 'Recently'}
                       </span>
                     </div>
-                    <p className={`text-sm truncate ${selectedConversation?._id === conversation._id ? 'text-teal-50' : 'text-gray-500'
-                      }`} style={{ fontFamily: 'Inter, sans-serif' }}>
+                    <p className="text-xs text-slate-500 truncate" style={{ fontFamily: 'Inter, sans-serif' }}>
                       {conversation.lastMessage || 'Start a conversation'}
                     </p>
                   </div>
@@ -400,47 +388,35 @@ const MessagesPage: React.FC = () => {
         {selectedConversation ? (
           <div className="flex-1 flex flex-col bg-white">
             {/* Chat Header */}
-            <div className="flex items-center gap-3 p-4 border-b border-gray-200 bg-white">
+            <div className="flex items-center gap-3 p-4 border-b border-slate-100 bg-white">
               <button
                 onClick={() => setSelectedConversation(null)}
-                className="md:hidden text-gray-600 hover:text-gray-800"
+                className="md:hidden text-slate-600 hover:text-slate-800"
               >
                 <FiX className="w-6 h-6" />
               </button>
-              <div className="w-12 h-12 rounded-full bg-orange-400 flex items-center justify-center text-white font-bold text-lg">
+              <div className="w-10 h-10 rounded-full bg-gradient-to-br from-orange-400 to-pink-500 flex items-center justify-center text-white font-bold text-base shadow-sm">
                 {selectedConversation.userName.charAt(0)}
               </div>
               <div className="flex-1">
-                <h3 className="font-bold text-lg" style={{ fontFamily: 'Bree Serif, serif', color: '#000000' }}>
+                <h3 className="font-bold text-base text-slate-900" style={{ fontFamily: 'Bree Serif, serif' }}>
                   {selectedConversation.userName}
                 </h3>
-                <p className="text-sm text-gray-600" style={{ fontFamily: 'Bree Serif, serif' }}>
-                  {selectedConversation.userRole === 'doctor' ? 'Doctor' : 'Patient'} •
-                  {selectedConversation.userRole === 'doctor'
-                    ? ' MD Assistant of Dept | Counseling Advise Psychiatry | Neuroscience | Psychotherapy'
-                    : ' Active now'}
+                <p className="text-xs text-slate-500" style={{ fontFamily: 'Inter, sans-serif' }}>
+                  {selectedConversation.userRole === 'doctor' ? 'Professional' : 'Patient'} • Active now
                 </p>
               </div>
-              <button
-                onClick={() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard')}
-                className="hidden lg:flex items-center gap-2 text-[#38ABAE] hover:text-[#2d8a8c] font-semibold text-sm transition-colors border border-[#38ABAE]/20 px-4 py-2 rounded-lg hover:bg-[#38ABAE]/5"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6" />
-                </svg>
-                Back to Dashboard
-              </button>
             </div>
 
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 md:p-6" style={{ backgroundColor: '#F8FAFC' }}>
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
               {messages.length === 0 ? (
                 <div className="flex items-center justify-center h-full">
-                  <div className="text-center p-6 bg-white rounded-2xl shadow-sm border border-gray-100 max-w-sm">
-                    <p className="text-gray-800 font-bold mb-2" style={{ fontFamily: 'Bree Serif, serif' }}>
+                  <div className="text-center p-6 bg-white rounded-2xl shadow-sm border border-slate-100 max-w-sm">
+                    <p className="text-slate-800 font-bold mb-1" style={{ fontFamily: 'Bree Serif, serif' }}>
                       No messages yet
                     </p>
-                    <p className="text-gray-500 text-sm">Send a message to start the conversation!</p>
+                    <p className="text-slate-500 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>Send a message to start the conversation!</p>
                   </div>
                 </div>
               ) : (
@@ -450,18 +426,16 @@ const MessagesPage: React.FC = () => {
                     className={`flex ${message.isSentByMe ? 'justify-end' : 'justify-start'}`}
                   >
                     <div
-                      className={`max-w-[80%] md:max-w-md px-5 py-3 shadow-sm ${message.isSentByMe
-                        ? 'rounded-2xl rounded-tr-none bg-[#38ABAE] text-white'
-                        : 'rounded-2xl rounded-tl-none bg-white border border-gray-100 text-gray-800'
+                      className={`max-w-[75%] px-4 py-2.5 shadow-sm ${message.isSentByMe
+                        ? 'rounded-2xl rounded-tr-none bg-gradient-to-br from-cyan-500 to-teal-500 text-white'
+                        : 'rounded-2xl rounded-tl-none bg-white border border-slate-100 text-slate-800'
                         }`}
-                      style={{
-                        fontFamily: 'Inter, sans-serif'
-                      }}
+                      style={{ fontFamily: 'Inter, sans-serif' }}
                     >
-                      <p className="text-sm md:text-base leading-relaxed">
+                      <p className="text-sm leading-relaxed">
                         {message.text}
                       </p>
-                      <p className={`text-[10px] mt-1 text-right ${message.isSentByMe ? 'text-teal-100' : 'text-gray-400'
+                      <p className={`text-[10px] mt-1 text-right ${message.isSentByMe ? 'text-cyan-100' : 'text-slate-400'
                         }`}>
                         {message.timestamp}
                       </p>
@@ -473,7 +447,7 @@ const MessagesPage: React.FC = () => {
             </div>
 
             {/* Message Input */}
-            <div className="p-4 bg-white border-t border-gray-200">
+            <div className="p-4 bg-white border-t border-slate-100">
               <div className="flex items-center gap-3">
                 <input
                   type="text"
@@ -481,33 +455,32 @@ const MessagesPage: React.FC = () => {
                   onChange={(e) => setNewMessage(e.target.value)}
                   onKeyPress={handleKeyPress}
                   placeholder="Write a message..."
-                  className="flex-1 px-4 py-3 rounded-full border border-gray-300 focus:outline-none focus:border-green-500"
-                  style={{ fontFamily: 'Bree Serif, serif' }}
+                  className="flex-1 px-4 py-2.5 bg-slate-50 border border-slate-100 rounded-full text-sm focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all"
+                  style={{ fontFamily: 'Inter, sans-serif' }}
                 />
                 <button
                   onClick={handleSendMessage}
                   disabled={sending || !newMessage.trim()}
-                  className="w-12 h-12 rounded-full flex items-center justify-center text-white hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{ backgroundColor: '#78BE9F' }}
+                  className="w-10 h-10 rounded-full flex items-center justify-center text-white bg-gradient-to-br from-cyan-500 to-teal-500 hover:shadow-lg hover:shadow-cyan-500/20 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  <FiSend className="w-5 h-5" />
+                  <FiSend className="w-4 h-4" />
                 </button>
               </div>
             </div>
           </div>
         ) : (
-          <div className="hidden md:flex flex-1 items-center justify-center bg-[#F8FAFC]">
+          <div className="hidden md:flex flex-1 items-center justify-center bg-slate-50">
             <div className="text-center max-w-md p-8">
-              <div className="w-32 h-32 mx-auto mb-6 rounded-full bg-white shadow-sm flex items-center justify-center relative">
-                <div className="absolute inset-0 bg-teal-50 rounded-full transform scale-110 opacity-50"></div>
-                <svg className="w-16 h-16 text-[#38ABAE]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-24 h-24 mx-auto mb-6 rounded-full bg-white shadow-sm flex items-center justify-center relative">
+                <div className="absolute inset-0 bg-cyan-50 rounded-full transform scale-110 opacity-50 blur-sm"></div>
+                <svg className="w-12 h-12 text-cyan-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
                 </svg>
               </div>
-              <h2 className="text-2xl font-bold text-gray-800 mb-3" style={{ fontFamily: 'Bree Serif, serif' }}>
+              <h2 className="text-2xl font-bold text-slate-800 mb-2" style={{ fontFamily: 'Bree Serif, serif' }}>
                 Welcome to Messages
               </h2>
-              <p className="text-gray-500 leading-relaxed" style={{ fontFamily: 'Inter, sans-serif' }}>
+              <p className="text-slate-500 text-sm leading-relaxed" style={{ fontFamily: 'Inter, sans-serif' }}>
                 Select a conversation from the left to start chatting with your doctors or patients. Your communication is secure and private.
               </p>
             </div>

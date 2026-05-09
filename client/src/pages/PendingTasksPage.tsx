@@ -39,9 +39,10 @@ const PendingTasksPage: React.FC = () => {
       }
 
       const data = await response.json();
+      const tasksArray = data.tasks || [];
       // Ensure latest task is on top
-      const sortedTasks = Array.isArray(data)
-        ? data.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      const sortedTasks = Array.isArray(tasksArray)
+        ? tasksArray.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         : [];
       setTasks(sortedTasks);
     } catch (error) {

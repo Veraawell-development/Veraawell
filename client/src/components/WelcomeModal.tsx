@@ -58,90 +58,52 @@ const WelcomeModal: React.FC<WelcomeModalProps> = ({ isOpen, onClose, showClose 
           boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
         }}
       >
-        {/* Gradient Header */}
-        <div
-          className="relative h-32 overflow-hidden"
-          style={{
-            background: 'linear-gradient(135deg, #7DA9A7 0%, #6A9694 50%, #5A8684 100%)'
-          }}
-        >
-          {/* Decorative circles */}
-          <div
-            className="absolute -top-10 -right-10 w-40 h-40 rounded-full opacity-20"
-            style={{ backgroundColor: 'white' }}
-          />
-          <div
-            className="absolute -bottom-8 -left-8 w-32 h-32 rounded-full opacity-10"
-            style={{ backgroundColor: 'white' }}
-          />
-
-          {/* Close button */}
-          {showClose && (
-            <button
-              type="button"
-              aria-label="Close modal"
-              onClick={handleClose}
-              className="absolute top-4 right-4 w-10 h-10 flex items-center justify-center rounded-full bg-white/10 backdrop-blur-sm text-white hover:bg-white/20 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-white/50"
-            >
-              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18" />
-                <line x1="6" y1="6" x2="18" y2="18" />
-              </svg>
-            </button>
-          )}
-        </div>
+        {/* Close button */}
+        {showClose && (
+          <button
+            type="button"
+            aria-label="Close modal"
+            onClick={handleClose}
+            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        )}
 
         {/* Content */}
-        <div className="px-8 pb-10 -mt-8">
-          {/* Avatar/Icon */}
-          <div className="flex justify-center mb-6">
-            <div
-              className="w-20 h-20 rounded-full bg-white shadow-lg flex items-center justify-center"
-              style={{
-                boxShadow: '0 10px 25px -5px rgba(125, 169, 167, 0.3)'
-              }}
+        <div className="text-center mt-6 px-8 pb-8">
+          {/* Icon */}
+          <div className="w-16 h-16 bg-teal-50 rounded-full flex items-center justify-center mx-auto mb-6">
+            <svg
+              className="w-8 h-8 text-teal-600"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
             >
-              <svg
-                className="w-10 h-10"
-                style={{ color: '#7DA9A7' }}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
-            </div>
+              <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+              <circle cx="12" cy="7" r="4" />
+            </svg>
           </div>
 
           {/* Text Content */}
-          <div className="text-center space-y-3 mb-8">
-            <h1 className="text-3xl font-bold text-gray-900">
-              Welcome, {user?.firstName || 'there'}!
-            </h1>
-            <p className="text-base text-gray-600 leading-relaxed max-w-md mx-auto">
-              Let's get started by setting up your profile. This helps us personalize your experience and connect you with the right support.
-            </p>
-          </div>
+          <h2 className="text-2xl font-bold text-gray-900 mb-2 font-sans">
+            Welcome, {user?.firstName ? user.firstName.charAt(0).toUpperCase() + user.firstName.slice(1) : 'there'}!
+          </h2>
+          <p className="text-gray-600 text-sm leading-relaxed mb-8 font-sans">
+            Let's get started by setting up your profile. This helps us personalize your experience and connect you with the right support.
+          </p>
 
           {/* Action Buttons */}
-          <div className="space-y-3">
+          <div className="flex flex-col items-center space-y-3">
             <button
               onClick={handleSetupProfile}
-              className="w-full py-3.5 px-6 text-white text-base font-semibold rounded-xl shadow-md transition-all duration-200 transform hover:scale-[1.02] hover:shadow-lg active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-2"
-              style={{
-                backgroundColor: '#7DA9A7',
-                boxShadow: '0 4px 14px 0 rgba(125, 169, 167, 0.39)'
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#6A9694';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#7DA9A7';
-              }}
+              className="px-8 py-2.5 text-white text-sm font-semibold rounded-full bg-[#38ABAE] hover:bg-[#2C8E91] transition-colors focus:outline-none focus:ring-2 focus:ring-[#38ABAE] focus:ring-offset-2 font-sans"
             >
               Set Up My Profile
             </button>
@@ -149,7 +111,7 @@ const WelcomeModal: React.FC<WelcomeModalProps> = ({ isOpen, onClose, showClose 
             {showClose && (
               <button
                 onClick={handleClose}
-                className="w-full py-3 px-6 text-gray-600 text-sm font-medium rounded-xl hover:bg-gray-50 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-200"
+                className="text-gray-500 hover:text-gray-700 text-sm font-medium transition-colors font-sans"
               >
                 I'll do this later
               </button>
@@ -157,7 +119,7 @@ const WelcomeModal: React.FC<WelcomeModalProps> = ({ isOpen, onClose, showClose 
           </div>
 
           {/* Info Badge */}
-          <div className="mt-6 flex items-center justify-center gap-2 text-xs text-gray-500">
+          <div className="mt-6 flex items-center justify-center gap-1.5 text-xs text-gray-500 font-sans">
             <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="10" />
               <line x1="12" y1="16" x2="12" y2="12" />

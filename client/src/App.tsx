@@ -50,9 +50,9 @@ import MyTherapistPage from './pages/MyTherapistPage';
 import FAQPage from './pages/FAQPage';
 import ArticlesPage from './pages/ArticlesPage';
 import ArticleDetailPage from './pages/ArticleDetailPage';
-import AdminArticlesPage from './pages/AdminArticlesPage';
 import AdminArticleEditorPage from './pages/AdminArticleEditorPage';
 import VideosPage from './pages/VideosPage';
+import NotFoundPage from './pages/NotFoundPage';
 
 
 function AppRoutes() {
@@ -264,6 +264,7 @@ function AppRoutes() {
         <Route path="/admin/articles" element={<Navigate to="/super-admin-dashboard" state={{ tab: 'articles' }} replace />} />
         <Route path="/super-admin-dashboard/articles/new" element={<AdminArticleEditorPage />} />
         <Route path="/super-admin-dashboard/articles/edit/:id" element={<AdminArticleEditorPage />} />
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </main>
   );

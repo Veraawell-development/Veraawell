@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
-import { FiMenu, FiLogOut, FiUsers, FiUserCheck, FiClock, FiTrendingUp, FiDollarSign, FiFileText, FiActivity, FiX, FiCheck, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
+import { FiMenu, FiLogOut, FiUsers, FiUserCheck, FiClock, FiFileText, FiActivity, FiX, FiCheck, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import { LuStethoscope } from 'react-icons/lu';
-import { Plus, Search, Filter, Eye, CheckCircle, Clock, AlertCircle, Edit, Trash2 } from 'lucide-react';
+import { Plus, Search, Filter, Eye, CheckCircle, Clock, Edit, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'react-hot-toast';
 
 interface PendingUser {
   _id: string;

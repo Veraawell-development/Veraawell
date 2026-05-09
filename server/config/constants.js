@@ -52,10 +52,10 @@ if (process.env.FRONTEND_URL) {
 }
 
 const PASSWORD_POLICY = {
-  MIN_LENGTH: 8,
-  REQUIRE_UPPERCASE: true,
-  REQUIRE_LOWERCASE: true,
-  REQUIRE_NUMBER: true,
+  MIN_LENGTH: 6,
+  REQUIRE_UPPERCASE: false,
+  REQUIRE_LOWERCASE: false,
+  REQUIRE_NUMBER: false,
   REQUIRE_SPECIAL: false
 };
 

@@ -4,11 +4,11 @@ import { useAdmin } from '../context/AdminContext';
 import {
     FileText, Plus, Edit, Trash2, Star, Eye, Search,
     Filter, Loader2, AlertCircle, CheckCircle, Clock, ChevronLeft, ChevronRight,
-    Menu, LogOut, Users, Activity, ChevronLeftSquare, ChevronRightSquare
+    Menu, LogOut, Activity, ChevronLeftSquare, ChevronRightSquare
 } from 'lucide-react';
 import { LuStethoscope } from 'react-icons/lu';
 import toast from 'react-hot-toast';
-import { motion, AnimatePresence } from 'framer-motion';
+import { AnimatePresence } from 'framer-motion';
 
 interface Article {
     _id: string;

@@ -39,10 +39,11 @@ const MyJournalPage: React.FC = () => {
       }
 
       const data = await response.json();
-      logger.info('Journal entries received:', data.length);
-      setEntries(data);
-      if (data.length > 0) {
-        setSelectedEntry(data[0]);
+      const journalsArray = data.journals || [];
+      logger.info('Journal entries received:', journalsArray.length);
+      setEntries(journalsArray);
+      if (journalsArray.length > 0) {
+        setSelectedEntry(journalsArray[0]);
       }
     } catch (error) {
       logger.error('Error fetching journal entries:', error);

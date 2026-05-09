@@ -263,7 +263,7 @@ const MyTherapistPage: React.FC = () => {
                                         {/* Action Buttons */}
                                         <div className="flex gap-3">
                                             <button
-                                                onClick={() => navigate(`/doctor-profile/${therapist.doctor._id}`)}
+                                                onClick={() => navigate(`/doctor/${therapist.doctor._id}`)}
                                                 className="flex-1 px-4 py-2 rounded-xl font-semibold bg-white border-2 border-teal-500 text-teal-600 hover:bg-teal-50 transition-all"
                                                 style={{ fontFamily: 'Bree Serif, serif' }}
                                             >

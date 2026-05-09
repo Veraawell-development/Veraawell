@@ -15,6 +15,7 @@ import logger from '../utils/logger';
 import type { Session, Report, Task, JournalEntry } from '../types';
 import { useDataSocket } from '../hooks/useDataSocket';
 import toast from 'react-hot-toast';
+import { MENTAL_HEALTH_TESTS } from '../data/mentalHealthTests';
 
 const PatientDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -49,13 +50,12 @@ const PatientDashboard: React.FC = () => {
       setLoading(true);
       try {
         // Parallel API calls for better performance
-        const [profileRes, reportsRes, tasksRes, journalRes, unreadRes, scoresRes] = await Promise.all([
+        const [profileRes, reportsRes, tasksRes, journalRes, unreadRes] = await Promise.all([
           fetch(`${API_CONFIG.BASE_URL}/auth/profile`, { credentials: 'include' }),
           fetch(`${API_CONFIG.BASE_URL}/session-tools/reports/patient/${user.userId}`, { credentials: 'include' }),
           fetch(`${API_CONFIG.BASE_URL}/session-tools/tasks/patient/${user.userId}?status=pending`, { credentials: 'include' }),
           fetch(`${API_CONFIG.BASE_URL}/session-tools/journal/patient/${user.userId}`, { credentials: 'include' }),
-          fetch(`${API_CONFIG.BASE_URL}/chat/unread-count`, { credentials: 'include' }),
-          fetch(`${API_CONFIG.BASE_URL}/assessments/stats/summary`, { credentials: 'include' })
+          fetch(`${API_CONFIG.BASE_URL}/chat/unread-count`, { credentials: 'include' })
         ]);
 
         if (profileRes.ok) {
@@ -64,18 +64,21 @@ const PatientDashboard: React.FC = () => {
         }
 
         if (reportsRes.ok) {
-          const reports = await reportsRes.json();
-          setRecentReports(reports.slice(0, 4));
+          const data = await reportsRes.json();
+          const reportsArray = data.reports || [];
+          setRecentReports(reportsArray.slice(0, 4));
         }
 
         if (tasksRes.ok) {
-          const tasks = await tasksRes.json();
-          setPendingTasks(tasks.slice(0, 4));
+          const data = await tasksRes.json();
+          const tasksArray = data.tasks || [];
+          setPendingTasks(tasksArray.slice(0, 4));
         }
 
         if (journalRes.ok) {
-          const journals = await journalRes.json();
-          setRecentJournal(journals.slice(0, 4));
+          const data = await journalRes.json();
+          const journalsArray = data.journals || [];
+          setRecentJournal(journalsArray.slice(0, 4));
         }
 
         if (unreadRes.ok) {
@@ -83,14 +86,7 @@ const PatientDashboard: React.FC = () => {
           setUnreadCount(data.unreadCount || 0);
         }
 
-        if (scoresRes.ok) {
-          const stats = await scoresRes.json();
-          const scoresMap: Record<string, any> = {};
-          stats.forEach((stat: any) => {
-            scoresMap[stat._id] = stat;
-          });
-          setLatestScores(scoresMap);
-        }
+
       } catch (error) {
         logger.error('Error loading dashboard data:', error);
       } finally {
@@ -107,6 +103,40 @@ const PatientDashboard: React.FC = () => {
     if (!hasSeenWelcome && user.profileCompleted === false) {
       setShowWelcomeModal(true);
     }
+  }, [user]);
+
+  // Separate useEffect for fetching test scores to isolate it from other fetches
+  useEffect(() => {
+    if (!user) return;
+
+    const fetchScores = async () => {
+      try {
+        const response = await fetch(`${API_CONFIG.BASE_URL}/assessments`, { credentials: 'include' });
+        if (response.ok) {
+          const data = await response.json();
+          console.log('[DASHBOARD] Scores API Response (History):', data);
+          const scoresMap: Record<string, any> = {};
+          
+          if (data.success && Array.isArray(data.assessments)) {
+            data.assessments.forEach((assessment: any) => {
+              if (!scoresMap[assessment.testType]) {
+                scoresMap[assessment.testType] = {
+                  _id: assessment.testType,
+                  latestScore: assessment.scores?.total || 0,
+                  latestSeverity: assessment.scores?.severity || 'minimal',
+                  latestDate: assessment.completedAt
+                };
+              }
+            });
+          }
+          setLatestScores(scoresMap);
+        }
+      } catch (error) {
+        console.error('Error fetching scores in dashboard:', error);
+      }
+    };
+
+    fetchScores();
   }, [user]);
 
   // ✨ REAL-TIME: Listen for session events
@@ -575,17 +605,53 @@ const PatientDashboard: React.FC = () => {
                 <h3 className="text-2xl font-bold text-center" style={{ fontFamily: 'Bree Serif, serif' }}>Mental Health Screening</h3>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 flex-1">
-                {/* Depression Test Card */}
-                {renderTestCard('depression', 'Depression Score', 27)}
+                {(() => {
+                  const defaultTests = ['depression', 'anxiety', 'adhd', 'disability'];
+                  const testsToRender = [...defaultTests];
+                  
+                  Object.keys(latestScores).forEach(testId => {
+                    if (!testsToRender.includes(testId)) {
+                      testsToRender.push(testId);
+                    }
+                  });
 
-                {/* Anxiety Test Card */}
-                {renderTestCard('anxiety', 'Anxiety Score', 21)}
+                  return testsToRender.map((testId) => {
+                    const testDef = MENTAL_HEALTH_TESTS[testId];
+                    let testName = testDef ? `${testDef.name} Score` : `${testId} Score`;
+                    let maxScore = testDef ? testDef.scoring.maxScore : 100;
+                    
+                    // Fallback for hardcoded defaults if not in MENTAL_HEALTH_TESTS
+                    if (testId === 'disability') {
+                        testName = 'DLA-20';
+                        maxScore = 80;
+                    } else if (testId === 'depression' && !testDef) {
+                        testName = 'Depression Score';
+                        maxScore = 27;
+                    } else if (testId === 'anxiety' && !testDef) {
+                        testName = 'Anxiety Score';
+                        maxScore = 21;
+                    } else if (testId === 'adhd' && !testDef) {
+                        testName = 'ADHD Score';
+                        maxScore = 72;
+                    }
 
-                {/* ADHD Test Card */}
-                {renderTestCard('adhd', 'ADHD Score', 72)}
+                    return renderTestCard(testId, testName, maxScore);
+                  });
+                })()}
+              </div>
 
-                {/* DLA-20 Test Card */}
-                {renderTestCard('disability', 'DLA-20', 80)}
+              {/* Minimal View All Option */}
+              <div className="mt-4 flex justify-center">
+                <button
+                  onClick={() => navigate('/mental-health')}
+                  className="text-white hover:text-white/80 text-sm font-medium transition-colors font-sans flex items-center gap-1"
+                >
+                  View All Tests
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
+                </button>
               </div>
             </div>
 
