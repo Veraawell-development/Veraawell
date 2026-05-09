@@ -217,42 +217,7 @@ const CareerPage: React.FC = () => {
     try {
       // STEP 1: Upload documents first
       const allDocs = await uploadDocuments();
-      setPendingDocs(allDocs);
-
-      // STEP 2: Send OTP to email
-      const otpResponse = await fetch(`${API_BASE_URL}/otp/send`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: formData.email.toLowerCase(),
-          userType: 'doctor'
-        }),
-      });
-
-      const otpData = await otpResponse.json();
-
-      if (otpResponse.ok && otpData.success) {
-        toast.success('OTP sent to your email!');
-        setOtpEmail(formData.email);
-        setShowOTPModal(true);
-        setLoading(false);
-      } else {
-        setError(otpData.message || 'Failed to send OTP');
-        setLoading(false);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred. Please try again.');
-      setLoading(false);
-    }
-  };
-
-  // STEP 3: Handle OTP verification success
-  const handleOTPVerified = async () => {
-    setShowOTPModal(false);
-    setLoading(true);
-
-    try {
-      // STEP 4: Submit registration after OTP verification
+      // STEP 2: Submit registration directly (No OTP)
       const response = await fetch(`${API_BASE_URL}/auth/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -269,7 +234,7 @@ const CareerPage: React.FC = () => {
           jobRole: formData.jobRole,
           professionalMessage: formData.professionalMessage,
           heardAboutUs: formData.heardAboutUs,
-          documents: pendingDocs
+          documents: allDocs // Use allDocs directly
         })
       });
 
@@ -283,7 +248,7 @@ const CareerPage: React.FC = () => {
           'Registration successful! IMPORTANT: Please remember the password you just created. You will need it to log in to your account.',
           {
             duration: 8000,
-            icon: '🔐',
+            icon: '',
             style: {
               background: '#F0FDF4',
               border: '1px solid #22c55e',
@@ -309,7 +274,6 @@ const CareerPage: React.FC = () => {
         });
         setDocuments([]);
         setUploadedDocs([]);
-        setPendingDocs([]);
       } else {
         setError(data.message || 'Registration failed');
       }
@@ -791,18 +755,7 @@ const CareerPage: React.FC = () => {
           )}
         </div>
       </div >
-
-      {/* OTP Verification Modal */}
-      < OTPVerificationModal
-        isOpen={showOTPModal}
-        email={otpEmail}
-        userType="doctor"
-        onVerified={handleOTPVerified}
-        onClose={() => {
-          setShowOTPModal(false);
-          setLoading(false);
-        }}
-      />
+    </>
     </>
   );
 };

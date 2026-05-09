@@ -137,25 +137,13 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
         return; // Stop here!
       }
 
-      // Step 2: If validation passes, send OTP!
-      const res = await fetch(`${API_BASE_URL}/otp/send`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.toLowerCase(), userType: 'patient' }),
-      });
-      const data = await res.json();
-      if (res.ok && data.success) { toast.success('OTP sent!'); setOtpEmail(email); setShowOTPModal(true); setLoading(false); }
-      else { setRegisterMsg(data.message || 'Failed to send OTP'); setLoading(false); }
-    } catch { setRegisterMsg('Network error. Please try again.'); setLoading(false); }
-  };
-
-  const handleOTPVerified = async () => {
-    setShowOTPModal(false); setLoading(true);
-    try {
+      // Step 2: If validation passes, register directly (Skip OTP)!
       const res = await fetch(`${API_BASE_URL}/auth/register`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify({ firstName, lastName: '', email, username: email, password: registerPassword, phoneNo, role: 'patient' }),
       });
       const data = await res.json();
+      
       if (res.ok) {
         toast.success('Account created!');
         if (data.token) setAuthToken(data.token);
@@ -492,9 +480,6 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
         </p>
       </div>
 
-      {/* OTP Modal */}
-      <OTPVerificationModal isOpen={showOTPModal} email={otpEmail} userType="patient"
-        onVerified={handleOTPVerified} onClose={() => { setShowOTPModal(false); setLoading(false); }} />
     </div>
   );
 }
