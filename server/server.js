@@ -58,36 +58,42 @@ const PORT = getEnv('PORT', 8000);
  */
 async function startServer() {
   try {
-    // Connect to database
-    await connectDatabase();
-
-    // Reset all doctor statuses to offline on startup to clear stale records
-    try {
-      const User = require('./models/user');
-      const result = await User.updateMany(
-        { role: 'doctor', isOnline: true },
-        { $set: { isOnline: false } }
-      );
-      logger.info(`Reset ${result.modifiedCount} doctor(s) to offline on startup`);
-    } catch (resetError) {
-      logger.error('Failed to reset doctor statuses on startup', { error: resetError.message });
-    }
-
-    // Start scheduler (session reminders, status updates)
-    const { startScheduler } = require('./services/scheduler');
-    startScheduler();
-
-    // Start HTTP server
-    httpServer.listen(PORT, () => {
+    // Start HTTP server immediately to avoid Render port binding timeout
+    httpServer.listen(PORT, async () => {
       const env = process.env.NODE_ENV || 'development';
       logger.info('--------------------------------------------------');
       logger.info(`  Veraawell API Server`);
       logger.info(`  Port     : ${PORT}`);
       logger.info(`  Env      : ${env}`);
-      logger.info(`  DB       : ${getEnv('MONGO_URI') ? 'Connected' : 'NOT SET'}`);
-      logger.info(`  OAuth    : ${getEnv('GOOGLE_CLIENT_ID') ? 'Configured' : 'NOT SET'}`);
       logger.info(`  Sockets  : Enabled (WebSocket + polling)`);
       logger.info('--------------------------------------------------');
+
+      try {
+        // Connect to database
+        await connectDatabase();
+        logger.info('  DB       : Connected');
+
+        // Reset all doctor statuses to offline on startup to clear stale records
+        try {
+          const User = require('./models/user');
+          const result = await User.updateMany(
+            { role: 'doctor', isOnline: true },
+            { $set: { isOnline: false } }
+          );
+          logger.info(`Reset ${result.modifiedCount} doctor(s) to offline on startup`);
+        } catch (resetError) {
+          logger.error('Failed to reset doctor statuses on startup', { error: resetError.message });
+        }
+
+        // Start scheduler (session reminders, status updates)
+        const { startScheduler } = require('./services/scheduler');
+        startScheduler();
+
+      } catch (dbError) {
+        logger.error('Failed to connect to database or initialize services', { error: dbError.message });
+        // We don't exit here so the server stays alive and Render doesn't restart it constantly,
+        // but API calls will fail until DB is fixed.
+      }
     });
   } catch (error) {
     logger.error('Failed to start server', { error: error.message });
