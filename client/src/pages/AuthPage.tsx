@@ -6,7 +6,6 @@ import { FiUser, FiMail, FiPhone, FiLock, FiEye, FiEyeOff, FiArrowLeft, FiChevro
 import { LuStethoscope } from 'react-icons/lu';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config/api';
-import OTPVerificationModal from '../components/OTPVerificationModal';
 import toast from 'react-hot-toast';
 
 // ── Animation variants ────────────────────────────────────────────────────────
@@ -69,8 +68,6 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   const [showPw, setShowPw] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [showLoginPw, setShowLoginPw] = useState(false);
-  const [showOTPModal, setShowOTPModal] = useState(false);
-  const [otpEmail, setOtpEmail] = useState('');
 
   const navigate = useNavigate();
   const location = useLocation();

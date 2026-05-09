@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { API_BASE_URL } from '../config/api';
 import { Upload, X, FileText, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
-import OTPVerificationModal from '../components/OTPVerificationModal';
 
 const CareerPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'partner' | 'professional' | 'other'>('professional');
@@ -24,11 +23,6 @@ const CareerPage: React.FC = () => {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-
-  // OTP verification states
-  const [showOTPModal, setShowOTPModal] = useState(false);
-  const [otpEmail, setOtpEmail] = useState('');
-  const [pendingDocs, setPendingDocs] = useState<typeof uploadedDocs>([]);
 
   const specializationOptions = [
     'Clinical Psychologist',
@@ -755,7 +749,6 @@ const CareerPage: React.FC = () => {
           )}
         </div>
       </div >
-    </>
     </>
   );
 };
