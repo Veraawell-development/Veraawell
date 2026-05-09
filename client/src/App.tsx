@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AdminProvider } from './context/AdminContext';
-import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
@@ -195,7 +195,8 @@ function AppRoutes() {
   // Check if current route is auth-related or video call
   const isAuthRoute = location.pathname === '/login' || location.pathname === '/signup' ||
     location.pathname === '/forgot-password' || location.pathname === '/reset-password' ||
-    location.pathname.startsWith('/admin');
+    location.pathname.startsWith('/admin') || location.pathname === '/super-admin-dashboard' ||
+    location.pathname === '/admin-login' || location.pathname === '/admin-signup';
   const isVideoCallRoute = location.pathname.startsWith('/video-call');
 
   // Show loading screen only on first load
@@ -260,9 +261,9 @@ function AppRoutes() {
         <Route path="/patient-profile-setup" element={<PatientProfileSetupPage />} />
 
         {/* Admin Article Management Routes */}
-        <Route path="/admin/articles" element={<AdminArticlesPage />} />
-        <Route path="/admin/articles/new" element={<AdminArticleEditorPage />} />
-        <Route path="/admin/articles/edit/:id" element={<AdminArticleEditorPage />} />
+        <Route path="/admin/articles" element={<Navigate to="/super-admin-dashboard" state={{ tab: 'articles' }} replace />} />
+        <Route path="/super-admin-dashboard/articles/new" element={<AdminArticleEditorPage />} />
+        <Route path="/super-admin-dashboard/articles/edit/:id" element={<AdminArticleEditorPage />} />
       </Routes>
     </main>
   );

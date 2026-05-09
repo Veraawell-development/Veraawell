@@ -10,11 +10,14 @@ const Footer: React.FC = () => {
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
                     {/* Brand Section */}
                     <div className="col-span-1 md:col-span-1">
-                        <img
-                            src="/logo.png"
-                            alt="Veraawell"
-                            className="h-10 mb-3"
-                        />
+                        <div className="flex items-center mb-3">
+                            <img
+                                src="/logo/2.svg"
+                                alt="Veraawell"
+                                className="h-8 w-auto"
+                            />
+                            <span className="ml-2 text-lg font-bold text-neutral-900 font-sans">Veerawell</span>
+                        </div>
                         <p className="text-sm text-gray-600 leading-relaxed" style={{ fontFamily: 'Inter, sans-serif' }}>
                             Your mental health journey starts here. Professional therapy and support.
                         </p>

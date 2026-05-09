@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useDataSocket } from '../hooks/useDataSocket';
 import toast from 'react-hot-toast';
 import BackToDashboard from '../components/BackToDashboard';
+import { Search, ArrowRight, Clock, User, Home } from 'lucide-react';
 
 interface Article {
     _id: string;
@@ -40,7 +41,7 @@ const ArticlesPage: React.FC = () => {
     const [selectedCategory, setSelectedCategory] = useState('All');
     const [articles, setArticles] = useState<Article[]>([]);
 
-    // ✨ REAL-TIME: Connect to data socket
+    // REAL-TIME: Connect to data socket
     const { socket } = useDataSocket();
 
     const API_BASE_URL = window.location.hostname === 'localhost'
@@ -96,223 +97,236 @@ const ArticlesPage: React.FC = () => {
     const filteredArticles = articles;
 
     return (
-        <div className="min-h-screen" style={{ backgroundColor: '#FAF9F6' }}>
+        <div className="min-h-screen bg-[#fcfbfa]">
             {/* Breadcrumb */}
-            <div className="bg-white border-b border-gray-200">
+            <div className="bg-white border-b border-neutral-100">
                 <div className="max-w-7xl mx-auto px-4 py-4">
-                    <div className="flex items-center text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>
-                        <button onClick={() => navigate('/')} className="text-gray-500 hover:text-gray-700">
+                    <div className="flex items-center text-xs font-medium text-neutral-500">
+                        <button onClick={() => navigate('/')} className="hover:text-[#0097b2] transition-colors flex items-center gap-1">
+                            <Home size={12} />
                             Home
                         </button>
-                        <svg className="w-4 h-4 mx-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                        <button onClick={() => navigate('/resources')} className="text-gray-500 hover:text-gray-700">
+                        <span className="mx-2 text-neutral-300">/</span>
+                        <button onClick={() => navigate('/resources')} className="hover:text-[#0097b2] transition-colors">
                             Resources
                         </button>
-                        <svg className="w-4 h-4 mx-2 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                        <span className="text-gray-900 font-medium">Articles</span>
+                        <span className="mx-2 text-neutral-300">/</span>
+                        <span className="text-neutral-900">Articles</span>
                     </div>
                 </div>
             </div>
 
-            <div className="max-w-7xl mx-auto px-4 py-12">
-                <BackToDashboard className="mb-8" />
-                {/* Header */}
-                <div className="flex items-center justify-between mb-8">
-                    <div>
-                        <h1 className="text-4xl font-bold text-gray-900 mb-2" style={{ fontFamily: 'Bree Serif, serif' }}>
-                            Most Read Articles
-                        </h1>
-                        <p className="text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>
-                            Take control of your mental health with clinically vetted blogs and articles
-                        </p>
+            <div className="max-w-7xl mx-auto px-4 py-12 flex flex-col xl:flex-row gap-8">
+                
+                {/* Main Content Area */}
+                <div className="flex-1">
+                    <BackToDashboard className="mb-8" />
+                    
+                    {/* Header */}
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-12">
+                        <div>
+                            <h1 className="text-3xl md:text-4xl font-bold text-neutral-900 mb-2 font-serif" style={{ fontFamily: 'Bree Serif, serif' }}>
+                                Wellness Articles
+                            </h1>
+                            <p className="text-xs text-neutral-500 font-medium">
+                                Take control of your mental health with clinically vetted blogs and articles.
+                            </p>
+                        </div>
+                        <div className="relative w-full md:w-80">
+                            <input
+                                type="text"
+                                placeholder="Search articles..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="w-full px-4 py-2.5 pl-10 text-xs rounded-xl border border-neutral-200 focus:outline-none focus:ring-2 focus:ring-[#0097b2] focus:border-transparent font-medium"
+                            />
+                            <Search className="w-4 h-4 text-neutral-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                        </div>
                     </div>
-                    <div className="relative w-80">
-                        <input
-                            type="text"
-                            placeholder="Search resources"
-                            value={searchQuery}
-                            onChange={(e) => setSearchQuery(e.target.value)}
-                            className="w-full px-4 py-2 pr-10 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                            style={{ fontFamily: 'Inter, sans-serif' }}
-                        />
-                        <svg className="w-5 h-5 text-gray-400 absolute right-3 top-1/2 transform -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
-                    </div>
-                </div>
 
-                {/* Featured Articles */}
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-12">
-                    {/* Large Featured Article */}
+                    {/* Featured Articles */}
                     {featuredArticle && (
-                        <div
-                            className="lg:col-span-2 bg-white rounded-xl overflow-hidden cursor-pointer hover:shadow-lg transition-all border border-gray-200"
-                            onClick={() => navigate(`/resources/articles/${featuredArticle.slug}`)}
-                        >
-                            {featuredArticle.image ? (
-                                <img
-                                    src={featuredArticle.image}
-                                    alt={featuredArticle.title}
-                                    className="w-full h-64 object-cover"
-                                />
-                            ) : (
-                                <div className="h-64 bg-gradient-to-br from-amber-100 to-orange-100"></div>
-                            )}
-                            <div className="p-6">
-                                <span className="inline-block px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                    {featuredArticle.category}
-                                </span>
-                                <h3 className="text-2xl font-bold text-gray-900 mb-3" style={{ fontFamily: 'Bree Serif, serif' }}>
-                                    {featuredArticle.title}
-                                </h3>
-                                <p className="text-gray-600 mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                    {featuredArticle.description}
-                                </p>
-                                <div className="flex items-center text-sm text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                    <span>{featuredArticle.readTime}</span>
+                        <div className="mb-12">
+                            <h2 className="text-lg font-bold text-neutral-900 mb-4 font-serif" style={{ fontFamily: 'Bree Serif, serif' }}>
+                                Featured
+                            </h2>
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                {/* Large Featured Article */}
+                                <div
+                                    className="lg:col-span-2 bg-white rounded-2xl overflow-hidden cursor-pointer border border-neutral-100 shadow-sm hover:shadow-md transition-all group"
+                                    onClick={() => navigate(`/resources/articles/${featuredArticle.slug}`)}
+                                >
+                                    {featuredArticle.image ? (
+                                        <img
+                                            src={featuredArticle.image}
+                                            alt={featuredArticle.title}
+                                            className="w-full h-64 object-cover group-hover:scale-105 transition-transform duration-500"
+                                        />
+                                    ) : (
+                                        <div className="h-64 bg-[#fff3db] flex items-center justify-center">
+                                            <span className="text-xs text-neutral-400">No Image</span>
+                                        </div>
+                                    )}
+                                    <div className="p-6">
+                                        <span className="inline-block px-2 py-0.5 bg-neutral-100 text-neutral-600 rounded-lg text-xs font-medium mb-3">
+                                            {featuredArticle.category}
+                                        </span>
+                                        <h3 className="text-xl font-bold text-neutral-900 mb-2 font-serif" style={{ fontFamily: 'Bree Serif, serif' }}>
+                                            {featuredArticle.title}
+                                        </h3>
+                                        <p className="text-xs text-neutral-500 mb-4 font-medium line-clamp-2">
+                                            {featuredArticle.description}
+                                        </p>
+                                        <div className="flex items-center text-xs text-neutral-400 font-medium">
+                                            <Clock size={12} className="mr-1" />
+                                            <span>{featuredArticle.readTime}</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Smaller Featured Articles */}
+                                <div className="space-y-6">
+                                    {otherFeatured.map((article) => (
+                                        <div
+                                            key={article._id}
+                                            className="bg-white rounded-2xl overflow-hidden cursor-pointer border border-neutral-100 shadow-sm hover:shadow-md transition-all p-4 group"
+                                            onClick={() => navigate(`/resources/articles/${article.slug}`)}
+                                        >
+                                            <div className="flex gap-4">
+                                                {article.image ? (
+                                                    <img
+                                                        src={article.image}
+                                                        alt={article.title}
+                                                        className="w-20 h-20 rounded-xl object-cover flex-shrink-0 group-hover:scale-105 transition-transform"
+                                                    />
+                                                ) : (
+                                                    <div className="w-20 h-20 bg-[#fff3db] rounded-xl flex-shrink-0 flex items-center justify-center">
+                                                        <span className="text-xs text-neutral-400">No Image</span>
+                                                    </div>
+                                                )}
+                                                <div className="flex-1 min-w-0">
+                                                    <span className="inline-block px-2 py-0.5 bg-neutral-100 text-neutral-600 rounded-lg text-xs font-medium mb-2">
+                                                        {article.category}
+                                                    </span>
+                                                    <h4 className="text-sm font-bold text-neutral-900 mb-1 line-clamp-2">
+                                                        {article.title}
+                                                    </h4>
+                                                    <div className="flex items-center text-xs text-neutral-400 font-medium">
+                                                        <Clock size={10} className="mr-1" />
+                                                        <span>{article.readTime}</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))}
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* Smaller Featured Articles */}
-                    <div className="space-y-6">
-                        {otherFeatured.map((article) => (
-                            <div
-                                key={article._id}
-                                className="bg-white rounded-xl overflow-hidden cursor-pointer hover:shadow-lg transition-all border border-gray-200"
-                                onClick={() => navigate(`/resources/articles/${article.slug}`)}
-                            >
-                                <div className="flex gap-4 p-4">
+                    {/* All Articles Section */}
+                    <div>
+                        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+                            <h2 className="text-lg font-bold text-neutral-900 font-serif" style={{ fontFamily: 'Bree Serif, serif' }}>
+                                All Articles
+                            </h2>
+                            
+                            {/* Category Tags */}
+                            <div className="flex flex-wrap gap-2">
+                                {categories.slice(0, 5).map((category) => (
+                                    <button
+                                        key={category}
+                                        onClick={() => setSelectedCategory(category)}
+                                        className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${selectedCategory === category
+                                            ? 'bg-[#0097b2] text-white'
+                                            : 'bg-white text-neutral-600 hover:bg-neutral-50 border border-neutral-100'
+                                            }`}
+                                    >
+                                        {category}
+                                    </button>
+                                ))}
+                                {categories.length > 5 && (
+                                    <select
+                                        value={selectedCategory}
+                                        onChange={(e) => setSelectedCategory(e.target.value)}
+                                        className="px-3 py-1.5 rounded-xl text-xs font-semibold bg-white text-neutral-600 border border-neutral-100 focus:outline-none"
+                                    >
+                                        <option value="" disabled>More...</option>
+                                        {categories.slice(5).map((category) => (
+                                            <option key={category} value={category}>{category}</option>
+                                        ))}
+                                    </select>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Articles Grid */}
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {filteredArticles.map((article) => (
+                                <div
+                                    key={article._id}
+                                    className="bg-white rounded-2xl overflow-hidden cursor-pointer border border-neutral-100 shadow-sm hover:shadow-md transition-all group"
+                                    onClick={() => navigate(`/resources/articles/${article.slug}`)}
+                                >
                                     {article.image ? (
                                         <img
                                             src={article.image}
                                             alt={article.title}
-                                            className="w-24 h-24 rounded-lg object-cover flex-shrink-0"
+                                            className="w-full h-40 object-cover group-hover:scale-105 transition-transform duration-500"
                                         />
                                     ) : (
-                                        <div className="w-24 h-24 bg-gradient-to-br from-blue-100 to-cyan-100 rounded-lg flex-shrink-0"></div>
+                                        <div className="h-40 bg-[#fff3db] flex items-center justify-center">
+                                            <span className="text-xs text-neutral-400">No Image</span>
+                                        </div>
                                     )}
-                                    <div className="flex-1">
-                                        <span className="inline-block px-2 py-0.5 bg-gray-100 text-gray-700 rounded-full text-xs font-medium mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                            {article.category}
-                                        </span>
-                                        <h4 className="text-lg font-bold text-gray-900 mb-2 line-clamp-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                    <div className="p-5">
+                                        <div className="flex items-center gap-2 mb-2">
+                                            <span className="inline-block px-2 py-0.5 bg-neutral-100 text-neutral-600 rounded-lg text-xs font-medium">
+                                                {article.category}
+                                            </span>
+                                            <div className="flex items-center text-xs text-neutral-400 font-medium">
+                                                <Clock size={12} className="mr-1" />
+                                                <span>{article.readTime}</span>
+                                            </div>
+                                        </div>
+                                        <h3 className="text-sm font-bold text-neutral-900 mb-2 line-clamp-2">
                                             {article.title}
-                                        </h4>
-                                        <span className="text-xs text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                            {article.readTime}
-                                        </span>
+                                        </h3>
+                                        <p className="text-xs text-neutral-500 line-clamp-2 font-medium">
+                                            {article.description}
+                                        </p>
                                     </div>
                                 </div>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-
-                {/* All Articles Section */}
-                <div>
-                    <div className="flex items-center justify-between mb-6">
-                        <h2 className="text-3xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
-                            All Articles
-                        </h2>
-                        <div className="relative w-80">
-                            <input
-                                type="text"
-                                placeholder="Search articles"
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full px-4 py-2 pr-10 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-teal-500"
-                                style={{ fontFamily: 'Inter, sans-serif' }}
-                            />
-                            <svg className="w-5 h-5 text-gray-400 absolute right-3 top-1/2 transform -translate-y-1/2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                            </svg>
+                            ))}
                         </div>
                     </div>
-
-                    {/* Category Tags */}
-                    <div className="flex flex-wrap gap-2 mb-8">
-                        {categories.map((category) => (
-                            <button
-                                key={category}
-                                onClick={() => setSelectedCategory(category)}
-                                className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${selectedCategory === category
-                                    ? 'bg-teal-600 text-white'
-                                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
-                                    }`}
-                                style={{ fontFamily: 'Inter, sans-serif' }}
-                            >
-                                {category}
-                            </button>
-                        ))}
-                    </div>
-
-                    {/* Articles Grid */}
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                        {filteredArticles.map((article) => (
-                            <div
-                                key={article._id}
-                                className="bg-white rounded-xl overflow-hidden cursor-pointer hover:shadow-lg transition-all border border-gray-200"
-                                onClick={() => navigate(`/resources/articles/${article.slug}`)}
-                            >
-                                {article.image ? (
-                                    <img
-                                        src={article.image}
-                                        alt={article.title}
-                                        className="w-full h-48 object-cover"
-                                    />
-                                ) : (
-                                    <div className="h-48 bg-gradient-to-br from-purple-100 to-pink-100"></div>
-                                )}
-                                <div className="p-5">
-                                    <div className="flex items-center gap-2 mb-3">
-                                        <span className="inline-block px-2 py-0.5 bg-gray-100 text-gray-700 rounded-full text-xs font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                            {article.category}
-                                        </span>
-                                        <span className="text-xs text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                            {article.readTime}
-                                        </span>
-                                    </div>
-                                    <h3 className="text-lg font-bold text-gray-900 mb-2 line-clamp-2" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                        {article.title}
-                                    </h3>
-                                    <p className="text-sm text-gray-600 line-clamp-2" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                        {article.description}
-                                    </p>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
                 </div>
 
-                {/* CTA Sidebar - Fixed on right */}
-                <div className="fixed right-8 top-1/4 w-80 bg-white rounded-xl p-6 shadow-lg border border-gray-200 hidden xl:block">
-                    <h3 className="text-xl font-bold text-gray-900 mb-4" style={{ fontFamily: 'Bree Serif, serif' }}>
-                        Consult a Professional
-                    </h3>
-                    <p className="text-sm text-gray-600 mb-6" style={{ fontFamily: 'Inter, sans-serif' }}>
-                        Connect with expert therapists and psychiatrists to support your mental health journey
-                    </p>
-                    <button
-                        onClick={() => navigate('/choose-professional')}
-                        className="w-full px-6 py-3 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-lg font-semibold hover:shadow-lg transition-all"
-                        style={{ fontFamily: 'Inter, sans-serif' }}
-                    >
-                        CONSULT NOW
-                    </button>
-
-                    <div className="mt-8 pt-8 border-t border-gray-200">
-                        <h4 className="text-lg font-bold text-gray-900 mb-3" style={{ fontFamily: 'Bree Serif, serif' }}>
-                            Thoroughly Vetted Content
-                        </h4>
-                        <p className="text-sm text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>
-                            All our resources are reviewed by licensed mental health professionals to ensure accuracy and quality.
+                {/* CTA Sidebar - Fixed on right for desktop */}
+                <div className="hidden xl:block w-80 flex-shrink-0">
+                    <div className="sticky top-24 bg-white rounded-2xl p-6 border border-neutral-100 shadow-sm">
+                        <h3 className="text-lg font-bold text-neutral-900 mb-2 font-serif" style={{ fontFamily: 'Bree Serif, serif' }}>
+                            Need Professional Support?
+                        </h3>
+                        <p className="text-xs text-neutral-500 mb-6 font-medium leading-relaxed">
+                            Connect with expert therapists and psychiatrists to support your mental health journey.
                         </p>
+                        <button
+                            onClick={() => navigate('/choose-professional')}
+                            className="w-full px-4 py-2.5 bg-[#0097b2] hover:bg-[#007c93] text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+                        >
+                            Find a Therapist
+                            <ArrowRight size={14} />
+                        </button>
+
+                        <div className="mt-8 pt-6 border-t border-neutral-100">
+                            <h4 className="text-sm font-bold text-neutral-900 mb-2 font-serif" style={{ fontFamily: 'Bree Serif, serif' }}>
+                                Vetted Content
+                            </h4>
+                            <p className="text-xs text-neutral-500 font-medium leading-relaxed">
+                                All our resources are reviewed by licensed mental health professionals to ensure accuracy.
+                            </p>
+                        </div>
                     </div>
                 </div>
             </div>

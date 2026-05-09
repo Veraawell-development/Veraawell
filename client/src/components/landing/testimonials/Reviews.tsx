@@ -43,11 +43,9 @@ export default function Reviews() {
       setReviews(data.reviews || []);
     } catch (error) {
       console.error('Error fetching platform reviews:', error);
-      // Keep empty array if fetch fails
     }
   };
 
-  // Fallback to static reviews if no reviews are fetched
   const displayReviews = reviews.length > 0 ? reviews : [
     {
       _id: '1',
@@ -72,12 +70,11 @@ export default function Reviews() {
     }
   ];
 
-  // For scrolling
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const scrollByCard = () => {
     if (!scrollRef.current) return 0;
     const card = scrollRef.current.querySelector('div[data-testimonial-card]');
-    return card ? (card as HTMLElement).offsetWidth + 32 : 350; // 32 = gap-8
+    return card ? (card as HTMLElement).offsetWidth + 24 : 350; // 24 = gap-6
   };
   const scrollLeft = () => {
     if (scrollRef.current) {
@@ -102,25 +99,27 @@ export default function Reviews() {
               className="w-80 h-auto mt-3"
             />
           </div>
-          <div className="bg-[#C17B5C] rounded-[40px] px-20 py-2 shadow-[0_8px_16px_rgba(0,0,0,0.2)] mt-32 relative z-10">
-            <h2 className="text-white text-[36px] font-bold text-center font-serif">
+          <div className="bg-[#C17B5C] rounded-full px-20 py-2 shadow-[0_8px_16px_rgba(0,0,0,0.15)] mt-32 relative z-10">
+            <h2 className="text-white text-xl font-bold text-center font-sans">
               Reviews
             </h2>
           </div>
         </div>
+
         {/* Horizontal Scrollable Testimonials */}
         <div className="relative">
           <button
             onClick={scrollLeft}
-            className="hidden sm:flex absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-white rounded-full w-12 h-12 items-center justify-center shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50"
+            className="hidden sm:flex absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-white rounded-full w-10 h-10 items-center justify-center shadow-md hover:shadow-lg transition-all duration-300 disabled:opacity-50"
             aria-label="Scroll left"
             style={{ transform: 'translate(-50%, -50%)' }}
           >
-            <span className="text-[#C17B5C] text-3xl font-bold">&#8249;</span>
+            <span className="text-[#C17B5C] text-2xl font-bold">&#8249;</span>
           </button>
+
           <div
             ref={scrollRef}
-            className="flex gap-4 sm:gap-6 md:gap-8 overflow-x-auto scroll-smooth pb-4 hide-scrollbar"
+            className="flex gap-6 overflow-x-auto scroll-smooth pb-6 hide-scrollbar"
             style={{ scrollbarWidth: 'none', WebkitOverflowScrolling: 'touch' }}
           >
             {displayReviews.map((review, index) => (
@@ -130,35 +129,38 @@ export default function Reviews() {
                 className={`
                   ${bgColors[index % bgColors.length]}
                   min-w-[85vw] max-w-[95vw] sm:min-w-[340px] sm:max-w-[370px] md:min-w-[320px] md:max-w-[350px]
-                  rounded-[10px] border border-[rgba(0,0,0,0.16)] shadow-xl flex flex-col h-full p-5 sm:p-8 flex-shrink-0
+                  h-[240px] rounded-2xl border border-[rgba(0,0,0,0.1)] shadow-sm flex flex-col justify-between p-6 flex-shrink-0 hover:scale-[1.02] transition-all duration-300 cursor-pointer
                 `}
               >
-                <h3 className="text-white font-bold text-[22px] sm:text-[26px] md:text-[30px] font-bowlby mb-2 leading-tight">
-                  {review.patientId.firstName} {review.patientId.lastName && review.patientId.lastName.charAt(0) + '.'}
-                </h3>
-                <div className="flex items-center mb-4">
-                  {Array.from({ length: 5 }, (_, starIndex) => (
-                    <span
-                      key={starIndex}
-                      className={`text-[24px] sm:text-[28px] md:text-[32px] mr-1 ${starIndex < review.rating ? 'text-[#FFB800]' : 'text-white/40'}`}
-                    >
-                      ★
-                    </span>
-                  ))}
+                <div>
+                  <h3 className="text-white font-bold text-lg font-sans mb-1 leading-tight">
+                    {review.patientId.firstName} {review.patientId.lastName && review.patientId.lastName.charAt(0) + '.'}
+                  </h3>
+                  <div className="flex items-center mb-4">
+                    {Array.from({ length: 5 }, (_, starIndex) => (
+                      <span
+                        key={starIndex}
+                        className={`text-lg mr-1 ${starIndex < review.rating ? 'text-[#FFB800]' : 'text-white/40'}`}
+                      >
+                        ★
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-white font-sans text-sm leading-relaxed line-clamp-4">
+                    "{review.feedback}"
+                  </p>
                 </div>
-                <p className="text-white font-bree text-[15px] sm:text-[18px] md:text-[22px] leading-snug">
-                  "{review.feedback}"
-                </p>
               </div>
             ))}
           </div>
+
           <button
             onClick={scrollRight}
-            className="hidden sm:flex absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-white rounded-full w-12 h-12 items-center justify-center shadow-lg hover:shadow-xl transition-all duration-300 disabled:opacity-50"
+            className="hidden sm:flex absolute right-0 top-1/2 -translate-y-1/2 z-10 bg-white rounded-full w-10 h-10 items-center justify-center shadow-md hover:shadow-lg transition-all duration-300 disabled:opacity-50"
             aria-label="Scroll right"
             style={{ transform: 'translate(50%, -50%)' }}
           >
-            <span className="text-[#C17B5C] text-3xl font-bold">&#8250;</span>
+            <span className="text-[#C17B5C] text-2xl font-bold">&#8250;</span>
           </button>
         </div>
       </div>

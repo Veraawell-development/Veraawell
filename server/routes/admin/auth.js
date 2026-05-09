@@ -166,17 +166,17 @@ router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // HARDCODED SUPER ADMIN LOGIN
-    if (email.toLowerCase() === 'admin@gmail.com' && password === 'admin@123') {
+    // SUPER ADMIN LOGIN (from ENV)
+    if (email.toLowerCase() === process.env.ADMIN_ID && password === process.env.ADMIN_PASSWORD) {
       // Check if super admin exists in database
-      let superAdmin = await User.findOne({ email: 'admin@gmail.com', role: 'super_admin' });
+      let superAdmin = await User.findOne({ email: process.env.ADMIN_ID, role: 'super_admin' });
 
       // Create super admin if doesn't exist
       if (!superAdmin) {
         superAdmin = new User({
-          email: 'admin@gmail.com',
+          email: process.env.ADMIN_ID,
           username: 'superadmin',
-          password: 'admin@123',
+          password: process.env.ADMIN_PASSWORD,
           firstName: 'Super',
           lastName: 'Admin',
           role: 'super_admin',

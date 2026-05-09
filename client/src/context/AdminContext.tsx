@@ -47,12 +47,13 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
       if (response.ok) {
         const data = await response.json();
+        const adminData = data.admin || data;
         setAdmin({
-          id: data.id,
-          email: data.email,
-          firstName: data.firstName,
-          lastName: data.lastName,
-          role: data.role
+          id: adminData.id,
+          email: adminData.email,
+          firstName: adminData.firstName,
+          lastName: adminData.lastName,
+          role: adminData.role
         });
       } else {
         setAdmin(null);
@@ -119,8 +120,9 @@ export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   useEffect(() => {
-    // Only check admin auth if we're on an admin route
-    const isAdminRoute = window.location.pathname.startsWith('/admin');
+    // Only check admin auth if we're on an admin route or super admin dashboard
+    const isAdminRoute = window.location.pathname.startsWith('/admin') || 
+                         window.location.pathname.startsWith('/super-admin-dashboard');
 
     if (isAdminRoute) {
       checkAuth();
