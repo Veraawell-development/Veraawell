@@ -28,15 +28,13 @@ const sendOtp = async (req, res) => {
     await otpRecord.save();
     logger.info('OTP generated and saved', { email, userType });
 
-    try {
-      await sendOTPEmail(email, otp, userType);
-      logger.info('OTP email sent', { email });
-      res.json({ success: true, message: 'OTP sent to your email', expiresAt: otpRecord.expiresAt, email });
-    } catch (emailError) {
-      logger.error('Failed to send OTP email', { error: emailError.message, email });
-      await OTP.deleteOne({ _id: otpRecord._id });
-      res.status(500).json({ success: false, message: 'Failed to send OTP email. Please try again.' });
-    }
+    // Send email in background to prevent request timeout on Render
+    sendOTPEmail(email, otp, userType).catch(emailError => {
+      logger.error('Failed to send OTP email in background', { error: emailError.message, email });
+    });
+    
+    logger.info('OTP email triggered in background', { email });
+    res.json({ success: true, message: 'OTP sent to your email', expiresAt: otpRecord.expiresAt, email });
   } catch (error) {
     logger.error('Error in OTP send', { error: error.message });
     res.status(500).json({ success: false, message: 'Failed to send OTP. Please try again.' });
@@ -92,14 +90,13 @@ const resendOtp = async (req, res) => {
     existingOTP.expiresAt = getExpiryTime();
     await existingOTP.save();
 
-    try {
-      await sendOTPEmail(email, newOTP, existingOTP.userType);
-      logger.info('OTP resent', { email, resendCount: existingOTP.resendCount });
-      res.json({ success: true, message: 'OTP resent to your email', expiresAt: existingOTP.expiresAt, resendsLeft: 3 - existingOTP.resendCount });
-    } catch (emailError) {
-      logger.error('Failed to resend OTP email', { error: emailError.message, email });
-      res.status(500).json({ success: false, message: 'Failed to resend OTP email. Please try again.' });
-    }
+    // Send email in background to prevent request timeout on Render
+    sendOTPEmail(email, newOTP, existingOTP.userType).catch(emailError => {
+      logger.error('Failed to resend OTP email in background', { error: emailError.message, email });
+    });
+    
+    logger.info('OTP email triggered in background', { email, resendCount: existingOTP.resendCount });
+    res.json({ success: true, message: 'OTP resent to your email', expiresAt: existingOTP.expiresAt, resendsLeft: 3 - existingOTP.resendCount });
   } catch (error) {
     logger.error('Error in OTP resend', { error: error.message });
     res.status(500).json({ success: false, message: 'Failed to resend OTP. Please try again.' });
