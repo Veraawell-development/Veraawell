@@ -59,7 +59,7 @@ const PORT = getEnv('PORT', 8000);
 async function startServer() {
   try {
     // Start HTTP server immediately to avoid Render port binding timeout
-    httpServer.listen(PORT, async () => {
+    httpServer.listen(PORT, '0.0.0.0', async () => {
       const env = process.env.NODE_ENV || 'development';
       logger.info('--------------------------------------------------');
       logger.info(`  Veraawell API Server`);
