@@ -83,27 +83,27 @@ function AppRoutes() {
           console.log('Backend wakeup failed, continuing anyway');
         });
 
-        // Wait for DOM to be fully ready
-        const waitForLoad = () => {
+        // Professional Approach: Wait for DOM to be interactive, not for all heavy images to load
+        const waitForDOM = () => {
           return new Promise<void>((resolve) => {
-            if (document.readyState === 'complete') {
+            if (document.readyState === 'interactive' || document.readyState === 'complete') {
               resolve();
             } else {
-              window.addEventListener('load', () => resolve());
+              window.addEventListener('DOMContentLoaded', () => resolve());
             }
           });
         };
 
-        await waitForLoad();
+        await waitForDOM();
 
-        // Set a maximum wait time for initialization to prevent hanging on Safari
+        // Reduced fallback timeout from 5s to 1.5s for instant feel
         const initializationTimeout = setTimeout(() => {
           if (!isAppReady) {
             console.warn('[App] Initialization taking too long, forcing ready state');
             setIsAppReady(true);
             sessionStorage.setItem('appInitialized', 'true');
           }
-        }, 5000); // 5 second timeout
+        }, 1500); // 1.5 second timeout
 
         // Try to check auth silently (don't fail if not logged in)
         await checkAuth().catch((error) => {
