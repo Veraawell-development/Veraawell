@@ -107,14 +107,15 @@ async function handleOAuthCallback(req, res, user, requestedRole) {
       email: user.email
     });
 
-    // Redirect to frontend WITHOUT token in URL (security fix)
-    // Token is in HTTP-only cookie, frontend will check cookie
+    // Redirect to frontend. We are passing the token in the URL as a fallback
+    // because cookies are blocked in production due to cross-domain setup.
+    // Frontend should extract it and save to localStorage, then clean the URL.
     const frontendBaseUrl = getFrontendUrl();
     const redirectUrl = new URL(frontendBaseUrl);
     redirectUrl.searchParams.set('auth', 'success');
     redirectUrl.searchParams.set('role', user.role);
     redirectUrl.searchParams.set('isGoogle', 'true');
-    // NO token in URL - security vulnerability fixed
+    redirectUrl.searchParams.set('token', token); // Fallback for blocked cookies
 
     logger.debug('Redirecting to frontend', { 
       url: redirectUrl.toString().split('?')[0] // Don't log query params with sensitive data

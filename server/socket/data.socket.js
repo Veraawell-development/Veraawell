@@ -12,27 +12,32 @@ const logger = createLogger('DATA-SOCKET');
 
 // Authenticate socket connections
 const authenticateSocket = (socket, next) => {
-    // Extract token from cookies (sent via withCredentials: true)
-    const cookies = socket.handshake.headers.cookie;
+    // 1. Try to get token from handshake auth (fallback for blocked cookies)
+    let token = socket.handshake.auth && socket.handshake.auth.token;
+    
+    if (token) {
+        logger.debug('Token extracted from handshake auth');
+    } else {
+        // 2. Try to get token from cookies
+        const cookies = socket.handshake.headers.cookie;
+        
+        logger.debug('Data socket authentication attempt', {
+            hasCookies: !!cookies,
+            socketId: socket.id
+        });
 
-    logger.debug('Data socket authentication attempt', {
-        hasCookies: !!cookies,
-        socketId: socket.id
-    });
-
-    if (!cookies) {
-        logger.error('No cookies provided for data socket');
-        return next(new Error('Authentication error: No cookies provided'));
+        if (cookies) {
+            const tokenMatch = cookies.match(/token=([^;]+)/);
+            token = tokenMatch ? tokenMatch[1] : null;
+            if (token) {
+                logger.debug('Token extracted from cookie');
+            }
+        }
     }
 
-    // Parse cookies to extract the token
-    // Assuming the cookie name is 'token' - adjust if different
-    const tokenMatch = cookies.match(/token=([^;]+)/);
-    const token = tokenMatch ? tokenMatch[1] : null;
-
     if (!token) {
-        logger.error('No auth token found in cookies');
-        return next(new Error('Authentication error: No token in cookies'));
+        logger.error('No auth token found in handshake auth or cookies');
+        return next(new Error('Authentication error: No token provided'));
     }
 
     try {

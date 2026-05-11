@@ -151,11 +151,15 @@ function AppRoutes() {
   useEffect(() => {
     // If the user lands on the site with auth success params from Google OAuth,
     // we trigger a re-check of authentication status.
-    // Token is now in HTTP-only cookie set by backend - NOT in URL
     const urlParams = new URLSearchParams(location.search);
     if (urlParams.has('auth') && urlParams.get('auth') === 'success') {
-      // Get role from URL (token is NOT in URL anymore - security fix)
       const roleFromUrl = urlParams.get('role');
+      const tokenFromUrl = urlParams.get('token');
+
+      // If token is in URL (fallback for blocked cookies), save it
+      if (tokenFromUrl) {
+        localStorage.setItem('token', tokenFromUrl);
+      }
 
       // Clean URL immediately (remove auth params)
       const cleanUrl = window.location.pathname;

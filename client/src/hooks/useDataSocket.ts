@@ -35,9 +35,12 @@ export const useDataSocket = (): UseDataSocketReturn => {
         console.log('[DATA-SOCKET] Initializing connection...');
 
         // Create socket connection to /data namespace
-        // Using cookie-based authentication (withCredentials: true)
-        // The server will read the auth token from the HttpOnly cookie
+        // Using token fallback in auth option if cookies are blocked
+        const token = localStorage.getItem('token');
         const newSocket = io(`${API_BASE_URL}/data`, {
+            auth: {
+                token: token
+            },
             withCredentials: true,  // Send cookies with the request
             transports: ['websocket', 'polling'],
             reconnection: true,
