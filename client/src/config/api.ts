@@ -14,11 +14,14 @@ export const API_BASE_URL = API_CONFIG.BASE_URL;
 export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
   const url = `${API_CONFIG.BASE_URL}${endpoint}`;
 
+  const token = localStorage.getItem('token');
+
   const config: RequestInit = {
     ...options,
     credentials: 'include', // Always include cookies
     headers: {
       'Content-Type': 'application/json',
+      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
       ...options.headers,
     },
   };

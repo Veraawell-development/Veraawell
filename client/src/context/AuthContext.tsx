@@ -37,10 +37,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [loading, setLoading] = useState<boolean>(false);
 
   const setAuthToken = useCallback((newToken: string) => {
-    // Token is now only stored in HTTP-only cookies by backend
-    // We keep it in state for WebSocket auth only (temporary)
     setToken(newToken);
-    // NO localStorage storage - security risk
+    localStorage.setItem('token', newToken);
   }, []);
 
   const checkAuth = useCallback(async () => {
@@ -53,12 +51,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         console.warn('[Auth] Cookies appear to be disabled in this browser.');
       }
 
-      // Use cookies only - no localStorage or Authorization header needed
-      // Backend will read token from HTTP-only cookie
+      const storedToken = localStorage.getItem('token');
+
+      // Use cookies and fallback to Authorization header
       const res = await fetch(`${API_BASE_URL}/protected`, {
         credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
+          ...(storedToken ? { 'Authorization': `Bearer ${storedToken}` } : {}),
         },
       });
 
@@ -70,6 +70,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           credentials: 'include',
           headers: {
             'Content-Type': 'application/json',
+            ...(storedToken ? { 'Authorization': `Bearer ${storedToken}` } : {}),
           },
         });
 
@@ -86,15 +87,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         });
 
         // Store token in state only for WebSocket auth (temporary)
-        // Token is already in HTTP-only cookie set by backend
         if (data.token) {
           setToken(data.token);
+          localStorage.setItem('token', data.token); // Update localStorage if backend returns a new one
         }
       } else {
         // User not authenticated
         setIsLoggedIn(false);
         setUser(null);
         setToken(null);
+        localStorage.removeItem('token'); // Clear if auth fails
       }
     } catch (error) {
       // Network error or server down
@@ -112,7 +114,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsLoggedIn(false);
     setUser(null);
     setToken(null);
-    // No localStorage to clear - using cookies only
+    localStorage.removeItem('token');
   }, []);
 
   return (

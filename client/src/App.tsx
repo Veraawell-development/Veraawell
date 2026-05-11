@@ -54,6 +54,29 @@ import AdminArticleEditorPage from './pages/AdminArticleEditorPage';
 import VideosPage from './pages/VideosPage';
 import NotFoundPage from './pages/NotFoundPage';
 
+interface ProtectedRouteProps {
+  children: React.ReactNode;
+  allowedRoles?: string[];
+}
+
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
+  const { isLoggedIn, user, loading } = useAuth();
+  const location = useLocation();
+
+  if (loading) {
+    return <LoadingScreen />;
+  }
+
+  if (!isLoggedIn) {
+    return <Navigate to="/" state={{ from: location }} replace />;
+  }
+
+  if (allowedRoles && user && !allowedRoles.includes(user.role)) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+};
 
 function AppRoutes() {
   const { isLoggedIn, user, checkAuth } = useAuth();
@@ -222,8 +245,8 @@ function AppRoutes() {
         <Route path="/services" element={<ServicesPage />} />
         <Route path="/doctor/:doctorId" element={<DoctorProfilePage />} />
         <Route path="/choose-professional" element={<ChooseProfessionalPage />} />
-        <Route path="/patient-dashboard" element={<PatientDashboard />} />
-        <Route path="/doctor-dashboard" element={<DoctorDashboard />} />
+        <Route path="/patient-dashboard" element={<ProtectedRoute allowedRoles={['patient']}><PatientDashboard /></ProtectedRoute>} />
+        <Route path="/doctor-dashboard" element={<ProtectedRoute allowedRoles={['doctor']}><DoctorDashboard /></ProtectedRoute>} />
         <Route path="/manage-calendar" element={<ManageCalendar />} />
         <Route path="/messages" element={<MessagesPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
