@@ -48,7 +48,8 @@ const DoctorSessionNotesPage: React.FC = () => {
         throw new Error('Failed to fetch notes');
       }
 
-      const allNotes = await response.json();
+      const data = await response.json();
+      const allNotes = data.notes || [];
       console.log(' Notes fetched:', allNotes.length);
 
       // Group notes by patient
@@ -69,19 +70,16 @@ const DoctorSessionNotesPage: React.FC = () => {
       });
 
       // Convert to array and format dates
-      const groupedNotes: PatientNote[] = Array.from(patientMap.entries()).map(([id, data]) => ({
+      const groupedNotes = Array.from(patientMap.entries()).map(([id, data]) => ({
         _id: id,
         patientName: data.patientName,
         lastDate: formatDate(data.lastDate),
+        rawDate: data.lastDate,
         patientId: data.patientId
       }));
 
       // Sort by last date (most recent first)
-      groupedNotes.sort((a, b) => {
-        const dateA = new Date(a.lastDate);
-        const dateB = new Date(b.lastDate);
-        return dateB.getTime() - dateA.getTime();
-      });
+      groupedNotes.sort((a: any, b: any) => b.rawDate.getTime() - a.rawDate.getTime());
 
       setNotes(groupedNotes);
     } catch (error) {

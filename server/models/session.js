@@ -97,7 +97,7 @@ const sessionSchema = new mongoose.Schema({
   },
   callStatus: {
     type: String,
-    enum: ['not-started', 'in-progress', 'completed', 'failed'],
+    enum: ['not-started', 'in-progress', 'completed', 'failed', 'paused'],
     default: 'not-started'
   },
   callMode: {

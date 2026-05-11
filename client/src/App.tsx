@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { AdminProvider } from './context/AdminContext';
+import { AdminProvider, useAdmin } from './context/AdminContext';
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import Navbar from './components/Navbar';
@@ -73,6 +73,21 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles 
 
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
     return <Navigate to="/" replace />;
+  }
+
+  return <>{children}</>;
+};
+
+const AdminProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { admin, loading } = useAdmin();
+  const location = useLocation();
+
+  if (loading) {
+    return <LoadingScreen />;
+  }
+
+  if (!admin) {
+    return <Navigate to="/admin-login" state={{ from: location }} replace />;
   }
 
   return <>{children}</>;
@@ -247,50 +262,50 @@ function AppRoutes() {
         <Route path="/about" element={<AboutPage />} />
         <Route path="/careers" element={<CareerPage />} />
         <Route path="/services" element={<ServicesPage />} />
-        <Route path="/doctor/:doctorId" element={<DoctorProfilePage />} />
-        <Route path="/choose-professional" element={<ChooseProfessionalPage />} />
+        <Route path="/doctor/:doctorId" element={<ProtectedRoute allowedRoles={['patient']}><DoctorProfilePage /></ProtectedRoute>} />
+        <Route path="/choose-professional" element={<ProtectedRoute allowedRoles={['patient']}><ChooseProfessionalPage /></ProtectedRoute>} />
         <Route path="/patient-dashboard" element={<ProtectedRoute allowedRoles={['patient']}><PatientDashboard /></ProtectedRoute>} />
         <Route path="/doctor-dashboard" element={<ProtectedRoute allowedRoles={['doctor']}><DoctorDashboard /></ProtectedRoute>} />
-        <Route path="/manage-calendar" element={<ManageCalendar />} />
-        <Route path="/messages" element={<MessagesPage />} />
+        <Route path="/manage-calendar" element={<ProtectedRoute allowedRoles={['doctor']}><ManageCalendar /></ProtectedRoute>} />
+        <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/admin-login" element={<AdminLoginPage />} />
         <Route path="/admin-signup" element={<AdminSignupPage />} />
-        <Route path="/super-admin-dashboard" element={<SuperAdminDashboard />} />
+        <Route path="/super-admin-dashboard" element={<AdminProtectedRoute><SuperAdminDashboard /></AdminProtectedRoute>} />
         <Route path="/partner" element={<PartnerPage />} />
         <Route path="/resources" element={<ResourcesPage />} />
         <Route path="/resources/articles" element={<ArticlesPage />} />
         <Route path="/resources/articles/:slug" element={<ArticleDetailPage />} />
         <Route path="/resources/videos" element={<VideosPage />} />
         <Route path="/faq" element={<FAQPage />} />
-        <Route path="/book-session/:doctorId" element={<BookSessionPage />} />
-        <Route path="/reports" element={<ReportsPage />} />
-        <Route path="/mental-health" element={<MentalHealthDashboard />} />
-        <Route path="/mental-health/:testType" element={<MentalHealthTestPage />} />
-        <Route path="/test-results/:id" element={<TestResultsPage />} />
-        <Route path="/my-tests" element={<MyTestsPage />} />
-        <Route path="/my-therapists" element={<MyTherapistPage />} />
-        <Route path="/video-call/:sessionId" element={<VideoCallRoom />} />
-        <Route path="/call-history" element={<CallHistoryPage />} />
-        <Route path="/pending-tasks" element={<PendingTasksPage />} />
-        <Route path="/my-journal" element={<MyJournalPage />} />
-        <Route path="/reports-recommendation" element={<ReportsRecommendationPage />} />
-        <Route path="/patient-details" element={<PatientDetailsPage />} />
-        <Route path="/doctor-reports" element={<DoctorReportsPage />} />
-        <Route path="/doctor-reports/:patientId" element={<DoctorReportsDetailPage />} />
-        <Route path="/doctor-tasks" element={<DoctorTasksPage />} />
-        <Route path="/doctor-tasks/:patientId" element={<DoctorTasksDetailPage />} />
-        <Route path="/doctor-session-notes" element={<DoctorSessionNotesPage />} />
-        <Route path="/doctor-session-notes/:patientId" element={<DoctorSessionNotesDetailPage />} />
-        <Route path="/profile-setup" element={<ProfileSetupPage />} />
-        <Route path="/patient-profile-setup" element={<PatientProfileSetupPage />} />
+        <Route path="/book-session/:doctorId" element={<ProtectedRoute allowedRoles={['patient']}><BookSessionPage /></ProtectedRoute>} />
+        <Route path="/reports" element={<ProtectedRoute allowedRoles={['patient']}><ReportsPage /></ProtectedRoute>} />
+        <Route path="/mental-health" element={<ProtectedRoute allowedRoles={['patient']}><MentalHealthDashboard /></ProtectedRoute>} />
+        <Route path="/mental-health/:testType" element={<ProtectedRoute allowedRoles={['patient']}><MentalHealthTestPage /></ProtectedRoute>} />
+        <Route path="/test-results/:id" element={<ProtectedRoute allowedRoles={['patient']}><TestResultsPage /></ProtectedRoute>} />
+        <Route path="/my-tests" element={<ProtectedRoute allowedRoles={['patient']}><MyTestsPage /></ProtectedRoute>} />
+        <Route path="/my-therapists" element={<ProtectedRoute allowedRoles={['patient']}><MyTherapistPage /></ProtectedRoute>} />
+        <Route path="/video-call/:sessionId" element={<ProtectedRoute><VideoCallRoom /></ProtectedRoute>} />
+        <Route path="/call-history" element={<ProtectedRoute allowedRoles={['patient', 'doctor']}><CallHistoryPage /></ProtectedRoute>} />
+        <Route path="/pending-tasks" element={<ProtectedRoute allowedRoles={['patient']}><PendingTasksPage /></ProtectedRoute>} />
+        <Route path="/my-journal" element={<ProtectedRoute allowedRoles={['patient']}><MyJournalPage /></ProtectedRoute>} />
+        <Route path="/reports-recommendation" element={<ProtectedRoute allowedRoles={['patient']}><ReportsRecommendationPage /></ProtectedRoute>} />
+        <Route path="/patient-details" element={<ProtectedRoute allowedRoles={['doctor']}><PatientDetailsPage /></ProtectedRoute>} />
+        <Route path="/doctor-reports" element={<ProtectedRoute allowedRoles={['doctor']}><DoctorReportsPage /></ProtectedRoute>} />
+        <Route path="/doctor-reports/:patientId" element={<ProtectedRoute allowedRoles={['doctor']}><DoctorReportsDetailPage /></ProtectedRoute>} />
+        <Route path="/doctor-tasks" element={<ProtectedRoute allowedRoles={['doctor']}><DoctorTasksPage /></ProtectedRoute>} />
+        <Route path="/doctor-tasks/:patientId" element={<ProtectedRoute allowedRoles={['doctor']}><DoctorTasksDetailPage /></ProtectedRoute>} />
+        <Route path="/doctor-session-notes" element={<ProtectedRoute allowedRoles={['doctor']}><DoctorSessionNotesPage /></ProtectedRoute>} />
+        <Route path="/doctor-session-notes/:patientId" element={<ProtectedRoute allowedRoles={['doctor']}><DoctorSessionNotesDetailPage /></ProtectedRoute>} />
+        <Route path="/profile-setup" element={<ProtectedRoute><ProfileSetupPage /></ProtectedRoute>} />
+        <Route path="/patient-profile-setup" element={<ProtectedRoute allowedRoles={['patient']}><PatientProfileSetupPage /></ProtectedRoute>} />
 
         {/* Admin Article Management Routes */}
         <Route path="/admin/articles" element={<Navigate to="/super-admin-dashboard" state={{ tab: 'articles' }} replace />} />
-        <Route path="/super-admin-dashboard/articles/new" element={<AdminArticleEditorPage />} />
-        <Route path="/super-admin-dashboard/articles/edit/:id" element={<AdminArticleEditorPage />} />
+        <Route path="/super-admin-dashboard/articles/new" element={<AdminProtectedRoute><AdminArticleEditorPage /></AdminProtectedRoute>} />
+        <Route path="/super-admin-dashboard/articles/edit/:id" element={<AdminProtectedRoute><AdminArticleEditorPage /></AdminProtectedRoute>} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </main>

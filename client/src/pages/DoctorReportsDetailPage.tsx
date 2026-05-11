@@ -49,10 +49,11 @@ const DoctorReportsDetailPage: React.FC = () => {
 
       if (!response.ok) throw new Error('Failed to fetch patient reports');
       const data = await response.json();
+      const reportsArray = data.reports || [];
 
-      setReports(data);
-      if (data.length > 0 && data[0].patientId) {
-        setPatientName(`${data[0].patientId.firstName} ${data[0].patientId.lastName}`);
+      setReports(reportsArray);
+      if (reportsArray.length > 0 && reportsArray[0].patientId) {
+        setPatientName(`${reportsArray[0].patientId.firstName} ${reportsArray[0].patientId.lastName}`);
       }
     } catch (error) {
       console.error('Error fetching patient reports:', error);
@@ -165,7 +166,42 @@ const DoctorReportsDetailPage: React.FC = () => {
 
                 <div className="mt-4 pl-16">
                   <div className="bg-gray-50 rounded-lg p-4 text-gray-600 text-sm border border-gray-100">
-                    <p className="whitespace-pre-wrap">{report.content}</p>
+                    {(() => {
+                      try {
+                        const parsed = JSON.parse(report.content);
+                        return (
+                          <div className="space-y-3">
+                            {parsed.mood && (
+                              <p><span className="font-semibold text-gray-700">Mood:</span> <span className="capitalize">{parsed.mood}</span></p>
+                            )}
+                            {parsed.progress && (
+                              <p><span className="font-semibold text-gray-700">Progress:</span> {parsed.progress}/10</p>
+                            )}
+                            {parsed.diagnosis && (
+                              <p><span className="font-semibold text-gray-700">Diagnosis:</span> {parsed.diagnosis}</p>
+                            )}
+                            {parsed.summary && (
+                              <p><span className="font-semibold text-gray-700">Summary:</span> {parsed.summary}</p>
+                            )}
+                            {parsed.recommendations && (
+                              <p><span className="font-semibold text-gray-700">Recommendations:</span> {parsed.recommendations}</p>
+                            )}
+                            {parsed.observations && Array.isArray(parsed.observations) && parsed.observations.length > 0 && (
+                              <div>
+                                <span className="font-semibold text-gray-700">Observations:</span>
+                                <ul className="list-disc list-inside ml-2 mt-1 space-y-0.5">
+                                  {parsed.observations.map((obs: string, idx: number) => (
+                                    <li key={idx}>{obs}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      } catch (e) {
+                        return <p className="whitespace-pre-wrap">{report.content}</p>;
+                      }
+                    })()}
                   </div>
                 </div>
               </div>

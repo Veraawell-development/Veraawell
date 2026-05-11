@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_CONFIG } from '../config/api';
+import { useAuth } from '../context/AuthContext';
 import BackToDashboard from '../components/BackToDashboard';
 
 interface Therapist {
@@ -25,6 +26,7 @@ interface Therapist {
 
 const MyTherapistPage: React.FC = () => {
     const navigate = useNavigate();
+    const { logout } = useAuth();
     const [sidebarOpen, setSidebarOpen] = useState(false);
     const [therapists, setTherapists] = useState<Therapist[]>([]);
     const [loading, setLoading] = useState(true);
@@ -62,9 +64,18 @@ const MyTherapistPage: React.FC = () => {
         <div className="min-h-screen" style={{ backgroundColor: '#E0EAEA' }}>
             {/* Sidebar */}
             {sidebarOpen && <div className="fixed inset-0 z-40" onClick={() => setSidebarOpen(false)} />}
-            <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`} style={{ backgroundColor: '#7DA9A8' }}>
-                <div className="h-full flex flex-col p-4 text-white font-serif">
-                    <div className="space-y-3">
+            <div className={`fixed left-0 top-0 h-screen w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`} style={{ backgroundColor: '#7DA9A8' }}>
+                <div className="h-full flex flex-col p-4 text-white font-sans">
+                    {/* Sidebar Header */}
+                    <div className="flex items-center justify-between mb-6 border-b border-white/20 pb-4">
+                        <h2 className="text-xl font-bold">Menu</h2>
+                        <button onClick={() => setSidebarOpen(false)} className="p-1 hover:bg-white/10 rounded-full">
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div className="space-y-3 flex-1">
                         <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors" onClick={() => navigate('/patient-dashboard')}>
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
@@ -84,6 +95,29 @@ const MyTherapistPage: React.FC = () => {
                             <span className="text-base font-medium">My Journal</span>
                         </div>
                     </div>
+                    {/* Bottom Menu Items */}
+                    <div className="mt-auto space-y-3">
+                        <div
+                            className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
+                            onClick={() => { navigate('/settings'); setSidebarOpen(false); }}
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                            <span className="text-base font-medium">Settings</span>
+                        </div>
+
+                        <div
+                            className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
+                            onClick={async () => { await logout(); window.location.href = '/'; }}
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                            </svg>
+                            <span className="text-base font-medium">Sign Out</span>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -95,7 +129,7 @@ const MyTherapistPage: React.FC = () => {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16"></path>
                         </svg>
                     </button>
-                    <h1 className="text-2xl font-bold text-white" style={{ fontFamily: 'Bree Serif, serif' }}>My Therapists</h1>
+                    <h1 className="text-2xl font-bold text-white">My Therapists</h1>
                     <div className="w-10"></div>
                 </div>
             </div>
@@ -153,7 +187,7 @@ const MyTherapistPage: React.FC = () => {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                             </svg>
                         </div>
-                        <h3 className="text-xl font-bold text-gray-900 mb-2" style={{ fontFamily: 'Bree Serif, serif' }}>
+                        <h3 className="text-xl font-bold text-gray-900 mb-2">
                             No therapists yet
                         </h3>
                         <p className="text-gray-500 mb-6 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -197,7 +231,7 @@ const MyTherapistPage: React.FC = () => {
                                     <div className="flex-1">
                                         <div className="flex items-start justify-between mb-3">
                                             <div>
-                                                <h3 className="text-2xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+                                                <h3 className="text-2xl font-bold text-gray-900">
                                                     Dr. {therapist.doctor.firstName} {therapist.doctor.lastName}
                                                 </h3>
                                                 <p className="text-sm text-gray-600 mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -215,7 +249,7 @@ const MyTherapistPage: React.FC = () => {
                                         {/* Stats */}
                                         <div className="grid grid-cols-3 gap-4 mb-4">
                                             <div className="text-center bg-gray-50 rounded-lg p-3">
-                                                <p className="text-2xl font-bold text-teal-600" style={{ fontFamily: 'Bree Serif, serif' }}>
+                                                <p className="text-2xl font-bold text-teal-600">
                                                     {therapist.totalSessions}
                                                 </p>
                                                 <p className="text-xs text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -223,7 +257,7 @@ const MyTherapistPage: React.FC = () => {
                                                 </p>
                                             </div>
                                             <div className="text-center bg-gray-50 rounded-lg p-3">
-                                                <p className="text-2xl font-bold text-green-600" style={{ fontFamily: 'Bree Serif, serif' }}>
+                                                <p className="text-2xl font-bold text-green-600">
                                                     {therapist.completedSessions}
                                                 </p>
                                                 <p className="text-xs text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -231,7 +265,7 @@ const MyTherapistPage: React.FC = () => {
                                                 </p>
                                             </div>
                                             <div className="text-center bg-gray-50 rounded-lg p-3">
-                                                <p className="text-2xl font-bold text-blue-600" style={{ fontFamily: 'Bree Serif, serif' }}>
+                                                <p className="text-2xl font-bold text-blue-600">
                                                     {therapist.upcomingSessions}
                                                 </p>
                                                 <p className="text-xs text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -265,7 +299,7 @@ const MyTherapistPage: React.FC = () => {
                                             <button
                                                 onClick={() => navigate(`/doctor/${therapist.doctor._id}`)}
                                                 className="flex-1 px-4 py-2 rounded-xl font-semibold bg-white border-2 border-teal-500 text-teal-600 hover:bg-teal-50 transition-all"
-                                                style={{ fontFamily: 'Bree Serif, serif' }}
+                                               
                                             >
                                                 View Profile
                                             </button>

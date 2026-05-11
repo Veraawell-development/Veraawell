@@ -218,7 +218,7 @@ const ChooseProfessionalPage: React.FC = () => {
         <div className="max-w-5xl mx-auto px-4 py-12 md:py-16">
           <BackToDashboard />
           <div className="text-center max-w-3xl mx-auto">
-            <h1 className="text-3xl md:text-4xl font-bold mb-4 text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+            <h1 className="text-3xl md:text-4xl font-bold mb-4 text-gray-900">
               Find Your Therapist
             </h1>
             <p className="text-base md:text-lg text-gray-600 leading-relaxed mb-8" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -242,12 +242,12 @@ const ChooseProfessionalPage: React.FC = () => {
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-6xl mx-auto px-4 py-6">
           <div className="flex justify-center">
-            <div className="inline-flex bg-gray-100 rounded-lg p-1 gap-1">
+            <div className="inline-flex bg-slate-100 rounded-full p-1 gap-1">
               <button
                 onClick={() => setViewMode('online')}
-                className={`px-8 py-2.5 rounded-md font-medium transition-all duration-200 ${viewMode === 'online'
-                  ? 'bg-teal-600 text-white shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
+                className={`px-8 py-2 rounded-full font-medium transition-all duration-200 ${viewMode === 'online'
+                  ? 'bg-white text-teal-600 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
                   }`}
                 style={{ fontFamily: 'Inter, sans-serif' }}
               >
@@ -255,9 +255,9 @@ const ChooseProfessionalPage: React.FC = () => {
               </button>
               <button
                 onClick={() => setViewMode('all')}
-                className={`px-8 py-2.5 rounded-md font-medium transition-all duration-200 ${viewMode === 'all'
-                  ? 'bg-teal-600 text-white shadow-sm'
-                  : 'text-gray-600 hover:text-gray-900'
+                className={`px-8 py-2 rounded-full font-medium transition-all duration-200 ${viewMode === 'all'
+                  ? 'bg-white text-teal-600 shadow-sm'
+                  : 'text-slate-600 hover:text-slate-900'
                   }`}
                 style={{ fontFamily: 'Inter, sans-serif' }}
               >
@@ -278,7 +278,7 @@ const ChooseProfessionalPage: React.FC = () => {
             {viewMode === 'online' && (
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
             )}
-            <h2 className="text-xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+            <h2 className="text-xl font-bold text-gray-900">
               {viewMode === 'online' ? 'Online Now' : 'All Professionals'}
             </h2>
           </div>
@@ -374,7 +374,7 @@ const ChooseProfessionalPage: React.FC = () => {
                       >
                         {doctor.firstName.charAt(0)}{doctor.lastName.charAt(0)}
                       </div>
-                      <h3 className="text-base font-bold mb-1 text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+                      <h3 className="text-base font-bold mb-1 text-gray-900">
                         Dr. {doctor.firstName} {doctor.lastName}
                       </h3>
                       <p className="text-xs text-gray-500 mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -429,16 +429,16 @@ const ChooseProfessionalPage: React.FC = () => {
             )}
           </div>
         ) : (
-          <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
-            <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="text-center py-16 bg-white rounded-2xl border border-slate-100 shadow-sm">
+            <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </div>
-            <p className="text-gray-600 text-sm mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+            <p className="text-slate-600 text-sm font-medium mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>
               {viewMode === 'online' ? 'No professionals online' : 'No professionals available'}
             </p>
-            <p className="text-gray-400 text-xs" style={{ fontFamily: 'Inter, sans-serif' }}>Please check back later</p>
+            <p className="text-slate-400 text-xs" style={{ fontFamily: 'Inter, sans-serif' }}>Please check back later</p>
           </div>
         )}
       </div>

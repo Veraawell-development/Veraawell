@@ -93,7 +93,7 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName 
             // 3. Connect Socket
             socketRef.current = io(`${SOCKET_URL}/chat`, {
                 auth: { token },
-                transports: ['websocket', 'polling'],
+                transports: ['websocket'],
                 withCredentials: true
             });
 
@@ -163,11 +163,11 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName 
     }
 
     return (
-        <div className="flex flex-col h-full bg-gray-900/30 rounded-xl overflow-hidden border border-gray-700/50">
+        <div className="flex flex-col h-full bg-transparent">
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
                 {messages.length === 0 ? (
-                    <div className="text-center text-gray-500 text-sm mt-10">
+                    <div className="text-center text-gray-400 text-sm mt-10">
                         <p>Start chatting with {targetUserName}</p>
                     </div>
                 ) : (
@@ -176,13 +176,13 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName 
                         return (
                             <div key={msg._id || idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                                 <div
-                                    className={`max-w-[85%] px-3 py-2 rounded-xl text-sm ${isMe
-                                        ? 'bg-teal-600 text-white rounded-br-none'
-                                        : 'bg-gray-700 text-gray-200 rounded-bl-none'
+                                    className={`max-w-[75%] px-4 py-3 rounded-2xl text-sm ${isMe
+                                        ? 'bg-teal-600 text-white rounded-br-none shadow-sm'
+                                        : 'bg-gray-100 text-gray-800 rounded-bl-none'
                                         }`}
                                 >
-                                    <p>{msg.text}</p>
-                                    <p className={`text-[10px] mt-1 text-right ${isMe ? 'text-teal-200' : 'text-gray-400'}`}>
+                                    <p className="leading-relaxed">{msg.text}</p>
+                                    <p className={`text-[10px] mt-1.5 text-right ${isMe ? 'text-teal-100' : 'text-gray-400'}`}>
                                         {msg.timestamp}
                                     </p>
                                 </div>
@@ -194,23 +194,23 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName 
             </div>
 
             {/* Input Area */}
-            <div className="p-3 bg-gray-800/80 border-t border-gray-700">
-                <div className="flex gap-2">
+            <div className="p-4 bg-white/95 backdrop-blur-sm border-t border-gray-100">
+                <div className="flex gap-3">
                     <input
                         type="text"
                         value={newMessage}
                         onChange={(e) => setNewMessage(e.target.value)}
                         onKeyPress={handleKeyPress}
                         placeholder="Type a message..."
-                        className="flex-1 bg-gray-900/50 border border-gray-600 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-teal-500 transition-colors"
+                        className="flex-1 bg-gray-50 border border-transparent rounded-full px-4 py-3 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:bg-white focus:border-teal-500/50 focus:ring-4 focus:ring-teal-500/5 transition-all"
                     />
                     <button
                         onClick={handleSendMessage}
                         disabled={!newMessage.trim()}
-                        className="bg-teal-600 hover:bg-teal-500 disabled:opacity-50 disabled:cursor-not-allowed text-white p-2 rounded-lg transition-colors"
+                        className="bg-teal-600 hover:bg-teal-700 disabled:opacity-30 disabled:cursor-not-allowed text-white w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-sm hover:shadow"
                     >
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                        <svg className="w-5 h-5 transform rotate-45 -translate-x-0.5 translate-y-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
                         </svg>
                     </button>
                 </div>

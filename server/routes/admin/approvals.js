@@ -471,6 +471,38 @@ router.get('/analytics', verifyAdminToken, async (req, res) => {
   }
 });
 
+// Remove doctor (Super Admin only)
+router.delete('/doctors/:doctorId', verifyAdminToken, verifySuperAdmin, async (req, res) => {
+  try {
+    const { doctorId } = req.params;
+
+    const doctor = await User.findById(doctorId);
+
+    if (!doctor) {
+      return res.status(404).json({ message: 'Doctor not found' });
+    }
+
+    if (doctor.role !== 'doctor') {
+      return res.status(400).json({ message: 'User is not a doctor' });
+    }
+
+    // Delete doctor and their profile if exists
+    await User.findByIdAndDelete(doctorId);
+    await DoctorProfile.findOneAndDelete({ userId: doctorId });
+
+    res.json({
+      message: 'Doctor removed successfully',
+      removedDoctor: {
+        id: doctor._id,
+        name: `${doctor.firstName} ${doctor.lastName}`
+      }
+    });
+  } catch (error) {
+    console.error('Error removing doctor:', error);
+    res.status(500).json({ message: 'Failed to remove doctor' });
+  }
+});
+
 // Remove admin (Super Admin only)
 router.delete('/admins/:adminId', verifyAdminToken, verifySuperAdmin, async (req, res) => {
   try {

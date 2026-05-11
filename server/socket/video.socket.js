@@ -76,19 +76,32 @@ module.exports = (io) => {
               const session = await Session.findById(socket.roomId);
               if (session && session.callStatus === 'in-progress') {
                 session.callEndTime = new Date();
-                session.callStatus = 'completed';
-                // Calculate actual duration in minutes (minimum 1 minute)
+                
+                // Calculate used minutes in this segment
+                let usedMinutes = 0;
                 if (session.callStartTime) {
                   const durationMs = session.callEndTime - session.callStartTime;
-                  session.actualDuration = Math.max(1, Math.round(durationMs / 60000));
-                } else {
-                  session.actualDuration = 1; // Default to 1 minute if no start time
+                  usedMinutes = Math.max(1, Math.round(durationMs / 60000));
                 }
-                session.status = 'completed';
+                
+                // Accumulate duration
+                session.actualDuration = (session.actualDuration || 0) + usedMinutes;
+                
+                // Check if session is actually completed (time is up)
+                if (session.actualDuration >= session.duration) {
+                  session.callStatus = 'completed';
+                  session.status = 'completed';
+                } else {
+                  session.callStatus = 'paused';
+                  // Keep status as 'scheduled' so they can rejoin!
+                  session.status = 'scheduled';
+                }
+                
                 await session.save();
-                log.info('Call ended and tracked', { 
+                log.info('Call paused or completed', { 
                   sessionId: socket.roomId.substring(0, 8),
-                  duration: session.actualDuration
+                  duration: session.actualDuration,
+                  status: session.status
                 });
               }
             } catch (error) {
@@ -122,13 +135,13 @@ module.exports = (io) => {
           return socket.emit('error', { message: 'Session not found' });
         }
 
-        // Update call tracking - mark call as started
+        // Update call tracking - mark call as started or resumed
         // Handle undefined/null callStatus from old sessions
-        if (!session.callStatus || session.callStatus === 'not-started') {
+        if (!session.callStatus || session.callStatus === 'not-started' || session.callStatus === 'paused') {
           session.callStatus = 'in-progress';
           session.callStartTime = new Date();
           await session.save();
-          log.info('Call started', { sessionId: sessionId.substring(0, 8) });
+          log.info('Call started or resumed', { sessionId: sessionId.substring(0, 8) });
         }
 
         // Verify user authorization
@@ -229,6 +242,21 @@ module.exports = (io) => {
     });
 
     // WebRTC Signaling: Send offer
+    socket.on('request-end-session', ({ sessionId, requestedByRole }) => {
+      console.log('[VIDEO-SOCKET] Request end session', { sessionId, requestedByRole });
+      socket.to(sessionId).emit('request-end-session', { requestedByRole });
+    });
+
+    socket.on('confirm-end-session', ({ sessionId, agree, confirmedByRole }) => {
+      console.log('[VIDEO-SOCKET] Confirm end session', { sessionId, agree, confirmedByRole });
+      socket.to(sessionId).emit('confirm-end-session', { agree, confirmedByRole });
+    });
+
+    socket.on('patient-ready', ({ sessionId }) => {
+      log.info('Patient ready signal received', { sessionId: sessionId.substring(0, 8) });
+      socket.to(sessionId).emit('patient-ready');
+    });
+
     socket.on('offer', ({ sessionId, offer, targetUserId }) => {
       log.info('Offer received', {
         sessionId: sessionId.substring(0, 8),

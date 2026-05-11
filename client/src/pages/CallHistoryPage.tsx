@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FiPhone, FiDownload } from 'react-icons/fi';
+import { FiPhone } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import BackToDashboard from '../components/BackToDashboard';
 
@@ -88,108 +88,86 @@ const CallHistoryPage: React.FC = () => {
     return 'text-green-600';
   };
 
-  const handleDownloadReceipt = (callId: string) => {
-    // TODO: Implement receipt download functionality
-    console.log('Downloading receipt for call:', callId);
-    alert('Receipt download functionality will be implemented soon!');
-  };
+
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#E0EAEA' }}>
+      <div className="min-h-screen flex items-center justify-center bg-[#F9FAFB] font-sans">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-purple-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600 font-serif">Loading call history...</p>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#7DA9A8] mx-auto"></div>
+          <p className="mt-4 text-gray-500 text-sm">Loading call history...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#E0EAEA' }}>
+    <div className="min-h-screen bg-[#F9FAFB] font-sans">
       {/* Header */}
-      <div style={{ backgroundColor: '#ABA5D1' }}>
-        <div className="px-6 py-4 flex items-center justify-center relative">
+      <div className="bg-white border-b border-gray-100">
+        <div className="px-6 py-4 flex items-center justify-between max-w-4xl mx-auto">
           <button
             onClick={() => navigate(-1)}
-            className="absolute left-6 text-white hover:text-gray-200"
+            className="text-gray-500 hover:text-gray-700 transition-colors"
           >
-            <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
           </button>
-          <h1 className="text-3xl font-bold text-white" style={{ fontFamily: 'Bree Serif, serif' }}>Call History</h1>
+          <h1 className="text-xl font-bold text-gray-800">Call History</h1>
+          <div className="w-6"></div> {/* Spacer for centering */}
         </div>
       </div>
 
       {/* Content */}
       <div className="px-6 py-8 max-w-4xl mx-auto">
         <BackToDashboard />
+        
         {error && (
-          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded-lg mb-6">
+          <div className="bg-red-50 border border-red-100 text-red-600 px-4 py-3 rounded-lg text-sm mb-6">
             {error}
           </div>
         )}
 
         {callHistory.length === 0 ? (
           <div className="text-center py-16">
-            <FiPhone className="mx-auto text-6xl text-gray-400 mb-4" />
-            <p className="text-xl text-gray-600" style={{ fontFamily: 'Bree Serif, serif' }}>No call history yet</p>
-            <p className="text-gray-500 mt-2" style={{ fontFamily: 'Bree Serif, serif' }}>Your completed and cancelled sessions will appear here</p>
+            <FiPhone className="mx-auto text-5xl text-gray-300 mb-4" />
+            <p className="text-lg font-semibold text-gray-600">No call history yet</p>
+            <p className="text-sm text-gray-500 mt-1">Your completed and cancelled sessions will appear here</p>
           </div>
         ) : (
-          <div className="space-y-5">
+          <div className="space-y-4">
             {callHistory.map((call) => (
               <div
                 key={call._id}
-                className="bg-white rounded-2xl shadow-lg p-6 hover:shadow-xl transition-shadow"
+                className="bg-white rounded-xl border border-gray-100 p-6 hover:shadow-sm transition-shadow"
               >
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   {/* Left Column */}
-                  <div className="space-y-2">
+                  <div className="grid grid-cols-3 md:grid-cols-1 gap-2 md:gap-1 text-sm">
                     <div>
-                      <p className="text-base font-bold" style={{ fontFamily: 'Bree Serif, serif', color: '#000000' }}>
-                        Name: <span className="font-semibold">{call.name}</span>
-                      </p>
+                      <p className="text-xs text-gray-400">Name</p>
+                      <p className="font-semibold text-gray-800">{call.name}</p>
                     </div>
                     <div>
-                      <p className="text-base font-bold" style={{ fontFamily: 'Bree Serif, serif', color: '#000000' }}>
-                        Date: <span className="font-semibold">{formatDate(call.date)}</span>
-                      </p>
+                      <p className="text-xs text-gray-400">Date</p>
+                      <p className="font-medium text-gray-700">{formatDate(call.date)}</p>
                     </div>
                     <div>
-                      <p className="text-base font-bold" style={{ fontFamily: 'Bree Serif, serif', color: '#000000' }}>
-                        Mode: <span className={`font-semibold ${getModeColor(call.mode)}`}>{call.mode}</span>
-                      </p>
+                      <p className="text-xs text-gray-400">Mode</p>
+                      <p className={`font-medium ${getModeColor(call.mode)}`}>{call.mode}</p>
                     </div>
                   </div>
 
                   {/* Right Column */}
-                  <div className="space-y-2 md:text-right">
+                  <div className="grid grid-cols-2 md:grid-cols-1 gap-2 md:gap-1 text-sm md:text-right">
                     <div>
-                      <p className="text-base font-bold" style={{ fontFamily: 'Bree Serif, serif', color: '#000000' }}>
-                        Duration: <span className="font-semibold">{call.duration} minutes</span>
-                      </p>
+                      <p className="text-xs text-gray-400">Duration</p>
+                      <p className="font-medium text-gray-700">{call.duration} minutes</p>
                     </div>
                     <div>
-                      <p className="text-base font-bold" style={{ fontFamily: 'Bree Serif, serif', color: '#000000' }}>
-                        Payment Amount: <span className="font-semibold">Rs.{call.paymentAmount}</span>
-                      </p>
-                    </div>
-                    <div className="mt-3">
-                      <button
-                        onClick={() => handleDownloadReceipt(call._id)}
-                        className="inline-flex items-center gap-2 px-6 py-2 rounded-full font-bold text-base transition-all shadow-md hover:shadow-lg"
-                        style={{
-                          backgroundColor: '#FFFFFF',
-                          color: '#000000',
-                          fontFamily: 'Bree Serif, serif',
-                          border: '2px solid #E0E0E0'
-                        }}
-                      >
-                        <FiDownload className="text-lg" />
-                        Download Receipt
-                      </button>
+                      <p className="text-xs text-gray-400">Payment Amount</p>
+                      <p className="font-semibold text-gray-800">Rs.{call.paymentAmount}</p>
                     </div>
                   </div>
                 </div>

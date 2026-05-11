@@ -222,29 +222,49 @@ router.post('/login', async (req, res) => {
     }
 
     // Find admin
+    console.log('[ADMIN LOGIN] Attempting login for email:', email.toLowerCase());
     const admin = await User.findOne({ email: email.toLowerCase(), role: { $in: ['admin', 'super_admin'] } });
+    
     if (!admin) {
-      return res.status(401).json({ message: 'Invalid credentials' });
+      console.log('[ADMIN LOGIN] Admin not found with email:', email.toLowerCase());
+      
+      // Check if user exists with a different role to give better feedback
+      const anyUser = await User.findOne({ email: email.toLowerCase() });
+      if (anyUser) {
+        console.log('[ADMIN LOGIN] User found with a different role:', anyUser.role);
+        return res.status(403).json({ message: `Account found but it is registered as a ${anyUser.role}, not an admin.` });
+      }
+      
+      return res.status(404).json({ message: 'Account not found. Please register as an admin first.' });
     }
 
-    // Check password
-    const isMatch = await admin.comparePassword(password);
-    if (!isMatch) {
-      return res.status(401).json({ message: 'Invalid credentials' });
-    }
-
-    // Check if admin is active
-    if (admin.status !== 'active') {
-      return res.status(403).json({ message: 'Account is suspended' });
-    }
+    console.log('[ADMIN LOGIN] Admin found. Role:', admin.role, 'Approval status:', admin.approvalStatus);
 
     // Check if admin is approved (only for regular admins, not super_admin)
+    // We check this BEFORE password to give better feedback to pending admins as requested
     if (admin.role === 'admin' && admin.approvalStatus !== 'approved') {
+      console.log('[ADMIN LOGIN] Admin not approved. Status:', admin.approvalStatus);
       if (admin.approvalStatus === 'pending') {
         return res.status(403).json({ message: 'Your account is pending approval. Please wait for super admin to approve your request.' });
       } else if (admin.approvalStatus === 'rejected') {
         return res.status(403).json({ message: 'Your account has been rejected. Reason: ' + (admin.rejectionReason || 'No reason provided') });
       }
+    }
+
+    // Check password
+    console.log('[ADMIN LOGIN] Checking password for email:', email.toLowerCase());
+    const isMatch = await admin.comparePassword(password);
+    if (!isMatch) {
+      console.log('[ADMIN LOGIN] Password mismatch for email:', email.toLowerCase());
+      return res.status(401).json({ message: 'Invalid password' });
+    }
+
+    console.log('[ADMIN LOGIN] Password match successful');
+
+    // Check if admin is active
+    if (admin.status !== 'active') {
+      console.log('[ADMIN LOGIN] Account suspended for email:', email.toLowerCase());
+      return res.status(403).json({ message: 'Account is suspended' });
     }
 
     // Create token

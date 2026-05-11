@@ -18,7 +18,7 @@ const PendingTasksPage: React.FC = () => {
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { showSuccess, showError } = useToast();
 
   useEffect(() => {
@@ -104,10 +104,19 @@ const PendingTasksPage: React.FC = () => {
       )}
 
       {/* Sidebar */}
-      <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+      <div className={`fixed left-0 top-0 h-screen w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`} style={{ backgroundColor: '#7DA9A8' }}>
-        <div className="h-full flex flex-col p-4 text-white font-serif">
-          <div className="space-y-3 mb-6">
+        <div className="h-full flex flex-col p-4 text-white font-sans">
+          {/* Sidebar Header */}
+          <div className="flex items-center justify-between mb-6 border-b border-white/20 pb-4">
+            <h2 className="text-xl font-bold">Menu</h2>
+            <button onClick={() => setSidebarOpen(false)} className="p-1 hover:bg-white/10 rounded-full">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div className="space-y-3 flex-1">
             <div
               className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
               onClick={() => { navigate('/patient-dashboard'); setSidebarOpen(false); }}
@@ -148,6 +157,29 @@ const PendingTasksPage: React.FC = () => {
               <span className="text-base font-medium">My Journal</span>
             </div>
           </div>
+          {/* Bottom Menu Items */}
+          <div className="mt-auto space-y-3">
+            <div
+              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
+              onClick={() => { navigate('/settings'); setSidebarOpen(false); }}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              <span className="text-base font-medium">Settings</span>
+            </div>
+
+            <div
+              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
+              onClick={async () => { await logout(); window.location.href = '/'; }}
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+              </svg>
+              <span className="text-base font-medium">Sign Out</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -160,7 +192,7 @@ const PendingTasksPage: React.FC = () => {
           >
             <FiMenu className="w-6 h-6" />
           </button>
-          <h1 className="text-2xl font-bold text-white" style={{ fontFamily: 'Bree Serif, serif' }}>Pending Tasks</h1>
+          <h1 className="text-2xl font-bold text-white">Pending Tasks</h1>
           <div className="w-10"></div>
         </div>
       </div>
@@ -172,13 +204,13 @@ const PendingTasksPage: React.FC = () => {
           <table className="w-full">
             <thead>
               <tr className="bg-white border-b-2 border-gray-900">
-                <th className="py-4 px-6 text-center text-xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+                <th className="py-4 px-6 text-center text-xl font-bold text-gray-900">
                   DATE
                 </th>
-                <th className="py-4 px-6 text-center text-xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+                <th className="py-4 px-6 text-center text-xl font-bold text-gray-900">
                   PSYCHOLOGIST
                 </th>
-                <th className="py-4 px-6 text-center text-xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+                <th className="py-4 px-6 text-center text-xl font-bold text-gray-900">
                   DOWNLOADS
                 </th>
               </tr>
@@ -198,17 +230,17 @@ const PendingTasksPage: React.FC = () => {
                       key={task._id}
                       className="border-b border-gray-900"
                     >
-                      <td className="py-4 px-6 text-center text-base font-medium text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+                      <td className="py-4 px-6 text-center text-base font-medium text-gray-900">
                         {formatDate(task.dueDate)}
                       </td>
-                      <td className="py-4 px-6 text-center text-base font-medium text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+                      <td className="py-4 px-6 text-center text-base font-medium text-gray-900">
                         Dr. {task.doctorId.firstName} {task.doctorId.lastName}
                       </td>
                       <td className="py-4 px-6 text-center flex gap-2 justify-center">
                         <button
                           onClick={() => handleMarkComplete(task._id)}
                           className="inline-flex items-center gap-2 px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700 transition-colors text-sm"
-                          style={{ fontFamily: 'Bree Serif, serif' }}
+                         
                         >
                           <FiCheck className="w-4 h-4" />
                           Complete
@@ -216,7 +248,7 @@ const PendingTasksPage: React.FC = () => {
                         <button
                           onClick={() => handleView(task)}
                           className="inline-flex items-center gap-2 text-base font-semibold text-gray-900 hover:opacity-70 transition-opacity underline mr-2"
-                          style={{ fontFamily: 'Bree Serif, serif' }}
+                         
                         >
                           View
                           <FiEye className="w-5 h-5" />
@@ -224,7 +256,7 @@ const PendingTasksPage: React.FC = () => {
                         <button
                           onClick={() => handleDownload(task)}
                           className="inline-flex items-center gap-2 text-base font-semibold text-gray-900 hover:opacity-70 transition-opacity underline"
-                          style={{ fontFamily: 'Bree Serif, serif' }}
+                         
                         >
                           Download
                           <FiDownload className="w-5 h-5" />

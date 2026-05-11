@@ -94,28 +94,32 @@ async function registerUser(userData) {
     resetTokenExpiry: null
   };
 
-  // Add doctor-specific fields if role is doctor
-  if (role === 'doctor') {
+  // Add doctor or admin specific fields and set pending status
+  if (role === 'doctor' || role === 'admin') {
     newUserData.approvalStatus = 'pending';
-    if (documents && Array.isArray(documents)) {
-      newUserData.documents = documents;
+    if (role === 'doctor') {
+      if (documents && Array.isArray(documents)) {
+        newUserData.documents = documents;
+      }
+      if (specialization) {
+        newUserData.specialization = specialization;
+      }
+      if (licenseNumber) {
+        newUserData.licenseNumber = licenseNumber.trim();
+      }
+      if (jobRole) {
+        newUserData.jobRole = jobRole.trim();
+      }
+      if (professionalMessage) {
+        newUserData.professionalMessage = professionalMessage.trim();
+      }
+      if (heardAboutUs) {
+        newUserData.heardAboutUs = heardAboutUs;
+      }
+      logger.info('Doctor registration - setting approvalStatus to pending');
+    } else {
+      logger.info('Admin registration - setting approvalStatus to pending');
     }
-    if (specialization) {
-      newUserData.specialization = specialization;
-    }
-    if (licenseNumber) {
-      newUserData.licenseNumber = licenseNumber.trim();
-    }
-    if (jobRole) {
-      newUserData.jobRole = jobRole.trim();
-    }
-    if (professionalMessage) {
-      newUserData.professionalMessage = professionalMessage.trim();
-    }
-    if (heardAboutUs) {
-      newUserData.heardAboutUs = heardAboutUs;
-    }
-    logger.info('Doctor registration - setting approvalStatus to pending');
   } else {
     newUserData.approvalStatus = 'approved';
   }
@@ -145,7 +149,7 @@ async function authenticateUser(username, password, requestedRole = null) {
   });
 
   if (!user) {
-    throw new AuthenticationError('Invalid credentials');
+    throw new AuthenticationError('User not found. Please sign up first.');
   }
 
   // Check if Google user trying to login with password

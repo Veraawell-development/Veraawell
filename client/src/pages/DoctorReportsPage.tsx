@@ -48,42 +48,31 @@ const DoctorReportsPage: React.FC = () => {
         throw new Error('Failed to fetch reports');
       }
 
-      const allReports = await response.json();
+      const data = await response.json();
+      const allReports = data.reports || [];
       console.log(' Reports fetched:', allReports.length);
 
-      // Group reports by patient
-      const patientMap = new Map<string, { patientName: string; lastDate: Date; patientId: string }>();
-
-      allReports.forEach((report: any) => {
+      // Flatten reports list (Do not group by patient)
+      const formattedReports = allReports.map((report: any) => {
         const patientId = report.patientId?._id || report.patientId;
         const patientName = `${report.patientId?.firstName || ''} ${report.patientId?.lastName || ''}`.trim();
         const reportDate = new Date(report.createdAt);
 
-        if (!patientMap.has(patientId) || reportDate > patientMap.get(patientId)!.lastDate) {
-          patientMap.set(patientId, {
-            patientName: patientName || 'Unknown Patient',
-            lastDate: reportDate,
-            patientId
-          });
-        }
+        return {
+          _id: report._id,
+          patientName: patientName || 'Unknown Patient',
+          lastDate: formatDate(reportDate),
+          rawDate: reportDate,
+          patientId,
+          title: report.title || 'Untitled Report',
+          reportType: report.reportType
+        };
       });
 
-      // Convert to array and format dates
-      const groupedReports: PatientReport[] = Array.from(patientMap.entries()).map(([id, data]) => ({
-        _id: id,
-        patientName: data.patientName,
-        lastDate: formatDate(data.lastDate),
-        patientId: data.patientId
-      }));
+      // Sort by date (most recent first)
+      formattedReports.sort((a: any, b: any) => b.rawDate.getTime() - a.rawDate.getTime());
 
-      // Sort by last date (most recent first)
-      groupedReports.sort((a, b) => {
-        const dateA = new Date(a.lastDate);
-        const dateB = new Date(b.lastDate);
-        return dateB.getTime() - dateA.getTime();
-      });
-
-      setReports(groupedReports);
+      setReports(formattedReports);
     } catch (error) {
       console.error('Error fetching reports:', error);
     } finally {
@@ -173,35 +162,42 @@ const DoctorReportsPage: React.FC = () => {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
             {/* Table Header */}
             <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-teal-50/50 border-b border-teal-100 text-teal-900 font-bold text-sm uppercase tracking-wider">
-              <div className="col-span-5 md:col-span-4 pl-4">Patient Name</div>
-              <div className="col-span-4 md:col-span-4 text-center">Last Report</div>
-              <div className="col-span-3 md:col-span-4 text-center">Action</div>
+              <div className="col-span-3 pl-4">Patient Name</div>
+              <div className="col-span-4">Report Title</div>
+              <div className="col-span-3 text-center">Date</div>
+              <div className="col-span-2 text-center">Action</div>
             </div>
 
             {/* Table Body */}
             <div className="divide-y divide-gray-100">
-              {reports.map((report) => (
+              {reports.map((report: any) => (
                 <div
                   key={report._id}
                   className="grid grid-cols-12 gap-4 px-6 py-5 items-center hover:bg-gray-50 transition-colors group"
                 >
-                  <div className="col-span-5 md:col-span-4 pl-4">
-                    <span className="font-bold text-gray-800 text-lg group-hover:text-teal-700 transition-colors" style={{ fontFamily: 'Bree Serif, serif' }}>
+                  <div className="col-span-3 pl-4">
+                    <span className="font-bold text-gray-800 text-base group-hover:text-teal-700 transition-colors" style={{ fontFamily: 'Bree Serif, serif' }}>
                       {report.patientName}
                     </span>
                   </div>
-                  <div className="col-span-4 md:col-span-4 text-center">
+                  <div className="col-span-4">
+                    <span className="text-gray-700 font-medium">{report.title}</span>
+                    <span className="ml-2 px-2 py-0.5 bg-gray-100 text-gray-600 text-xs font-bold uppercase rounded-full">
+                      {report.reportType}
+                    </span>
+                  </div>
+                  <div className="col-span-3 text-center">
                     <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-600">
                       {report.lastDate}
                     </span>
                   </div>
-                  <div className="col-span-3 md:col-span-4 flex justify-center">
+                  <div className="col-span-2 flex justify-center">
                     <button
                       onClick={() => navigate(`/doctor-reports/${report.patientId}`)}
                       className="flex items-center gap-2 text-teal-600 font-bold hover:text-teal-800 hover:underline decoration-2 underline-offset-4 transition-all"
                       style={{ fontFamily: 'Bree Serif, serif' }}
                     >
-                      <span className="hidden md:inline">View Details</span>
+                      <span className="hidden md:inline">View All</span>
                       <span className="md:hidden">View</span>
                       <FiDownload className="w-4 h-4" />
                     </button>

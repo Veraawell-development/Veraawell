@@ -42,7 +42,7 @@ export const useDataSocket = (): UseDataSocketReturn => {
                 token: token
             },
             withCredentials: true,  // Send cookies with the request
-            transports: ['websocket', 'polling'],
+            transports: ['websocket'],
             reconnection: true,
             reconnectionDelay: 1000,
             reconnectionDelayMax: 5000,

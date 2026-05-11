@@ -52,10 +52,11 @@ const DoctorSessionNotesDetailPage: React.FC = () => {
 
       if (!response.ok) throw new Error('Failed to fetch patient notes');
       const data = await response.json();
+      const notesArray = data.notes || [];
 
-      setNotes(data);
-      if (data.length > 0 && data[0].patientId) {
-        setPatientName(`${data[0].patientId.firstName} ${data[0].patientId.lastName}`);
+      setNotes(notesArray);
+      if (notesArray.length > 0 && notesArray[0].patientId) {
+        setPatientName(`${notesArray[0].patientId.firstName} ${notesArray[0].patientId.lastName}`);
       }
     } catch (error) {
       console.error('Error fetching patient notes:', error);

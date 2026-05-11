@@ -54,6 +54,11 @@ const AdminSignupPage: React.FC = () => {
 
       if (!response.ok) {
         const data = await response.json();
+        // If there are specific validation errors, join them into a readable message
+        if (data.errors) {
+          const errorList = Object.values(data.errors);
+          throw new Error(errorList.join('. ') + '.');
+        }
         throw new Error(data.message || 'Signup failed');
       }
 

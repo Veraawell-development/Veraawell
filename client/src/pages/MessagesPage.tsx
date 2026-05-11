@@ -33,7 +33,6 @@ const MessagesPage: React.FC = () => {
   const [newMessage, setNewMessage] = useState('');
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
-  const [syncing, setSyncing] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -87,7 +86,7 @@ const MessagesPage: React.FC = () => {
     // Initialize socket connection to /chat namespace
     socketRef.current = io(`${SOCKET_URL}/chat`, {
       auth: { token }, // Use token directly from context
-      transports: ['websocket', 'polling'],
+      transports: ['websocket'],
       withCredentials: true,
       reconnection: true,
       reconnectionAttempts: 5,
@@ -245,43 +244,14 @@ const MessagesPage: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Sync conversations from existing sessions
-  const handleSyncConversations = async () => {
-    try {
-      setSyncing(true);
-      console.log('Syncing conversations...');
 
-      const response = await fetch(`${API_BASE_URL}/sessions/sync-conversations`, {
-        method: 'POST',
-        credentials: 'include'
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Sync result:', data);
-        alert(`Sync completed!\n\nConversations created: ${data.stats.conversationsCreated}\nAlready existing: ${data.stats.conversationsExisting}\nTotal sessions: ${data.stats.totalSessions}`);
-
-        // Refresh conversations list
-        await fetchConversations();
-      } else {
-        const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-        console.error('Sync failed:', errorData);
-        alert(`Sync failed: ${errorData.message || 'Unknown error'}`);
-      }
-    } catch (error) {
-      console.error('Error syncing conversations:', error);
-      alert('Error syncing conversations. Check console for details.');
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#E0EAEA' }}>
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-green-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600" style={{ fontFamily: 'Bree Serif, serif' }}>Loading messages...</p>
+          <p className="mt-4 text-gray-600">Loading messages...</p>
         </div>
       </div>
     );
@@ -300,18 +270,11 @@ const MessagesPage: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
           </button>
-          <h1 className="text-2xl font-bold text-slate-900" style={{ fontFamily: 'Bree Serif, serif' }}>Messages</h1>
+          <h1 className="text-2xl font-bold text-slate-900">Messages</h1>
         </div>
         
         <div className="flex items-center gap-3">
-          <button
-            onClick={handleSyncConversations}
-            disabled={syncing}
-            className="text-sm text-cyan-600 hover:text-cyan-700 font-semibold transition-colors disabled:opacity-50"
-            style={{ fontFamily: 'Inter, sans-serif' }}
-          >
-            {syncing ? 'Syncing...' : 'Sync Sessions'}
-          </button>
+
           <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-400 to-teal-500 flex items-center justify-center text-white font-bold text-sm">
             {user?.firstName?.charAt(0) || user?.username?.charAt(0) || 'U'}
           </div>
@@ -367,7 +330,7 @@ const MessagesPage: React.FC = () => {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-0.5">
-                      <h3 className="font-bold text-sm text-slate-900 truncate" style={{ fontFamily: 'Bree Serif, serif' }}>
+                      <h3 className="font-bold text-sm text-slate-900 truncate">
                         {conversation.userName}
                       </h3>
                       <span className="text-xs text-slate-400" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -399,7 +362,7 @@ const MessagesPage: React.FC = () => {
                 {selectedConversation.userName.charAt(0)}
               </div>
               <div className="flex-1">
-                <h3 className="font-bold text-base text-slate-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+                <h3 className="font-bold text-base text-slate-900">
                   {selectedConversation.userName}
                 </h3>
                 <p className="text-xs text-slate-500" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -413,7 +376,7 @@ const MessagesPage: React.FC = () => {
               {messages.length === 0 ? (
                 <div className="flex items-center justify-center h-full">
                   <div className="text-center p-6 bg-white rounded-2xl shadow-sm border border-slate-100 max-w-sm">
-                    <p className="text-slate-800 font-bold mb-1" style={{ fontFamily: 'Bree Serif, serif' }}>
+                    <p className="text-slate-800 font-bold mb-1">
                       No messages yet
                     </p>
                     <p className="text-slate-500 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>Send a message to start the conversation!</p>
@@ -477,7 +440,7 @@ const MessagesPage: React.FC = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
                 </svg>
               </div>
-              <h2 className="text-2xl font-bold text-slate-800 mb-2" style={{ fontFamily: 'Bree Serif, serif' }}>
+              <h2 className="text-2xl font-bold text-slate-800 mb-2">
                 Welcome to Messages
               </h2>
               <p className="text-slate-500 text-sm leading-relaxed" style={{ fontFamily: 'Inter, sans-serif' }}>

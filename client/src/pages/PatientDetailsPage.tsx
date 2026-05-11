@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { FiMenu } from 'react-icons/fi';
 import BackToDashboard from '../components/BackToDashboard';
+import DoctorSidebar from '../components/DoctorSidebar';
 
 interface Patient {
   _id: string;
@@ -16,7 +16,6 @@ const PatientDetailsPage: React.FC = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const navigate = useNavigate();
 
   const API_BASE_URL = window.location.hostname === 'localhost'
     ? 'http://localhost:5001/api'
@@ -62,51 +61,10 @@ const PatientDetailsPage: React.FC = () => {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#E0EAEA' }}>
-      {/* Overlay to close sidebar */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* Sidebar */}
-      <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`} style={{ backgroundColor: '#7DA9A8' }}>
-        <div className="h-full flex flex-col p-4 text-white font-serif">
-          <div className="space-y-3 mb-6">
-            <div
-              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
-              onClick={() => { navigate('/doctor-dashboard'); setSidebarOpen(false); }}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-              </svg>
-              <span className="text-base font-medium">My Dashboard</span>
-            </div>
-
-            <div
-              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
-              onClick={() => { navigate('/patient-details'); setSidebarOpen(false); }}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
-              <span className="text-base font-medium">My Patients</span>
-            </div>
-
-            <div
-              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
-              onClick={() => { navigate('/call-history'); setSidebarOpen(false); }}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-              </svg>
-              <span className="text-base font-medium">Call History</span>
-            </div>
-          </div>
-        </div>
-      </div>
+      <DoctorSidebar 
+        sidebarOpen={sidebarOpen} 
+        setSidebarOpen={setSidebarOpen} 
+      />
 
       {/* Header */}
       <div className="py-6 px-4 shadow-md" style={{ backgroundColor: '#6DBEDF' }}>

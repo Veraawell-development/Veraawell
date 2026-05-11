@@ -30,3 +30,4 @@ server/.wwebjs_cache/
 
 # Environment variables
 server/.env
+Veraawell-backend.env

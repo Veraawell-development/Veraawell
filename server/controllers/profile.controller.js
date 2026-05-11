@@ -42,9 +42,10 @@ const setupProfile = asyncHandler(async (req, res) => {
     introduction
   } = req.body;
 
-  // Update user's name if fullName is provided (for patients)
-  if (fullName) {
-    const nameParts = fullName.trim().split(' ');
+  // Update user's name if fullName or name is provided
+  const targetName = fullName || name;
+  if (targetName) {
+    const nameParts = targetName.trim().split(' ');
     user.firstName = nameParts[0] || '';
     user.lastName = nameParts.slice(1).join(' ') || '';
   }

@@ -34,13 +34,24 @@ async function updateDoctorStatus(userId, isOnline, io) {
         if (io) {
             try {
                 const emitter = new SocketEmitter(io);
+                
+                // Broadcast to patients
                 emitter.emitToRole('patient', 'doctor:status-change', {
                     doctorId: userId,
                     isOnline: isOnline,
                     lastActiveAt: user.lastActiveAt,
                     timestamp: new Date()
                 });
-                logger.debug('Doctor status change broadcasted');
+
+                // ✨ NEW: Also broadcast to the doctor themselves (for multi-tab sync)
+                emitter.emitToUser(userId, 'doctor:status-change', {
+                    doctorId: userId,
+                    isOnline: isOnline,
+                    lastActiveAt: user.lastActiveAt,
+                    timestamp: new Date()
+                });
+
+                logger.debug('Doctor status change broadcasted to patient and doctor');
             } catch (broadcastError) {
                 logger.error('Failed to broadcast status change', { error: broadcastError.message });
             }

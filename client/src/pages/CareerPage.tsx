@@ -235,11 +235,11 @@ const CareerPage: React.FC = () => {
       const data = await response.json();
 
       if (response.ok) {
-        setSuccess('Registration successful! Please wait for admin approval. You will receive an email once approved.');
+        setSuccess('Application submitted successfully! Please wait for admin approval. Once approved, you will be able to log in using the email and password you just provided.');
 
         // Show important password reminder toast
         toast.success(
-          'Registration successful! IMPORTANT: Please remember the password you just created. You will need it to log in to your account.',
+          'Application submitted! IMPORTANT: Please remember the email and password you just used to register. You will need them to log in once your account is approved by the admin.',
           {
             duration: 8000,
             icon: '',

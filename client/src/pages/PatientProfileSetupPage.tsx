@@ -102,7 +102,7 @@ const PatientProfileSetupPage: React.FC = () => {
             <div className="bg-white border-b border-gray-200">
                 <div className="max-w-3xl mx-auto px-4 py-6">
                     <BackToDashboard />
-                    <h1 className="text-3xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+                    <h1 className="text-3xl font-bold text-gray-900">
                         Complete Your Profile
                     </h1>
                     <p className="text-gray-600 mt-2" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -125,7 +125,7 @@ const PatientProfileSetupPage: React.FC = () => {
                     {/* Basic Information */}
                     <div className="mb-8">
                         <div className="flex justify-between items-center mb-4">
-                            <h2 className="text-xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+                            <h2 className="text-xl font-bold text-gray-900">
                                 Basic Information
                             </h2>
                             <button
@@ -142,116 +142,120 @@ const PatientProfileSetupPage: React.FC = () => {
                             </button>
                         </div>
 
-                        {/* Full Name */}
-                        <div className="mb-4">
-                            <label className="block text-sm font-semibold text-gray-700 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                Full Name <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="text"
-                                value={formData.fullName}
-                                onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                                disabled={!isEditing}
-                                className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${!isEditing ? 'bg-gray-50 text-gray-500' : ''}`}
-                                style={{ fontFamily: 'Inter, sans-serif' }}
-                                required
-                            />
-                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* Full Name */}
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                    Full Name <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="text"
+                                    value={formData.fullName}
+                                    onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                                    disabled={!isEditing}
+                                    className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${!isEditing ? 'bg-gray-50 text-gray-500' : ''}`}
+                                    style={{ fontFamily: 'Inter, sans-serif' }}
+                                    required
+                                />
+                            </div>
 
-                        {/* Date of Birth */}
-                        <div className="mb-4">
-                            <label className="block text-sm font-semibold text-gray-700 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                Date of Birth <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="date"
-                                value={formData.dateOfBirth}
-                                onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
-                                disabled={!isEditing}
-                                className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${!isEditing ? 'bg-gray-50 text-gray-500' : ''}`}
-                                style={{ fontFamily: 'Inter, sans-serif' }}
-                                required
-                            />
-                        </div>
+                            {/* Date of Birth */}
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                    Date of Birth <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="date"
+                                    value={formData.dateOfBirth}
+                                    onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
+                                    disabled={!isEditing}
+                                    className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${!isEditing ? 'bg-gray-50 text-gray-500' : ''}`}
+                                    style={{ fontFamily: 'Inter, sans-serif' }}
+                                    required
+                                />
+                            </div>
 
-                        {/* Gender */}
-                        <div className="mb-4">
-                            <label className="block text-sm font-semibold text-gray-700 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                Gender <span className="text-red-500">*</span>
-                            </label>
-                            <select
-                                value={formData.gender}
-                                onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
-                                disabled={!isEditing}
-                                className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${!isEditing ? 'bg-gray-50 text-gray-500' : ''}`}
-                                style={{ fontFamily: 'Inter, sans-serif' }}
-                                required
-                            >
-                                <option value="">Select gender</option>
-                                <option value="Male">Male</option>
-                                <option value="Female">Female</option>
-                                <option value="Other">Other</option>
-                                <option value="Prefer not to say">Prefer not to say</option>
-                            </select>
-                        </div>
+                            {/* Gender */}
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                    Gender <span className="text-red-500">*</span>
+                                </label>
+                                <select
+                                    value={formData.gender}
+                                    onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
+                                    disabled={!isEditing}
+                                    className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${!isEditing ? 'bg-gray-50 text-gray-500' : ''}`}
+                                    style={{ fontFamily: 'Inter, sans-serif' }}
+                                    required
+                                >
+                                    <option value="">Select gender</option>
+                                    <option value="Male">Male</option>
+                                    <option value="Female">Female</option>
+                                    <option value="Other">Other</option>
+                                    <option value="Prefer not to say">Prefer not to say</option>
+                                </select>
+                            </div>
 
-                        {/* Phone */}
-                        <div className="mb-4">
-                            <label className="block text-sm font-semibold text-gray-700 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                Phone Number <span className="text-red-500">*</span>
-                            </label>
-                            <input
-                                type="tel"
-                                value={formData.phone}
-                                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                                disabled={!isEditing}
-                                className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${!isEditing ? 'bg-gray-50 text-gray-500' : ''}`}
-                                style={{ fontFamily: 'Inter, sans-serif' }}
-                                placeholder="+91 1234567890"
-                                required
-                            />
+                            {/* Phone */}
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                    Phone Number <span className="text-red-500">*</span>
+                                </label>
+                                <input
+                                    type="tel"
+                                    value={formData.phone}
+                                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                                    disabled={!isEditing}
+                                    className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${!isEditing ? 'bg-gray-50 text-gray-500' : ''}`}
+                                    style={{ fontFamily: 'Inter, sans-serif' }}
+                                    placeholder="+91 1234567890"
+                                    required
+                                />
+                            </div>
                         </div>
                     </div>
 
                     {/* Emergency Contact (Optional) */}
                     <div className="mb-8">
-                        <h2 className="text-xl font-bold text-gray-900 mb-2" style={{ fontFamily: 'Bree Serif, serif' }}>
+                        <h2 className="text-xl font-bold text-gray-900 mb-2">
                             Emergency Contact
                         </h2>
                         <p className="text-sm text-gray-600 mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
                             Optional - This information helps us contact someone in case of emergency
                         </p>
 
-                        {/* Emergency Contact Name */}
-                        <div className="mb-4">
-                            <label className="block text-sm font-semibold text-gray-700 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                Contact Name
-                            </label>
-                            <input
-                                type="text"
-                                value={formData.emergencyContactName}
-                                onChange={(e) => setFormData({ ...formData, emergencyContactName: e.target.value })}
-                                disabled={!isEditing}
-                                className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${!isEditing ? 'bg-gray-50 text-gray-500' : ''}`}
-                                style={{ fontFamily: 'Inter, sans-serif' }}
-                                placeholder="e.g., John Doe"
-                            />
-                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            {/* Emergency Contact Name */}
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                    Contact Name
+                                </label>
+                                <input
+                                    type="text"
+                                    value={formData.emergencyContactName}
+                                    onChange={(e) => setFormData({ ...formData, emergencyContactName: e.target.value })}
+                                    disabled={!isEditing}
+                                    className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${!isEditing ? 'bg-gray-50 text-gray-500' : ''}`}
+                                    style={{ fontFamily: 'Inter, sans-serif' }}
+                                    placeholder="e.g., John Doe"
+                                />
+                            </div>
 
-                        {/* Emergency Contact Phone */}
-                        <div className="mb-4">
-                            <label className="block text-sm font-semibold text-gray-700 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                Contact Phone
-                            </label>
-                            <input
-                                type="tel"
-                                value={formData.emergencyContactPhone}
-                                onChange={(e) => setFormData({ ...formData, emergencyContactPhone: e.target.value })}
-                                disabled={!isEditing}
-                                className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${!isEditing ? 'bg-gray-50 text-gray-500' : ''}`}
-                                style={{ fontFamily: 'Inter, sans-serif' }}
-                                placeholder="+91 1234567890"
-                            />
+                            {/* Emergency Contact Phone */}
+                            <div>
+                                <label className="block text-sm font-semibold text-gray-700 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                    Contact Phone
+                                </label>
+                                <input
+                                    type="tel"
+                                    value={formData.emergencyContactPhone}
+                                    onChange={(e) => setFormData({ ...formData, emergencyContactPhone: e.target.value })}
+                                    disabled={!isEditing}
+                                    className={`w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 ${!isEditing ? 'bg-gray-50 text-gray-500' : ''}`}
+                                    style={{ fontFamily: 'Inter, sans-serif' }}
+                                    placeholder="+91 1234567890"
+                                />
+                            </div>
                         </div>
                     </div>
 

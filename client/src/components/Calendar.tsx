@@ -51,8 +51,12 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
   };
 
   const getSessionsForDate = (day: number) => {
-    const dateStr = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    return sessions.filter(session => session.sessionDate.startsWith(dateStr));
+    return sessions.filter(session => {
+      const sessionLocalDate = new Date(session.sessionDate);
+      return sessionLocalDate.getFullYear() === currentDate.getFullYear() &&
+             sessionLocalDate.getMonth() === currentDate.getMonth() &&
+             sessionLocalDate.getDate() === day;
+    });
   };
 
   const monthNames = [

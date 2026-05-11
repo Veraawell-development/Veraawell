@@ -101,7 +101,14 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
         if (data.token) setAuthToken(data.token);
         if (onSuccess) onSuccess();
         if (redirectFrom) navigate(redirectFrom, { state: { serviceType: redirectServiceType, bookingType: redirectBookingType } });
-      } else { setError(data.message || 'Login failed'); }
+      } else {
+        if (data.errors) {
+          const errorMsgs = Object.values(data.errors).join(', ');
+          setError(errorMsgs);
+        } else {
+          setError(data.message || 'Login failed');
+        }
+      }
     } catch { setError('Network error. Please try again.'); }
     setLoading(false);
   };

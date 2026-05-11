@@ -100,6 +100,10 @@ const SuperAdminDashboard: React.FC = () => {
   const [analytics, setAnalytics] = useState<Analytics | null>(null);
   const [pendingDoctors, setPendingDoctors] = useState<PendingUser[]>([]);
   const [pendingAdmins, setPendingAdmins] = useState<PendingUser[]>([]);
+  const [allDoctors, setAllDoctors] = useState<PendingUser[]>([]);
+  const [allAdmins, setAllAdmins] = useState<PendingUser[]>([]);
+  const [doctorViewMode, setDoctorViewMode] = useState<'pending' | 'all'>('pending');
+  const [adminViewMode, setAdminViewMode] = useState<'pending' | 'all'>('pending');
   const [statistics, setStatistics] = useState<Statistics | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'analytics' | 'doctors' | 'admins' | 'articles'>('analytics');
@@ -296,6 +300,15 @@ const SuperAdminDashboard: React.FC = () => {
         setPendingDoctors(await doctorsRes.json());
       }
 
+      // Fetch all doctors
+      const allDoctorsRes = await fetch(`${API_BASE_URL}/admin/approvals/doctors/all`, {
+        credentials: 'include',
+        headers
+      });
+      if (allDoctorsRes.ok) {
+        setAllDoctors(await allDoctorsRes.json());
+      }
+
       // Fetch pending admins (Super Admin only)
       if (admin?.role === 'super_admin') {
         const adminsRes = await fetch(`${API_BASE_URL}/admin/approvals/admins/pending`, {
@@ -304,6 +317,15 @@ const SuperAdminDashboard: React.FC = () => {
         });
         if (adminsRes.ok) {
           setPendingAdmins(await adminsRes.json());
+        }
+
+        // Fetch all admins
+        const allAdminsRes = await fetch(`${API_BASE_URL}/admin/approvals/admins/all`, {
+          credentials: 'include',
+          headers
+        });
+        if (allAdminsRes.ok) {
+          setAllAdmins(await allAdminsRes.json());
         }
       }
 
@@ -399,6 +421,56 @@ const SuperAdminDashboard: React.FC = () => {
       }
     } catch (error) {
       console.error('Error rejecting admin:', error);
+    }
+  };
+
+  const handleDeleteDoctor = async (doctorId: string) => {
+    if (!window.confirm('Are you sure you want to remove this doctor? This action cannot be undone.')) return;
+
+    try {
+      const token = localStorage.getItem('adminToken');
+      const headers: HeadersInit = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const response = await fetch(`${API_BASE_URL}/admin/approvals/doctors/${doctorId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers
+      });
+
+      if (response.ok) {
+        fetchData();
+      } else {
+        const data = await response.json();
+        alert(data.message || 'Failed to delete doctor');
+      }
+    } catch (error) {
+      console.error('Error deleting doctor:', error);
+    }
+  };
+
+  const handleDeleteAdmin = async (adminId: string) => {
+    if (!window.confirm('Are you sure you want to remove this admin? This action cannot be undone.')) return;
+
+    try {
+      const token = localStorage.getItem('adminToken');
+      const headers: HeadersInit = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const response = await fetch(`${API_BASE_URL}/admin/approvals/admins/${adminId}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers
+      });
+
+      if (response.ok) {
+        fetchData();
+      } else {
+        const data = await response.json();
+        alert(data.message || 'Failed to delete admin');
+      }
+    } catch (error) {
+      console.error('Error deleting admin:', error);
     }
   };
 
@@ -715,20 +787,56 @@ const SuperAdminDashboard: React.FC = () => {
               </motion.div>
             )}
 
-            {/* ── Pending Doctors Tab ─────────────────────────────────────── */}
+            {/* ── Doctors Tab ─────────────────────────────────────── */}
             {activeTab === 'doctors' && (
               <motion.div key="doctors" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
-                {pendingDoctors.length === 0 ? (
+                
+                {/* View Mode Toggle */}
+                <div className="flex gap-2 mb-4">
+                  <button
+                    onClick={() => setDoctorViewMode('pending')}
+                    className={`px-4 py-2 text-xs font-semibold rounded-xl transition-colors ${doctorViewMode === 'pending' ? 'bg-[#0097b2] text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
+                  >
+                    Pending Approvals ({pendingDoctors.length})
+                  </button>
+                  <button
+                    onClick={() => setDoctorViewMode('all')}
+                    className={`px-4 py-2 text-xs font-semibold rounded-xl transition-colors ${doctorViewMode === 'all' ? 'bg-[#0097b2] text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
+                  >
+                    All Doctors ({allDoctors.length})
+                  </button>
+                </div>
+
+                {(doctorViewMode === 'pending' ? pendingDoctors : allDoctors).length === 0 ? (
                   <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm p-12 text-center">
                     <FiUserCheck size={28} className="text-neutral-300 mx-auto mb-3" />
-                    <p className="text-sm font-medium text-neutral-500">No pending doctor requests</p>
+                    <p className="text-sm font-medium text-neutral-500">
+                      {doctorViewMode === 'pending' ? 'No pending doctor requests' : 'No doctors found'}
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {pendingDoctors.map((user) => (
+                    {(doctorViewMode === 'pending' ? pendingDoctors : allDoctors).map((user) => (
                       <div key={user._id} className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-sm flex flex-col md:flex-row justify-between gap-4 hover:shadow-md transition-shadow">
                         <div className="space-y-1.5">
-                          <h3 className="text-sm font-semibold text-neutral-900">Dr. {user.firstName} {user.lastName}</h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-semibold text-neutral-900">Dr. {user.firstName} {user.lastName}</h3>
+                            {user.approvalStatus === 'approved' && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-medium border border-emerald-200">
+                                Approved
+                              </span>
+                            )}
+                            {user.approvalStatus === 'pending' && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded-full text-[10px] font-medium border border-amber-200">
+                                Pending
+                              </span>
+                            )}
+                            {user.approvalStatus === 'rejected' && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 bg-red-50 text-red-700 rounded-full text-[10px] font-medium border border-red-200">
+                                Rejected
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-neutral-500">{user.email}</p>
                           <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-neutral-600 pt-1">
                             {user.jobRole && <span><span className="font-medium text-neutral-400">Role:</span> {user.jobRole}</span>}
@@ -759,20 +867,33 @@ const SuperAdminDashboard: React.FC = () => {
                         </div>
                         
                         <div className="flex md:flex-col justify-end gap-2">
-                          <button
-                            onClick={() => handleApproveDoctor(user._id)}
-                            className="px-4 py-2 bg-[#0097b2] hover:bg-[#007c93] text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
-                          >
-                            <FiCheck size={14} />
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => handleRejectDoctor(user._id)}
-                            className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
-                          >
-                            <FiX size={14} />
-                            Reject
-                          </button>
+                          {user.approvalStatus === 'pending' && (
+                            <>
+                              <button
+                                onClick={() => handleApproveDoctor(user._id)}
+                                className="px-4 py-2 bg-[#0097b2] hover:bg-[#007c93] text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
+                              >
+                                <FiCheck size={14} />
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleRejectDoctor(user._id)}
+                                className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
+                              >
+                                <FiX size={14} />
+                                Reject
+                              </button>
+                            </>
+                          )}
+                          {admin?.role === 'super_admin' && (
+                            <button
+                              onClick={() => handleDeleteDoctor(user._id)}
+                              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
+                            >
+                              <Trash2 size={14} />
+                              Remove
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -781,44 +902,93 @@ const SuperAdminDashboard: React.FC = () => {
               </motion.div>
             )}
 
-            {/* ── Pending Admins Tab ──────────────────────────────────────── */}
+            {/* ── Admins Tab ──────────────────────────────────────── */}
             {activeTab === 'admins' && admin?.role === 'super_admin' && (
               <motion.div key="admins" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
-                {pendingAdmins.length === 0 ? (
+                
+                {/* View Mode Toggle */}
+                <div className="flex gap-2 mb-4">
+                  <button
+                    onClick={() => setAdminViewMode('pending')}
+                    className={`px-4 py-2 text-xs font-semibold rounded-xl transition-colors ${adminViewMode === 'pending' ? 'bg-[#0097b2] text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
+                  >
+                    Pending Approvals ({pendingAdmins.length})
+                  </button>
+                  <button
+                    onClick={() => setAdminViewMode('all')}
+                    className={`px-4 py-2 text-xs font-semibold rounded-xl transition-colors ${adminViewMode === 'all' ? 'bg-[#0097b2] text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
+                  >
+                    All Admins ({allAdmins.length})
+                  </button>
+                </div>
+
+                {(adminViewMode === 'pending' ? pendingAdmins : allAdmins).length === 0 ? (
                   <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm p-12 text-center">
                     <FiUsers size={28} className="text-neutral-300 mx-auto mb-3" />
-                    <p className="text-sm font-medium text-neutral-500">No pending admin requests</p>
+                    <p className="text-sm font-medium text-neutral-500">
+                      {adminViewMode === 'pending' ? 'No pending admin requests' : 'No admins found'}
+                    </p>
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {pendingAdmins.map((user) => (
+                    {(adminViewMode === 'pending' ? pendingAdmins : allAdmins).map((user) => (
                       <div key={user._id} className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-sm flex flex-col md:flex-row justify-between gap-4 hover:shadow-md transition-shadow">
                         <div className="space-y-1.5">
-                          <h3 className="text-sm font-semibold text-neutral-900">{user.firstName} {user.lastName}</h3>
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-semibold text-neutral-900">{user.firstName} {user.lastName}</h3>
+                            {user.approvalStatus === 'approved' && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-medium border border-emerald-200">
+                                Approved
+                              </span>
+                            )}
+                            {user.approvalStatus === 'pending' && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded-full text-[10px] font-medium border border-amber-200">
+                                Pending
+                              </span>
+                            )}
+                            {user.approvalStatus === 'rejected' && (
+                              <span className="inline-flex items-center px-1.5 py-0.5 bg-red-50 text-red-700 rounded-full text-[10px] font-medium border border-red-200">
+                                Rejected
+                              </span>
+                            )}
+                          </div>
                           <p className="text-xs text-neutral-500">{user.email}</p>
                           <p className="text-[11px] text-neutral-600 pt-1">
-                            <span className="font-medium text-neutral-400">Requested Role:</span> Admin
+                            <span className="font-medium text-neutral-400">Role:</span> {user.role}
                           </p>
                           <p className="text-[11px] text-neutral-400">
-                            Applied on {formatDate(user.createdAt)}
+                            Registered on {formatDate(user.createdAt)}
                           </p>
                         </div>
                         
                         <div className="flex md:flex-col justify-end gap-2">
-                          <button
-                            onClick={() => handleApproveAdmin(user._id)}
-                            className="px-4 py-2 bg-[#0097b2] hover:bg-[#007c93] text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
-                          >
-                            <FiCheck size={14} />
-                            Approve
-                          </button>
-                          <button
-                            onClick={() => handleRejectAdmin(user._id)}
-                            className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
-                          >
-                            <FiX size={14} />
-                            Reject
-                          </button>
+                          {user.approvalStatus === 'pending' && (
+                            <>
+                              <button
+                                onClick={() => handleApproveAdmin(user._id)}
+                                className="px-4 py-2 bg-[#0097b2] hover:bg-[#007c93] text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
+                              >
+                                <FiCheck size={14} />
+                                Approve
+                              </button>
+                              <button
+                                onClick={() => handleRejectAdmin(user._id)}
+                                className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
+                              >
+                                <FiX size={14} />
+                                Reject
+                              </button>
+                            </>
+                          )}
+                          {admin?.role === 'super_admin' && user._id !== (admin as any)._id && (
+                            <button
+                              onClick={() => handleDeleteAdmin(user._id)}
+                              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
+                            >
+                              <Trash2 size={14} />
+                              Remove
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}

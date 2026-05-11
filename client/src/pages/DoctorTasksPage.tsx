@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FiMenu, FiCheckSquare } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import BackToDashboard from '../components/BackToDashboard';
+import DoctorSidebar from '../components/DoctorSidebar';
 
 interface PatientTask {
   _id: string;
@@ -43,7 +44,8 @@ const DoctorTasksPage: React.FC = () => {
       });
 
       if (!response.ok) throw new Error('Failed to fetch tasks');
-      const allTasks = await response.json();
+      const data = await response.json();
+      const allTasks = data.tasks || [];
 
       // Group tasks by patient
       const patientMap = new Map<string, { patientName: string; lastDate: Date; latestTask: string; patientId: string }>();
@@ -114,31 +116,10 @@ const DoctorTasksPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans">
-      {/* Sidebar Overlay */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
-      )}
-
-      {/* Sidebar - Teal Theme */}
-      <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-2xl transform transition-transform duration-300 ease-in-out z-50 bg-white border-r border-gray-100 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}>
-        <div className="h-full flex flex-col p-6">
-          <div className="space-y-2">
-            <button
-              onClick={() => { navigate('/doctor-dashboard'); setSidebarOpen(false); }}
-              className="w-full flex items-center space-x-3 px-4 py-3 text-gray-600 hover:bg-teal-50 hover:text-teal-700 rounded-xl transition-all font-medium"
-            >
-              <span>My Dashboard</span>
-            </button>
-            <button
-              onClick={() => { navigate('/doctor-tasks'); setSidebarOpen(false); }}
-              className="w-full flex items-center space-x-3 px-4 py-3 bg-teal-50 text-teal-700 rounded-xl transition-all font-bold shadow-sm"
-            >
-              <span>Tasks Assigned</span>
-            </button>
-          </div>
-        </div>
-      </div>
+      <DoctorSidebar 
+        sidebarOpen={sidebarOpen} 
+        setSidebarOpen={setSidebarOpen} 
+      />
 
       {/* Header - Teal Gradient */}
       <div className="bg-[#5DBEBD] text-white shadow-lg relative overflow-hidden">

@@ -43,6 +43,10 @@ const VideoCallRoom: React.FC = () => {
   const [savingContact, setSavingContact] = useState(false);
   const [newEmergencyContact, setNewEmergencyContact] = useState({ name: '', phone: '' });
 
+  // Consent Ending Modal States
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [consentRequester, setConsentRequester] = useState<string | null>(null);
+
   // ✨ REAL-TIME: Listen for session updates via data socket (backup)
   const { socket: dataSocket } = useDataSocket();
 
@@ -169,26 +173,28 @@ const VideoCallRoom: React.FC = () => {
     if (connectionState === 'connected' && sessionData) {
       if (!sessionData.sessionDate || !sessionData.sessionTime) return;
 
-      const [hours, minutes] = sessionData.sessionTime.split(':').map(Number);
-      const sessionStart = new Date(sessionData.sessionDate);
-      sessionStart.setUTCHours(hours, minutes, 0, 0);
+      let sessionStart: Date;
+      
+      if (sessionData.callStartTime) {
+        sessionStart = new Date(sessionData.callStartTime);
+      } else if (sessionData.sessionType === 'immediate' && sessionData.createdAt) {
+        sessionStart = new Date(sessionData.createdAt);
+      } else {
+        const [hours, minutes] = sessionData.sessionTime.split(':').map(Number);
+        sessionStart = new Date(sessionData.sessionDate);
+        sessionStart.setUTCHours(hours, minutes, 0, 0);
+      }
 
-      // Default to 60 minutes if duration is not set
+      // Calculate remaining time based on total duration and actual duration used
       const sessionDurationInMinutes = sessionData.duration || 60;
-      const sessionEnd = new Date(sessionStart.getTime() + (sessionDurationInMinutes * 60000));
-      const now = new Date();
-
-      // Calculate initial remaining seconds based on current time
-      // This handles cases where user joins late or reconnects
-      let initialRemaining = Math.floor((sessionEnd.getTime() - now.getTime()) / 1000);
+      const actualDurationInMinutes = sessionData.actualDuration || 0;
+      const remainingMinutes = Math.max(0, sessionDurationInMinutes - actualDurationInMinutes);
+      
+      let initialRemaining = remainingMinutes * 60;
 
       // ✨ FIX: If session is immediate and was created recently, or if timer would be <= 0
       // but session just started/is immediate, default to full duration.
-      // This prevents 0:00 issues due to clock drift or timezone mismatches on immediate calls.
       if (sessionData.sessionType === 'immediate' && initialRemaining <= 0) {
-        initialRemaining = sessionDurationInMinutes * 60;
-      } else if (now < sessionStart) {
-        // If session hasn't started yet (scheduled), set to full duration
         initialRemaining = sessionDurationInMinutes * 60;
       }
 
@@ -276,7 +282,7 @@ const VideoCallRoom: React.FC = () => {
       // Connect to Socket.IO server with authentication
       console.log('[VIDEO-CALL] 🔌 Connecting to:', API_BASE_URL);
       const socket = io(API_BASE_URL, {
-        transports: ['websocket', 'polling'],
+        transports: ['websocket'],
         auth: {
           token: token
         },
@@ -318,9 +324,11 @@ const VideoCallRoom: React.FC = () => {
           if (hasOppositeRole) {
             console.log('[VIDEO-CALL] ✅ Opposite participant found in room. Syncing...');
             setRemoteUserJoined(true);
-            // Only doctor creates offer when joining an existing room
-            if (user?.role === 'doctor') {
-              createOffer(stream);
+            
+            // ✨ FIX: Patient sends ready signal if doctor is already there
+            if (user?.role === 'patient') {
+              console.log('[VIDEO-CALL] 📢 Patient joined and ready, notifying doctor');
+              socket.emit('patient-ready', { sessionId });
             }
           } else {
             console.log('[VIDEO-CALL] ℹ️ Only same-role participants found. Staying in Waiting Room.');
@@ -339,13 +347,32 @@ const VideoCallRoom: React.FC = () => {
         if (data.role !== user?.role) {
           console.log('[VIDEO-CALL] ✅ Opposite participant joined. Closing Waiting Room.');
           setRemoteUserJoined(true);
-          // Only doctor creates offer when someone joins
-          if (user?.role === 'doctor') {
-            console.log('[VIDEO-CALL]  Doctor initiating call as offerer');
-            await createOffer(stream);
+          
+          // ✨ AGGRESSIVE FIX: Reset peer connection for both roles to ensure a clean start!
+          // This fixes the issue where patient reuses old connection and fails to connect!
+          if (peerConnectionRef.current) {
+            console.log('[VIDEO-CALL] 🔄 Resetting peer connection on user-joined');
+            peerConnectionRef.current.close();
+            peerConnectionRef.current = null;
+          }
+
+          // ✨ FIX: Doctor does NOT create offer immediately on user-joined.
+          // Doctor waits for 'patient-ready' signal!
+          if (user?.role === 'patient') {
+            console.log('[VIDEO-CALL] 📢 Patient ready, notifying doctor');
+            socket.emit('patient-ready', { sessionId });
           }
         } else {
           console.log('[VIDEO-CALL] ℹ️ Same role user joined (probably a reconnection). Keeping Waiting Room.');
+        }
+      });
+
+      // ✨ FIX: Listen for patient-ready signal
+      socket.on('patient-ready', async () => {
+        console.log('[VIDEO-CALL] 📩 Patient ready signal received');
+        if (user?.role === 'doctor') {
+          console.log('[VIDEO-CALL] 🚀 Doctor initiating call after patient ready');
+          await createOffer(stream);
         }
       });
 
@@ -370,6 +397,26 @@ const VideoCallRoom: React.FC = () => {
         setConnectionState('disconnected');
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = null;
+        }
+        setQualityMessage(`${data.role === 'patient' ? 'Patient' : 'Doctor'} has left the session.`);
+        setTimeout(() => setQualityMessage(null), 5000);
+      });
+
+      socket.on('request-end-session', (data) => {
+        console.log('[VIDEO-CALL] Request end session from:', data.requestedByRole);
+        setConsentRequester(data.requestedByRole);
+        setShowConsentModal(true);
+      });
+
+      socket.on('confirm-end-session', (data) => {
+        console.log('[VIDEO-CALL] Confirm end session:', data);
+        if (data.agree) {
+          setShowConsentModal(false);
+          endCall('mutual_consent');
+        } else {
+          setShowConsentModal(false);
+          setQualityMessage('The other user declined to end the session.');
+          setTimeout(() => setQualityMessage(null), 3000);
         }
       });
 
@@ -499,7 +546,15 @@ const VideoCallRoom: React.FC = () => {
         showQualityMessage('Connection quality degraded');
       } else if (pc.iceConnectionState === 'failed') {
         setConnectionQuality('disconnected');
-        showQualityMessage('Connection lost');
+        showQualityMessage('Connection lost. Attempting to reconnect...');
+        
+        // ✨ FIX: Attempt to reconnect if we are the doctor (offerer)
+        if (user?.role === 'doctor') {
+          console.log('[VIDEO-CALL] 🔄 ICE failed. Doctor attempting to reconnect');
+          setTimeout(() => {
+            createOffer(stream);
+          }, 3000);
+        }
       }
     };
 
@@ -636,7 +691,7 @@ const VideoCallRoom: React.FC = () => {
 
   const handleIceCandidate = async (candidate: RTCIceCandidateInit) => {
     try {
-      if (peerConnectionRef.current) {
+      if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
         await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
       }
     } catch (err) {
@@ -731,6 +786,29 @@ const VideoCallRoom: React.FC = () => {
     }
   };
 
+  const requestEndSession = () => {
+    if (socketRef.current && sessionId && user) {
+      socketRef.current.emit('request-end-session', { sessionId, requestedByRole: user.role });
+      setConsentRequester(user.role);
+      setShowConsentModal(true);
+    }
+  };
+
+  const cancelEndSessionRequest = () => {
+    setShowConsentModal(false);
+    setConsentRequester(null);
+  };
+
+  const handleConsentResponse = (agree: boolean) => {
+    if (socketRef.current && sessionId && user) {
+      socketRef.current.emit('confirm-end-session', { sessionId, agree, confirmedByRole: user.role });
+      setShowConsentModal(false);
+      if (agree) {
+        endCall('mutual_consent');
+      }
+    }
+  };
+
   const endCall = async (reason: string = 'user_action') => {
     console.log(`[VIDEO-CALL]  Ending call (Reason: ${reason})...`, { role: user?.role, sessionId });
 
@@ -788,45 +866,45 @@ const VideoCallRoom: React.FC = () => {
 
   // Voice Call UI Component
   const VoiceCallInterface = () => (
-    <div className="absolute inset-0 bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 flex flex-col items-center justify-center">
-      {/* Remote User Avatar (Large) */}
-      <div className="relative mb-12">
-        {/* Pulsing Rings Animation */}
-        <div className={`absolute inset-0 rounded-full bg-blue-500 opacity-20 ${remoteAudioEnabled ? 'animate-ping' : ''}`}></div>
-        <div className={`absolute -inset-4 rounded-full bg-blue-500 opacity-10 ${remoteAudioEnabled ? 'animate-pulse' : ''}`}></div>
-
-        <div className="w-48 h-48 rounded-full border-4 border-blue-400 overflow-hidden shadow-2xl relative z-10 bg-gray-800">
-          {/* If we had user images, we would show them here. For now using Initials/Placeholder */}
-          <div className="w-full h-full flex items-center justify-center bg-gray-700 text-white text-5xl font-bold">
-            {remoteUserJoined ? (user?.role === 'patient' ? 'Dr' : 'Pt') : '?'}
+    <div className="absolute inset-0 bg-gradient-to-br from-gray-50 to-white flex flex-col items-center justify-center font-sans">
+      {/* Central Glassmorphism Card */}
+      <div className="bg-white/90 backdrop-blur-xl rounded-3xl shadow-xl p-8 max-w-sm w-full text-center border border-white/20 flex flex-col items-center">
+        {/* Avatar (Small & Minimal) */}
+        <div className="w-24 h-24 rounded-full bg-teal-50 flex items-center justify-center text-teal-600 text-2xl font-bold mb-6 shadow-inner border border-teal-100/50">
+          {remoteUserJoined ? (user?.role === 'patient' ? 'Dr' : 'Pt') : '?'}
+        </div>
+        
+        {/* Name */}
+        <h2 className="text-xl font-bold text-gray-900 mb-1">
+          {remoteUserJoined
+            ? (user?.role === 'patient' ? `Dr. ${sessionData?.doctorId?.lastName || 'Therapist'}` : `${sessionData?.patientId?.firstName || 'Patient'}`)
+            : 'Waiting...'}
+        </h2>
+        
+        {/* Status */}
+        <p className="text-teal-600 text-sm font-medium">
+          {remoteUserJoined
+            ? (remoteAudioEnabled ? 'Speaking...' : 'Muted')
+            : 'Connecting...'}
+        </p>
+        
+        {/* Delay Message */}
+        {sessionData?.delayMinutes > 0 && (
+          <div className="mt-4 px-4 py-2 bg-amber-50 border border-amber-100 rounded-xl text-amber-700 text-xs font-medium w-full">
+            Doctor reported a delay of {sessionData.delayMinutes} minutes.
+            {sessionData.doctorNote && <p className="mt-1 text-amber-600">"{sessionData.doctorNote}"</p>}
           </div>
-        </div>
-
-        <div className="mt-6 text-center">
-          <h2 className="text-3xl font-bold text-white mb-2">
-            {remoteUserJoined
-              ? (user?.role === 'patient' ? `Dr. ${sessionData?.doctorId?.lastName || 'Therapist'}` : `${sessionData?.patientId?.firstName || 'Patient'}`)
-              : 'Waiting...'}
-          </h2>
-          <p className="text-blue-200 text-lg">
-            {remoteUserJoined
-              ? (remoteAudioEnabled ? 'Speaking...' : 'Muted')
-              : 'Connecting...'}
-          </p>
-        </div>
+        )}
       </div>
 
-      {/* Local User Avatar (Small) */}
-      <div className="absolute bottom-32 right-8 flex items-center gap-3 bg-black/40 backdrop-blur-md p-3 rounded-xl border border-white/10">
-        <div className="relative">
-          <div className={`absolute inset-0 rounded-full bg-green-500 opacity-30 ${isAudioEnabled ? 'animate-pulse' : ''}`}></div>
-          <div className="w-12 h-12 rounded-full bg-gray-600 flex items-center justify-center text-white font-bold border-2 border-green-400 relative z-10">
-            You
-          </div>
+      {/* Local User Avatar (Small & Glassmorphism) */}
+      <div className="absolute bottom-32 right-8 flex items-center gap-3 bg-white/90 backdrop-blur-xl shadow-lg p-3 rounded-2xl border border-white/20">
+        <div className="w-10 h-10 rounded-full bg-teal-50 flex items-center justify-center text-teal-600 font-bold text-xs border border-teal-100/50">
+          You
         </div>
-        <div className="text-white text-sm">
-          <div className="font-medium">You</div>
-          <div className="text-xs text-gray-400">{isAudioEnabled ? 'Mic On' : 'Mic Off'}</div>
+        <div>
+          <p className="text-xs text-gray-400">You</p>
+          <p className="text-sm font-semibold text-gray-700">{isAudioEnabled ? 'Mic On' : 'Muted'}</p>
         </div>
       </div>
     </div>
@@ -936,22 +1014,23 @@ const VideoCallRoom: React.FC = () => {
 
             {/* Remote Video On/Off State */}
             {!remoteVideoEnabled && remoteUserJoined && (
-              <div className="absolute inset-0 bg-gray-900 flex items-center justify-center">
-                <div className="text-center text-white">
-                  <div className="w-24 h-24 bg-gray-800 rounded-full flex items-center justify-center mb-4 mx-auto">
-                    <svg className="w-12 h-12 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+              <div className="absolute inset-0 bg-gray-50 flex flex-col items-center justify-center font-sans">
+                <div className="text-center">
+                  <div className="w-24 h-24 bg-teal-50 rounded-full flex items-center justify-center mb-4 mx-auto border-2 border-teal-100">
+                    <svg className="w-12 h-12 text-teal-600" fill="currentColor" viewBox="0 0 24 24">
                       <path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z" />
                     </svg>
                   </div>
-                  <p className="text-gray-400">Camera is off</p>
+                  <p className="text-gray-900 font-semibold text-lg mb-1">Camera is off</p>
+                  <p className="text-gray-500 text-sm">The other user has paused their video</p>
                 </div>
               </div>
             )}
 
             {/* Remote Audio Muted Indicator (Video Mode) */}
             {!remoteAudioEnabled && remoteUserJoined && (
-              <div className="absolute top-4 right-4 bg-red-500 bg-opacity-90 text-white px-2 py-1 rounded-md text-xs flex items-center gap-1.5">
-                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+              <div className="absolute top-4 right-4 bg-white/90 backdrop-blur-sm border border-red-100 text-red-600 px-3 py-1.5 rounded-full text-xs font-semibold flex items-center gap-1.5 shadow-sm">
+                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
                   <path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z" />
                 </svg>
                 Mic off
@@ -1098,6 +1177,45 @@ const VideoCallRoom: React.FC = () => {
         )}
       </div>
 
+      {/* Consent Modal */}
+      {showConsentModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-2xl max-w-sm w-full mx-4 shadow-xl">
+            <h3 className="text-xl font-bold text-gray-900 mb-2">End Session?</h3>
+            <p className="text-gray-600 mb-6">
+              {consentRequester === user?.role 
+                ? 'Waiting for the other user to agree...' 
+                : 'The other user has requested to end the session. Do you agree?'}
+            </p>
+            <div className="flex gap-4 justify-end">
+              {consentRequester === user?.role ? (
+                <button
+                  onClick={() => cancelEndSessionRequest()}
+                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold hover:bg-gray-200 transition-colors"
+                >
+                  Cancel
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => handleConsentResponse(false)}
+                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg font-semibold hover:bg-gray-200 transition-colors"
+                  >
+                    No, Stay
+                  </button>
+                  <button
+                    onClick={() => handleConsentResponse(true)}
+                    className="px-4 py-2 bg-teal-600 text-white rounded-lg font-semibold hover:bg-teal-700 transition-colors"
+                  >
+                    Yes, End
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Doctor Panel */}
       {user?.role === 'doctor' && (
         <>
@@ -1138,21 +1256,21 @@ const VideoCallRoom: React.FC = () => {
 
             {/* Sidebar */}
             <div
-              className={`absolute top-0 right-0 h-full w-full max-w-sm bg-gray-900/95 backdrop-blur-xl border-l border-gray-700 shadow-2xl transform transition-transform duration-300 ease-in-out pointer-events-auto flex flex-col ${showChat ? 'translate-x-0' : 'translate-x-full'}`}
+              className={`absolute top-0 right-0 h-full w-full max-w-sm bg-white/95 backdrop-blur-xl border-l border-gray-100 shadow-2xl transform transition-transform duration-300 ease-in-out pointer-events-auto flex flex-col ${showChat ? 'translate-x-0' : 'translate-x-full'}`}
             >
               {/* Header */}
-              <div className="flex items-center justify-between px-6 py-5 border-b border-gray-800/50">
+              <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
                 <div>
-                  <h2 className="text-2xl font-bold text-white tracking-wide" style={{ fontFamily: 'Bree Serif, serif' }}>
+                  <h2 className="text-2xl font-bold text-gray-900 tracking-wide" style={{ fontFamily: 'Bree Serif, serif' }}>
                     Chat
                   </h2>
-                  <p className="text-sm text-gray-400 mt-1">
-                    With <span className="text-teal-400 font-semibold">Dr. {sessionData?.doctorId?.firstName} {sessionData?.doctorId?.lastName}</span>
+                  <p className="text-sm text-gray-500 mt-1">
+                    With <span className="text-teal-600 font-semibold">Dr. {sessionData?.doctorId?.firstName} {sessionData?.doctorId?.lastName}</span>
                   </p>
                 </div>
                 <button
                   onClick={() => setShowChat(false)}
-                  className="text-gray-400 hover:text-white hover:bg-white/10 p-2 rounded-full transition-all"
+                  className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 p-2 rounded-full transition-all"
                 >
                   <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1161,7 +1279,7 @@ const VideoCallRoom: React.FC = () => {
               </div>
 
               {/* Chat Content */}
-              <div className="flex-1 overflow-hidden p-4">
+              <div className="flex-1 overflow-hidden">
                 {sessionData && (
                   <SessionChat
                     targetUserId={sessionData.doctorId?._id || sessionData.doctorId}
@@ -1175,36 +1293,38 @@ const VideoCallRoom: React.FC = () => {
       )}
 
       {/* Minimal Controls */}
-      <div className="absolute bottom-6 left-1/2 transform -translate-x-1/2 flex items-center gap-4 z-50">
+      <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 flex items-center gap-4 z-50 bg-white/90 backdrop-blur-sm px-5 py-3 rounded-full shadow-2xl border border-gray-100">
+        {/* Audio Toggle */}
         <button
           onClick={toggleAudio}
-          className={`w-14 h-14 rounded-full ${isAudioEnabled ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-500 hover:bg-red-600'} text-white transition-all flex items-center justify-center shadow-xl`}
+          className={`w-12 h-12 rounded-full ${isAudioEnabled ? 'bg-gray-100 hover:bg-gray-200 text-gray-700' : 'bg-red-50 hover:bg-red-100 text-red-600'} transition-all flex items-center justify-center`}
           title={isAudioEnabled ? 'Mute' : 'Unmute'}
         >
           {isAudioEnabled ? (
-            <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
               <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z" />
               <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" />
             </svg>
           ) : (
-            <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
               <path d="M19 11h-1.7c0 .74-.16 1.43-.43 2.05l1.23 1.23c.56-.98.9-2.09.9-3.28zm-4.02.17c0-.06.02-.11.02-.17V5c0-1.66-1.34-3-3-3S9 3.34 9 5v.18l5.98 5.99zM4.27 3L3 4.27l6.01 6.01V11c0 1.66 1.33 3 2.99 3 .22 0 .44-.03.65-.08l1.66 1.66c-.71.33-1.5.52-2.31.52-2.76 0-5.3-2.1-5.3-5.1H5c0 3.41 2.72 6.23 6 6.72V21h2v-3.28c.91-.13 1.77-.45 2.54-.9L19.73 21 21 19.73 4.27 3z" />
             </svg>
           )}
         </button>
 
+        {/* Video Toggle */}
         {!isVoiceMode && (
           <button
             onClick={toggleVideo}
-            className={`w-14 h-14 rounded-full ${isVideoEnabled ? 'bg-gray-700 hover:bg-gray-600' : 'bg-red-500 hover:bg-red-600'} text-white transition-all flex items-center justify-center shadow-xl`}
+            className={`w-12 h-12 rounded-full ${isVideoEnabled ? 'bg-gray-100 hover:bg-gray-200 text-gray-700' : 'bg-red-50 hover:bg-red-100 text-red-600'} transition-all flex items-center justify-center`}
             title={isVideoEnabled ? 'Turn off camera' : 'Turn on camera'}
           >
             {isVideoEnabled ? (
-              <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z" />
               </svg>
             ) : (
-              <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M21 6.5l-4 4V7c0-.55-.45-1-1-1H9.82L21 17.18V6.5zM3.27 2L2 3.27 4.73 6H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.21 0 .39-.08.54-.18L19.73 21 21 19.73 3.27 2z" />
               </svg>
             )}
@@ -1215,21 +1335,28 @@ const VideoCallRoom: React.FC = () => {
         {user?.role === 'patient' && (
           <button
             onClick={() => setShowChat(!showChat)}
-            className={`w-14 h-14 rounded-full ${showChat ? 'bg-teal-600 hover:bg-teal-700' : 'bg-gray-700 hover:bg-gray-600'} text-white transition-all flex items-center justify-center shadow-xl`}
+            className={`w-12 h-12 rounded-full ${showChat ? 'bg-teal-50 text-teal-600 hover:bg-teal-100' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'} transition-all flex items-center justify-center`}
             title="Chat"
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
             </svg>
           </button>
         )}
 
+        {/* End Call Button */}
         <button
-          onClick={() => endCall('user_clicked_end')}
-          className="w-14 h-14 rounded-full bg-red-500 hover:bg-red-600 text-white transition-all flex items-center justify-center shadow-xl"
+          onClick={() => {
+            if (remoteUserJoined) {
+              requestEndSession();
+            } else {
+              endCall('user_clicked_end');
+            }
+          }}
+          className="w-12 h-12 rounded-full bg-red-600 hover:bg-red-700 text-white transition-all flex items-center justify-center shadow-lg"
           title="End call"
         >
-          <svg className="w-6 h-6" fill="white" viewBox="0 0 24 24">
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
             <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" />
           </svg>
         </button>

@@ -50,10 +50,11 @@ const DoctorTasksDetailPage: React.FC = () => {
 
       if (!response.ok) throw new Error('Failed to fetch patient tasks');
       const data = await response.json();
+      const tasksArray = data.tasks || [];
 
-      setTasks(data);
-      if (data.length > 0 && data[0].patientId) {
-        setPatientName(`${data[0].patientId.firstName} ${data[0].patientId.lastName}`);
+      setTasks(tasksArray);
+      if (tasksArray.length > 0 && tasksArray[0].patientId) {
+        setPatientName(`${tasksArray[0].patientId.firstName} ${tasksArray[0].patientId.lastName}`);
       }
     } catch (error) {
       console.error('Error fetching patient tasks:', error);

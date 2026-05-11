@@ -10,6 +10,7 @@ import { useDataSocket } from '../hooks/useDataSocket';
 import toast from 'react-hot-toast';
 import InstantRequestModal from '../components/InstantRequestModal';
 import PostSessionReportModal from '../components/PostSessionReportModal';
+import DoctorSidebar from '../components/DoctorSidebar';
 
 const DoctorDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -102,13 +103,22 @@ const DoctorDashboard: React.FC = () => {
       fetchUserProfile();
     });
 
+    // ✨ NEW: Listen for real-time online status changes
+    socket.on('doctor:status-change', (data: any) => {
+      if (data.doctorId === user?.userId) {
+        console.log('[REAL-TIME] Online status changed:', data.isOnline);
+        setIsActive(data.isOnline);
+      }
+    });
+
     return () => {
       socket.off('session:booked');
       socket.off('session:cancelled');
       socket.off('session:status-change');
       socket.off('doctor:approval-status');
+      socket.off('doctor:status-change');
     };
-  }, [socket]);
+  }, [socket, user]);
 
   // ✨ FALLBACK REFRESH & MANDATORY REPORT: Detect navigation state
   useEffect(() => {
@@ -145,7 +155,7 @@ const DoctorDashboard: React.FC = () => {
 
       if (response.ok) {
         const userData = await response.json();
-        setUserName(userData.firstName || userData.username || 'Doctor');
+        setUserName(userData.user?.firstName || userData.firstName || userData.user?.username || userData.username || 'Doctor');
       }
     } catch (error) {
       console.error('Error fetching user profile:', error);
@@ -319,22 +329,6 @@ const DoctorDashboard: React.FC = () => {
     return `${day}${suffix(day)} ${month}, ${year}`;
   };
 
-  const handleLogout = async () => {
-    try {
-      const API_BASE_URL = window.location.hostname === 'localhost'
-        ? 'http://localhost:5001/api'
-        : 'https://veraawell-backend.onrender.com/api';
-
-      await fetch(`${API_BASE_URL}/auth/logout`, {
-        method: 'POST',
-        credentials: 'include',
-      });
-      window.location.href = '/';
-    } catch (error) {
-      window.location.href = '/';
-    }
-  };
-
   const handleSessionClick = (session: Session) => {
     setSelectedSession(session);
     setIsSessionModalOpen(true);
@@ -399,110 +393,17 @@ const DoctorDashboard: React.FC = () => {
           onClick={() => setSidebarOpen(false)}
         />
       )}
-
-      {/* Sidebar - Updated Color to match new theme */}
-      <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`} style={{ backgroundColor: '#4DBAB2' }}>
-        <div className="h-full flex flex-col p-4 text-white font-serif">
-          {/* Main Menu Items */}
-          <div className="space-y-3 mb-6">
-            <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors bg-white/10">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-              </svg>
-              <span className="text-base font-medium">My Dashboard</span>
-            </div>
-
-            <div
-              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
-              onClick={() => navigate('/profile-setup')}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-              <span className="text-base font-medium">My Profile</span>
-            </div>
-
-            <div
-              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
-              onClick={() => navigate('/call-history')}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-              </svg>
-              <span className="text-base font-medium">My Calls</span>
-            </div>
-
-            <div
-              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
-              onClick={() => { navigate('/patient-details'); setSidebarOpen(false); }}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-              </svg>
-              <span className="text-base font-medium">My Patients</span>
-            </div>
-
-            <div
-              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
-              onClick={() => { navigate('/doctor-session-notes'); setSidebarOpen(false); }}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <span className="text-base font-medium">Session Notes</span>
-            </div>
-
-            <div
-              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
-              onClick={() => { navigate('/doctor-tasks'); setSidebarOpen(false); }}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-              </svg>
-              <span className="text-base font-medium">Tasks Assigned</span>
-            </div>
-
-            <div
-              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
-              onClick={() => { navigate('/doctor-reports'); setSidebarOpen(false); }}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <span className="text-base font-medium">Reports</span>
-            </div>
-          </div>
-
-          {/* Bottom Menu Items */}
-          <div className="mt-auto space-y-3">
-            <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-              </svg>
-              <span className="text-base font-medium">Settings</span>
-            </div>
-
-            <div
-              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2"
-              onClick={handleLogout}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-              </svg>
-              <span className="text-base font-medium">Sign Out</span>
-            </div>
-          </div>
-        </div>
-      </div>
+      <DoctorSidebar 
+        sidebarOpen={sidebarOpen} 
+        setSidebarOpen={setSidebarOpen} 
+      />
 
       {/* Top Navigation Bar - Keeping it clean & white */}
       <nav className="bg-white shadow-[0_2px_15px_-3px_rgba(0,0,0,0.07)]">
         <div className="px-6">
-          <div className="flex justify-between items-center h-16">
+          <div className="grid grid-cols-3 items-center h-16">
             {/* Left side - Hamburger Menu */}
-            <div className="flex items-center">
+            <div className="flex justify-start">
               <button
                 onClick={() => setSidebarOpen(true)}
                 className="p-2 hover:bg-teal-50 rounded-md transition-colors z-10 relative text-gray-600"
@@ -515,14 +416,21 @@ const DoctorDashboard: React.FC = () => {
             </div>
 
             {/* Center - Greeting */}
-            <div className="flex-1 text-center">
-              <h1 className="text-3xl font-bold font-serif" style={{ color: '#2D3748' }}>
-                Hi {userName}
+            <div className="text-center">
+              <h1 className="text-3xl font-semibold font-sans" style={{ color: '#2D3748' }}>
+                {(() => {
+                  const hour = new Date().getHours();
+                  if (hour >= 5 && hour < 12) return 'Good morning';
+                  if (hour >= 12 && hour < 17) return 'Good afternoon';
+                  if (hour >= 17 && hour < 20) return 'Good evening';
+                  if (hour >= 20 && hour < 24) return 'Good night';
+                  return 'Night owl';
+                })()}, Dr. {userName}
               </h1>
             </div>
 
             {/* Right side - Chat and Active Toggle */}
-            <div className="flex items-center space-x-4">
+            <div className="flex justify-end items-center space-x-4">
               {/* Chat Icon with Notification Badge */}
               <button
                 onClick={() => navigate('/messages')}

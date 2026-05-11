@@ -106,11 +106,10 @@ const bookImmediate = asyncHandler(async (req, res) => {
   if (!doctorId || doctorId === 'test-doctor-id') doctorId = patientId;
 
   const now = new Date();
-  const sessionDate = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
   const sessionTime = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
   const finalPrice = await calculateSessionPrice(doctorId, mode, duration, price);
 
-  const session = new Session({ patientId, doctorId, sessionDate: new Date(sessionDate), sessionTime, sessionType: 'immediate', duration: duration || 20, price: finalPrice, paymentStatus: 'paid', paymentId: `immediate_${Date.now()}`, callMode: CALL_MODE_MAP[mode] || 'Video Calling' });
+  const session = new Session({ patientId, doctorId, sessionDate: now, sessionTime, sessionType: 'immediate', duration: duration || 20, price: finalPrice, paymentStatus: 'paid', paymentId: `immediate_${Date.now()}`, callMode: CALL_MODE_MAP[mode] || 'Video Calling' });
   const saved = await session.save();
   saved.meetingLink = `/video-call/${saved._id}`;
   await saved.save();

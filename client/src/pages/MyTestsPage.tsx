@@ -61,9 +61,18 @@ const MyTestsPage: React.FC = () => {
         <div className="min-h-screen" style={{ backgroundColor: '#E0EAEA' }}>
             {/* Sidebar */}
             {sidebarOpen && <div className="fixed inset-0 z-40" onClick={() => setSidebarOpen(false)} />}
-            <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`} style={{ backgroundColor: '#7DA9A8' }}>
-                <div className="h-full flex flex-col p-4 text-white font-serif">
-                    <div className="space-y-3">
+            <div className={`fixed left-0 top-0 h-screen w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`} style={{ backgroundColor: '#7DA9A8' }}>
+                <div className="h-full flex flex-col p-4 text-white font-sans">
+                    {/* Sidebar Header */}
+                    <div className="flex items-center justify-between mb-6 border-b border-white/20 pb-4">
+                        <h2 className="text-xl font-bold">Menu</h2>
+                        <button onClick={() => setSidebarOpen(false)} className="p-1 hover:bg-white/10 rounded-full">
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                    <div className="space-y-3 flex-1">
                         <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors" onClick={() => navigate('/patient-dashboard')}>
                             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
@@ -94,7 +103,7 @@ const MyTestsPage: React.FC = () => {
                             <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16"></path>
                         </svg>
                     </button>
-                    <h1 className="text-2xl font-bold text-white" style={{ fontFamily: 'Bree Serif, serif' }}>My Tests</h1>
+                    <h1 className="text-2xl font-bold text-white">My Tests</h1>
                     <div className="w-10"></div>
                 </div>
             </div>
@@ -135,7 +144,7 @@ const MyTestsPage: React.FC = () => {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                             </svg>
                         </div>
-                        <h3 className="text-xl font-bold text-gray-900 mb-2" style={{ fontFamily: 'Bree Serif, serif' }}>
+                        <h3 className="text-xl font-bold text-gray-900 mb-2">
                             No tests yet
                         </h3>
                         <p className="text-gray-500 mb-6 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -176,7 +185,7 @@ const MyTestsPage: React.FC = () => {
                                         <div className="flex items-start justify-between mb-3">
                                             <div className="flex-1">
                                                 <div className="flex items-center gap-2 mb-1">
-                                                    <h3 className="text-lg font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+                                                    <h3 className="text-lg font-bold text-gray-900">
                                                         {test.name}
                                                     </h3>
                                                     <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full ${severityColors.bg}`}>

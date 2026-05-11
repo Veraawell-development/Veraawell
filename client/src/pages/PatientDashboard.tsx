@@ -20,7 +20,7 @@ import { MENTAL_HEALTH_TESTS } from '../data/mentalHealthTests';
 const PatientDashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
@@ -60,7 +60,7 @@ const PatientDashboard: React.FC = () => {
 
         if (profileRes.ok) {
           const userData = await profileRes.json();
-          setUserName(userData.firstName || userData.username || 'User');
+          setUserName(userData.user?.firstName || userData.user?.username || 'User');
         }
 
         if (reportsRes.ok) {
@@ -228,10 +228,7 @@ const PatientDashboard: React.FC = () => {
 
   const handleLogout = async () => {
     try {
-      await fetch(`${API_CONFIG.BASE_URL}/auth/logout`, {
-        method: 'POST',
-        credentials: 'include',
-      });
+      await logout();
       window.location.href = '/';
     } catch (error) {
       logger.error('Logout error:', error);
@@ -279,7 +276,7 @@ const PatientDashboard: React.FC = () => {
             {/* Score Display */}
             <div className="mb-3">
               <div className="flex items-baseline justify-center gap-1 mb-1">
-                <span className="text-3xl font-bold" style={{ color: severityColor, fontFamily: 'Bree Serif, serif' }}>
+                <span className="text-3xl font-bold" style={{ color: severityColor }}>
                   {score}
                 </span>
                 <span className="text-gray-500 text-sm">/{maxScore}</span>
@@ -370,9 +367,19 @@ const PatientDashboard: React.FC = () => {
       }
 
       {/* Sidebar */}
-      <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+      <div className={`fixed left-0 top-0 h-screen w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`} style={{ backgroundColor: '#7DA9A8' }}>
-        <div className="h-full flex flex-col p-4 text-white font-serif">
+        <div className="h-full flex flex-col p-4 text-white font-sans">
+          {/* Sidebar Header */}
+          <div className="flex items-center justify-between mb-6 border-b border-white/20 pb-4">
+            <h2 className="text-xl font-bold">Menu</h2>
+            <button onClick={() => setSidebarOpen(false)} className="p-1 hover:bg-white/10 rounded-full">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
           {/* Main Menu Items */}
           <div className="space-y-3 flex-1">
             <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors">
@@ -492,9 +499,9 @@ const PatientDashboard: React.FC = () => {
       {/* Top Navigation Bar */}
       <nav className="bg-white shadow-sm border-b">
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
+          <div className="grid grid-cols-3 items-center h-16">
             {/* Left side - Hamburger Menu */}
-            <div className="flex items-center">
+            <div className="flex justify-start">
               <button
                 onClick={() => setSidebarOpen(true)}
                 className="p-2 hover:bg-gray-100 rounded-md transition-colors z-10 relative"
@@ -508,14 +515,21 @@ const PatientDashboard: React.FC = () => {
             </div>
 
             {/* Center - Greeting */}
-            <div className="flex-1 text-center">
-              <h1 className="text-3xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
-                Hi {userName}
+            <div className="text-center">
+              <h1 className="text-2xl font-medium text-gray-800" style={{ fontFamily: 'Inter, sans-serif' }}>
+                {(() => {
+                  const hour = new Date().getHours();
+                  if (hour >= 5 && hour < 12) return 'Good morning';
+                  if (hour >= 12 && hour < 17) return 'Good afternoon';
+                  if (hour >= 17 && hour < 20) return 'Good evening';
+                  if (hour >= 20 && hour < 24) return 'Good night';
+                  return 'Night owl';
+                })()}, {userName}
               </h1>
             </div>
 
             {/* Right side - Chat, Book Session and Balance */}
-            <div className="flex items-center space-x-3">
+            <div className="flex items-center justify-end space-x-3">
               {/* Emergency Hotline Button */}
               <button
                 onClick={() => setIsHotlineModalOpen(true)}
@@ -556,7 +570,7 @@ const PatientDashboard: React.FC = () => {
       </nav>
 
       {/* Main Dashboard Content */}
-      <div className="h-[calc(100vh-4rem)] overflow-hidden px-4 py-4">
+      <div className="h-[calc(100vh-4rem)] overflow-y-auto px-4 py-4">
         {loading ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-center">
@@ -571,7 +585,7 @@ const PatientDashboard: React.FC = () => {
             {/* Reports & Recommendation Card */}
             <div className="p-6 text-white flex flex-col rounded-lg border border-gray-300" style={{ backgroundColor: '#38ABAE' }}>
               <div className="border-b-2 border-white pb-3 mb-6">
-                <h3 className="text-2xl font-bold text-center" style={{ fontFamily: 'Bree Serif, serif' }}>Reports & Recommendation</h3>
+                <h3 className="text-2xl font-bold text-center">Reports & Recommendation</h3>
               </div>
               <div className="space-y-4 flex-1">
                 {recentReports.length > 0 ? (
@@ -602,18 +616,43 @@ const PatientDashboard: React.FC = () => {
             {/* Mental Health Screening Card */}
             <div className="p-6 text-white flex flex-col rounded-lg border border-gray-300" style={{ backgroundColor: '#ABA5D1' }}>
               <div className="border-b-2 border-white pb-3 mb-6">
-                <h3 className="text-2xl font-bold text-center" style={{ fontFamily: 'Bree Serif, serif' }}>Mental Health Screening</h3>
+                <h3 className="text-2xl font-bold text-center">Mental Health Screening</h3>
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4 flex-1">
                 {(() => {
                   const defaultTests = ['depression', 'anxiety', 'adhd', 'disability'];
-                  const testsToRender = [...defaultTests];
                   
-                  Object.keys(latestScores).forEach(testId => {
-                    if (!testsToRender.includes(testId)) {
-                      testsToRender.push(testId);
+                  // Get all unique test IDs (defaults + taken)
+                  const allTestIds = Array.from(new Set([...defaultTests, ...Object.keys(latestScores)]));
+                  
+                  // Sort them: prefer ones with scores, and then by latest date
+                  const sortedTestIds = allTestIds.sort((a, b) => {
+                    const scoreA = latestScores[a];
+                    const scoreB = latestScores[b];
+                    
+                    // 1. Prefer ones with scores
+                    if (scoreA && !scoreB) return -1;
+                    if (!scoreA && scoreB) return 1;
+                    
+                    // 2. If both have scores, prefer the latest one
+                    if (scoreA && scoreB) {
+                      const dateA = new Date(scoreA.latestDate).getTime();
+                      const dateB = new Date(scoreB.latestDate).getTime();
+                      return dateB - dateA; // Descending order (latest first)
                     }
+                    
+                    // 3. If neither has scores, keep default order
+                    const indexA = defaultTests.indexOf(a);
+                    const indexB = defaultTests.indexOf(b);
+                    if (indexA !== -1 && indexB !== -1) return indexA - indexB;
+                    if (indexA !== -1) return -1;
+                    if (indexB !== -1) return 1;
+                    
+                    return 0;
                   });
+                  
+                  // Keep top 4 only
+                  const testsToRender = sortedTestIds.slice(0, 4);
 
                   return testsToRender.map((testId) => {
                     const testDef = MENTAL_HEALTH_TESTS[testId];
@@ -683,7 +722,7 @@ const PatientDashboard: React.FC = () => {
               {/* My Journal Section */}
               <div className="p-6 text-white flex-1 flex flex-col rounded-lg border border-gray-300" style={{ backgroundColor: '#6DBEDF' }}>
                 <div className="border-b-2 border-white pb-3 mb-4">
-                  <h3 className="text-2xl font-bold text-center" style={{ fontFamily: 'Bree Serif, serif' }}>My Journal</h3>
+                  <h3 className="text-2xl font-bold text-center">My Journal</h3>
                 </div>
                 <div className="flex-1">
                   <div className="grid grid-cols-2 gap-4 text-base mb-3 font-bold border-b border-white pb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -717,7 +756,7 @@ const PatientDashboard: React.FC = () => {
               {/* Pending Tasks Section */}
               <div className="p-6 text-white flex-1 flex flex-col rounded-lg border border-gray-300" style={{ backgroundColor: '#78BE9F' }}>
                 <div className="border-b-2 border-white pb-3 mb-4">
-                  <h3 className="text-2xl font-bold text-center" style={{ fontFamily: 'Bree Serif, serif' }}>Pending Tasks</h3>
+                  <h3 className="text-2xl font-bold text-center">Pending Tasks</h3>
                 </div>
                 <div className="flex-1">
                   <div className="grid grid-cols-3 gap-4 text-base mb-3 font-bold border-b border-white pb-2" style={{ fontFamily: 'Inter, sans-serif' }}>

@@ -74,16 +74,8 @@ async function startServer() {
         logger.info('  DB       : Connected');
 
         // Reset all doctor statuses to offline on startup to clear stale records
-        try {
-          const User = require('./models/user');
-          const result = await User.updateMany(
-            { role: 'doctor', isOnline: true },
-            { $set: { isOnline: false } }
-          );
-          logger.info(`Reset ${result.modifiedCount} doctor(s) to offline on startup`);
-        } catch (resetError) {
-          logger.error('Failed to reset doctor statuses on startup', { error: resetError.message });
-        }
+        // Removed auto-offline on startup as per user request.
+        // Doctors stay online until they manually toggle off or log out.
 
         // Start scheduler (session reminders, status updates)
         const { startScheduler } = require('./services/scheduler');

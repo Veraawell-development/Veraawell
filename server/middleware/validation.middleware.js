@@ -70,8 +70,23 @@ function validateRegistration(req, res, next) {
     }
   }
 
-  if (role && !isValidRole(role)) {
-    errors.role = `Invalid role. Must be one of: ${VALID_ROLES.join(', ')}`;
+  // Restrict roles for public registration to prevent privilege escalation
+  const allowedPublicRoles = ['patient', 'doctor', 'admin'];
+  if (role && !allowedPublicRoles.includes(role)) {
+    errors.role = `Invalid role. Public registration only allows: ${allowedPublicRoles.join(', ')}`;
+  }
+
+  // Professional validation for doctor fields
+  if (role === 'doctor') {
+    const { jobRole, specialization } = req.body;
+    
+    if (!jobRole || !jobRole.trim()) {
+      errors.jobRole = 'Job role is required for doctors';
+    }
+    
+    if (!specialization || !specialization.trim()) {
+      errors.specialization = 'Specialization is required for doctors';
+    }
   }
 
   if (Object.keys(errors).length > 0) {
