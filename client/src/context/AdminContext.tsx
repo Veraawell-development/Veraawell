@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { API_BASE_URL } from '../config/api';
 
 interface Admin {
   id: string;
@@ -21,10 +22,6 @@ const AdminContext = createContext<AdminContextType | undefined>(undefined);
 export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [admin, setAdmin] = useState<Admin | null>(null);
   const [loading, setLoading] = useState(true);
-
-  const API_BASE_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5001/api'
-    : 'https://veraawell-backend.onrender.com/api';
 
   const checkAuth = async () => {
     try {

@@ -1,11 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
-
-const API_BASE_URL =
-  window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-    ? 'http://localhost:5001/api'
-    : 'https://veraawell-backend.onrender.com/api';
+import { API_BASE_URL } from '../config/api';
 
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams();

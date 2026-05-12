@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FiMenu, FiFileText } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import BackToDashboard from '../components/BackToDashboard';
+import { API_BASE_URL } from '../config/api';
 
 interface PatientNote {
   _id: string;
@@ -17,10 +18,6 @@ const DoctorSessionNotesPage: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const { user } = useAuth();
-
-  const API_BASE_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5001/api'
-    : 'https://veraawell-backend.onrender.com/api';
 
   useEffect(() => {
     fetchNotes();

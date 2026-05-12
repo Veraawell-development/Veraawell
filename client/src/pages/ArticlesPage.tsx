@@ -4,6 +4,7 @@ import { useDataSocket } from '../hooks/useDataSocket';
 import toast from 'react-hot-toast';
 import BackToDashboard from '../components/BackToDashboard';
 import { Search, ArrowRight, Clock, Home } from 'lucide-react';
+import { API_BASE_URL } from '../config/api';
 
 interface Article {
     _id: string;
@@ -44,10 +45,6 @@ const ArticlesPage: React.FC = () => {
     // REAL-TIME: Connect to data socket
     const { socket } = useDataSocket();
 
-    const API_BASE_URL = window.location.hostname === 'localhost'
-        ? 'http://localhost:5001'
-        : 'https://veraawell-backend.onrender.com';
-
     useEffect(() => {
         fetchArticles();
     }, [searchQuery, selectedCategory]);
@@ -82,7 +79,7 @@ const ArticlesPage: React.FC = () => {
                 limit: '100'
             });
 
-            const response = await fetch(`${API_BASE_URL}/api/articles?${params}`);
+            const response = await fetch(`${API_BASE_URL}/articles?${params}`);
             if (response.ok) {
                 const data = await response.json();
                 setArticles(data.articles);

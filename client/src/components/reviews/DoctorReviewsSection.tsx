@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { API_BASE_URL } from '../../config/api';
 
 interface Review {
     _id: string;
@@ -29,10 +30,6 @@ const DoctorReviewsSection: React.FC<DoctorReviewsSectionProps> = ({ doctorId })
     const [reviews, setReviews] = useState<Review[]>([]);
     const [stats, setStats] = useState<ReviewStats | null>(null);
     const [loading, setLoading] = useState(true);
-
-    const API_BASE_URL = window.location.hostname === 'localhost'
-        ? 'http://localhost:5001/api'
-        : 'https://veraawell-backend.onrender.com/api';
 
     useEffect(() => {
         fetchDoctorReviews();

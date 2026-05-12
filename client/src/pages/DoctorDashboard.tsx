@@ -11,6 +11,7 @@ import toast from 'react-hot-toast';
 import InstantRequestModal from '../components/InstantRequestModal';
 import PostSessionReportModal from '../components/PostSessionReportModal';
 import DoctorSidebar from '../components/DoctorSidebar';
+import { API_BASE_URL } from '../config/api';
 
 const DoctorDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -39,10 +40,6 @@ const DoctorDashboard: React.FC = () => {
 
   // ✨ REAL-TIME: Connect to data socket
   const { socket } = useDataSocket();
-
-  const API_BASE_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5001/api'
-    : 'https://veraawell-backend.onrender.com/api';
 
   useEffect(() => {
     fetchUserProfile();
@@ -165,10 +162,6 @@ const DoctorDashboard: React.FC = () => {
   const fetchDashboardData = async () => {
     if (!user) return;
 
-    const API_BASE_URL = window.location.hostname === 'localhost'
-      ? 'http://localhost:5001/api'
-      : 'https://veraawell-backend.onrender.com/api';
-
     // Get token for all requests
     const token = localStorage.getItem('token');
     const headers: HeadersInit = {};
@@ -230,10 +223,6 @@ const DoctorDashboard: React.FC = () => {
   };
 
   const fetchUnreadCount = async () => {
-    const API_BASE_URL = window.location.hostname === 'localhost'
-      ? 'http://localhost:5001/api'
-      : 'https://veraawell-backend.onrender.com/api';
-
     try {
       const token = localStorage.getItem('token');
       const headers: HeadersInit = {};

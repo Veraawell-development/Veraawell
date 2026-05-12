@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Loader2, ArrowRight, Clock, Eye, Home } from 'lucide-react';
 import BackToDashboard from '../components/BackToDashboard';
+import { API_BASE_URL } from '../config/api';
 
 interface Article {
     _id: string;
@@ -26,10 +27,6 @@ const ArticleDetailPage: React.FC = () => {
     const [loading, setLoading] = useState(true);
     const [scrollProgress, setScrollProgress] = useState(0);
 
-    const API_BASE_URL = window.location.hostname === 'localhost'
-        ? 'http://localhost:5001'
-        : 'https://veraawell-backend.onrender.com';
-
     useEffect(() => {
         const handleScroll = () => {
             const h = document.documentElement,
@@ -48,7 +45,7 @@ const ArticleDetailPage: React.FC = () => {
         const fetchArticle = async () => {
             try {
                 setLoading(true);
-                const response = await fetch(`${API_BASE_URL}/api/articles/${slug}`);
+                const response = await fetch(`${API_BASE_URL}/articles/${slug}`);
 
                 if (!response.ok) {
                     throw new Error('Article not found');
@@ -58,10 +55,10 @@ const ArticleDetailPage: React.FC = () => {
                 setArticle(articleData);
 
                 // Increment Views
-                fetch(`${API_BASE_URL}/api/articles/${articleData._id}/view`, { method: 'POST' });
+                fetch(`${API_BASE_URL}/articles/${articleData._id}/view`, { method: 'POST' });
 
                 // Fetch Related Articles
-                const relatedResponse = await fetch(`${API_BASE_URL}/api/articles?category=${encodeURIComponent(articleData.category)}&limit=4`);
+                const relatedResponse = await fetch(`${API_BASE_URL}/articles?category=${encodeURIComponent(articleData.category)}&limit=4`);
                 if (relatedResponse.ok) {
                     const relatedData = await relatedResponse.json();
                     setRelatedArticles(

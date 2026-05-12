@@ -9,6 +9,7 @@ import {
 import { LuStethoscope } from 'react-icons/lu';
 import toast from 'react-hot-toast';
 import { AnimatePresence } from 'framer-motion';
+import { API_BASE_URL } from '../config/api';
 
 interface Article {
     _id: string;
@@ -51,10 +52,6 @@ const AdminArticlesPage: React.FC = () => {
     // UX States
     const [articleToDelete, setArticleToDelete] = useState<{ id: string, title: string } | null>(null);
     const [actionLoading, setActionLoading] = useState<string | null>(null);
-
-    const API_BASE_URL = window.location.hostname === 'localhost'
-        ? 'http://localhost:5001'
-        : 'https://veraawell-backend.onrender.com';
 
     const categories = [
         'All', 'Addiction', 'Adult ADHD', 'Anger management', 'Anger & Frustration',
@@ -100,7 +97,7 @@ const AdminArticlesPage: React.FC = () => {
                 status: selectedStatus
             });
 
-            const response = await fetch(`${API_BASE_URL}/api/articles/admin/all?${params}`, {
+            const response = await fetch(`${API_BASE_URL}/articles/admin/all?${params}`, {
                 credentials: 'include',
                 headers
             });
@@ -133,7 +130,7 @@ const AdminArticlesPage: React.FC = () => {
             const headers: HeadersInit = {};
             if (token) headers['Authorization'] = `Bearer ${token}`;
 
-            const response = await fetch(`${API_BASE_URL}/api/articles/admin/${id}`, {
+            const response = await fetch(`${API_BASE_URL}/articles/admin/${id}`, {
                 method: 'DELETE',
                 credentials: 'include',
                 headers
@@ -161,7 +158,7 @@ const AdminArticlesPage: React.FC = () => {
             const headers: HeadersInit = {};
             if (token) headers['Authorization'] = `Bearer ${token}`;
 
-            const response = await fetch(`${API_BASE_URL}/api/articles/admin/${id}/feature`, {
+            const response = await fetch(`${API_BASE_URL}/articles/admin/${id}/feature`, {
                 method: 'POST',
                 credentials: 'include',
                 headers

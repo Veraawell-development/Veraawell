@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { API_BASE_URL } from '../config/api';
 
 interface RatingModalProps {
     isOpen: boolean;
@@ -27,10 +28,6 @@ const RatingModal: React.FC<RatingModalProps> = ({
 
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState('');
-
-    const API_BASE_URL = window.location.hostname === 'localhost'
-        ? 'http://localhost:5001/api'
-        : 'https://veraawell-backend.onrender.com/api';
 
     if (!isOpen) return null;
 

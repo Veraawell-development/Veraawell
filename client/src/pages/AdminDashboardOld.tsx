@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
 import { FiMenu, FiLogOut, FiUsers, FiUserCheck, FiClock } from 'react-icons/fi';
+import { API_BASE_URL } from '../config/api';
 
 interface PendingDoctor {
   _id: string;
@@ -32,10 +33,6 @@ const AdminDashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const { admin, logout } = useAdmin();
-
-  const API_BASE_URL = window.location.hostname === 'localhost' 
-    ? 'http://localhost:5001/api' 
-    : 'https://veraawell-backend.onrender.com/api';
 
   useEffect(() => {
     if (!admin) {

@@ -10,6 +10,7 @@ import {
 import { LuStethoscope } from 'react-icons/lu';
 import ImageUpload from '../components/ImageUpload';
 import toast from 'react-hot-toast';
+import { API_BASE_URL } from '../config/api';
 
 const AdminArticleEditorPage: React.FC = () => {
     const navigate = useNavigate();
@@ -39,10 +40,6 @@ const AdminArticleEditorPage: React.FC = () => {
         status: 'draft' as 'draft' | 'published'
     });
     const [tagInput, setTagInput] = useState('');
-
-    const API_BASE_URL = window.location.hostname === 'localhost'
-        ? 'http://localhost:5001'
-        : 'https://veraawell-backend.onrender.com';
 
     const categories = [
         'Addiction', 'Adult ADHD', 'Anger management', 'Anger & Frustration',
@@ -84,7 +81,7 @@ const AdminArticleEditorPage: React.FC = () => {
             const headers: HeadersInit = {};
             if (token) headers['Authorization'] = `Bearer ${token}`;
 
-            const response = await fetch(`${API_BASE_URL}/api/articles/admin/${id}`, {
+            const response = await fetch(`${API_BASE_URL}/articles/admin/${id}`, {
                 credentials: 'include',
                 headers
             });
@@ -118,7 +115,7 @@ const AdminArticleEditorPage: React.FC = () => {
         uploadFormData.append('image', file);
 
         const token = localStorage.getItem('adminToken');
-        const response = await fetch(`${API_BASE_URL}/api/upload/article-image`, {
+        const response = await fetch(`${API_BASE_URL}/upload/article-image`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}` },
             credentials: 'include',
@@ -139,8 +136,8 @@ const AdminArticleEditorPage: React.FC = () => {
         setSaving(true);
         try {
             const url = isEditMode
-                ? `${API_BASE_URL}/api/articles/admin/${id}`
-                : `${API_BASE_URL}/api/articles/admin`;
+                ? `${API_BASE_URL}/articles/admin/${id}`
+                : `${API_BASE_URL}/articles/admin`;
 
             const method = isEditMode ? 'PUT' : 'POST';
             const token = localStorage.getItem('adminToken');

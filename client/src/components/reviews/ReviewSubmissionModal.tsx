@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
+import { API_BASE_URL } from '../../config/api';
 
 interface ReviewSubmissionModalProps {
     isOpen: boolean;
@@ -25,10 +26,6 @@ const ReviewSubmissionModal: React.FC<ReviewSubmissionModalProps> = ({
     const [wouldRecommend, setWouldRecommend] = useState(true);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState('');
-
-    const API_BASE_URL = window.location.hostname === 'localhost'
-        ? 'http://localhost:5001/api'
-        : 'https://veraawell-backend.onrender.com/api';
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ProfileImageUpload from '../components/ProfileImageUpload';
 import BackToDashboard from '../components/BackToDashboard';
+import { API_BASE_URL } from '../config/api';
 
 const ProfileSetupPage: React.FC = () => {
   const navigate = useNavigate();
@@ -13,10 +14,6 @@ const ProfileSetupPage: React.FC = () => {
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 4;
-
-  const API_BASE_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5001/api'
-    : 'https://veraawell-backend.onrender.com/api';
 
   // Form state for doctor profile
   const [formData, setFormData] = useState({

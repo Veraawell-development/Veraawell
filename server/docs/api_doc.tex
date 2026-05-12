@@ -1,0 +1,835 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{xcolor}
+\usepackage{tcolorbox}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{amsmath}
+
+% Modern Sans-Serif Font
+\renewcommand{\familydefault}{\sfdefault}
+\usepackage{helvet}
+
+% Colors
+\definecolor{primary}{RGB}{33, 37, 41} % Charcoal
+\definecolor{accent}{RGB}{0, 102, 204} % Deep Blue for methods
+\definecolor{bglight}{RGB}{250, 250, 250} % Off white for code
+\definecolor{border}{RGB}{220, 220, 220} % Soft border
+
+\tcbset{
+    colback=white,
+    colframe=border,
+    boxrule=1pt,
+    arc=6pt,
+    boxsep=12pt,
+    fonttitle=\bfseries\large,
+    coltitle=primary,
+    attach title to upper,
+    after title={\par\smallskip\hrule\smallskip},
+}
+
+\lstset{
+    backgroundcolor=\color{bglight},
+    basicstyle=\ttfamily\small,
+    breaklines=true,
+    frame=single,
+    rulecolor=\color{border},
+    commentstyle=\color{gray},
+    keywordstyle=\color{blue},
+    stringstyle=\color{green!50!black},
+}
+
+\title{\textbf{Veerawell API Documentation}}
+\author{Antigravity AI Assistant}
+\date{\today}
+
+\begin{document}
+
+\maketitle
+\tableofcontents
+\newpage
+
+\section{Introduction}
+This document contains the comprehensive API documentation for the Veerawell backend. The design is minimal and modern for better readability.
+
+\section{Phase 1: Authentication \& Authorization}
+
+\subsection{User Authentication}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/auth/validate-registration]
+\textbf{Description:} Validates registration data without creating a user. Use this to check if inputs are valid before proceeding.
+
+\vspace{0.5em}
+\textbf{Request Body:}
+\begin{itemize}
+    \item \texttt{firstName} (String, Required)
+    \item \texttt{email} (String, Required)
+    \item \texttt{password} (String, Required)
+    \item \texttt{role} (String, Optional) - Allowed: \texttt{patient}, \texttt{doctor}, \texttt{admin}.
+    \item \texttt{jobRole} (String, Required if role is doctor)
+    \item \texttt{specialization} (String, Required if role is doctor)
+\end{itemize}
+
+\vspace{0.5em}
+\textbf{Response (200 OK):}
+\begin{lstlisting}[language=json]
+{
+  "success": true,
+  "message": "Validation successful"
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/auth/register]
+\textbf{Description:} Registers a new user and returns an authentication token.
+
+\vspace{0.5em}
+\textbf{Request Body:} Same as \texttt{validate-registration}.
+
+\vspace{0.5em}
+\textbf{Response (201 Created):}
+\begin{lstlisting}[language=json]
+{
+  "success": true,
+  "message": "Registration successful",
+  "user": {
+    "userId": "string",
+    "username": "string",
+    "role": "string",
+    "firstName": "string",
+    "lastName": "string",
+    "emergencyContact": { "name": null, "phone": null }
+  },
+  "token": "string"
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/auth/login]
+\textbf{Description:} Authenticates a user and sets an HTTP-only cookie with the token.
+
+\vspace{0.5em}
+\textbf{Request Body:}
+\begin{itemize}
+    \item \texttt{username} (String, Required) - Can be username or email.
+    \item \texttt{password} (String, Required)
+    \item \texttt{role} (String, Optional)
+\end{itemize}
+
+\vspace{0.5em}
+\textbf{Response (200 OK):}
+\begin{lstlisting}[language=json]
+{
+  "success": true,
+  "message": "Login successful",
+  "user": { ... },
+  "token": "string"
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/auth/logout]
+\textbf{Description:} Logs out the user, clears authentication cookies, and destroys the session. If the user is a doctor, sets their status to offline.
+
+\vspace{0.5em}
+\textbf{Request Body:} None (Requires Auth Token).
+
+\vspace{0.5em}
+\textbf{Response (200 OK):}
+\begin{lstlisting}[language=json]
+{
+  "success": true,
+  "message": "Logged out successfully"
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/auth/forgot-password]
+\textbf{Description:} Sends password reset instructions to the user's email.
+
+\vspace{0.5em}
+\textbf{Request Body:}
+\begin{itemize}
+    \item \texttt{email} (String, Required)
+\end{itemize}
+
+\vspace{0.5em}
+\textbf{Response (200 OK):}
+\begin{lstlisting}[language=json]
+{
+  "success": true,
+  "message": "Password reset instructions have been sent to your email."
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/auth/reset-password]
+\textbf{Description:} Resets the user's password using the token received in email.
+
+\vspace{0.5em}
+\textbf{Request Body:}
+\begin{itemize}
+    \item \texttt{token} (String, Required)
+    \item \texttt{newPassword} (String, Required)
+\end{itemize}
+
+\vspace{0.5em}
+\textbf{Response (200 OK):}
+\begin{lstlisting}[language=json]
+{
+  "success": true,
+  "message": "Password reset successful. Please login with your new password."
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/auth/profile]
+\textbf{Description:} Retrieves the profile of the currently authenticated user.
+
+\vspace{0.5em}
+\textbf{Request Body:} None (Requires Auth Token).
+
+\vspace{0.5em}
+\textbf{Response (200 OK):}
+\begin{lstlisting}[language=json]
+{
+  "success": true,
+  "user": {
+    "userId": "string",
+    "username": "string",
+    "email": "string",
+    "firstName": "string",
+    "lastName": "string",
+    "role": "string",
+    "profileCompleted": boolean
+  }
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/protected]
+\textbf{Description:} A test route to verify if the token is valid and return user data.
+
+\vspace{0.5em}
+\textbf{Request Body:} None (Requires Auth Token).
+
+\vspace{0.5em}
+\textbf{Response (200 OK):}
+\begin{lstlisting}[language=json]
+{
+  "success": true,
+  "message": "Protected data",
+  "user": { ... },
+  "token": "string"
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\subsection{Google OAuth}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/auth/google]
+\textbf{Description:} Initiates the Google OAuth login flow.
+
+\vspace{0.5em}
+\textbf{Query Parameters:}
+\begin{itemize}
+    \item \texttt{role} (String, Optional) - Defaults to \texttt{patient}. Intended role for the user.
+\end{itemize}
+
+\vspace{0.5em}
+\textbf{Response:} Redirects to Google Consent Screen.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/auth/google/callback]
+\textbf{Description:} Callback route handled by Passport.js after Google authentication.
+
+\vspace{0.5em}
+\textbf{Response:} Redirects to frontend with success or error parameters.
+\end{tcolorbox}
+
+\subsection{OTP Verification}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/otp/send]
+\textbf{Description:} Sends a 6-digit OTP to the specified email for verification during signup.
+
+\vspace{0.5em}
+\textbf{Request Body:}
+\begin{itemize}
+    \item \texttt{email} (String, Required)
+    \item \texttt{userType} (String, Required) - Allowed: \texttt{patient}, \texttt{doctor}.
+\end{itemize}
+
+\vspace{0.5em}
+\textbf{Response (200 OK):}
+\begin{lstlisting}[language=json]
+{
+  "success": true,
+  "message": "OTP sent to your email",
+  "expiresAt": "string",
+  "email": "string"
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/otp/verify]
+\textbf{Description:} Verifies the OTP code sent to the email.
+
+\vspace{0.5em}
+\textbf{Request Body:}
+\begin{itemize}
+    \item \texttt{email} (String, Required)
+    \item \texttt{otp} (String, Required) - 6 digit number.
+\end{itemize}
+
+\vspace{0.5em}
+\textbf{Response (200 OK):}
+\begin{lstlisting}[language=json]
+{
+  "success": true,
+  "message": "Email verified successfully",
+  "verified": true
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/otp/resend]
+\textbf{Description:} Resends the OTP to the email if the previous one expired or was not received.
+
+\vspace{0.5em}
+\textbf{Request Body:}
+\begin{itemize}
+    \item \texttt{email} (String, Required)
+\end{itemize}
+
+\vspace{0.5em}
+\textbf{Response (200 OK):}
+\begin{lstlisting}[language=json]
+{
+  "success": true,
+  "message": "OTP resent to your email",
+  "expiresAt": "string",
+  "resendsLeft": number
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\section{Phase 2: Profile \& Patient Management}
+
+\subsection{Profile Management}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/profile/status]
+\textbf{Description:} Checks if the current user has completed their profile setup.
+
+\vspace{0.5em}
+\textbf{Request Body:} None (Requires Auth Token).
+
+\vspace{0.5em}
+\textbf{Response (200 OK):}
+\begin{lstlisting}[language=json]
+{
+  "success": true,
+  "profileCompleted": boolean
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/profile/setup]
+\textbf{Description:} Retrieves the profile data for the current user. Returns doctor-specific fields if the user is a doctor.
+
+\vspace{0.5em}
+\textbf{Request Body:} None (Requires Auth Token).
+
+\vspace{0.5em}
+\textbf{Response (200 OK - Doctor):}
+\begin{lstlisting}[language=json]
+{
+  "success": true,
+  "profile": {
+    "name": "string",
+    "profileImage": "string",
+    "qualification": [],
+    "languages": [],
+    "type": "string",
+    "experience": "string",
+    "specialization": [],
+    "price20": "string",
+    "price40": "string",
+    "price55": "string",
+    "audioPrice20": "string",
+    "audioPrice40": "string",
+    "audioPrice55": "string",
+    "modeOfSession": [],
+    "quote": "string",
+    "quoteAuthor": "string",
+    "introduction": "string"
+  }
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/profile/setup]
+\textbf{Description:} Sets up or updates the user profile. Handles both patient and doctor profiles.
+
+\vspace{0.5em}
+\textbf{Request Body:}
+\begin{itemize}
+    \item \texttt{fullName} or \texttt{name} (String)
+    \item \texttt{phoneNumber} (String)
+    \item \texttt{dateOfBirth} (String)
+    \item \texttt{gender} (String)
+    \item \texttt{emergencyContact} (Object)
+    \item \textit{Doctor specific fields:} \texttt{qualification}, \texttt{languages}, \texttt{type}, \texttt{experience}, \texttt{specialization}, \texttt{pricing}, \texttt{modeOfSession}, \texttt{quote}, \texttt{introduction}, etc.
+\end{itemize}
+
+\vspace{0.5em}
+\textbf{Response (200 OK):}
+\begin{lstlisting}[language=json]
+{
+  "success": true,
+  "message": "Profile setup completed successfully",
+  "profileCompleted": true
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{PUT} /api/profile]
+\textbf{Description:} Updates basic profile info like phone number and country code.
+
+\vspace{0.5em}
+\textbf{Request Body:}
+\begin{itemize}
+    \item \texttt{phoneNumber} (String, Optional)
+    \item \texttt{countryCode} (String, Optional)
+\end{itemize}
+
+\vspace{0.5em}
+\textbf{Response (200 OK):}
+\begin{lstlisting}[language=json]
+{
+  "success": true,
+  "message": "Profile updated successfully",
+  "phoneNumber": "string",
+  "countryCode": "string"
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\subsection{Patient Management}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/patients/emergency-contact]
+\textbf{Description:} Saves emergency contact details for a patient.
+
+\vspace{0.5em}
+\textbf{Request Body:}
+\begin{itemize}
+    \item \texttt{contactName} (String, Required)
+    \item \texttt{contactPhone} (String, Required)
+    \item \texttt{contactRelationship} (String, Required)
+\end{itemize}
+
+\vspace{0.5em}
+\textbf{Response (200 OK):}
+\begin{lstlisting}[language=json]
+{
+  "success": true,
+  "message": "Emergency contact saved successfully",
+  "emergencyContact": { ... }
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/patients/emergency-contact]
+\textbf{Description:} Retrieves the emergency contact details for a patient.
+
+\vspace{0.5em}
+\textbf{Request Body:} None (Requires Auth Token).
+
+\vspace{0.5em}
+\textbf{Response (200 OK):}
+\begin{lstlisting}[language=json]
+{
+  "success": true,
+  "emergencyContact": { ... }
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/patients/doctor-patients]
+\textbf{Description:} Retrieves all patients associated with the logged-in doctor, along with session details.
+
+\vspace{0.5em}
+\textbf{Request Body:} None (Requires Auth Token - Doctor Only).
+
+\vspace{0.5em}
+\textbf{Response (200 OK):} Returns an array of patient objects.
+\begin{lstlisting}[language=json]
+[
+  {
+    "_id": "string",
+    "name": "string",
+    "email": "string",
+    "occupation": "string",
+    "issue": "string",
+    "totalSessions": number,
+    "sessions": [...]
+  }
+]
+\end{lstlisting}
+\end{tcolorbox}
+
+\section{Phase 3: Sessions \& Doctor Management}
+
+\subsection{Session Management}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/sessions/stats]
+\textbf{Description:} Retrieves session statistics for the logged-in doctor (revenue, count, hours).
+\vspace{0.5em}
+\textbf{Response (200 OK):}
+\begin{lstlisting}[language=json]
+{
+  "success": true,
+  "totalRevenue": number,
+  "totalSessions": number,
+  "totalHours": number
+}
+\end{lstlisting}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/sessions/my-doctors]
+\textbf{Description:} Retrieves top 3 previously booked doctors for a patient.
+\vspace{0.5em}
+\textbf{Response (200 OK):} Returns an array of doctor profiles with session counts.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/sessions/pending-feedback]
+\textbf{Description:} Checks if there are completed sessions needing review from the patient.
+\vspace{0.5em}
+\textbf{Response (200 OK):} \texttt{\{ session: \{ ... \} or null \}}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/sessions/call-history]
+\textbf{Description:} Retrieves call history for the authenticated user.
+\vspace{0.5em}
+\textbf{Response (200 OK):} Returns an array of formatted call history objects.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/sessions/my-sessions]
+\textbf{Description:} Retrieves all sessions associated with the user.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/sessions/upcoming]
+\textbf{Description:} Retrieves up to 10 upcoming scheduled sessions.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/sessions/my-therapists]
+\textbf{Description:} Retrieves all therapists a patient has had sessions with.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/sessions/doctors]
+\textbf{Description:} Retrieves all doctors with profiles (Public).
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/sessions/doctors/:doctorId/slots/:date]
+\textbf{Description:} Retrieves available slots for a doctor on a specific date.
+\vspace{0.5em}
+\textbf{Response (200 OK):} \texttt{\{ availableSlots: [ "10:00 AM", ... ] \}}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/sessions/doctors/:doctorId]
+\textbf{Description:} Retrieves details of a single doctor by ID.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/sessions/calendar/:year/:month]
+\textbf{Description:} Retrieves sessions for a specific month for calendar view.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/sessions/patients/:patientId/emergency-contact]
+\textbf{Description:} Retrieves emergency contact (Doctor only, restricted to own patients).
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/sessions/book]
+\textbf{Description:} Books a scheduled session.
+\vspace{0.5em}
+\textbf{Request Body:}
+\begin{itemize}
+    \item \texttt{doctorId}, \texttt{sessionDate}, \texttt{sessionTime}, \texttt{sessionType}, \texttt{price}, \texttt{mode}, \texttt{duration}, \texttt{serviceType}
+\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/sessions/book-immediate]
+\textbf{Description:} Books an immediate session (now).
+\vspace{0.5em}
+\textbf{Request Body:}
+\begin{itemize}
+    \item \texttt{doctorId}, \texttt{mode}, \texttt{duration}, \texttt{price}
+\end{itemize}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/sessions/join/:sessionId]
+\textbf{Description:} Join a session, returns meeting link if allowed.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/sessions/:sessionId/complete]
+\textbf{Description:} Marks a session as completed.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/sessions/:sessionId/cancel]
+\textbf{Description:} Cancels a session (must be 24h in advance).
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/sessions/:sessionId/accept]
+\textbf{Description:} Doctor accepts an instant session.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/sessions/:sessionId/delay]
+\textbf{Description:} Doctor delays an instant session.
+\vspace{0.5em}
+\textbf{Request Body:} \texttt{\{ delayMinutes, doctorNote \}}
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/sessions/:sessionId]
+\textbf{Description:} Retrieves details of a specific session by ID.
+\end{tcolorbox}
+
+\subsection{Doctor Status}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/doctor-status/toggle-online]
+\textbf{Description:} Toggles the online/offline status of the doctor.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/doctor-status/status]
+\textbf{Description:} Retrieves the current online status of the logged-in doctor.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/doctor-status/online-doctors]
+\textbf{Description:} Retrieves a list of all currently online doctors.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/doctor-status/set-offline]
+\textbf{Description:} Explicitly sets the doctor's status to offline.
+\end{tcolorbox}
+
+\subsection{Doctor Availability}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/availability/doctor/current]
+\textbf{Description:} Retrieves availability settings for the logged-in doctor.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/availability/doctor/:doctorId]
+\textbf{Description:} Retrieves availability settings for a specific doctor by ID.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/availability/save]
+\textbf{Description:} Saves availability settings for the doctor (slots, days, etc.).
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/availability/slots/:doctorId/:date]
+\textbf{Description:} Retrieves available slots for a doctor on a specific date.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/availability/book-slot]
+\textbf{Description:} Books a specific time slot in the doctor's availability.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/availability/release-slot]
+\textbf{Description:} Releases a previously booked slot back to available.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/availability/upcoming-sessions]
+\textbf{Description:} Retrieves upcoming sessions for the doctor based on availability records.
+\end{tcolorbox}
+
+\section{Phase 4: Assessments, Admin, and Miscellaneous}
+
+\subsection{Mental Health Assessments}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/assessments/stats/summary]
+\textbf{Description:} Retrieves summary statistics for assessments.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/assessments/latest/:testType]
+\textbf{Description:} Retrieves the latest assessment of a specific type.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/assessments]
+\textbf{Description:} Saves a new assessment.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/assessments]
+\textbf{Description:} Retrieves assessment history for the user.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/assessments/:id]
+\textbf{Description:} Retrieves a specific assessment by ID.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{DELETE} /api/assessments/:id]
+\textbf{Description:} Deletes a specific assessment.
+\end{tcolorbox}
+
+\subsection{Reviews \& Ratings}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/reviews/submit]
+\textbf{Description:} Submits a review for a doctor or platform.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/reviews/check/:sessionId]
+\textbf{Description:} Checks if a review exists for a session.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/reviews/platform]
+\textbf{Description:} Retrieves platform reviews.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/reviews/doctor/:doctorId]
+\textbf{Description:} Retrieves reviews for a specific doctor.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/reviews/my-reviews]
+\textbf{Description:} Retrieves reviews submitted by the current user.
+\end{tcolorbox}
+
+\subsection{Articles}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/articles]
+\textbf{Description:} Retrieves published articles with pagination and search.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/articles/:slug]
+\textbf{Description:} Retrieves a single article by slug.
+\end{tcolorbox}
+
+\subsection{Admin Approvals \& Stats}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/admin/approvals/admins/pending]
+\textbf{Description:} Retrieves pending admin requests (Super Admin Only).
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/admin/approvals/admins/all]
+\textbf{Description:} Retrieves all admins (Super Admin Only).
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/admin/approvals/admins/:adminId/approve]
+\textbf{Description:} Approves an admin (Super Admin Only).
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/admin/approvals/admins/:adminId/reject]
+\textbf{Description:} Rejects an admin (Super Admin Only).
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/admin/approvals/doctors/pending]
+\textbf{Description:} Retrieves pending doctor requests (Admin \& Super Admin).
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/admin/approvals/doctors/all]
+\textbf{Description:} Retrieves all doctors (Admin \& Super Admin).
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/admin/approvals/doctors/:doctorId/approve]
+\textbf{Description:} Approves a doctor (Admin \& Super Admin).
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/admin/approvals/doctors/:doctorId/reject]
+\textbf{Description:} Rejects a doctor (Admin \& Super Admin).
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/admin/approvals/statistics]
+\textbf{Description:} Retrieves approval statistics for dashboard.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/admin/approvals/analytics]
+\textbf{Description:} Retrieves detailed analytics (sessions, revenue, growth).
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{DELETE} /api/admin/approvals/doctors/:doctorId]
+\textbf{Description:} Removes a doctor (Super Admin Only).
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{DELETE} /api/admin/approvals/admins/:adminId]
+\textbf{Description:} Removes an admin (Super Admin Only).
+\end{tcolorbox}
+
+\section{Phase 5: Chat, Tools, and Uploads}
+
+\subsection{Chat System}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/chat/conversations]
+\textbf{Description:} Retrieves all conversations for the logged-in user.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/chat/messages/:conversationId]
+\textbf{Description:} Retrieves messages for a specific conversation.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/chat/conversation]
+\textbf{Description:} Finds or creates a conversation between two users.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/chat/message]
+\textbf{Description:} Sends a message in a conversation.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{PUT} /api/chat/conversation/:conversationId/read]
+\textbf{Description:} Marks all messages in a conversation as read.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/chat/unread-count]
+\textbf{Description:} Retrieves the total unread message count for the user.
+\end{tcolorbox}
+
+\subsection{Ratings}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/ratings/:sessionId/rate]
+\textbf{Description:} Submits a rating for a specific session.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/ratings/doctor/:doctorId/ratings]
+\textbf{Description:} Retrieves all ratings for a specific doctor.
+\end{tcolorbox}
+
+\subsection{Session Tools (Notes, Tasks, Journals)}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/session-tools/notes]
+\textbf{Description:} Creates a session note.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/session-tools/notes/session/:sessionId]
+\textbf{Description:} Retrieves notes for a specific session.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/session-tools/tasks]
+\textbf{Description:} Creates a task for a patient.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{PUT} /api/session-tools/tasks/:taskId]
+\textbf{Description:} Updates a task status.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/session-tools/journal]
+\textbf{Description:} Creates a journal entry (Patient).
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{GET} /api/session-tools/journal/patient/:patientId]
+\textbf{Description:} Retrieves journal entries for a patient.
+\end{tcolorbox}
+
+\subsection{Uploads}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/upload/profile-image]
+\textbf{Description:} Uploads a profile image.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{DELETE} /api/upload/profile-image/:publicId]
+\textbf{Description:} Deletes a profile image.
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/upload/doctor-documents]
+\textbf{Description:} Uploads qualification documents for a doctor (Up to 5).
+\end{tcolorbox}
+
+\begin{tcolorbox}[title=\textcolor{accent}{POST} /api/upload/article-image]
+\textbf{Description:} Uploads an image for an article (Admin Only).
+\end{tcolorbox}
+
+\end{document}

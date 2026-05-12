@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import EmergencyContactModal from './EmergencyContactModal';
 import RatingModal from './RatingModal';
 import SessionReportsModal from './SessionReportsModal';
+import { API_BASE_URL } from '../config/api';
 
 interface Session {
   _id: string;
@@ -42,10 +43,6 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
   const [hasRating, setHasRating] = useState(false);
   const [patientEmergencyContact, setPatientEmergencyContact] = useState<any>(null);
   const [doctorProfile, setDoctorProfile] = useState<any>(null);
-
-  const API_BASE_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5001/api'
-    : 'https://veraawell-backend.onrender.com/api';
 
   const sessionDateTime = (() => {
     if (!session) return new Date();

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import DoctorCard from '../components/DoctorCard';
-import { API_CONFIG } from '../config/api';
+import { API_CONFIG, API_BASE_URL } from '../config/api';
 import { useDataSocket } from '../hooks/useDataSocket';
 import BackToDashboard from '../components/BackToDashboard';
 
@@ -45,10 +45,6 @@ const ChooseProfessionalPage: React.FC = () => {
   const [viewMode, setViewMode] = useState<'online' | 'all'>(initialViewMode);
 
   const serviceType = (location.state as any)?.serviceType || 'General';
-
-  const API_BASE_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5001/api'
-    : 'https://veraawell-backend.onrender.com/api';
 
   // ✨ REAL-TIME: Connect to data socket
   const { socket } = useDataSocket();

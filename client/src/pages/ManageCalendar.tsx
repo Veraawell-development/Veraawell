@@ -10,6 +10,7 @@ import {
 } from 'react-icons/fa';
 import { Toaster, toast } from 'react-hot-toast';
 import BackToDashboard from '../components/BackToDashboard';
+import { API_BASE_URL } from '../config/api';
 
 interface TimeSlot {
   time: string;
@@ -50,11 +51,6 @@ const ManageCalendar: React.FC = () => {
   const [currentViewDate, setCurrentViewDate] = useState<string>(''); // Currently selected date in UI
   const [upcomingSessions, setUpcomingSessions] = useState<UpcomingSession[]>([]);
   const [loading, setLoading] = useState(false);
-
-  // Constants
-  const API_BASE_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5001/api'
-    : 'https://veraawell-backend.onrender.com/api';
 
   const TIME_SLOTS = [
     '09:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',

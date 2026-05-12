@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import SessionChat from './SessionChat';
+import { API_BASE_URL } from '../config/api';
 
 interface SessionToolsModalProps {
   isOpen: boolean;
@@ -8,10 +9,6 @@ interface SessionToolsModalProps {
   patientId: string;
   patientName: string;
 }
-
-const API_BASE_URL = window.location.hostname === 'localhost'
-  ? 'http://localhost:5001/api'
-  : 'https://veraawell-backend.onrender.com/api';
 
 const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
   isOpen,

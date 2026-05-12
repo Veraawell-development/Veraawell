@@ -1,9 +1,6 @@
 import React, { createContext, useState, useContext, useCallback } from 'react';
 import type { ReactNode } from 'react';
-
-const API_BASE_URL = window.location.hostname === 'localhost'
-  ? 'http://localhost:5001/api'
-  : 'https://veraawell-backend.onrender.com/api';
+import { API_BASE_URL } from '../config/api';
 
 interface User {
   userId: string;

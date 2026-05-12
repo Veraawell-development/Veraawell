@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { FiMenu } from 'react-icons/fi';
 import BackToDashboard from '../components/BackToDashboard';
 import DoctorSidebar from '../components/DoctorSidebar';
+import { API_BASE_URL } from '../config/api';
 
 interface Patient {
   _id: string;
@@ -16,10 +17,6 @@ const PatientDetailsPage: React.FC = () => {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const API_BASE_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5001/api'
-    : 'https://veraawell-backend.onrender.com/api';
 
   useEffect(() => {
     fetchPatients();

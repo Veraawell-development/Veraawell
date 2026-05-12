@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useAdmin } from '../context/AdminContext';
-import { Menu, X, ChevronDown } from 'lucide-react';
+import { Menu, X, ChevronDown, User } from 'lucide-react';
 
 export default function Navbar() {
   const { isLoggedIn, user, logout } = useAuth();
@@ -17,17 +17,8 @@ export default function Navbar() {
     dropdown?: { name: string; path: string; }[];
   }
 
-  const getHomeLink = (): NavLink => {
-    if (admin) return { name: 'Home', path: '/admin-dashboard' };
-    if (isLoggedIn && user) {
-      if (user.role === 'doctor') return { name: 'Home', path: '/doctor-dashboard' };
-      return { name: 'Home', path: '/patient-dashboard' };
-    }
-    return { name: 'Home', path: '/' };
-  };
-
   const navigationLinks: NavLink[] = [
-    getHomeLink(),
+    { name: 'Home', path: '/' },
     { name: 'About Us', path: '/about' },
     { name: 'Services', path: '/services' },
     {
@@ -61,6 +52,8 @@ export default function Navbar() {
   };
 
   const AuthButton: React.FC<{ isMobile?: boolean }> = ({ isMobile = false }) => {
+    const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+
     if (isLoggedIn) {
       const handleLogout = async () => {
         await logout();
@@ -71,6 +64,7 @@ export default function Navbar() {
 
       const handleProfile = () => {
         if (isMobile) setIsMobileMenuOpen(false);
+        setProfileDropdownOpen(false);
         if (user?.role === 'patient') {
           navigate('/patient-profile-setup');
         } else {
@@ -78,14 +72,63 @@ export default function Navbar() {
         }
       };
 
+      const handleDashboard = () => {
+        if (isMobile) setIsMobileMenuOpen(false);
+        setProfileDropdownOpen(false);
+        if (admin) {
+          navigate('/super-admin-dashboard');
+        } else if (user?.role === 'doctor') {
+          navigate('/doctor-dashboard');
+        } else {
+          navigate('/patient-dashboard');
+        }
+      };
+
       return (
-        <div className={`flex ${isMobile ? 'flex-col' : 'flex-row'} gap-2`}>
-          <button
-            onClick={handleProfile}
-            className="px-4 py-2 bg-[#0097b2] hover:bg-[#007c93] text-white text-xs font-semibold rounded-xl transition-colors"
-          >
-            My Profile
-          </button>
+        <div className={`flex ${isMobile ? 'flex-col' : 'flex-row'} gap-2 relative`}>
+          <div className="relative">
+            <button
+              onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
+              className="w-10 h-10 bg-[#0097b2] hover:bg-[#007c93] text-white rounded-full transition-colors flex items-center justify-center"
+              aria-label="Profile"
+            >
+              <User size={20} />
+            </button>
+            
+            {profileDropdownOpen && !isMobile && (
+              <div className="absolute top-full right-0 mt-1 w-40 bg-white rounded-xl shadow-lg border border-neutral-100 py-2 z-50">
+                <button
+                  onClick={handleProfile}
+                  className="block w-full text-left px-4 py-2 text-xs text-neutral-600 hover:text-[#0097b2] hover:bg-neutral-50 font-medium transition-colors"
+                >
+                  My Profile
+                </button>
+                <button
+                  onClick={handleDashboard}
+                  className="block w-full text-left px-4 py-2 text-xs text-neutral-600 hover:text-[#0097b2] hover:bg-neutral-50 font-medium transition-colors"
+                >
+                  My Dashboard
+                </button>
+              </div>
+            )}
+            
+            {profileDropdownOpen && isMobile && (
+              <div className="pl-4 space-y-1 mt-1 bg-white rounded-xl border border-neutral-100 py-2">
+                <button
+                  onClick={handleProfile}
+                  className="block text-neutral-500 text-xs py-1.5 hover:text-[#0097b2] font-medium"
+                >
+                  My Profile
+                </button>
+                <button
+                  onClick={handleDashboard}
+                  className="block text-neutral-500 text-xs py-1.5 hover:text-[#0097b2] font-medium"
+                >
+                  My Dashboard
+                </button>
+              </div>
+            )}
+          </div>
           <button
             onClick={handleLogout}
             className="px-4 py-2 bg-white hover:bg-neutral-50 text-neutral-600 text-xs font-semibold rounded-xl border border-neutral-200 transition-colors"

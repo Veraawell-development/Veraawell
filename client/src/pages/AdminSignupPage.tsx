@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { FiMail, FiLock, FiArrowLeft, FiUser, FiUserCheck, FiShield } from 'react-icons/fi';
+import { API_BASE_URL } from '../config/api';
 
 const AdminSignupPage: React.FC = () => {
   const [formData, setFormData] = useState({
@@ -16,10 +17,6 @@ const AdminSignupPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const navigate = useNavigate();
-
-  const API_BASE_URL = window.location.hostname === 'localhost' 
-    ? 'http://localhost:5001/api' 
-    : 'https://veraawell-backend.onrender.com/api';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

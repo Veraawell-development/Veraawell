@@ -446,17 +446,21 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
             </AnimatePresence>
 
             {/* Divider */}
-            <div className="flex items-center gap-3 my-4">
-              <div className="flex-1 h-px bg-neutral-100" />
-              <span className="text-[10px] font-medium text-neutral-400 uppercase tracking-widest">or</span>
-              <div className="flex-1 h-px bg-neutral-100" />
-            </div>
+            {!isProfessional && (
+              <div className="flex items-center gap-3 my-4">
+                <div className="flex-1 h-px bg-neutral-100" />
+                <span className="text-[10px] font-medium text-neutral-400 uppercase tracking-widest">or</span>
+                <div className="flex-1 h-px bg-neutral-100" />
+              </div>
+            )}
 
             {/* Google */}
-            <motion.button whileTap={{ scale: 0.98 }} onClick={handleGoogleAuth}
-              className="w-full flex items-center justify-center gap-2 py-2 border border-neutral-200 rounded-xl text-xs font-medium text-neutral-700 hover:bg-neutral-50 hover:border-neutral-300 transition-all">
-              <FcGoogle size={15} /> Continue with Google
-            </motion.button>
+            {!isProfessional && (
+              <motion.button whileTap={{ scale: 0.98 }} onClick={handleGoogleAuth}
+                className="w-full flex items-center justify-center gap-2 py-2 border border-neutral-200 rounded-xl text-xs font-medium text-neutral-700 hover:bg-neutral-50 hover:border-neutral-300 transition-all">
+                <FcGoogle size={15} /> Continue with Google
+              </motion.button>
+            )}
 
             {/* Error / success */}
             <AnimatePresence>

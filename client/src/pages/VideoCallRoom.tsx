@@ -5,6 +5,7 @@ import { io, Socket } from 'socket.io-client';
 import { useDataSocket } from '../hooks/useDataSocket';
 import SessionToolsModal from '../components/SessionToolsModal';
 import SessionChat from '../components/SessionChat';
+import { API_BASE_URL } from '../config/api';
 // RatingModal removed - feedback is handled by PatientDashboard
 
 const VideoCallRoom: React.FC = () => {
@@ -68,16 +69,12 @@ const VideoCallRoom: React.FC = () => {
     };
   }, [dataSocket, sessionId]);
 
-  const API_BASE_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5001'
-    : 'https://veraawell-backend.onrender.com';
-
   const fetchSessionData = async () => {
     try {
       setLoadingSession(true);
       console.log(' Fetching session data for:', sessionId);
 
-      const response = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}`, {
+      const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, {
         credentials: 'include'
       });
 
@@ -107,7 +104,7 @@ const VideoCallRoom: React.FC = () => {
 
     setSavingContact(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/profile/setup`, {
+      const response = await fetch(`${API_BASE_URL}/profile/setup`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -460,7 +457,7 @@ const VideoCallRoom: React.FC = () => {
             });
           } else {
             // Patient Side: Mark complete and show rating on dashboard
-            fetch(`${API_BASE_URL}/api/sessions/${sessionId}/complete`, {
+            fetch(`${API_BASE_URL}/sessions/${sessionId}/complete`, {
               method: 'POST',
               credentials: 'include'
             }).catch(console.error);

@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { FiMenu, FiDownload, FiArrowLeft, FiFile } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import BackToDashboard from '../components/BackToDashboard';
+import { API_BASE_URL } from '../config/api';
 
 interface Report {
   _id: string;
@@ -24,10 +25,6 @@ const DoctorReportsDetailPage: React.FC = () => {
   const navigate = useNavigate();
   const { patientId } = useParams();
   const { user } = useAuth();
-
-  const API_BASE_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5001/api'
-    : 'https://veraawell-backend.onrender.com/api';
 
   useEffect(() => {
     fetchPatientReports();

@@ -4,6 +4,7 @@ import { FiMenu, FiCheckSquare } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import BackToDashboard from '../components/BackToDashboard';
 import DoctorSidebar from '../components/DoctorSidebar';
+import { API_BASE_URL } from '../config/api';
 
 interface PatientTask {
   _id: string;
@@ -20,10 +21,6 @@ const DoctorTasksPage: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const { user } = useAuth();
-
-  const API_BASE_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5001/api'
-    : 'https://veraawell-backend.onrender.com/api';
 
   useEffect(() => {
     fetchTasks();

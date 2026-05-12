@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { API_BASE_URL } from '../../../config/api';
 
 interface Review {
   _id: string;
@@ -13,10 +14,6 @@ interface Review {
 
 export default function Reviews() {
   const [reviews, setReviews] = useState<Review[]>([]);
-
-  const API_BASE_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5001/api'
-    : 'https://veraawell-backend.onrender.com/api';
 
   // Predefined background colors for variety
   const bgColors = [

@@ -91,7 +91,8 @@ function getCookieConfig() {
     secure: true, // Always secure for cross-site cookies
     sameSite: 'none', // Required for cross-site (Vercel -> Render)
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    path: '/'
+    path: '/',
+    domain: isProduction() ? '.veraawell.com' : undefined
   };
 }
 
@@ -104,7 +105,8 @@ function getSessionCookieConfig() {
     secure: true,
     sameSite: 'none',
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
-    path: '/'
+    path: '/',
+    domain: isProduction() ? '.veraawell.com' : undefined
   };
 }
 

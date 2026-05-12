@@ -6,6 +6,7 @@ import { LuStethoscope } from 'react-icons/lu';
 import { Plus, Search, Filter, Eye, CheckCircle, Clock, Edit, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
+import { API_BASE_URL } from '../config/api';
 
 interface PendingUser {
   _id: string;
@@ -131,10 +132,6 @@ const SuperAdminDashboard: React.FC = () => {
       setActiveTab('articles');
     }
   }, [location]);
-
-  const API_BASE_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5001/api'
-    : 'https://veraawell-backend.onrender.com/api';
 
   useEffect(() => {
     if (adminLoading) return;

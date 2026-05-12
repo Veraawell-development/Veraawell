@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { io, Socket } from 'socket.io-client';
+import { API_BASE_URL, SOCKET_URL } from '../config/api';
 
 interface Message {
     _id: string;
@@ -25,14 +26,6 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName 
     const socketRef = useRef<Socket | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const [error, setError] = useState<string | null>(null);
-
-    const API_BASE_URL = window.location.hostname === 'localhost'
-        ? 'http://localhost:5001/api'
-        : 'https://veraawell-backend.onrender.com/api';
-
-    const SOCKET_URL = window.location.hostname === 'localhost'
-        ? 'http://localhost:5001'
-        : 'https://veraawell-backend.onrender.com';
 
     // Initialize Chat
     useEffect(() => {

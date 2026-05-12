@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { FiPhone } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import BackToDashboard from '../components/BackToDashboard';
+import { API_BASE_URL } from '../config/api';
 
 interface CallRecord {
   _id: string;
@@ -20,10 +21,6 @@ const CallHistoryPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
-
-  const API_BASE_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5001/api'
-    : 'https://veraawell-backend.onrender.com/api';
 
   useEffect(() => {
     fetchCallHistory();

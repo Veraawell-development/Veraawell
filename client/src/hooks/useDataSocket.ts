@@ -6,11 +6,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
-
-// Determine API base URL
-const API_BASE_URL = window.location.hostname === 'localhost'
-    ? 'http://localhost:5001'
-    : 'https://veraawell-backend.onrender.com';
+import { SOCKET_URL } from '../config/api';
 
 interface UseDataSocketReturn {
     socket: Socket | null;
@@ -37,7 +33,7 @@ export const useDataSocket = (): UseDataSocketReturn => {
         // Create socket connection to /data namespace
         // Using token fallback in auth option if cookies are blocked
         const token = localStorage.getItem('token');
-        const newSocket = io(`${API_BASE_URL}/data`, {
+        const newSocket = io(`${SOCKET_URL}/data`, {
             auth: {
                 token: token
             },

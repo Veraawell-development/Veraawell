@@ -1,10 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FaLock, FaEye, FaEyeSlash } from 'react-icons/fa';
-
-const API_BASE_URL = window.location.hostname === 'localhost'
-  ? 'http://localhost:5001/api'
-  : 'https://veraawell-backend.onrender.com/api';
+import { API_BASE_URL } from '../../config/api';
 
 export default function AdminLogin() {
   const [email, setEmail] = useState('');
