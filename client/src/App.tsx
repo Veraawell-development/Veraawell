@@ -94,7 +94,7 @@ const AdminProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children
 };
 
 function AppRoutes() {
-  const { isLoggedIn, user, checkAuth } = useAuth();
+  const { isLoggedIn, user, checkAuth, setAuthToken } = useAuth();
   const [isAppReady, setIsAppReady] = useState(false);
 
   const location = useLocation();
@@ -174,6 +174,7 @@ function AppRoutes() {
       // If token is in URL (fallback for blocked cookies), save it
       if (tokenFromUrl) {
         localStorage.setItem('token', tokenFromUrl);
+        setAuthToken(tokenFromUrl);
       }
 
       // Clean URL immediately (remove auth params)

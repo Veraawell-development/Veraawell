@@ -266,7 +266,8 @@ if (oauthConfig.enabled) {
     req.session.oauthRole = role;
 
     passport.authenticate('google', {
-      scope: ['profile', 'email']
+      scope: ['profile', 'email'],
+      prompt: 'select_account'
     })(req, res, next);
   });
 

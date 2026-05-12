@@ -25,7 +25,7 @@ function initializeGoogleStrategy() {
   }
 
   const callbackURL = process.env.NODE_ENV === 'production'
-    ? "https://veraawell-backend.onrender.com/api/auth/google/callback"
+    ? "https://api.veraawell.com/api/auth/google/callback"
     : `http://localhost:${process.env.PORT || 8000}/api/auth/google/callback`;
 
   passport.use(new GoogleStrategy({
