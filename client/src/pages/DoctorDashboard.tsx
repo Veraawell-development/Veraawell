@@ -331,6 +331,8 @@ const DoctorDashboard: React.FC = () => {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
+    console.log('[DoctorDashboard] Accepting request for session:', sessionId);
+
     try {
       const response = await fetch(`${API_BASE_URL.replace('/api', '')}/api/sessions/${sessionId}/accept`, {
         method: 'POST',
@@ -340,6 +342,10 @@ const DoctorDashboard: React.FC = () => {
       if (response.ok) {
         setIncomingRequest(null);
         navigate(`/video-call/${sessionId}`);
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('[DoctorDashboard] Accept failed:', response.status, errorData);
+        toast.error(`Failed to accept: ${errorData.message || response.statusText || response.status}`);
       }
     } catch (error) {
       console.error('Error accepting request:', error);
@@ -354,6 +360,8 @@ const DoctorDashboard: React.FC = () => {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
+    console.log('[DoctorDashboard] Delaying request for session:', sessionId);
+
     try {
       const response = await fetch(`${API_BASE_URL.replace('/api', '')}/api/sessions/${sessionId}/delay`, {
         method: 'POST',
@@ -364,11 +372,16 @@ const DoctorDashboard: React.FC = () => {
       if (response.ok) {
         setIncomingRequest(null);
         toast.success(`Patient notified of ${minutes}m delay`);
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        console.error('[DoctorDashboard] Delay failed:', response.status, errorData);
+        toast.error(`Failed to delay: ${errorData.message || response.statusText || response.status}`);
       }
     } catch (error) {
       console.error('Error delaying request:', error);
-      toast.error('Failed to notify patient');
+      toast.error('Failed to delay request');
     }
+  };
   };
 
   return (
