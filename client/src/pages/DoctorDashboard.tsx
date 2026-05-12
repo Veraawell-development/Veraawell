@@ -334,7 +334,7 @@ const DoctorDashboard: React.FC = () => {
     console.log('[DoctorDashboard] Accepting request for session:', sessionId);
 
     try {
-      const response = await fetch(`${API_BASE_URL.replace('/api', '')}/api/sessions/${sessionId}/accept`, {
+      const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}/accept`, {
         method: 'POST',
         headers,
         credentials: 'include'
@@ -363,7 +363,7 @@ const DoctorDashboard: React.FC = () => {
     console.log('[DoctorDashboard] Delaying request for session:', sessionId);
 
     try {
-      const response = await fetch(`${API_BASE_URL.replace('/api', '')}/api/sessions/${sessionId}/delay`, {
+      const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}/delay`, {
         method: 'POST',
         headers,
         body: JSON.stringify({ delayMinutes: minutes, doctorNote: note }),
