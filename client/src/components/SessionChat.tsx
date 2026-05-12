@@ -86,7 +86,6 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName 
             // 3. Connect Socket
             socketRef.current = io(`${SOCKET_URL}/chat`, {
                 auth: { token },
-                transports: ['websocket'],
                 withCredentials: true
             });
 

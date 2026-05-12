@@ -843,7 +843,7 @@ const VideoCallRoom: React.FC = () => {
     // For patients: Mark session as completed (background) and navigate to dashboard
     if (user?.role === 'patient') {
       try {
-        fetch(`${API_BASE_URL}/api/sessions/${sessionId}/complete`, {
+        fetch(`${API_BASE_URL}/sessions/${sessionId}/complete`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include'

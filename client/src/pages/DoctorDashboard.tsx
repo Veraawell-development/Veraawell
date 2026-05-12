@@ -325,9 +325,16 @@ const DoctorDashboard: React.FC = () => {
 
   // ✨ NEW: Handle Instant Request Actions
   const handleAcceptRequest = async (sessionId: string) => {
+    const token = localStorage.getItem('token');
+    const headers: HeadersInit = {};
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL.replace('/api', '')}/api/sessions/${sessionId}/accept`, {
         method: 'POST',
+        headers,
         credentials: 'include'
       });
       if (response.ok) {
@@ -341,10 +348,16 @@ const DoctorDashboard: React.FC = () => {
   };
 
   const handleDelayRequest = async (sessionId: string, minutes: number, note: string) => {
+    const token = localStorage.getItem('token');
+    const headers: HeadersInit = { 'Content-Type': 'application/json' };
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL.replace('/api', '')}/api/sessions/${sessionId}/delay`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({ delayMinutes: minutes, doctorNote: note }),
         credentials: 'include'
       });
