@@ -5,7 +5,7 @@ import { io, Socket } from 'socket.io-client';
 import { useDataSocket } from '../hooks/useDataSocket';
 import SessionToolsModal from '../components/SessionToolsModal';
 import SessionChat from '../components/SessionChat';
-import { API_BASE_URL } from '../config/api';
+import { API_BASE_URL, SOCKET_URL } from '../config/api';
 // RatingModal removed - feedback is handled by PatientDashboard
 
 const VideoCallRoom: React.FC = () => {
@@ -277,9 +277,8 @@ const VideoCallRoom: React.FC = () => {
       setIsAudioEnabled(true);
 
       // Connect to Socket.IO server with authentication
-      console.log('[VIDEO-CALL] 🔌 Connecting to:', API_BASE_URL);
-      const socket = io(API_BASE_URL, {
-        transports: ['websocket'],
+      console.log('[VIDEO-CALL] 🔌 Connecting to:', SOCKET_URL);
+      const socket = io(SOCKET_URL, {
         auth: {
           token: token
         },
