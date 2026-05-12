@@ -76,14 +76,26 @@ const logout = asyncHandler(async (req, res) => {
   }
 
   // Clear cookies
-  const cookieOptions = {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+  const { getCookieConfig } = require('../config/auth');
+  const cookieConfig = getCookieConfig();
+  
+  const clearOptionsWithDomain = {
+    httpOnly: cookieConfig.httpOnly,
+    secure: cookieConfig.secure,
+    sameSite: cookieConfig.sameSite,
+    path: cookieConfig.path,
+    domain: cookieConfig.domain
   };
 
-  res.clearCookie('token', cookieOptions);
-  res.clearCookie('adminToken', cookieOptions);
+  const clearOptionsWithoutDomain = {
+    httpOnly: cookieConfig.httpOnly,
+    secure: cookieConfig.secure,
+    sameSite: cookieConfig.sameSite,
+    path: cookieConfig.path
+  };
+
+  res.clearCookie('token', clearOptionsWithDomain);
+  res.clearCookie('adminToken', clearOptionsWithoutDomain);
 
   // Destroy session
   if (req.session) {
