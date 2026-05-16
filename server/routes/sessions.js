@@ -22,6 +22,7 @@ router.get('/doctors/:doctorId/slots/:date', s.getDoctorSlots);
 router.get('/doctors/:doctorId', s.getDoctorById);
 router.get('/calendar/:year/:month', verifyToken, s.getCalendar);
 router.get('/patients/:patientId/emergency-contact', verifyToken, s.getPatientEmergencyContact);
+router.get('/turn-credentials', verifyToken, s.getTurnCredentials);
 
 // Session booking
 router.post('/book', verifyToken, s.bookSession);

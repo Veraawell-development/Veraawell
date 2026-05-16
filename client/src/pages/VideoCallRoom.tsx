@@ -74,15 +74,17 @@ const VideoCallRoom: React.FC = () => {
       setLoadingSession(true);
       console.log(' Fetching session data for:', sessionId);
 
-      const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, {
-        credentials: 'include'
-      });
+      // Fetch session details and TURN credentials in parallel
+      const [sessionResponse, turnResponse] = await Promise.all([
+        fetch(`${API_BASE_URL}/sessions/${sessionId}`, { credentials: 'include' }),
+        fetch(`${API_BASE_URL}/sessions/turn-credentials`, { credentials: 'include' }).catch(() => null)
+      ]);
 
-      if (!response.ok) {
+      if (!sessionResponse.ok) {
         throw new Error('Failed to fetch session data');
       }
 
-      const data = await response.json();
+      const data = await sessionResponse.json();
       console.log(' Session data received:', data);
       setSessionData(data);
 
@@ -90,6 +92,15 @@ const VideoCallRoom: React.FC = () => {
       if (data.acceptanceStatus) setAcceptanceStatus(data.acceptanceStatus);
       if (data.delayMinutes) setDelayMinutes(data.delayMinutes);
       if (data.doctorNote) setDoctorNote(data.doctorNote);
+
+      // Handle TURN credentials
+      if (turnResponse && turnResponse.ok) {
+        const turnData = await turnResponse.json();
+        if (turnData.success && turnData.iceServers) {
+          iceServersRef.current = { iceServers: turnData.iceServers };
+          console.log('[VIDEO-CALL] 🔐 Loaded secure TURN credentials');
+        }
+      }
     } catch (error) {
       console.error('Error fetching session data:', error);
       setError('Failed to load session details');
@@ -132,13 +143,13 @@ const VideoCallRoom: React.FC = () => {
     }
   };
 
-  // ICE servers configuration (Google's public STUN servers)
-  const iceServers = {
+  // ICE servers configuration (Google's public STUN servers by default, updated via API)
+  const iceServersRef = useRef<RTCConfiguration>({
     iceServers: [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
     ]
-  };
+  });
 
   useEffect(() => {
     if (!sessionId || !user) return;
@@ -489,7 +500,7 @@ const VideoCallRoom: React.FC = () => {
   };
 
   const createPeerConnection = (stream: MediaStream) => {
-    const pc = new RTCPeerConnection(iceServers);
+    const pc = new RTCPeerConnection(iceServersRef.current);
     peerConnectionRef.current = pc;
 
     // Add local stream tracks to peer connection

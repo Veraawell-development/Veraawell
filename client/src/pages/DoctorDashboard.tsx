@@ -382,7 +382,6 @@ const DoctorDashboard: React.FC = () => {
       toast.error('Failed to delay request');
     }
   };
-  };
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#FFFFFF' }}>

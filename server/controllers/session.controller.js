@@ -391,5 +391,33 @@ const delaySession = asyncHandler(async (req, res) => {
   if (io) io.to(sessionId).emit('session:status-update', updateData);
   res.json({ success: true, message: 'Session delayed successfully', session });
 });
+/** GET /api/sessions/turn-credentials */
+const getTurnCredentials = asyncHandler(async (req, res) => {
+  const domain = process.env.METERED_DOMAIN;
+  const secretKey = process.env.METERED_SECRET_KEY;
+  
+  const fallbackServers = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ];
 
-module.exports = { getStats, getMyDoctors, getPendingFeedback, getCallHistory, getDoctorSlots, bookImmediate, bookSession, getMySessions, getUpcoming, getAllDoctors, getDoctorById, getSessionById, joinSession, completeSession, cancelSession, getCalendar, getPatientEmergencyContact, getMyTherapists, acceptSession, delaySession };
+  if (!domain || !secretKey) {
+    logger.warn('Metered TURN credentials not configured in environment variables');
+    return res.json({ success: true, iceServers: fallbackServers });
+  }
+
+  try {
+    const response = await fetch(`https://${domain}/api/v1/turn/credentials?apiKey=${secretKey}`);
+    if (!response.ok) throw new Error('Failed to fetch from Metered API');
+    const data = await response.json();
+    
+    // Add STUN servers as a fallback just in case
+    const iceServers = [ ...fallbackServers, ...data ];
+    res.json({ success: true, iceServers });
+  } catch (error) {
+    logger.error('Error fetching TURN credentials', { error: error.message });
+    res.json({ success: true, iceServers: fallbackServers });
+  }
+});
+
+module.exports = { getStats, getMyDoctors, getPendingFeedback, getCallHistory, getDoctorSlots, bookImmediate, bookSession, getMySessions, getUpcoming, getAllDoctors, getDoctorById, getSessionById, joinSession, completeSession, cancelSession, getCalendar, getPatientEmergencyContact, getMyTherapists, acceptSession, delaySession, getTurnCredentials };
