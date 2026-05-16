@@ -162,6 +162,20 @@ const DoctorDashboard: React.FC = () => {
   const fetchDashboardData = async () => {
     if (!user) return;
 
+    const cacheKey = `doc_dash_data_${user.userId}`;
+    const cachedData = sessionStorage.getItem(cacheKey);
+    if (cachedData) {
+      try {
+        const parsed = JSON.parse(cachedData);
+        setRecentNotes(parsed.recentNotes || []);
+        setAssignedTasks(parsed.assignedTasks || []);
+        setRecentReports(parsed.recentReports || []);
+        setStats(parsed.stats || { revenue: 0, sessions: 0, hours: 0 });
+      } catch (e) {
+        console.error('Failed to parse cached dashboard data', e);
+      }
+    }
+
     // Get token for all requests
     const token = localStorage.getItem('token');
     const headers: HeadersInit = {};
@@ -170,53 +184,51 @@ const DoctorDashboard: React.FC = () => {
     }
 
     try {
-      // Fetch session notes created by this doctor
-      const notesResponse = await fetch(`${API_BASE_URL}/session-tools/notes/doctor/${user.userId}`, {
-        credentials: 'include',
-        headers
-      });
+      const [notesResponse, tasksResponse, reportsResponse, statsResponse] = await Promise.all([
+        fetch(`${API_BASE_URL}/session-tools/notes/doctor/${user.userId}`, { credentials: 'include', headers }),
+        fetch(`${API_BASE_URL}/session-tools/tasks/doctor/${user.userId}`, { credentials: 'include', headers }),
+        fetch(`${API_BASE_URL}/session-tools/reports/doctor/${user.userId}`, { credentials: 'include', headers }),
+        fetch(`${API_BASE_URL}/sessions/stats`, { credentials: 'include', headers })
+      ]);
+
+      const newData = {
+        recentNotes: [],
+        assignedTasks: [],
+        recentReports: [],
+        stats: { revenue: 0, sessions: 0, hours: 0 }
+      };
+
       if (notesResponse.ok) {
         const data = await notesResponse.json();
-        const notesArray = data.notes || [];
-        setRecentNotes(notesArray.slice(0, 4));
+        newData.recentNotes = (data.notes || []).slice(0, 4);
+        setRecentNotes(newData.recentNotes);
       }
 
-      // Fetch tasks assigned by this doctor
-      const tasksResponse = await fetch(`${API_BASE_URL}/session-tools/tasks/doctor/${user.userId}`, {
-        credentials: 'include',
-        headers
-      });
       if (tasksResponse.ok) {
         const data = await tasksResponse.json();
-        const tasksArray = data.tasks || [];
-        setAssignedTasks(tasksArray.slice(0, 4));
+        newData.assignedTasks = (data.tasks || []).slice(0, 4);
+        setAssignedTasks(newData.assignedTasks);
       }
 
-      // Fetch reports created by this doctor
-      const reportsResponse = await fetch(`${API_BASE_URL}/session-tools/reports/doctor/${user.userId}`, {
-        credentials: 'include',
-        headers
-      });
       if (reportsResponse.ok) {
         const data = await reportsResponse.json();
-        const reportsArray = data.reports || [];
-        setRecentReports(reportsArray.slice(0, 4));
+        newData.recentReports = (data.reports || []).slice(0, 4);
+        setRecentReports(newData.recentReports);
       }
-
-      // Fetch stats
-      const statsResponse = await fetch(`${API_BASE_URL}/sessions/stats`, {
-        credentials: 'include',
-        headers
-      });
 
       if (statsResponse.ok) {
         const data = await statsResponse.json();
-        setStats({
+        newData.stats = {
           revenue: data.totalRevenue || 0,
           sessions: data.totalSessions || 0,
           hours: data.totalHours || 0
-        });
+        };
+        setStats(newData.stats);
       }
+
+      // Update Cache
+      sessionStorage.setItem(cacheKey, JSON.stringify(newData));
+
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
     }

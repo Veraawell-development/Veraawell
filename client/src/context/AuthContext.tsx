@@ -69,10 +69,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             'Content-Type': 'application/json',
             ...(storedToken ? { 'Authorization': `Bearer ${storedToken}` } : {}),
           },
-        });
+        }).catch(() => null); // Catch network errors for profile fetch too
 
         let profileCompleted = false;
-        if (profileRes.ok) {
+        if (profileRes && profileRes.ok) {
           const profileData = await profileRes.json();
           profileCompleted = profileData.profileCompleted;
         }
@@ -87,20 +87,28 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (data.token) {
           setToken(data.token);
           localStorage.setItem('token', data.token); // Update localStorage if backend returns a new one
+        } else if (storedToken) {
+          setToken(storedToken);
         }
       } else {
-        // User not authenticated
-        setIsLoggedIn(false);
-        setUser(null);
-        setToken(null);
-        localStorage.removeItem('token'); // Clear if auth fails
+        // User not authenticated (only clear if explicitly 401/403)
+        if (res.status === 401 || res.status === 403) {
+          setIsLoggedIn(false);
+          setUser(null);
+          setToken(null);
+          localStorage.removeItem('token'); // Clear if auth explicitly fails
+        } else {
+          console.warn('[Auth] Server returned non-401 error:', res.status);
+          // Keep the token, the server might just be waking up or having an issue
+          // Don't log them out automatically
+        }
       }
     } catch (error) {
-      // Network error or server down
-      setIsLoggedIn(false);
-      setUser(null);
-      setToken(null);
-      throw error; // Re-throw so OAuth handler can catch it
+      // Network error or server down (Render free tier sleeps)
+      console.error('[Auth] Network error during checkAuth:', error);
+      // DO NOT clear localStorage or state here, they might still be valid when server wakes up
+      // Optionally could set a "server unreachable" state
+      throw error; 
     } finally {
       setLoading(false);
     }
