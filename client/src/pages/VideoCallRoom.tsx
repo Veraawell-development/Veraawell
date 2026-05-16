@@ -17,6 +17,7 @@ const VideoCallRoom: React.FC = () => {
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const iceCandidateQueue = useRef<RTCIceCandidateInit[]>([]);
 
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
@@ -514,6 +515,8 @@ const VideoCallRoom: React.FC = () => {
       const [remoteStream] = event.streams;
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = remoteStream;
+        // ✨ Safari Compatibility Fix: Explicitly call play() as Safari sometimes ignores autoPlay
+        remoteVideoRef.current.play().catch(e => console.warn('[VIDEO-CALL] Safari AutoPlay prevented:', e));
       }
       setConnectionState('connected');
     };
@@ -663,6 +666,14 @@ const VideoCallRoom: React.FC = () => {
       if (pc.signalingState === 'stable') {
         await pc.setRemoteDescription(new RTCSessionDescription(offer));
 
+        // Process any queued ICE candidates
+        while (iceCandidateQueue.current.length > 0) {
+          const candidate = iceCandidateQueue.current.shift();
+          if (candidate) {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate));
+          }
+        }
+
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
 
@@ -687,6 +698,14 @@ const VideoCallRoom: React.FC = () => {
         if (pc.signalingState === 'have-local-offer') {
           await pc.setRemoteDescription(new RTCSessionDescription(answer));
           console.log('[VIDEO-CALL]  Answer set successfully');
+
+          // Process any queued ICE candidates
+          while (iceCandidateQueue.current.length > 0) {
+            const candidate = iceCandidateQueue.current.shift();
+            if (candidate) {
+              await pc.addIceCandidate(new RTCIceCandidate(candidate));
+            }
+          }
         } else {
           console.log('[VIDEO-CALL]  Ignoring answer, wrong signaling state:', pc.signalingState);
         }
@@ -698,8 +717,13 @@ const VideoCallRoom: React.FC = () => {
 
   const handleIceCandidate = async (candidate: RTCIceCandidateInit) => {
     try {
-      if (peerConnectionRef.current && peerConnectionRef.current.remoteDescription) {
-        await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+      if (peerConnectionRef.current) {
+        if (peerConnectionRef.current.remoteDescription) {
+          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
+        } else {
+          iceCandidateQueue.current.push(candidate);
+          console.log('[VIDEO-CALL] Queued ICE candidate (remoteDescription not set yet)');
+        }
       }
     } catch (err) {
       console.error('Error handling ICE candidate:', err);
@@ -928,6 +952,9 @@ const VideoCallRoom: React.FC = () => {
       });
       setLocalStream(null);
     }
+
+    // Clear queue
+    iceCandidateQueue.current = [];
 
     // Clear video elements
     if (localVideoRef.current) {
