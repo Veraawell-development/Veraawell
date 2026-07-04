@@ -109,7 +109,6 @@ const PatientDetailsPage: React.FC = () => {
                 <div
                   key={patient._id}
                   className="group bg-white rounded-[16px] border border-gray-100 hover:border-teal-200 shadow-sm hover:shadow-md transition-all overflow-hidden p-6 flex flex-col cursor-pointer"
-                  onClick={() => console.log('View patient details:', patient._id)}
                 >
                   <div className="flex justify-between items-start mb-5">
                     <div className="flex items-center gap-3">

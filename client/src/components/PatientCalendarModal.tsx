@@ -24,6 +24,7 @@ interface Session {
     sessionType: string;
     status: 'scheduled' | 'completed' | 'cancelled' | 'no-show';
     callMode?: string;
+    meetingLink?: string;
     notes?: string;
 }
 

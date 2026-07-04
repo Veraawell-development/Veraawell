@@ -907,8 +907,8 @@ const VideoCallRoom: React.FC = () => {
     : sessionData?.patientId?.profileImage || sessionData?.patientId?.profile?.profileImage;
 
   const localUserImage = user?.role === 'doctor'
-    ? sessionData?.doctorId?.profileImage || sessionData?.doctorId?.profile?.profileImage || user?.profileImage || user?.profile?.profileImage || (user?.gender === 'female' ? '/female.jpg' : '/male.jpg')
-    : sessionData?.patientId?.profileImage || sessionData?.patientId?.profile?.profileImage || user?.profileImage || user?.profile?.profileImage;
+    ? sessionData?.doctorId?.profileImage || sessionData?.doctorId?.profile?.profileImage || (user as any)?.profileImage || (user as any)?.profile?.profileImage || ((user as any)?.gender === 'female' ? '/female.jpg' : '/male.jpg')
+    : sessionData?.patientId?.profileImage || sessionData?.patientId?.profile?.profileImage || (user as any)?.profileImage || (user as any)?.profile?.profileImage;
 
   // Voice Call UI Component
   const VoiceCallInterface = () => (

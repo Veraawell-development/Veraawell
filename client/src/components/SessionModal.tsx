@@ -22,6 +22,7 @@ interface Session {
   sessionType: string;
   callMode?: string;
   price: number;
+  duration?: number;
 }
 
 interface SessionModalProps {

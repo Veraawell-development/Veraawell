@@ -196,8 +196,7 @@ const PatientDashboard: React.FC = () => {
 
     socket.on('chat:new-message', ({ message, senderName }) => {
       console.log('[REAL-TIME] New chat message received:', message);
-      // Play notification sound
-      playNotificationSound();
+      // Play notification sound (removed missing function)
       
       // Show toast notification
       toast(`New message from ${senderName}`);
@@ -326,7 +325,7 @@ const PatientDashboard: React.FC = () => {
                 </span>
                 <span className="text-white/70 text-sm">/{maxScore}</span>
               </div>
-              <p className="text-xs text-center font-bold" style={{ color: severityColor === '#EF4444' ? '#FFD1D1' : severityColor === '#F59E0B' ? '#FFE4A0' : severityColor === '#EAB308' ? '#FEF08A' : '#A7F3D0', fontFamily: 'Inter, sans-serif', textShadow: '0 1px 2px rgba(0,0,0,0.1)' }}>
+              <p className="text-xs text-center font-bold" style={{ color: severityColor === '#EF4444' ? '#FFD1D1' : severityColor === '#F59E0B' ? '#FFE4A0' : severityColor === '#FCD34D' ? '#FEF08A' : '#A7F3D0', fontFamily: 'Inter, sans-serif', textShadow: '0 1px 2px rgba(0,0,0,0.1)' }}>
                 {severityLabel}
               </p>
             </div>
@@ -338,7 +337,7 @@ const PatientDashboard: React.FC = () => {
                   className="h-2 rounded-full transition-all duration-500"
                   style={{
                     width: `${Math.min(percentage, 100)}%`,
-                    backgroundColor: severityColor === '#EF4444' ? '#FF8A8A' : severityColor === '#F59E0B' ? '#FFD166' : severityColor === '#EAB308' ? '#FDE047' : '#6EE7B7'
+                    backgroundColor: severityColor === '#EF4444' ? '#FF8A8A' : severityColor === '#F59E0B' ? '#FFD166' : severityColor === '#FCD34D' ? '#FDE047' : '#6EE7B7'
                   }}
                 />
               </div>

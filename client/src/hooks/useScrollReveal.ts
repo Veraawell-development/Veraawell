@@ -1,4 +1,5 @@
-import { useEffect, useRef, RefObject } from 'react';
+import { useEffect, useRef } from 'react';
+import type { RefObject } from 'react';
 
 interface ScrollRevealOptions {
   threshold?: number;
@@ -12,7 +13,7 @@ interface ScrollRevealOptions {
  */
 export function useScrollReveal<T extends HTMLElement = HTMLElement>(
   options: ScrollRevealOptions = {}
-): RefObject<T> {
+): RefObject<T | null> {
   const ref = useRef<T>(null);
   const {
     threshold = 0.12,
@@ -58,7 +59,7 @@ export function useScrollReveal<T extends HTMLElement = HTMLElement>(
  */
 export function useRevealSingle<T extends HTMLElement = HTMLElement>(
   options: ScrollRevealOptions = {}
-): [RefObject<T>, boolean] {
+): [RefObject<T | null>, boolean] {
   const ref = useRef<T>(null);
   const isRevealedRef = useRef(false);
   const { threshold = 0.12, rootMargin = '-30px', once = true } = options;

@@ -5,7 +5,7 @@ import LeafDecor from '../../ui/LeafDecor';
 
 const CTABanner: React.FC = () => {
   const navigate = useNavigate();
-  const ref = useScrollReveal<HTMLElement>();
+  const ref = useScrollReveal<HTMLDivElement>();
 
   return (
     <section

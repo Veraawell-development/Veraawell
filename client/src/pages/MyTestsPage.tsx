@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MENTAL_HEALTH_TESTS } from '../data/mentalHealthTests';
 import { API_CONFIG } from '../config/api';
-import { FiArrowLeft, FiChevronRight } from 'react-icons/fi';
+import { FiArrowLeft, FiChevronRight, FiList } from 'react-icons/fi';
 
 const MyTestsPage: React.FC = () => {
     const navigate = useNavigate();
