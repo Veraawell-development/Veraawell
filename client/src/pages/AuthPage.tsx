@@ -17,6 +17,21 @@ const fadeUp = {
 };
 const stagger = { animate: { transition: { staggerChildren: 0.055 } } };
 
+// ── Password Strength Utility ────────────────────────────────────────────────
+const getPasswordStrength = (password: string) => {
+  let score = 0;
+  if (!password) return { score, label: '', color: 'transparent' };
+  
+  if (password.length >= 8) score += 25;
+  if (/[A-Z]/.test(password)) score += 25;
+  if (/[a-z]/.test(password)) score += 25;
+  if (/[0-9]/.test(password) || /[^A-Za-z0-9]/.test(password)) score += 25;
+
+  if (score <= 25) return { score, label: 'Weak', color: '#EF4444' };
+  if (score <= 75) return { score, label: 'Fair', color: '#F59E0B' };
+  return { score, label: 'Strong', color: '#10B981' };
+};
+
 // ── Reusable Input ────────────────────────────────────────────────────────────
 interface FieldProps {
   label: string; type: string; value: string;
@@ -451,6 +466,50 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
                       {showPw ? <FiEyeOff size={15} /> : <FiEye size={15} />}
                     </button>
                   </div>
+                  {/* Password Strength Indicator */}
+                  <AnimatePresence>
+                    {registerPassword.length > 0 && (
+                      <motion.div 
+                        initial={{ opacity: 0, height: 0, filter: 'blur(4px)' }} 
+                        animate={{ opacity: 1, height: 'auto', filter: 'blur(0px)' }} 
+                        exit={{ opacity: 0, height: 0, filter: 'blur(4px)' }}
+                        transition={{ duration: 0.4, ease: [0.4, 0, 0.2, 1] }}
+                        className="pt-1.5 pb-1 space-y-1.5 px-0.5 overflow-hidden"
+                      >
+                        <div className="flex justify-between items-center text-[9px] font-semibold uppercase tracking-wider text-neutral-400">
+                          <span>Strength</span>
+                          <motion.span 
+                            animate={{ color: getPasswordStrength(registerPassword).color }}
+                            transition={{ duration: 0.3 }}
+                          >
+                            {getPasswordStrength(registerPassword).label}
+                          </motion.span>
+                        </div>
+                        <div className="flex gap-1 h-1 w-full">
+                          {[25, 50, 75, 100].map((threshold, idx) => {
+                            const strength = getPasswordStrength(registerPassword);
+                            const isActive = strength.score >= threshold;
+                            return (
+                              <motion.div 
+                                key={threshold} 
+                                className="flex-1 rounded-full"
+                                initial={false}
+                                animate={{ 
+                                  backgroundColor: isActive ? strength.color : 'rgba(156, 163, 175, 0.2)',
+                                  boxShadow: isActive ? `0 0 10px ${strength.color}50` : 'none',
+                                }}
+                                transition={{ 
+                                  duration: 0.5, 
+                                  ease: [0.25, 1, 0.5, 1], // ultra-smooth easeOut
+                                  delay: isActive ? idx * 0.04 : 0 
+                                }}
+                              />
+                            );
+                          })}
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </motion.div>
 
                 <motion.div variants={fadeUp} className="space-y-1">
