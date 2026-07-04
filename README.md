@@ -63,11 +63,11 @@ The data layer is highly relational despite being a NoSQL database, utilizing Ob
 
 ```mermaid
 erDiagram
-    User ||--o{ Session : participates
-    User ||--o{ DoctorProfile : has_one
-    User ||--o{ Review : writes/receives
-    User ||--o{ Message : sends/receives
-    User ||--o{ Conversation : participates
+    User ||--o{ Session : "participates"
+    User ||--o{ DoctorProfile : "has one"
+    User ||--o{ Review : "writes or receives"
+    User ||--o{ Message : "sends or receives"
+    User ||--o{ Conversation : "participates"
     
     Conversation ||--o{ Message : contains
     Session ||--o| Conversation : spawns
