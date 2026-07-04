@@ -39,9 +39,8 @@ const conversationSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Index for fast lookups
-conversationSchema.index({ 'participants.userId': 1 });
-conversationSchema.index({ updatedAt: -1 });
+// Compound index: serves getConversationsForUser (filter by userId, sort by updatedAt)
+conversationSchema.index({ 'participants.userId': 1, updatedAt: -1 });
 
 // Method to get unread count for a user
 conversationSchema.methods.getUnreadCount = function(userId) {

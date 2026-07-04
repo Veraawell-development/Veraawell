@@ -1,31 +1,36 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { FiArrowLeft } from 'react-icons/fi';
 
 const NotFoundPage: React.FC = () => {
     return (
-        <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 to-black text-white p-4">
-            <div className="text-center max-w-lg">
-                <div className="relative mb-8">
-                    <h1 className="text-9xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-teal-500 opacity-20">
-                        404
-                    </h1>
-                    <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-4xl font-bold" style={{ fontFamily: 'Bree Serif, serif' }}>Page Not Found</span>
+        <div className="h-[calc(100vh-80px)] bg-[#FAFAFA] font-sans flex items-center justify-center p-4">
+            <div className="text-center max-w-md w-full">
+                {/* Visual Element */}
+                <div className="relative mb-6 flex justify-center">
+                    <div className="w-24 h-24 bg-teal-50 rounded-[2rem] rotate-12 flex items-center justify-center border border-teal-100 shadow-sm">
+                        <div className="w-24 h-24 bg-white rounded-[2rem] -rotate-12 absolute flex items-center justify-center border border-gray-100 shadow-sm">
+                            <span className="text-4xl font-black text-teal-600 tracking-tighter" style={{ fontFamily: 'Inter, sans-serif' }}>404</span>
+                        </div>
                     </div>
                 </div>
                 
-                <p className="text-gray-400 text-lg mb-8 font-light" style={{ fontFamily: 'Inter, sans-serif' }}>
-                    The path you are looking for does not exist or has been moved. Let's get you back on track.
+                {/* Text Content */}
+                <h1 className="text-[28px] font-extrabold text-gray-900 mb-2 tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
+                    Page Not Found
+                </h1>
+                
+                <p className="text-[15px] text-gray-500 mb-8 font-medium leading-relaxed" style={{ fontFamily: 'Inter, sans-serif' }}>
+                    Oops! The page you are looking for doesn't exist or has been moved. Let's get you back to safety.
                 </p>
                 
+                {/* Action Button */}
                 <Link
                     to="/"
-                    className="inline-flex items-center gap-2 px-8 py-3 bg-gradient-to-r from-cyan-500 to-teal-500 text-white font-semibold rounded-full hover:shadow-lg hover:shadow-cyan-500/20 transition-all transform hover:-translate-y-0.5"
-                    style={{ fontFamily: 'Bree Serif, serif' }}
+                    className="inline-flex items-center justify-center gap-2 px-8 py-3.5 bg-teal-600 text-white font-bold rounded-xl hover:bg-teal-700 transition-colors shadow-sm text-[14px]"
+                    style={{ fontFamily: 'Inter, sans-serif' }}
                 >
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                    </svg>
+                    <FiArrowLeft className="w-4 h-4" />
                     Back to Home
                 </Link>
             </div>

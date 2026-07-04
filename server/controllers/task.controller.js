@@ -58,6 +58,7 @@ const getTasksByPatient = asyncHandler(async (req, res) => {
   const tasks = await Task.find(query)
     .populate('doctorId', 'firstName lastName')
     .populate('sessionId', 'sessionDate sessionTime')
+    .populate('patientId', 'firstName lastName')
     .sort({ dueDate: 1, createdAt: -1 });
 
   res.json({ success: true, tasks });

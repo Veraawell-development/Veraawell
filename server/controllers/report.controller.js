@@ -62,6 +62,7 @@ const getReportsByPatient = asyncHandler(async (req, res) => {
   const reports = await Report.find(query)
     .populate('doctorId', 'firstName lastName')
     .populate('sessionId', 'sessionDate sessionTime')
+    .populate('patientId', 'firstName lastName')
     .sort({ createdAt: -1 });
 
   res.json({ success: true, reports });

@@ -35,78 +35,69 @@ const EmergencyHotlineModal: React.FC<EmergencyHotlineModalProps> = ({
     <>
       {/* Backdrop */}
       <div 
-        className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 transition-opacity"
+        className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 transition-opacity"
         onClick={onClose}
       />
       
       {/* Modal */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
         <div 
-          className="bg-white rounded-2xl shadow-2xl w-full max-w-md pointer-events-auto animate-scale-in"
+          className="bg-white rounded-[24px] shadow-[0_8px_40px_rgba(0,0,0,0.06)] w-full max-w-[400px] pointer-events-auto animate-fade-up overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="relative px-6 py-5 border-b border-gray-200">
+          <div className="relative px-8 pt-8 pb-4">
             <button
               onClick={onClose}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+              className="absolute top-6 right-6 text-gray-300 hover:text-gray-600 transition-colors"
               aria-label="Close modal"
             >
               <IoClose size={24} />
             </button>
-            <h2 className="text-2xl font-semibold pr-8" style={{ color: '#38ABAE', fontFamily: 'Bree Serif, serif' }}>
+            
+            <h2 className="text-xl font-bold text-gray-900 tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
               Emergency Helplines
             </h2>
-            <p className="text-sm text-gray-600 mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+            <p className="text-sm text-gray-500 mt-1.5" style={{ fontFamily: 'Inter, sans-serif' }}>
               Help is available 24/7
             </p>
           </div>
 
           {/* Content */}
-          <div className="p-6">
-            {/* Hotline List */}
-            <div className="space-y-4 mb-6">
+          <div className="px-8 pb-8">
+            <div className="flex flex-col gap-5 mt-2">
               {hotlines.map((hotline, index) => (
-                <div key={index}>
-                  <p className="text-sm text-gray-600 mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+                <div key={index} className="flex flex-col gap-0.5">
+                  <p className="text-[13px] text-gray-500 font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>
                     {hotline.name}
                   </p>
                   <a 
                     href={`tel:${hotline.number.replace(/[^0-9]/g, '')}`}
-                    className="text-xl font-semibold block hover:underline"
-                    style={{ color: '#38ABAE', fontFamily: 'Bree Serif, serif' }}
+                    className="text-lg font-semibold text-[#38ABAE] hover:text-[#2A8285] transition-colors"
+                    style={{ fontFamily: 'Inter, sans-serif' }}
                   >
                     {hotline.number}
                   </a>
                 </div>
               ))}
             </div>
-
-            {/* Close Button */}
-            <button
-              onClick={onClose}
-              className="w-full px-6 py-3 text-white rounded-full font-medium hover:opacity-90 transition-all"
-              style={{ backgroundColor: '#38ABAE', fontFamily: 'Bree Serif, serif' }}
-            >
-              Close
-            </button>
           </div>
         </div>
       </div>
 
       <style>{`
-        @keyframes scale-in {
-          from {
+        @keyframes fade-up {
+          0% {
             opacity: 0;
-            transform: scale(0.95);
+            transform: translateY(10px) scale(0.98);
           }
-          to {
+          100% {
             opacity: 1;
-            transform: scale(1);
+            transform: translateY(0) scale(1);
           }
         }
-        .animate-scale-in {
-          animation: scale-in 0.2s ease-out;
+        .animate-fade-up {
+          animation: fade-up 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
         }
       `}</style>
     </>

@@ -43,7 +43,7 @@ async function updateDoctorStatus(userId, isOnline, io) {
                     timestamp: new Date()
                 });
 
-                // ✨ NEW: Also broadcast to the doctor themselves (for multi-tab sync)
+                // NEW: Also broadcast to the doctor themselves (for multi-tab sync)
                 emitter.emitToUser(userId, 'doctor:status-change', {
                     doctorId: userId,
                     isOnline: isOnline,

@@ -87,6 +87,7 @@ const getNotesByPatient = asyncHandler(async (req, res) => {
   const notes = await SessionNote.find(query)
     .populate('doctorId', 'firstName lastName')
     .populate('sessionId', 'sessionDate sessionTime')
+    .populate('patientId', 'firstName lastName')
     .sort({ createdAt: -1 });
 
   res.json({ success: true, notes });

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { API_CONFIG } from '../config/api';
 import { useAuth } from '../context/AuthContext';
-import BackToDashboard from '../components/BackToDashboard';
+import { FiPhone, FiArrowLeft } from 'react-icons/fi';
 
 interface Therapist {
     doctor: {
@@ -16,6 +16,15 @@ interface Therapist {
         experience: number;
         qualification: string[];
         profileImage: string;
+        languages?: string[];
+        pricing?: {
+            min: number;
+            max: number;
+        };
+        rating?: {
+            average: number;
+            totalReviews: number;
+        };
     } | null;
     totalSessions: number;
     completedSessions: number;
@@ -26,11 +35,21 @@ interface Therapist {
 
 const MyTherapistPage: React.FC = () => {
     const navigate = useNavigate();
-    const { logout } = useAuth();
-    const [sidebarOpen, setSidebarOpen] = useState(false);
+    const { user } = useAuth();
     const [therapists, setTherapists] = useState<Therapist[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [filter, setFilter] = useState<'all' | 'active' | 'past'>('all');
+
+    const getDoctorBgColor = (id: string) => {
+        const colors = ['#ABA5D1', '#7DA9A8', '#6DBEDF', '#A8D5BA'];
+        let hash = 0;
+        for (let i = 0; i < id.length; i++) {
+            hash = id.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const index = Math.abs(hash) % colors.length;
+        return colors[index];
+    };
 
     useEffect(() => {
         fetchTherapists();
@@ -60,264 +79,152 @@ const MyTherapistPage: React.FC = () => {
         return true;
     });
 
+    if (loading) {
+        return (
+            <div className="h-[calc(100vh-80px)] flex items-center justify-center bg-[#FAFAFA] font-sans">
+                <div className="text-center">
+                    <div className="w-8 h-8 border-2 border-[#38ABAE] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                    <p className="text-gray-500 text-[13px] font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>Loading therapists...</p>
+                </div>
+            </div>
+        );
+    }
+
     return (
-        <div className="min-h-screen" style={{ backgroundColor: '#E0EAEA' }}>
-            {/* Sidebar */}
-            {sidebarOpen && <div className="fixed inset-0 z-40" onClick={() => setSidebarOpen(false)} />}
-            <div className={`fixed left-0 top-0 h-screen w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`} style={{ backgroundColor: '#7DA9A8' }}>
-                <div className="h-full flex flex-col p-4 text-white font-sans">
-                    {/* Sidebar Header */}
-                    <div className="flex items-center justify-between mb-6 border-b border-white/20 pb-4">
-                        <h2 className="text-xl font-bold">Menu</h2>
-                        <button onClick={() => setSidebarOpen(false)} className="p-1 hover:bg-white/10 rounded-full">
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
+        <div className="h-screen pt-[64px] md:pt-[80px] bg-[#FAFAFA] font-sans flex flex-col overflow-hidden box-border">
+            <div className="flex-1 max-w-[1200px] mx-auto w-full px-6 py-8 flex flex-col min-h-0">
+                
+                {/* Minimal Header */}
+                <div className="mb-8 shrink-0 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-4">
+                        <button 
+                            onClick={() => navigate('/patient-dashboard')} 
+                            className="flex items-center justify-center w-10 h-10 bg-white border border-gray-200 rounded-full text-gray-500 hover:text-[#38ABAE] hover:border-[#38ABAE] hover:shadow-sm transition-all group"
+                            title="Back to Dashboard"
+                        >
+                            <FiArrowLeft className="w-5 h-5 group-hover:-translate-x-0.5 transition-transform" />
                         </button>
+                        <h1 className="text-[24px] font-extrabold text-gray-900 tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
+                            My Therapists
+                        </h1>
                     </div>
-                    <div className="space-y-3 flex-1">
-                        <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors" onClick={() => navigate('/patient-dashboard')}>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-                            </svg>
-                            <span className="text-base font-medium">My Dashboard</span>
-                        </div>
-                        <div className="flex items-center space-x-3 cursor-pointer bg-white/20 p-2 rounded-lg transition-colors">
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                            </svg>
-                            <span className="text-base font-medium">My Therapists</span>
-                        </div>
-                        <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors" onClick={() => navigate('/my-journal')}>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                            </svg>
-                            <span className="text-base font-medium">My Journal</span>
-                        </div>
-                    </div>
-                    {/* Bottom Menu Items */}
-                    <div className="mt-auto space-y-3">
-                        <div
-                            className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
-                            onClick={() => { navigate('/settings'); setSidebarOpen(false); }}
-                        >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            </svg>
-                            <span className="text-base font-medium">Settings</span>
-                        </div>
 
-                        <div
-                            className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
-                            onClick={async () => { await logout(); window.location.href = '/'; }}
-                        >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                            </svg>
-                            <span className="text-base font-medium">Sign Out</span>
-                        </div>
+                    {/* Filter Pills */}
+                    <div className="flex gap-2">
+                        {['all', 'active', 'past'].map((f) => (
+                            <button
+                                key={f}
+                                onClick={() => setFilter(f as any)}
+                                className={`px-4 py-2 rounded-full font-bold text-[11px] uppercase tracking-wider transition-all ${filter === f
+                                    ? 'bg-[#38ABAE] text-white shadow-sm'
+                                    : 'bg-white border border-gray-200 text-gray-500 hover:border-[#38ABAE] hover:text-[#38ABAE]'
+                                    }`}
+                                style={{ fontFamily: 'Inter, sans-serif' }}
+                            >
+                                {f}
+                            </button>
+                        ))}
                     </div>
                 </div>
-            </div>
-
-            {/* Header */}
-            <div className="py-4 px-4 shadow-sm" style={{ backgroundColor: '#ABA5D1' }}>
-                <div className="max-w-7xl mx-auto flex items-center justify-between">
-                    <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors">
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16"></path>
-                        </svg>
-                    </button>
-                    <h1 className="text-2xl font-bold text-white">My Therapists</h1>
-                    <div className="w-10"></div>
-                </div>
-            </div>
-
-            {/* Main Content */}
-            <div className="max-w-5xl mx-auto px-4 py-8">
-                <BackToDashboard />
-                {/* Filter Pills */}
-                <div className="flex gap-3 mb-8">
-                    <button
-                        onClick={() => setFilter('all')}
-                        className={`px-6 py-2 rounded-full font-medium text-sm transition-all ${filter === 'all'
-                            ? 'bg-white text-teal-600 shadow-md'
-                            : 'bg-white/60 text-gray-600 hover:bg-white hover:shadow-sm'
-                            }`}
-                        style={{ fontFamily: 'Inter, sans-serif' }}
-                    >
-                        All
-                    </button>
-                    <button
-                        onClick={() => setFilter('active')}
-                        className={`px-6 py-2 rounded-full font-medium text-sm transition-all ${filter === 'active'
-                            ? 'bg-white text-teal-600 shadow-md'
-                            : 'bg-white/60 text-gray-600 hover:bg-white hover:shadow-sm'
-                            }`}
-                        style={{ fontFamily: 'Inter, sans-serif' }}
-                    >
-                        Active
-                    </button>
-                    <button
-                        onClick={() => setFilter('past')}
-                        className={`px-6 py-2 rounded-full font-medium text-sm transition-all ${filter === 'past'
-                            ? 'bg-white text-teal-600 shadow-md'
-                            : 'bg-white/60 text-gray-600 hover:bg-white hover:shadow-sm'
-                            }`}
-                        style={{ fontFamily: 'Inter, sans-serif' }}
-                    >
-                        Past
-                    </button>
-                </div>
-
-                {/* Loading State */}
-                {loading && (
-                    <div className="text-center py-16">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-600 mx-auto mb-4"></div>
-                        <p className="text-gray-500 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>Loading...</p>
-                    </div>
-                )}
 
                 {/* Empty State */}
-                {!loading && filteredTherapists.length === 0 && (
-                    <div className="bg-white rounded-2xl shadow-sm p-16 text-center">
-                        <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                            </svg>
+                {filteredTherapists.length === 0 ? (
+                    <div className="bg-white rounded-[16px] border border-gray-200 shadow-sm p-16 text-center max-w-2xl mx-auto mt-4 shrink-0">
+                        <div className="w-16 h-16 bg-gray-50 border border-gray-100 rounded-full flex items-center justify-center mx-auto mb-5">
+                            <FiPhone className="w-6 h-6 text-gray-400" />
                         </div>
-                        <h3 className="text-xl font-bold text-gray-900 mb-2">
-                            No therapists yet
+                        <h3 className="text-[18px] font-bold text-gray-800 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                            No therapists found
                         </h3>
-                        <p className="text-gray-500 mb-6 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>
-                            Book your first session to see your therapists here
+                        <p className="text-gray-500 text-[14px] mb-8" style={{ fontFamily: 'Inter, sans-serif' }}>
+                            You haven't interacted with any therapists in this category.
                         </p>
                         <button
                             onClick={() => navigate('/choose-professional')}
-                            className="px-6 py-2.5 rounded-xl font-semibold text-white transition-all shadow-md hover:shadow-lg"
-                            style={{
-                                fontFamily: 'Inter, sans-serif',
-                                background: 'linear-gradient(135deg, #6DBEDF 0%, #5DBEBD 100%)'
-                            }}
+                            className="inline-flex items-center justify-center px-6 py-2.5 bg-[#38ABAE] text-white font-medium rounded-lg hover:bg-[#2A8285] transition-colors text-[14px]"
+                            style={{ fontFamily: 'Inter, sans-serif' }}
                         >
                             Find a Therapist
                         </button>
                     </div>
-                )}
+                ) : null}
 
-                {/* Therapist Cards */}
+                {/* Therapist Cards Layout */}
                 {!loading && filteredTherapists.length > 0 && (
-                    <div className="space-y-4">
-                        {filteredTherapists.map((therapist) => (
-                            <div
-                                key={therapist.doctor._id}
-                                className="bg-white rounded-2xl shadow-md hover:shadow-lg transition-all p-6"
-                            >
-                                <div className="flex items-start gap-6">
-                                    {/* Profile Image */}
-                                    <div className="flex-shrink-0">
+                    <div className="flex-1 overflow-y-auto pr-2 pb-10 custom-scrollbar min-h-0">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {filteredTherapists.map((therapist) => (
+                                <div
+                                    key={therapist.doctor._id}
+                                    className="bg-white rounded-xl border border-gray-200 p-6 flex flex-col hover:shadow-sm hover:border-gray-300 transition-all relative overflow-hidden"
+                                >
+                                    {/* Doctor specific color accent */}
+                                    <div className="absolute top-0 left-0 w-full h-1.5" style={{ backgroundColor: getDoctorBgColor(therapist.doctor._id) }}></div>
+                                    {/* Header: Avatar, Name, Badge */}
+                                    <div className="flex items-start gap-4 mb-5">
                                         <img
                                             src={therapist.profile?.profileImage && !therapist.profile.profileImage.includes('doctor-0')
                                                 ? therapist.profile.profileImage
                                                 : (therapist.doctor.firstName.toLowerCase().endsWith('a') || therapist.doctor.firstName.toLowerCase().endsWith('i') ? '/female.jpg' : '/male.jpg')
                                             }
                                             alt={`Dr. ${therapist.doctor.firstName} ${therapist.doctor.lastName}`}
-                                            className="w-24 h-24 rounded-full object-cover border-4 border-teal-100"
+                                            className="w-16 h-16 rounded-full object-cover border border-gray-100 shrink-0"
                                         />
-                                    </div>
-
-                                    {/* Therapist Info */}
-                                    <div className="flex-1">
-                                        <div className="flex items-start justify-between mb-3">
-                                            <div>
-                                                <h3 className="text-2xl font-bold text-gray-900">
+                                        <div className="flex-1 min-w-0">
+                                            <div className="flex justify-between items-start gap-2">
+                                                <h3 className="text-[16px] font-bold text-gray-900 truncate" style={{ fontFamily: 'Inter, sans-serif' }}>
                                                     Dr. {therapist.doctor.firstName} {therapist.doctor.lastName}
                                                 </h3>
-                                                <p className="text-sm text-gray-600 mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                                    {therapist.profile?.specialization.join(', ') || 'General Practitioner'}
-                                                </p>
+                                                <span className="bg-[#E8F6F6] text-[#38ABAE] text-[9px] font-bold uppercase px-2 py-1 rounded shrink-0">
+                                                    {therapist.upcomingSessions > 0 ? 'Your Therapist' : 'Past Therapist'}
+                                                </span>
                                             </div>
-                                            <div className={`px-3 py-1 rounded-full text-xs font-semibold ${therapist.upcomingSessions > 0
-                                                ? 'bg-green-100 text-green-700'
-                                                : 'bg-gray-100 text-gray-600'
-                                                }`} style={{ fontFamily: 'Inter, sans-serif' }}>
-                                                {therapist.upcomingSessions > 0 ? '🔵 Active' : '⚪ Past'}
-                                            </div>
-                                        </div>
-
-                                        {/* Stats */}
-                                        <div className="grid grid-cols-3 gap-4 mb-4">
-                                            <div className="text-center bg-gray-50 rounded-lg p-3">
-                                                <p className="text-2xl font-bold text-teal-600">
-                                                    {therapist.totalSessions}
-                                                </p>
-                                                <p className="text-xs text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                                    Total Sessions
-                                                </p>
-                                            </div>
-                                            <div className="text-center bg-gray-50 rounded-lg p-3">
-                                                <p className="text-2xl font-bold text-green-600">
-                                                    {therapist.completedSessions}
-                                                </p>
-                                                <p className="text-xs text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                                    Completed
-                                                </p>
-                                            </div>
-                                            <div className="text-center bg-gray-50 rounded-lg p-3">
-                                                <p className="text-2xl font-bold text-blue-600">
-                                                    {therapist.upcomingSessions}
-                                                </p>
-                                                <p className="text-xs text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                                    Upcoming
-                                                </p>
-                                            </div>
-                                        </div>
-
-                                        {/* Session Dates */}
-                                        <div className="flex items-center gap-6 mb-4 text-sm text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                            {therapist.nextSession && (
-                                                <div className="flex items-center gap-2">
-                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                                    </svg>
-                                                    <span>Next: {new Date(therapist.nextSession).toLocaleDateString()}</span>
-                                                </div>
-                                            )}
-                                            {therapist.lastSession && (
-                                                <div className="flex items-center gap-2">
-                                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                    </svg>
-                                                    <span>Last: {new Date(therapist.lastSession).toLocaleDateString()}</span>
-                                                </div>
-                                            )}
-                                        </div>
-
-                                        {/* Action Buttons */}
-                                        <div className="flex gap-3">
-                                            <button
-                                                onClick={() => navigate(`/doctor/${therapist.doctor._id}`)}
-                                                className="flex-1 px-4 py-2 rounded-xl font-semibold bg-white border-2 border-teal-500 text-teal-600 hover:bg-teal-50 transition-all"
-                                               
-                                            >
-                                                View Profile
-                                            </button>
-                                            <button
-                                                onClick={() => navigate('/choose-professional')}
-                                                className="flex-1 px-4 py-2 rounded-xl font-semibold text-white transition-all shadow-md hover:shadow-lg"
-                                                style={{
-                                                    fontFamily: 'Bree Serif, serif',
-                                                    background: 'linear-gradient(135deg, #6DBEDF 0%, #5DBEBD 100%)'
-                                                }}
-                                            >
-                                                Book Session
-                                            </button>
+                                            <p className="text-[13px] text-gray-600 mt-0.5 truncate" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                                {therapist.profile?.qualification?.join(', ') || 'MA Psychology'}
+                                            </p>
+                                            <p className="text-[13px] font-bold text-gray-900 mt-1 flex items-center gap-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                                 {therapist.profile?.rating?.average || '4.9'} <span className="text-gray-400 font-medium">({therapist.profile?.rating?.totalReviews || '19'})</span>
+                                            </p>
                                         </div>
                                     </div>
+                                    
+                                    {/* Structured List */}
+                                    <div className="space-y-2.5 mb-5 border-t border-gray-100 pt-4" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                        <div className="flex justify-between text-[13px]">
+                                            <span className="text-gray-500">Experience</span>
+                                            <span className="font-medium text-gray-900">{therapist.profile?.experience || 5} years</span>
+                                        </div>
+                                        <div className="flex justify-between text-[13px]">
+                                            <span className="text-gray-500">Session Fee</span>
+                                            <span className="font-medium text-gray-900">₹{therapist.profile?.pricing?.min || 500} - ₹{therapist.profile?.pricing?.max || 2000}</span>
+                                        </div>
+                                        <div className="flex justify-between text-[13px]">
+                                            <span className="text-gray-500">Language</span>
+                                            <span className="font-medium text-gray-900 truncate max-w-[150px] text-right">
+                                                {therapist.profile?.languages?.length ? therapist.profile.languages.join(', ') : 'English, Hindi'}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Expertise */}
+                                    <div className="mb-6">
+                                        <span className="text-[13px] text-gray-500 block mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>Expertise</span>
+                                        <span className="text-[13px] font-medium text-gray-900 leading-snug line-clamp-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                            {therapist.profile?.specialization?.length ? therapist.profile.specialization.join(', ') : 'Depression, Anxiety, Stress Management'}
+                                        </span>
+                                    </div>
+
+                                    {/* Action */}
+                                    <button
+                                        onClick={() => navigate('/choose-professional')}
+                                        className="w-full py-2.5 rounded-[8px] text-[14px] font-medium bg-[#38ABAE] text-white hover:bg-[#2A8285] transition-colors mt-auto"
+                                        style={{ fontFamily: 'Inter, sans-serif' }}
+                                    >
+                                        Book Again
+                                    </button>
                                 </div>
-                            </div>
-                        ))}
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>

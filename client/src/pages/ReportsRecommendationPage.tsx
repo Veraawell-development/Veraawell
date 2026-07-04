@@ -61,17 +61,132 @@ const ReportsRecommendationPage: React.FC = () => {
   const handleDownload = (report: Report) => {
     markAsViewed(report._id);
 
-    // Create a text file with report content
-    const content = `${report.title}\n\nType: ${report.reportType}\n\nDate: ${formatDate(report.createdAt)}\nDoctor: Dr. ${report.doctorId?.firstName || 'Unknown'} ${report.doctorId?.lastName || ''}\n\n${report.content}`;
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${report.title.replace(/\s+/g, '_')}_${new Date(report.createdAt).toISOString().split('T')[0]}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    import('jspdf').then(({ jsPDF }) => {
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.width;
+      
+      // Colors and Fonts
+      doc.setFont('helvetica');
+      const teal = '#0D9488';
+      const gray = '#4B5563';
+      const black = '#111827';
+      
+      // Header Section
+      doc.setFillColor(13, 148, 136); // Teal header bar
+      doc.rect(0, 0, pageWidth, 25, 'F');
+      
+      doc.setTextColor('#FFFFFF');
+      doc.setFontSize(22);
+      doc.setFont('helvetica', 'bold');
+      doc.text('Veerawell', 15, 17);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Official Medical Report', pageWidth - 15, 16, { align: 'right' });
+
+      // Title
+      doc.setTextColor(black);
+      doc.setFontSize(18);
+      doc.setFont('helvetica', 'bold');
+      doc.text(report.title, 15, 40);
+
+      // Meta Info Card
+      doc.setFillColor(249, 250, 251);
+      doc.setDrawColor(229, 231, 235);
+      doc.roundedRect(15, 48, pageWidth - 30, 25, 3, 3, 'FD');
+      
+      doc.setFontSize(10);
+      doc.setTextColor(gray);
+      doc.text('REPORT TYPE:', 20, 56);
+      doc.text('DATE:', 20, 66);
+      doc.text('PSYCHOLOGIST:', pageWidth / 2, 56);
+
+      doc.setTextColor(black);
+      doc.setFont('helvetica', 'bold');
+      doc.text(report.reportType || 'Consultation Report', 50, 56);
+      doc.text(formatDate(report.createdAt), 50, 66);
+      doc.text(`Dr. ${report.doctorId?.firstName || 'Unknown'} ${report.doctorId?.lastName || ''}`, (pageWidth / 2) + 32, 56);
+
+      // Content Section
+      let currentY = 85;
+      
+      let parsedContent: any = null;
+      try {
+          if (report.content.trim().startsWith('{') && report.content.trim().endsWith('}')) {
+              parsedContent = JSON.parse(report.content);
+          }
+      } catch (e) {
+          parsedContent = null;
+      }
+
+      const drawSection = (title: string, text: string) => {
+        if (!text) return;
+        if (currentY > 260) {
+          doc.addPage();
+          currentY = 20;
+        }
+        
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(teal);
+        doc.text(title.toUpperCase(), 15, currentY);
+        
+        currentY += 7;
+        
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(11);
+        doc.setTextColor(black);
+        const splitText = doc.splitTextToSize(text, pageWidth - 30);
+        doc.text(splitText, 15, currentY);
+        
+        currentY += (splitText.length * 5) + 10;
+      };
+
+      if (parsedContent) {
+        if (parsedContent.diagnosis) drawSection('Primary Diagnosis', parsedContent.diagnosis);
+        if (parsedContent.mood) drawSection('Mood Assessment', parsedContent.mood);
+        if (parsedContent.progress) drawSection('Overall Progress', `${parsedContent.progress} / 10`);
+        if (parsedContent.observations && Array.isArray(parsedContent.observations)) {
+          drawSection('Clinical Observations', parsedContent.observations.join('\n• '));
+        }
+        if (parsedContent.summary) drawSection('Consultation Summary', parsedContent.summary);
+        if (parsedContent.recommendations) drawSection('Recommendations', parsedContent.recommendations);
+      } else {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(11);
+        doc.setTextColor(black);
+        const splitText = doc.splitTextToSize(report.content, pageWidth - 30);
+        doc.text(splitText, 15, currentY);
+      }
+      
+      // Footer
+      const pageCount = doc.internal.getNumberOfPages();
+      for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(9);
+        doc.setTextColor(156, 163, 175);
+        doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, 285, { align: 'center' });
+        doc.text('This is an electronically generated report.', pageWidth / 2, 290, { align: 'center' });
+      }
+
+      const safeTitle = report.title.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+      doc.save(`${safeTitle}.pdf`);
+    }).catch(err => {
+      console.error('Failed to generate PDF', err);
+      // Fallback
+      const content = `${report.title}\n\nType: ${report.reportType}\n\nDate: ${formatDate(report.createdAt)}\nDoctor: Dr. ${report.doctorId?.firstName || 'Unknown'} ${report.doctorId?.lastName || ''}\n\n${report.content}`;
+      const blob = new Blob([content], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const safeTitle = report.title.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+      a.download = `${safeTitle}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    });
   };
 
   const handleView = (report: Report) => {
@@ -80,162 +195,117 @@ const ReportsRecommendationPage: React.FC = () => {
     setViewModalOpen(true);
   };
 
+  const getInitials = (firstName: string, lastName: string) => {
+    if (!firstName) return 'DR';
+    return `${firstName[0]}${lastName ? lastName[0] : ''}`.toUpperCase();
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#E0EAEA' }}>
+      <div className="h-[calc(100vh-80px)] flex items-center justify-center bg-[#FAFAFA]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-teal-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600 font-serif">Loading reports...</p>
+          <div className="w-8 h-8 border-2 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-500 text-[13px] font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>Loading reports...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen relative bg-white">
-      {/* Overlay to close sidebar */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
+    <div className="h-screen pt-[64px] md:pt-[80px] bg-[#FAFAFA] font-sans flex flex-col overflow-hidden box-border">
+      {/* Main Content Area */}
+      <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 md:py-10 flex flex-col min-h-0">
+        
+        <div className="mb-8 max-w-2xl relative shrink-0">
+          <button 
+            onClick={() => navigate('/patient-dashboard')} 
+            className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 hover:text-teal-600 transition-colors mb-5 group"
+            aria-label="Back to Dashboard"
+            style={{ fontFamily: 'Inter, sans-serif' }}
+          >
+            <svg className="w-4 h-4 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Back to Dashboard
+          </button>
 
-      {/* Sidebar */}
-      <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`} style={{ backgroundColor: '#7DA9A8' }}>
-        <div className="h-full flex flex-col p-4 text-white font-serif">
-          <div className="space-y-3 mb-6">
-            <div
-              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
-              onClick={() => { navigate('/patient-dashboard'); setSidebarOpen(false); }}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+          <h1 className="text-[32px] md:text-[36px] font-extrabold text-gray-800 tracking-tight mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
+            Reports & Recommendation
+          </h1>
+          <p className="text-[15px] text-gray-500 font-medium leading-relaxed max-w-2xl" style={{ fontFamily: 'Inter, sans-serif' }}>
+            View and download the consultation reports and prescriptions provided by your psychologists.
+          </p>
+        </div>
+
+        {reports.length === 0 ? (
+          <div className="bg-white rounded-[24px] border border-gray-100 shadow-sm p-16 text-center max-w-3xl mx-auto mt-4 shrink-0">
+            <div className="w-16 h-16 bg-gray-50 border border-gray-100 rounded-full flex items-center justify-center mx-auto mb-5">
+              <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
-              <span className="text-base font-medium">My Dashboard</span>
             </div>
+            <h3 className="text-[18px] font-bold text-gray-800 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+              No reports available
+            </h3>
+            <p className="text-gray-500 text-[14px] mb-8" style={{ fontFamily: 'Inter, sans-serif' }}>
+              Your consultation reports and recommendations will appear here.
+            </p>
+          </div>
+        ) : (
+          <div className="flex-1 overflow-y-auto pr-2 pb-10 min-h-0">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {reports.map((report) => (
+                <div
+                  key={report._id}
+                  className="group bg-white rounded-[16px] border border-gray-100 hover:border-teal-200 shadow-sm hover:shadow-md transition-all overflow-hidden p-6 flex flex-col"
+                >
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-teal-50 border border-teal-100 flex items-center justify-center shrink-0">
+                        <span className="text-[12px] font-bold text-teal-700 tracking-wider">
+                          {getInitials(report.doctorId?.firstName || '', report.doctorId?.lastName || '')}
+                        </span>
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <h3 className="text-[15px] font-bold text-gray-800 tracking-tight line-clamp-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+                          Dr. {report.doctorId?.firstName || 'Unknown'} {report.doctorId?.lastName || ''}
+                        </h3>
+                        <p className="text-[12px] font-medium text-gray-400" style={{ fontFamily: 'Inter, sans-serif' }}>
+                          {formatDate(report.createdAt)}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="mb-6">
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide uppercase bg-teal-50 text-teal-600" style={{ fontFamily: 'Inter, sans-serif' }}>
+                      {report.reportType || 'Consultation Report'}
+                    </span>
+                  </div>
 
-            <div
-              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
-              onClick={() => { navigate('/call-history'); setSidebarOpen(false); }}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
-              </svg>
-              <span className="text-base font-medium">My Calls</span>
-            </div>
-
-            <div
-              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
-              onClick={() => { navigate('/pending-tasks'); setSidebarOpen(false); }}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-              </svg>
-              <span className="text-base font-medium">Pending Tasks</span>
-            </div>
-
-            <div
-              className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors"
-              onClick={() => { navigate('/my-journal'); setSidebarOpen(false); }}
-            >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-              </svg>
-              <span className="text-base font-medium">My Journal</span>
+                  <div className="mt-auto pt-4 border-t border-gray-50 flex items-center justify-between gap-2">
+                    <button
+                      onClick={() => handleView(report)}
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 font-bold text-gray-500 hover:text-teal-600 hover:bg-teal-50 transition-colors text-[11px] uppercase tracking-wider px-3 py-2 rounded-lg border border-gray-100 group-hover:border-teal-100"
+                    >
+                      <FiEye className="w-3.5 h-3.5" />
+                      View
+                    </button>
+                    <button
+                      onClick={() => handleDownload(report)}
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 font-bold text-gray-500 hover:text-teal-600 hover:bg-teal-50 transition-colors text-[11px] uppercase tracking-wider px-3 py-2 rounded-lg border border-gray-100 group-hover:border-teal-100"
+                    >
+                      <FiDownload className="w-3.5 h-3.5" />
+                      Save
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* Header */}
-      <div className="py-4 px-4 shadow-sm" style={{ backgroundColor: '#38ABAE' }}>
-        <div className="max-w-7xl mx-auto flex items-center justify-between">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors"
-          >
-            <FiMenu className="w-6 h-6" />
-          </button>
-          <h1 className="text-2xl font-bold text-white" style={{ fontFamily: 'Bree Serif, serif' }}>Reports & Recommendation</h1>
-          <div className="w-10"></div>
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="max-w-6xl mx-auto px-4 py-8">
-        <BackToDashboard />
-        <div className="bg-white border-2 border-gray-300">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-white border-b-2 border-gray-900">
-                <th className="py-4 px-6 text-center text-xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
-                  DATE
-                </th>
-                <th className="py-4 px-6 text-center text-xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
-                  PSYCHOLOGIST
-                </th>
-                <th className="py-4 px-6 text-center text-xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
-                  DOWNLOADS
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {reports.length === 0 ? (
-                <tr>
-                  <td colSpan={3} className="py-16 text-center">
-                    <p className="text-xl text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>No reports available</p>
-                    <p className="text-gray-400 mt-2" style={{ fontFamily: 'Inter, sans-serif' }}>Your reports and recommendations will appear here</p>
-                  </td>
-                </tr>
-              ) : (
-                <>
-                  {reports.map((report) => (
-                    <tr
-                      key={report._id}
-                      className="border-b border-gray-900"
-                    >
-                      <td className="py-4 px-6 text-center text-base font-medium text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
-                        {formatDate(report.createdAt)}
-                      </td>
-                      <td className="py-4 px-6 text-center text-base font-medium text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
-                        Dr. {report.doctorId?.firstName || 'Unknown'} {report.doctorId?.lastName || ''}
-                      </td>
-                      <td className="py-4 px-6 text-center">
-                        <button
-                          onClick={() => handleView(report)}
-                          className="inline-flex items-center gap-2 text-base font-semibold text-gray-900 hover:opacity-70 transition-opacity underline mr-4"
-                          style={{ fontFamily: 'Bree Serif, serif' }}
-                        >
-                          View File
-                          <FiEye className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={() => handleDownload(report)}
-                          className="inline-flex items-center gap-2 text-base font-semibold text-gray-900 hover:opacity-70 transition-opacity underline"
-                          style={{ fontFamily: 'Bree Serif, serif' }}
-                        >
-                          Download File
-                          <FiDownload className="w-5 h-5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                  {/* Empty rows to match design */}
-                  {Array.from({ length: Math.max(0, 6 - reports.length) }).map((_, index) => (
-                    <tr key={`empty-${index}`} className="border-b border-gray-900">
-                      <td className="py-6 px-6">&nbsp;</td>
-                      <td className="py-6 px-6">&nbsp;</td>
-                      <td className="py-6 px-6">&nbsp;</td>
-                    </tr>
-                  ))}
-                </>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
       <ViewContentModal
         isOpen={viewModalOpen}
         onClose={() => setViewModalOpen(false)}

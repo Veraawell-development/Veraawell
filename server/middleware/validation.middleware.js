@@ -90,7 +90,9 @@ function validateRegistration(req, res, next) {
   }
 
   if (Object.keys(errors).length > 0) {
-    console.log('[VALIDATION-ERROR] Failed fields:', errors, 'Received body:', req.body);
+    const { createLogger } = require('../utils/logger');
+    const logger = createLogger('VALIDATION');
+    logger.warn('Registration validation failed', { fields: Object.keys(errors) });
     throw new ValidationError('Validation failed', errors);
   }
 

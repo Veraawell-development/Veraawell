@@ -82,7 +82,7 @@ const DoctorReviewsSection: React.FC<DoctorReviewsSectionProps> = ({ doctorId })
                                     key={i}
                                     className={`text-3xl ${i < Math.round(stats.averageRating) ? 'text-[#FFB800]' : 'text-gray-300'}`}
                                 >
-                                    ★
+                                    
                                 </span>
                             ))}
                         </div>
@@ -101,7 +101,7 @@ const DoctorReviewsSection: React.FC<DoctorReviewsSectionProps> = ({ doctorId })
                             { stars: 1, count: stats.oneStar }
                         ].map(({ stars, count }) => (
                             <div key={stars} className="flex items-center gap-3">
-                                <span className="text-sm font-medium text-gray-700 w-8">{stars}★</span>
+                                <span className="text-sm font-medium text-gray-700 w-8">{stars}</span>
                                 <div className="flex-1 bg-gray-200 rounded-full h-2.5">
                                     <div
                                         className="h-2.5 rounded-full"
@@ -136,7 +136,7 @@ const DoctorReviewsSection: React.FC<DoctorReviewsSectionProps> = ({ doctorId })
                                             key={i}
                                             className={`text-xl ${i < review.rating ? 'text-[#FFB800]' : 'text-gray-300'}`}
                                         >
-                                            ★
+                                            
                                         </span>
                                     ))}
                                 </div>

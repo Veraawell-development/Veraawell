@@ -11,6 +11,7 @@ const passport = require('passport');
 const helmet = require('helmet');
 const compression = require('compression');
 const mongoSanitize = require('express-mongo-sanitize');
+const morgan = require('morgan');
 
 // Configuration
 const { CORS_ORIGINS } = require('./config/constants');
@@ -137,9 +138,38 @@ app.use((req, res, next) => {
 });
 
 // Body parsing middleware
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// 1mb is sufficient for JSON payloads. Upload routes handle their own multipart limits.
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(cookieParser());
+
+// HTTP request logging (development only)
+if (!isProduction()) {
+  // ANSI helpers
+  const R = '\x1b[0m';
+  const D = '\x1b[2m';
+  const B = '\x1b[1m';
+  const METHOD_COLORS = { GET: '\x1b[32m', POST: '\x1b[34m', PUT: '\x1b[33m', PATCH: '\x1b[35m', DELETE: '\x1b[31m' };
+  const STATUS_COLOR  = (s) => s >= 500 ? '\x1b[31m' : s >= 400 ? '\x1b[33m' : s >= 300 ? '\x1b[36m' : '\x1b[32m';
+
+  morgan.token('colored-method', (req) => {
+    const c = METHOD_COLORS[req.method] || '';
+    return `${c}${B}${req.method.padEnd(6)}${R}`;
+  });
+  morgan.token('colored-status', (req, res) => {
+    const s = res.statusCode;
+    return `${STATUS_COLOR(s)}${B}${s}${R}`;
+  });
+  morgan.token('short-url', (req) => req.originalUrl);
+
+  const httpFormat = ':colored-method :short-url :colored-status :response-time ms';
+  app.use(morgan(httpFormat, {
+    skip: (req) => {
+      // Skip socket.io polling noise and health checks
+      return req.originalUrl.includes('socket.io') || req.originalUrl === '/health';
+    }
+  }));
+}
 
 // Input sanitization - prevent NoSQL injection
 app.use(mongoSanitize({
@@ -235,10 +265,13 @@ app.post('/api/auth/validate-registration', validateRegistration, (req, res) => 
   res.json({ success: true, message: 'Validation successful' });
 });
 app.post('/api/auth/register', validateRegistration, authController.register);
+app.post('/api/auth/verify-signup', authController.verifySignup);
 app.post('/api/auth/login', validateLogin, authController.login);
 app.post('/api/auth/logout', verifyToken, authController.logout);
 app.post('/api/auth/forgot-password', authController.forgotPassword);
 app.post('/api/auth/reset-password', validatePasswordReset, authController.resetPassword);
+app.put('/api/auth/update-password', verifyToken, authController.updatePassword);
+app.delete('/api/auth/delete-account', verifyToken, authController.deleteAccount);
 app.get('/api/auth/profile', verifyToken, authController.getProfile);
 app.get('/api/protected', verifyToken, authController.getProtected);
 
@@ -310,7 +343,7 @@ if (oauthConfig.enabled) {
   });
 }
 
-// Admin routes
+
 app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/admin/approvals', adminApprovalRoutes);
 

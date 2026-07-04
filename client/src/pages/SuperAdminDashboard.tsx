@@ -22,6 +22,11 @@ interface PendingUser {
   licenseNumber?: string;
   jobRole?: string;
   professionalMessage?: string;
+  phoneNumber?: string;
+  countryCode?: string;
+  gender?: string;
+  heardAboutUs?: string;
+  dateOfBirth?: string;
   documents?: {
     fileName: string;
     fileUrl: string;
@@ -836,9 +841,13 @@ const SuperAdminDashboard: React.FC = () => {
                           </div>
                           <p className="text-xs text-neutral-500">{user.email}</p>
                           <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-neutral-600 pt-1">
+                            {user.phoneNumber && <span><span className="font-medium text-neutral-400">Phone:</span> +{user.countryCode || '91'} {user.phoneNumber}</span>}
+                            {user.gender && <span><span className="font-medium text-neutral-400">Gender:</span> {user.gender}</span>}
+                            {user.dateOfBirth && <span><span className="font-medium text-neutral-400">DOB:</span> {formatDate(user.dateOfBirth)}</span>}
                             {user.jobRole && <span><span className="font-medium text-neutral-400">Role:</span> {user.jobRole}</span>}
                             {user.specialization && <span><span className="font-medium text-neutral-400">Specialization:</span> {user.specialization}</span>}
                             {user.licenseNumber && <span><span className="font-medium text-neutral-400">License:</span> {user.licenseNumber}</span>}
+                            {user.heardAboutUs && <span><span className="font-medium text-neutral-400">Source:</span> {user.heardAboutUs}</span>}
                           </div>
                           {user.professionalMessage && (
                             <p className="text-[11px] text-neutral-600 bg-neutral-50 p-2.5 rounded-xl mt-2 border border-neutral-100">

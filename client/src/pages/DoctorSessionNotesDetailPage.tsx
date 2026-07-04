@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { FiMenu, FiFileText, FiArrowLeft, FiActivity } from 'react-icons/fi';
+import { FiArrowLeft, FiActivity } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
-import BackToDashboard from '../components/BackToDashboard';
 import { API_BASE_URL } from '../config/api';
 
 interface SessionNote {
@@ -23,7 +22,6 @@ interface SessionNote {
 const DoctorSessionNotesDetailPage: React.FC = () => {
   const [notes, setNotes] = useState<SessionNote[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [patientName, setPatientName] = useState('');
   const navigate = useNavigate();
   const { patientId } = useParams();
@@ -53,7 +51,7 @@ const DoctorSessionNotesDetailPage: React.FC = () => {
 
       setNotes(notesArray);
       if (notesArray.length > 0 && notesArray[0].patientId) {
-        setPatientName(`${notesArray[0].patientId.firstName} ${notesArray[0].patientId.lastName}`);
+        setPatientName(`${notesArray[0].patientId.firstName || ''} ${notesArray[0].patientId.lastName || ''}`.trim());
       }
     } catch (error) {
       console.error('Error fetching patient notes:', error);
@@ -76,103 +74,92 @@ const DoctorSessionNotesDetailPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="h-[calc(100vh-80px)] flex items-center justify-center bg-[#FAFAFA]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-600 mx-auto"></div>
-          <p className="mt-4 text-gray-500 font-medium">Loading session notes...</p>
+          <div className="w-8 h-8 border-2 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-500 text-[13px] font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>Loading session notes...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans">
-      {/* Sidebar Overlay */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
-      )}
-
-      {/* Sidebar - Teal Theme */}
-      <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-2xl transform transition-transform duration-300 ease-in-out z-50 bg-white border-r border-gray-100 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}>
-        <div className="h-full flex flex-col p-6">
-          <div className="space-y-2">
-            <button
-              onClick={() => { navigate('/doctor-dashboard'); setSidebarOpen(false); }}
-              className="w-full flex items-center space-x-3 px-4 py-3 text-gray-600 hover:bg-teal-50 hover:text-teal-700 rounded-xl transition-all font-medium"
-            >
-              <span>My Dashboard</span>
-            </button>
-            <button
-              onClick={() => { navigate('/doctor-session-notes'); setSidebarOpen(false); }}
-              className="w-full flex items-center space-x-3 px-4 py-3 bg-teal-50 text-teal-700 rounded-xl transition-all font-bold shadow-sm"
-            >
-              <span>Back to List</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Header - Teal Gradient */}
-      <div className="bg-[#5DBEBD] text-white shadow-lg relative overflow-hidden">
-        <div className="absolute inset-0 bg-white/10 pattern-dots opacity-10"></div>
-        <div className="px-6 py-6 flex items-center justify-center relative z-10">
-          <button onClick={() => setSidebarOpen(true)} className="absolute left-6 text-white hover:bg-white/20 p-2 rounded-full transition-colors">
-            <FiMenu className="w-6 h-6" />
+    <div className="h-screen pt-[64px] md:pt-[80px] bg-[#FAFAFA] font-sans flex flex-col overflow-hidden box-border">
+      {/* Main Content Area */}
+      <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 md:py-10 flex flex-col min-h-0">
+        
+        <div className="mb-8 max-w-2xl relative shrink-0">
+          <button 
+            onClick={() => navigate('/doctor-session-notes')} 
+            className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 hover:text-teal-600 transition-colors mb-5 group"
+            aria-label="Back to All Patients"
+            style={{ fontFamily: 'Inter, sans-serif' }}
+          >
+            <svg className="w-4 h-4 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Back to All Patients
           </button>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-wide" style={{ fontFamily: 'Bree Serif, serif' }}>
+
+          <h1 className="text-[32px] md:text-[36px] font-extrabold text-gray-800 tracking-tight mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
             {patientName ? `${patientName}'s Notes` : 'Patient Notes'}
           </h1>
-        </div>
-      </div>
-
-      <div className="px-4 py-8 max-w-5xl mx-auto">
-        <BackToDashboard />
-        <div className="flex items-center mb-6">
-          <button
-            onClick={() => navigate('/doctor-session-notes')}
-            className="flex items-center text-teal-600 hover:text-teal-800 font-medium transition-colors"
-          >
-            <FiArrowLeft className="mr-2" /> Back to All Patients
-          </button>
+          <p className="text-[15px] text-gray-500 font-medium leading-relaxed max-w-2xl" style={{ fontFamily: 'Inter, sans-serif' }}>
+            Review detailed session notes and observations for this patient.
+          </p>
         </div>
 
         {notes.length === 0 ? (
-          <div className="text-center py-20 bg-white rounded-3xl shadow-sm border border-gray-100">
-            <div className="bg-teal-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-              <FiFileText className="w-8 h-8 text-teal-400" />
+          <div className="bg-white rounded-[24px] border border-gray-100 shadow-sm p-16 text-center max-w-3xl mx-auto mt-4 shrink-0">
+            <div className="w-16 h-16 bg-gray-50 border border-gray-100 rounded-full flex items-center justify-center mx-auto mb-5">
+              <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
             </div>
-            <h3 className="text-xl font-bold text-gray-800 mb-2 font-serif">No Notes Found</h3>
-            <p className="text-gray-500">No session notes found for this patient.</p>
+            <h3 className="text-[18px] font-bold text-gray-800 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+              No Notes Found
+            </h3>
+            <p className="text-gray-500 text-[14px] mb-8" style={{ fontFamily: 'Inter, sans-serif' }}>
+              No session notes found for this patient.
+            </p>
           </div>
         ) : (
-          <div className="space-y-6">
-            {notes.map((note) => (
-              <div key={note._id} className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 hover:shadow-md transition-shadow">
-                <div className="flex items-center justify-between mb-4 pb-4 border-b border-gray-50">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-teal-50 rounded-lg">
-                      <FiActivity className="w-5 h-5 text-teal-500" />
+          <div className="flex-1 overflow-y-auto pr-2 pb-10 min-h-0">
+            <div className="space-y-5 max-w-4xl">
+              {notes.map((note) => (
+                <div
+                  key={note._id}
+                  className="bg-white rounded-[16px] border border-gray-100 hover:border-teal-100 shadow-sm transition-all overflow-hidden p-6 flex flex-col"
+                >
+                  <div className="flex justify-between items-start mb-5 pb-5 border-b border-gray-50">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-teal-50 border border-teal-100 flex items-center justify-center shrink-0">
+                        <FiActivity className="w-4 h-4 text-teal-600" />
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <h3 className="text-[14px] font-bold text-gray-800 tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
+                          Session Date
+                        </h3>
+                        <p className="text-[12px] font-medium text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>
+                          {formatDate(note.createdAt)}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-sm font-bold text-gray-900">Session Date</p>
-                      <p className="text-sm text-gray-500">{formatDate(note.createdAt)}</p>
-                    </div>
+                    {note.mood && (
+                      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-bold tracking-wide uppercase bg-purple-50 text-purple-700 border border-purple-100" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        Mood: {note.mood}
+                      </span>
+                    )}
                   </div>
-                  {note.mood && (
-                    <span className="px-3 py-1 bg-purple-50 text-purple-700 rounded-full text-xs font-bold uppercase tracking-wide">
-                      Mood: {note.mood}
-                    </span>
-                  )}
+                  
+                  <div className="prose prose-sm max-w-none">
+                    <p className="whitespace-pre-wrap text-[14px] leading-relaxed font-medium text-gray-600 bg-gray-50/50 p-5 rounded-xl border border-gray-100" style={{ fontFamily: 'Inter, sans-serif' }}>
+                      {note.content}
+                    </p>
+                  </div>
                 </div>
-
-                <div className="prose prose-sm max-w-none text-gray-600">
-                  <p className="whitespace-pre-wrap font-medium text-gray-700 bg-gray-50 p-4 rounded-xl border border-gray-100">
-                    {note.content}
-                  </p>
-                </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
       </div>

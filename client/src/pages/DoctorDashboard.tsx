@@ -13,6 +13,32 @@ import PostSessionReportModal from '../components/PostSessionReportModal';
 import DoctorSidebar from '../components/DoctorSidebar';
 import { API_BASE_URL } from '../config/api';
 
+const playNotificationSound = () => {
+  try {
+    const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContext) return;
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gainNode = ctx.createGain();
+    
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(800, ctx.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
+    
+    gainNode.gain.setValueAtTime(0, ctx.currentTime);
+    gainNode.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.02);
+    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+    
+    osc.connect(gainNode);
+    gainNode.connect(ctx.destination);
+    
+    osc.start();
+    osc.stop(ctx.currentTime + 0.1);
+  } catch (e) {
+    console.log('Audio synthesis failed', e);
+  }
+};
+
 const DoctorDashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -38,7 +64,7 @@ const DoctorDashboard: React.FC = () => {
   const [showPostSessionReport, setShowPostSessionReport] = useState(false);
   const [pendingReportData, setPendingReportData] = useState<any>(null);
 
-  // ✨ REAL-TIME: Connect to data socket
+  //  REAL-TIME: Connect to data socket
   const { socket } = useDataSocket();
 
   useEffect(() => {
@@ -58,14 +84,14 @@ const DoctorDashboard: React.FC = () => {
     }
   }, [user]);
 
-  // ✨ REAL-TIME: Listen for session events
+  //  REAL-TIME: Listen for session events
   useEffect(() => {
     if (!socket) return;
 
     socket.on('session:booked', ({ session }) => {
       console.log('[REAL-TIME] New session booked:', session);
 
-      // ✨ NEW: If it's an immediate session, show the request modal
+      //  NEW: If it's an immediate session, show the request modal
       if (session.sessionType === 'immediate') {
         setIncomingRequest(session);
       } else {
@@ -100,12 +126,22 @@ const DoctorDashboard: React.FC = () => {
       fetchUserProfile();
     });
 
-    // ✨ NEW: Listen for real-time online status changes
+    //  NEW: Listen for real-time online status changes
     socket.on('doctor:status-change', (data: any) => {
       if (data.doctorId === user?.userId) {
         console.log('[REAL-TIME] Online status changed:', data.isOnline);
         setIsActive(data.isOnline);
       }
+    });
+
+    socket.on('chat:new-message', ({ message, senderName }) => {
+      console.log('[REAL-TIME] New chat message received:', message);
+      // Play notification sound
+      playNotificationSound();
+      
+      // Show toast notification
+      toast(`New message from ${senderName}`);
+      setUnreadCount(prev => prev + 1);
     });
 
     return () => {
@@ -114,22 +150,23 @@ const DoctorDashboard: React.FC = () => {
       socket.off('session:status-change');
       socket.off('doctor:approval-status');
       socket.off('doctor:status-change');
+      socket.off('chat:new-message');
     };
   }, [socket, user]);
 
-  // ✨ FALLBACK REFRESH & MANDATORY REPORT: Detect navigation state
+  //  FALLBACK REFRESH & MANDATORY REPORT: Detect navigation state
   useEffect(() => {
     const state = location.state as { refreshSessions?: boolean; pendingReport?: any };
 
     if (state?.pendingReport) {
-      console.log('[DOCTOR-DASHBOARD] 📝 Found pending report:', state.pendingReport);
+      console.log('[DOCTOR-DASHBOARD]  Found pending report:', state.pendingReport);
       setPendingReportData(state.pendingReport);
       setShowPostSessionReport(true);
 
       // Clear state to prevent modal popping up again on refresh
       navigate(location.pathname, { replace: true, state: { ...state, pendingReport: undefined } });
     } else if (state?.refreshSessions) {
-      console.log('[DOCTOR-DASHBOARD] 🔄 Refreshing after booking');
+      console.log('[DOCTOR-DASHBOARD]  Refreshing after booking');
       setCalendarRefreshTrigger(prev => prev + 1);
       fetchDashboardData();
       navigate(location.pathname, { replace: true, state: {} });
@@ -163,7 +200,7 @@ const DoctorDashboard: React.FC = () => {
     if (!user) return;
 
     const cacheKey = `doc_dash_data_${user.userId}`;
-    const cachedData = sessionStorage.getItem(cacheKey);
+    const cachedData = localStorage.getItem(cacheKey);
     if (cachedData) {
       try {
         const parsed = JSON.parse(cachedData);
@@ -227,7 +264,7 @@ const DoctorDashboard: React.FC = () => {
       }
 
       // Update Cache
-      sessionStorage.setItem(cacheKey, JSON.stringify(newData));
+      localStorage.setItem(cacheKey, JSON.stringify(newData));
 
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -335,7 +372,7 @@ const DoctorDashboard: React.FC = () => {
     setIsSessionModalOpen(true);
   };
 
-  // ✨ NEW: Handle Instant Request Actions
+  //  NEW: Handle Instant Request Actions
   const handleAcceptRequest = async (sessionId: string) => {
     const token = localStorage.getItem('token');
     const headers: HeadersInit = {};
@@ -396,7 +433,7 @@ const DoctorDashboard: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen" style={{ backgroundColor: '#FFFFFF' }}>
+    <div className="h-screen pt-16 md:pt-[80px] overflow-hidden bg-[#F0F2F5] box-border">
       {/* Connection Status Indicator */}
       <ConnectionStatus />
 
@@ -424,26 +461,27 @@ const DoctorDashboard: React.FC = () => {
         setSidebarOpen={setSidebarOpen} 
       />
 
-      {/* Top Navigation Bar - Keeping it clean & white */}
-      <nav className="bg-white shadow-[0_2px_15px_-3px_rgba(0,0,0,0.07)]">
-        <div className="px-6">
-          <div className="grid grid-cols-3 items-center h-16">
+      {/* Top Navigation Bar */}
+      <nav className="bg-transparent border-none relative z-30 pt-2">
+        <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-16 transition-all duration-300">
             {/* Left side - Hamburger Menu */}
-            <div className="flex justify-start">
+            <div className="flex justify-start w-1/3">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="p-2 hover:bg-teal-50 rounded-md transition-colors z-10 relative text-gray-600"
+                className="p-2.5 hover:bg-black/5 rounded-full transition-all duration-300 hover:scale-105 active:scale-95 z-10 relative"
                 type="button"
+                aria-label="Open menu"
               >
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+                <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
                 </svg>
               </button>
             </div>
 
             {/* Center - Greeting */}
-            <div className="text-center">
-              <h1 className="text-3xl font-semibold font-sans" style={{ color: '#2D3748' }}>
+            <div className="text-center w-1/3 flex justify-center">
+              <h1 className="text-lg md:text-xl font-medium text-gray-800 tracking-wide transition-all duration-300" style={{ fontFamily: 'Inter, sans-serif' }}>
                 {(() => {
                   const hour = new Date().getHours();
                   if (hour >= 5 && hour < 12) return 'Good morning';
@@ -456,21 +494,19 @@ const DoctorDashboard: React.FC = () => {
             </div>
 
             {/* Right side - Chat and Active Toggle */}
-            <div className="flex justify-end items-center space-x-4">
+            <div className="flex items-center justify-end space-x-2 md:space-x-4 w-1/3">
               {/* Chat Icon with Notification Badge */}
               <button
                 onClick={() => navigate('/messages')}
-                className="relative hover:opacity-80 transition-opacity"
+                className="relative p-2.5 hover:bg-black/5 rounded-full transition-all duration-300 hover:scale-105 active:scale-95"
               >
-                <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
-                  <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                  </svg>
-                </div>
+                <svg className="w-5 h-5 text-gray-600 hover:text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.068.157 2.148.279 3.238.364.466.037.893.281 1.153.671L12 21l2.652-3.978c.26-.39.687-.634 1.153-.67 1.09-.086 2.17-.208 3.238-.365 1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+                </svg>
                 {unreadCount > 0 && (
-                  <div className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full flex items-center justify-center">
-                    <span className="text-xs text-white font-bold">{unreadCount}</span>
-                  </div>
+                  <span className="absolute top-1.5 right-1.5 bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow-sm">
+                    {unreadCount}
+                  </span>
                 )}
               </button>
 
@@ -478,8 +514,8 @@ const DoctorDashboard: React.FC = () => {
               <button
                 onClick={toggleOnlineStatus}
                 disabled={isStatusLoading}
-                className={`flex items-center gap-2 px-6 py-2 rounded-full font-serif font-semibold text-white transition-all duration-300 hover:opacity-90 ${isStatusLoading ? 'cursor-not-allowed opacity-70' : ''}`}
-                style={{ backgroundColor: isActive ? '#10B981' : '#6B7280' }}
+                className={`flex items-center gap-2 px-6 py-2.5 md:px-7 md:py-2.5 text-white rounded-full font-bold tracking-wide transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 active:scale-95 text-sm ${isStatusLoading ? 'cursor-not-allowed opacity-70' : ''}`}
+                style={{ backgroundColor: isActive ? '#10B981' : '#6B7280', fontFamily: 'Inter, sans-serif' }}
               >
                 <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-white animate-pulse' : 'bg-gray-300'}`}></div>
                 {isStatusLoading ? 'Switching...' : (isActive ? 'Online' : 'Offline')}
@@ -490,166 +526,182 @@ const DoctorDashboard: React.FC = () => {
       </nav>
 
       {/* Main Dashboard Content */}
-      <div className="p-6">
+      <div className="h-[calc(100%-4rem)] overflow-y-auto px-4 py-4">
         {/* 2x2 Grid Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 lg:grid-rows-2 gap-4 h-[auto] lg:h-full min-h-0 pb-10 lg:pb-0">
 
-          {/* Session Notes Card - Teal Theme */}
-          <div className="rounded-xl text-white flex flex-col overflow-hidden shadow-lg" style={{ backgroundColor: '#4DBAB2' }}>
-            <h3 className="text-xl font-bold text-center py-4 bg-[#3AA79F]" style={{ fontFamily: 'Bree Serif, serif' }}>Session Notes</h3>
-            <div className="px-6 pb-4 space-y-3 flex-1 pt-4">
+          {/* Session Notes Card */}
+          <div className="flex flex-col rounded-[24px] bg-gradient-to-br from-[#38ABAE] to-[#2A8285] shadow-[0_8px_30px_rgb(56,171,174,0.3)] border border-white/10 overflow-hidden min-h-[350px] lg:min-h-0 hover:shadow-[0_8px_30px_rgb(56,171,174,0.5)] transition-all duration-300">
+            <div className="px-6 py-4 shrink-0 flex items-center justify-between border-b border-white/10">
+              <h3 className="text-lg font-bold text-white font-sans tracking-wide drop-shadow-sm">Session Notes</h3>
+            </div>
+            <div className="p-5 sm:p-6 space-y-3 flex-1 overflow-y-auto custom-scrollbar min-h-0 flex flex-col">
               {recentNotes.length > 0 ? (
                 recentNotes.map((note: any) => (
-                  <div key={note._id} className="border-b border-white/30 py-3 last:border-0">
-                    <p className="text-base font-medium" style={{ fontFamily: 'Bree Serif, serif' }}>
-                      {formatDate(note.createdAt)} - {note.patientId.firstName} {note.patientId.lastName}
+                  <div key={note._id} className="mb-3 cursor-pointer hover:shadow-lg bg-white/10 hover:bg-white/20 border border-white/10 p-4 sm:p-5 rounded-2xl transition-all shadow-sm backdrop-blur-md">
+                    <p className="text-sm text-white font-bold" style={{ fontFamily: 'Inter, sans-serif' }}>
+                      {formatDate(note.createdAt)} <span className="text-white/60 mx-1">•</span> {note.patientId.firstName} {note.patientId.lastName}
                     </p>
                   </div>
                 ))
               ) : (
-                <div className="text-center py-8">
-                  <p className="text-white opacity-80" style={{ fontFamily: 'Bree Serif, serif' }}>No session notes yet</p>
-                  <p className="text-white opacity-60 text-sm mt-2" style={{ fontFamily: 'Bree Serif, serif' }}>Add notes during video sessions</p>
+                <div className="flex-1 flex flex-col items-center justify-center text-center opacity-80">
+                  <p className="text-white font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>No session notes yet</p>
+                  <p className="text-white/70 text-sm mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>Add notes during video sessions</p>
                 </div>
               )}
             </div>
-            <div className="px-6 pb-6 flex justify-center">
+            <div className="px-6 pb-6 pt-2 flex justify-center shrink-0">
               <button
                 onClick={() => navigate('/doctor-session-notes')}
-                className="bg-white px-8 py-2 font-bold hover:opacity-90 transition-opacity rounded-full text-[#4DBAB2] shadow-sm"
-                style={{ fontFamily: 'Bree Serif, serif' }}
+                className="px-5 py-1.5 text-xs font-bold bg-white/20 hover:bg-white/30 text-white transition-all rounded-full border border-white/20 backdrop-blur-sm uppercase tracking-wider shadow-sm"
+                style={{ fontFamily: 'Inter, sans-serif' }}
               >
-                View All
+                View All Notes
               </button>
             </div>
           </div>
 
-          {/* Key Metrics Card - Updated to Teal Theme with Pills */}
-          <div className="rounded-xl text-white flex flex-col overflow-hidden shadow-lg" style={{ backgroundColor: '#4DBAB2' }}>
-            <h3 className="text-xl font-bold text-center py-4 bg-[#3AA79F]" style={{ fontFamily: 'Bree Serif, serif' }}>Key Metrics</h3>
-            <div className="px-6 pb-6 pt-6 flex flex-col justify-center h-full">
-              <div className="grid grid-cols-2 gap-x-8 gap-y-8">
-                {/* Metric 1 */}
-                <div className="flex flex-col items-start space-y-2">
-                  <p className="text-lg font-bold pl-1" style={{ fontFamily: 'Bree Serif, serif' }}>Total Revenue:</p>
-                  <div className="bg-white rounded-full px-6 py-3 w-full text-center shadow-md">
-                    <p className="text-[#38ABAE] text-xl font-bold">{stats.revenue.toLocaleString()}</p>
-                  </div>
-                </div>
-
-                {/* Metric 2 */}
-                <div className="flex flex-col items-start space-y-2">
-                  <p className="text-lg font-bold pl-1" style={{ fontFamily: 'Bree Serif, serif' }}>Total Sessions:</p>
-                  <div className="bg-white rounded-full px-6 py-3 w-full text-center shadow-md">
-                    <p className="text-[#38ABAE] text-xl font-bold">{stats.sessions}</p>
-                  </div>
-                </div>
-
-                {/* Metric 3 */}
-                <div className="flex flex-col items-start space-y-2">
-                  <p className="text-lg font-bold pl-1" style={{ fontFamily: 'Bree Serif, serif' }}>Total Hours:</p>
-                  <div className="bg-white rounded-full px-6 py-3 w-full text-center shadow-md">
-                    <p className="text-[#38ABAE] text-xl font-bold">{stats.hours}</p>
-                  </div>
-                </div>
-
-                {/* Metric 4 (Action) */}
-                <div className="flex flex-col items-start space-y-2">
-                  <p className="text-lg font-bold pl-1" style={{ fontFamily: 'Bree Serif, serif' }}>DLA- 20:</p>
-                  <div className="bg-white rounded-full px-6 py-3 w-full text-center shadow-md cursor-pointer hover:bg-gray-50 transition-colors">
-                    <button
-                      className="text-[#38ABAE] text-lg font-bold w-full"
-                    >
-                      Take Test
-                    </button>
-                  </div>
-                </div>
+          {/* Key Metrics Card */}
+          <div className="flex flex-col rounded-[24px] bg-gradient-to-br from-[#6DBEDF] to-[#4B9DBE] shadow-[0_8px_30px_rgb(109,190,223,0.3)] border border-white/10 overflow-hidden min-h-[350px] lg:min-h-0 hover:shadow-[0_8px_30px_rgb(109,190,223,0.5)] transition-all duration-300">
+            <div className="px-6 py-4 shrink-0 flex items-center justify-between border-b border-white/10">
+              <h3 className="text-lg font-bold text-white font-sans tracking-wide drop-shadow-sm">Key Metrics</h3>
+            </div>
+            <div className="p-5 sm:p-6 grid grid-cols-2 gap-4 flex-1 overflow-y-auto min-h-0 items-stretch">
+              {/* Metric 1 */}
+              <div className="bg-white/10 border border-white/10 p-4 sm:p-5 rounded-2xl flex flex-col justify-center items-center text-center backdrop-blur-md">
+                <p className="text-white/80 text-sm font-bold mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>Total Revenue</p>
+                <p className="text-white text-2xl font-bold">{stats.revenue.toLocaleString()}</p>
+              </div>
+              {/* Metric 2 */}
+              <div className="bg-white/10 border border-white/10 p-4 sm:p-5 rounded-2xl flex flex-col justify-center items-center text-center backdrop-blur-md">
+                <p className="text-white/80 text-sm font-bold mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>Total Sessions</p>
+                <p className="text-white text-2xl font-bold">{stats.sessions}</p>
+              </div>
+              {/* Metric 3 */}
+              <div className="bg-white/10 border border-white/10 p-4 sm:p-5 rounded-2xl flex flex-col justify-center items-center text-center backdrop-blur-md">
+                <p className="text-white/80 text-sm font-bold mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>Total Hours</p>
+                <p className="text-white text-2xl font-bold">{stats.hours}</p>
+              </div>
+              {/* Metric 4 */}
+              <div className="bg-white/10 border border-white/10 p-4 sm:p-5 rounded-2xl flex flex-col justify-center items-center text-center backdrop-blur-md hover:bg-white/20 transition-colors cursor-pointer">
+                <p className="text-white/80 text-sm font-bold mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>DLA- 20</p>
+                <p className="text-white text-lg font-bold">Take Test</p>
               </div>
             </div>
           </div>
 
-          {/* Calendar Card - Updated Wrapper */}
-          <div className="flex flex-col rounded-xl overflow-hidden shadow-lg border border-teal-100">
-            <Calendar
-              userRole="doctor"
-              onSessionClick={handleSessionClick}
-              refreshTrigger={calendarRefreshTrigger}
-            />
-          </div>
-
-          {/* Tasks & Reports - Unified Teal Theme */}
-          <div className="flex flex-col gap-6">
-
-            {/* Tasks Assigned Section */}
-            <div className="rounded-xl text-white flex flex-col overflow-hidden shadow-lg" style={{ backgroundColor: '#4DBAB2' }}>
-              <h3 className="text-xl font-bold text-center py-4 bg-[#3AA79F]" style={{ fontFamily: 'Bree Serif, serif' }}>Tasks Assigned</h3>
-              <div className="px-6 pb-4 pt-4">
-                <div className="grid grid-cols-3 gap-2 text-sm font-bold mb-3 border-b border-white/20 pb-2" style={{ fontFamily: 'Bree Serif, serif' }}>
-                  <span>Name</span>
-                  <span>Last Date</span>
-                  <span>Tasks</span>
-                </div>
-                <div className="space-y-3">
-                  {assignedTasks.length > 0 ? (
-                    assignedTasks.map((task: any) => (
-                      <div key={task._id} className="grid grid-cols-3 gap-2 text-sm items-center font-medium" style={{ fontFamily: 'Bree Serif, serif' }}>
-                        <span className="truncate">{task.patientId.firstName} {task.patientId.lastName}</span>
-                        <span>{formatDate(task.dueDate)}</span>
-                        <span className="truncate">{task.title}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-6">
-                      <p className="text-white opacity-80 text-sm" style={{ fontFamily: 'Bree Serif, serif' }}>No tasks assigned yet</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="px-6 pb-6 flex justify-end">
-                <button
-                  onClick={() => navigate('/doctor-tasks')}
-                  className="text-sm font-bold underline hover:no-underline"
-                  style={{ fontFamily: 'Bree Serif, serif' }}
-                >
-                  View All
-                </button>
+          {/* Calendar Card (Now bottom left) */}
+          <div className="flex flex-col rounded-[24px] bg-gradient-to-br from-[#ABA5D1] to-[#867EB5] shadow-[0_8px_30px_rgb(171,165,209,0.3)] border border-white/10 overflow-hidden min-h-[450px] lg:min-h-0 hover:shadow-[0_8px_30px_rgb(171,165,209,0.5)] transition-all duration-300">
+            <div className="px-6 py-4 shrink-0 flex items-center justify-between border-b border-white/10">
+              <h3 className="text-lg font-bold text-white font-sans tracking-wide drop-shadow-sm">Calendar</h3>
+              <button
+                onClick={() => navigate('/manage-calendar')}
+                className="bg-white text-[#867EB5] px-4 py-1.5 text-xs font-bold hover:bg-gray-50 transition-all rounded-full shadow-lg flex items-center gap-2"
+                style={{ fontFamily: 'Inter, sans-serif' }}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                Manage
+              </button>
+            </div>
+            <div className="p-4 sm:p-6 flex-1 min-h-0 flex flex-col text-white">
+              <style>{`
+                /* Override Calendar styles for this specific container to make text white */
+                .calendar-container {
+                  color: white;
+                }
+                .calendar-container h3, 
+                .calendar-container h4, 
+                .calendar-container p, 
+                .calendar-container span, 
+                .calendar-container div {
+                  color: white;
+                  border-color: rgba(255, 255, 255, 0.2);
+                }
+                .calendar-container .bg-teal-50 {
+                  background-color: white !important;
+                }
+                .calendar-container .bg-teal-50 span {
+                  color: #867EB5 !important;
+                }
+                .calendar-container .hover\\:bg-gray-50:hover {
+                  background-color: rgba(255, 255, 255, 0.2) !important;
+                }
+                /* Fix for tooltip and other explicit white backgrounds */
+                .calendar-container .bg-white {
+                   background-color: rgba(255, 255, 255, 0.95) !important;
+                }
+                .calendar-container .bg-white span,
+                .calendar-container .bg-white div,
+                .calendar-container .bg-white h3,
+                .calendar-container .bg-white h4,
+                .calendar-container .bg-white p {
+                   color: #333 !important;
+                }
+                /* Specifically preserve the dot colors by NOT using * selector */
+              `}</style>
+              <div className="calendar-container h-full w-full">
+                <Calendar
+                  userRole="doctor"
+                  onSessionClick={handleSessionClick}
+                  refreshTrigger={calendarRefreshTrigger}
+                  hideTitle={true}
+                  hideManageButton={true}
+                />
               </div>
             </div>
+          </div>
 
-            {/* Reports Section */}
-            <div className="rounded-xl text-white flex flex-col overflow-hidden shadow-lg" style={{ backgroundColor: '#4DBAB2' }}>
-              <h3 className="text-xl font-bold text-center py-4 bg-[#3AA79F]" style={{ fontFamily: 'Bree Serif, serif' }}>Reports</h3>
-              <div className="px-6 pb-4 pt-4">
-                <div className="grid grid-cols-3 gap-2 text-sm font-bold mb-3 border-b border-white/20 pb-2" style={{ fontFamily: 'Bree Serif, serif' }}>
-                  <span>Name</span>
-                  <span>Last Date</span>
-                  <span>Reports</span>
-                </div>
-                <div className="space-y-3">
-                  {recentReports.length > 0 ? (
-                    recentReports.map((report: any) => (
-                      <div key={report._id} className="grid grid-cols-3 gap-2 text-sm items-center font-medium" style={{ fontFamily: 'Bree Serif, serif' }}>
-                        <span className="truncate">{report.patientId.firstName} {report.patientId.lastName}</span>
-                        <span>{formatDate(report.createdAt)}</span>
-                        <span className="truncate">{report.title}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-center py-6">
-                      <p className="text-white opacity-80 text-sm" style={{ fontFamily: 'Bree Serif, serif' }}>No reports created yet</p>
+          {/* Tasks & Reports Card (Now bottom right) */}
+          <div className="flex flex-col rounded-[24px] bg-gradient-to-br from-[#78BE9F] to-[#579F80] shadow-[0_8px_30px_rgb(120,190,159,0.3)] border border-white/10 overflow-hidden min-h-[350px] lg:min-h-0 hover:shadow-[0_8px_30px_rgb(120,190,159,0.5)] transition-all duration-300">
+            <div className="px-6 py-4 shrink-0 flex items-center justify-between border-b border-white/10">
+              <h3 className="text-lg font-bold text-white font-sans tracking-wide drop-shadow-sm">Tasks & Reports</h3>
+            </div>
+            <div className="p-5 sm:p-6 space-y-4 flex-1 overflow-y-auto custom-scrollbar min-h-0 flex flex-col">
+              <div>
+                <h4 className="text-white/80 text-xs font-bold uppercase tracking-wider mb-2">Recent Tasks</h4>
+                {assignedTasks.length > 0 ? (
+                  assignedTasks.slice(0, 2).map((task: any) => (
+                    <div key={task._id} className="mb-2 bg-white/10 border border-white/10 p-3 rounded-xl backdrop-blur-md flex justify-between items-center text-sm text-white">
+                      <span className="font-medium truncate mr-2">{task.title}</span>
+                      <span className="text-white/70 whitespace-nowrap">{task.patientId.firstName}</span>
                     </div>
-                  )}
-                </div>
+                  ))
+                ) : (
+                  <p className="text-white/60 text-sm italic">No tasks assigned</p>
+                )}
               </div>
-              <div className="px-6 pb-6 flex justify-center">
-                <button
-                  onClick={() => navigate('/doctor-reports')}
-                  className="bg-white px-8 py-2 font-bold hover:opacity-90 transition-opacity rounded-full text-[#4DBAB2] shadow-sm"
-                  style={{ fontFamily: 'Bree Serif, serif' }}
-                >
-                  View All
-                </button>
+              <div>
+                <h4 className="text-white/80 text-xs font-bold uppercase tracking-wider mb-2 mt-2">Recent Reports</h4>
+                {recentReports.length > 0 ? (
+                  recentReports.slice(0, 2).map((report: any) => (
+                    <div key={report._id} className="mb-2 bg-white/10 border border-white/10 p-3 rounded-xl backdrop-blur-md flex justify-between items-center text-sm text-white">
+                      <span className="font-medium truncate mr-2">{report.title}</span>
+                      <span className="text-white/70 whitespace-nowrap">{report.patientId.firstName}</span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-white/60 text-sm italic">No reports created</p>
+                )}
               </div>
+            </div>
+            <div className="px-6 pb-6 pt-2 flex justify-center gap-4 shrink-0">
+              <button
+                onClick={() => navigate('/doctor-tasks')}
+                className="px-5 py-1.5 text-xs font-bold bg-white/20 hover:bg-white/30 text-white transition-all rounded-full border border-white/20 backdrop-blur-sm uppercase tracking-wider shadow-sm"
+                style={{ fontFamily: 'Inter, sans-serif' }}
+              >
+                All Tasks
+              </button>
+              <button
+                onClick={() => navigate('/doctor-reports')}
+                className="px-5 py-1.5 text-xs font-bold bg-white/20 hover:bg-white/30 text-white transition-all rounded-full border border-white/20 backdrop-blur-sm uppercase tracking-wider shadow-sm"
+                style={{ fontFamily: 'Inter, sans-serif' }}
+              >
+                All Reports
+              </button>
             </div>
           </div>
 
@@ -696,7 +748,7 @@ const DoctorDashboard: React.FC = () => {
           onCancel={() => {
             // Even if cancelled, we might want to keep it available or warn
             setShowPostSessionReport(false);
-            toast('Report draft saved. Please complete it from the Reports section.', { icon: '📝' });
+            toast('Report draft saved. Please complete it from the Reports section.', { icon: '' });
           }}
         />
       )}

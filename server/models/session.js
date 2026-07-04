@@ -228,6 +228,10 @@ sessionSchema.statics.getAvailableSlots = async function (doctorId, date) {
   return availableSlots;
 };
 
-module.exports = mongoose.model('Session', sessionSchema);
+// Compound Indexes for Performance Optimization
+sessionSchema.index({ patientId: 1, sessionDate: -1, sessionTime: -1 });
+sessionSchema.index({ doctorId: 1, status: 1, sessionDate: -1 });
+sessionSchema.index({ status: 1, callStatus: 1 });
 
+module.exports = mongoose.model('Session', sessionSchema);
 

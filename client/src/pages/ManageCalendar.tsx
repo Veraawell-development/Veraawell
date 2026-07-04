@@ -1,588 +1,436 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import {
-  FaChevronLeft,
-  FaCalendarAlt,
-  FaClock,
-  FaSave,
-  FaCheck,
-  FaInfoCircle
-} from 'react-icons/fa';
+import { FiArrowLeft, FiEdit2, FiCheck, FiX, FiClock, FiCalendar, FiUser, FiSun, FiMoon } from 'react-icons/fi';
 import { Toaster, toast } from 'react-hot-toast';
-import BackToDashboard from '../components/BackToDashboard';
 import { API_BASE_URL } from '../config/api';
 
-interface TimeSlot {
-  time: string;
-  isBooked: boolean;
-  sessionId?: string;
-}
-
-interface DayAvailability {
-  date: string;
-  slots: TimeSlot[];
-}
-
+interface TimeSlot { time: string; isBooked: boolean; sessionId?: string; }
+interface DayAvailability { date: string; slots: TimeSlot[]; }
 interface UpcomingSession {
   _id: string;
-  patientId: {
-    firstName: string;
-    lastName: string;
-  };
+  patientId: { firstName: string; lastName: string; };
   sessionDate: string;
   sessionTime: string;
   status: string;
   sessionType: string;
 }
 
+const AM_SLOTS = ['09:00 AM', '10:00 AM', '11:00 AM', '12:00 PM'];
+const PM_SLOTS = ['01:00 PM', '02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM', '06:00 PM', '07:00 PM', '08:00 PM'];
+const ALL_SLOTS = [...AM_SLOTS, ...PM_SLOTS];
+
 const ManageCalendar: React.FC = () => {
   const navigate = useNavigate();
   const [availabilityType, setAvailabilityType] = useState<'same_slots' | 'different_slots'>('same_slots');
   const [isEditing, setIsEditing] = useState(false);
-
-  // State for "Same Slots" mode
-  const [activeDates, setActiveDates] = useState<string[]>([]); // Dates user wants to be active
-  const [defaultSlots, setDefaultSlots] = useState<string[]>([]); // Slots applied to all active dates
-
-  // State for "Different Slots" mode
+  const [activeDates, setActiveDates] = useState<string[]>([]);
+  const [defaultSlots, setDefaultSlots] = useState<string[]>([]);
   const [customAvailability, setCustomAvailability] = useState<DayAvailability[]>([]);
-
-  // UI State
-  const [currentViewDate, setCurrentViewDate] = useState<string>(''); // Currently selected date in UI
+  const [currentViewDate, setCurrentViewDate] = useState<string>('');
   const [upcomingSessions, setUpcomingSessions] = useState<UpcomingSession[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const TIME_SLOTS = [
-    '09:00 AM', '10:00 AM', '11:00 AM', '12:00 PM',
-    '01:00 PM', '02:00 PM', '03:00 PM', '04:00 PM',
-    '05:00 PM', '06:00 PM', '07:00 PM', '08:00 PM'
-  ];
-
-  // Generate next 14 days
   const getNextDays = (count: number) => {
-    const days = [];
     const today = new Date();
-    for (let i = 0; i < count; i++) {
+    return Array.from({ length: count }, (_, i) => {
       const date = new Date(today);
       date.setDate(today.getDate() + i);
-      // Use LOCAL date parts to avoid UTC timezone shift (e.g. IST +5:30 would push midnight to prev UTC day)
       const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-      const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
-      const dayNum = date.getDate();
-      const monthName = date.toLocaleDateString('en-US', { month: 'short' });
-      days.push({ dateStr, dayName, dayNum, monthName });
-    }
-    return days;
+      return {
+        dateStr,
+        dayName: date.toLocaleDateString('en-US', { weekday: 'short' }),
+        dayNum: date.getDate(),
+        fullDay: date.toLocaleDateString('en-US', { weekday: 'long' }),
+        monthName: date.toLocaleDateString('en-US', { month: 'long' }),
+        shortMonth: date.toLocaleDateString('en-US', { month: 'short' }),
+        isToday: i === 0,
+      };
+    });
   };
 
   const nextDays = getNextDays(14);
 
-  // Initialize view date
   useEffect(() => {
-    if (nextDays.length > 0 && !currentViewDate) {
-      setCurrentViewDate(nextDays[0].dateStr);
-    }
+    if (nextDays.length > 0 && !currentViewDate) setCurrentViewDate(nextDays[0].dateStr);
   }, []);
 
-  useEffect(() => {
-    fetchAvailability();
-    fetchUpcomingSessions();
-  }, []);
+  useEffect(() => { fetchAvailability(); fetchUpcomingSessions(); }, []);
 
   const fetchAvailability = async () => {
     try {
       const token = localStorage.getItem('token');
-      const headers: HeadersInit = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const response = await fetch(`${API_BASE_URL}/availability/doctor/current`, {
-        headers,
-        credentials: 'include'
-      });
-
-      if (response.ok) {
-        const data = await response.json();
+      const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
+      const res = await fetch(`${API_BASE_URL}/availability/doctor/current`, { headers, credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
         setAvailabilityType(data.availabilityType || 'same_slots');
         setDefaultSlots(data.defaultSlots || []);
         setActiveDates(data.activeDates || []);
         setCustomAvailability(data.customAvailability || []);
       }
-    } catch (error) {
-      console.error('Error fetching availability:', error);
-      toast.error('Failed to load availability');
-    }
+    } catch { toast.error('Failed to load availability'); }
   };
 
   const fetchUpcomingSessions = async () => {
     try {
       const token = localStorage.getItem('token');
-      const headers: HeadersInit = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const response = await fetch(`${API_BASE_URL}/availability/upcoming-sessions`, {
-        headers,
-        credentials: 'include'
-      });
-
-      if (response.ok) {
-        const sessions = await response.json();
-        setUpcomingSessions(sessions);
-      }
-    } catch (error) {
-      console.error('Error fetching sessions:', error);
-    }
+      const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
+      const res = await fetch(`${API_BASE_URL}/availability/upcoming-sessions`, { headers, credentials: 'include' });
+      if (res.ok) setUpcomingSessions(await res.json());
+    } catch { /* silent */ }
   };
-
-  // --- Handlers ---
 
   const handleDateClick = (dateStr: string) => {
     setCurrentViewDate(dateStr);
-
-    // Only toggle the active dates if we are actively EDITING the default weekly schedule
     if (isEditing && availabilityType === 'same_slots') {
-      setActiveDates(prev =>
-        prev.includes(dateStr)
-          ? prev.filter(d => d !== dateStr)
-          : [...prev, dateStr]
-      );
+      setActiveDates(prev => prev.includes(dateStr) ? prev.filter(d => d !== dateStr) : [...prev, dateStr]);
     }
   };
 
-  // Helper function to check if a specific time slot on a given date has already passed
   const isSlotInPast = (dateStr: string, timeStr: string) => {
-    const now = new Date();
-
-    // Parse the dateStr directly into local year, month, date to avoid UTC shift
-    const [year, month, day] = dateStr.split('-').map(Number);
-
-    // Parse the 09:00 AM format
-    const [timeVal, period] = timeStr.split(' ');
-    let [hours, minutes] = timeVal.split(':').map(Number);
-
-    if (period === 'PM' && hours !== 12) hours += 12;
-    if (period === 'AM' && hours === 12) hours = 0;
-
-    // Create Date entirely in local timezone (month is 0-indexed)
-    const slotDate = new Date(year, month - 1, day, hours, minutes, 0, 0);
-
-    return slotDate < now;
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const [tv, period] = timeStr.split(' ');
+    let [h, min] = tv.split(':').map(Number);
+    if (period === 'PM' && h !== 12) h += 12;
+    if (period === 'AM' && h === 12) h = 0;
+    return new Date(y, m - 1, d, h, min) < new Date();
   };
 
   const toggleSlot = (slot: string) => {
     if (availabilityType === 'same_slots') {
-      // Toggle in defaultSlots
-      setDefaultSlots(prev =>
-        prev.includes(slot) ? prev.filter(s => s !== slot) : [...prev, slot]
-      );
+      setDefaultSlots(prev => prev.includes(slot) ? prev.filter(s => s !== slot) : [...prev, slot]);
     } else {
-      // Toggle in customAvailability for currentViewDate
       setCustomAvailability(prev => {
-        const existingDayIndex = prev.findIndex(d => d.date === currentViewDate);
-        const newAvailability = [...prev];
-
-        if (existingDayIndex >= 0) {
-          // Update existing day
-          const day = { ...newAvailability[existingDayIndex] };
-          const slotIndex = day.slots.findIndex(s => s.time === slot);
-
-          if (slotIndex >= 0) {
-            // Remove slot
-            day.slots = day.slots.filter(s => s.time !== slot);
-          } else {
-            // Add slot
-            day.slots = [...day.slots, { time: slot, isBooked: false }];
-          }
-          newAvailability[existingDayIndex] = day;
+        const idx = prev.findIndex(d => d.date === currentViewDate);
+        const next = [...prev];
+        if (idx >= 0) {
+          const day = { ...next[idx] };
+          const si = day.slots.findIndex(s => s.time === slot);
+          day.slots = si >= 0 ? day.slots.filter(s => s.time !== slot) : [...day.slots, { time: slot, isBooked: false }];
+          next[idx] = day;
         } else {
-          // Create new day entry
-          newAvailability.push({
-            date: currentViewDate,
-            slots: [{ time: slot, isBooked: false }]
-          });
+          next.push({ date: currentViewDate, slots: [{ time: slot, isBooked: false }] });
         }
-        return newAvailability;
+        return next;
       });
     }
   };
 
   const isSlotSelected = (slot: string) => {
-    const dayOverride = customAvailability.find(d => d.date === currentViewDate);
-
-    if (isEditing) {
-      // In Edit Mode, show the slots corresponding to the active tab
-      if (availabilityType === 'same_slots') {
-        return defaultSlots.includes(slot);
-      } else { // different_slots
-        return dayOverride?.slots.some(s => s.time === slot) || false;
-      }
-    } else {
-      // In View Mode, use the unified cascade logic
-      if (dayOverride && dayOverride.slots.length > 0) {
-        return dayOverride.slots.some(s => s.time === slot);
-      }
-      if (activeDates.includes(currentViewDate)) {
-        return defaultSlots.includes(slot);
-      }
-      return false;
-    }
+    const override = customAvailability.find(d => d.date === currentViewDate);
+    if (isEditing) return availabilityType === 'same_slots' ? defaultSlots.includes(slot) : override?.slots.some(s => s.time === slot) || false;
+    if (override?.slots.length) return override.slots.some(s => s.time === slot);
+    return activeDates.includes(currentViewDate) && defaultSlots.includes(slot);
   };
 
   const isDateActive = (dateStr: string) => {
     const hasOverride = customAvailability.some(d => d.date === dateStr && d.slots.length > 0);
-    const hasDefault = activeDates.includes(dateStr);
-
-    if (!isEditing) {
-      // In view mode, a date is active if it has EITHER an override or is a default active day
-      return hasOverride || hasDefault;
-    }
-
-    // In edit mode, it reflects the chosen tab
-    if (availabilityType === 'same_slots') {
-      return hasDefault;
-    } else {
-      return hasOverride;
-    }
+    if (!isEditing) return hasOverride || activeDates.includes(dateStr);
+    return availabilityType === 'same_slots' ? activeDates.includes(dateStr) : hasOverride;
   };
 
   const handleSave = async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-
-      const payload = {
-        availabilityType,
-        defaultSlots,
-        activeDates,
-        customAvailability
-      };
-
       const token = localStorage.getItem('token');
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const response = await fetch(`${API_BASE_URL}/availability/save`, {
-        method: 'POST',
-        headers,
-        credentials: 'include',
-        body: JSON.stringify(payload)
+      const res = await fetch(`${API_BASE_URL}/availability/save`, {
+        method: 'POST', headers, credentials: 'include',
+        body: JSON.stringify({ availabilityType, defaultSlots, activeDates, customAvailability }),
       });
-
-      if (response.ok) {
-        toast.success('Availability saved successfully!');
-        setIsEditing(false); // Return to view mode on successful save
-      } else {
-        toast.error('Failed to save availability');
-      }
-    } catch (error) {
-      console.error('Error saving availability:', error);
-      toast.error('Error saving availability');
-    } finally {
-      setLoading(false);
-    }
+      if (res.ok) { toast.success('Schedule saved!'); setIsEditing(false); }
+      else toast.error('Failed to save');
+    } catch { toast.error('Error saving schedule'); }
+    finally { setLoading(false); }
   };
 
-  const handleEditClick = () => {
-    setIsEditing(true);
+  const getSlotInfo = (slot: string) => {
+    const booked = upcomingSessions.find(s => {
+      const d = new Date(s.sessionDate).toISOString().split('T')[0];
+      return d === currentViewDate && s.sessionTime === slot;
+    });
+    return { booked, past: isSlotInPast(currentViewDate, slot), sel: isSlotSelected(slot) };
   };
 
-  const handleCancelClick = () => {
-    // Optionally trigger a refetch here to discard local unsaved changes
-    fetchAvailability();
-    setIsEditing(false);
+  const selectedDay = nextDays.find(d => d.dateStr === currentViewDate);
+  const selectedCount = ALL_SLOTS.filter(s => isSlotSelected(s)).length;
+
+  const C = {
+    brand: '#0ABAB5',
+    brandLight: '#F0FAFA',
+    brandSoft: '#CCEFEE',
+    bg: '#F7F8FA',
+    surface: '#FFFFFF',
+    border: '#E8EBF0',
+    borderStrong: '#D1D5DB',
+    text1: '#0F172A',
+    text2: '#475569',
+    text3: '#94A3B8',
+    text4: '#CBD5E1',
+    purple: '#7C3AED',
+    purpleLight: '#F5F3FF',
+    dark: '#1E293B',
   };
+
+  const SlotGrid = ({ slots, label, icon }: { slots: string[], label: string, icon: React.ReactNode }) => (
+    <div style={{ marginBottom: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12 }}>
+        <span style={{ color: C.text3, display: 'flex', alignItems: 'center' }}>{icon}</span>
+        <span style={{ fontSize: 11, fontWeight: 700, color: C.text3, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{label}</span>
+        <div style={{ flex: 1, height: 1, background: C.border, marginLeft: 4 }} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(108px, 1fr))', gap: 8 }}>
+        {slots.map(slot => {
+          const { booked, past, sel } = getSlotInfo(slot);
+          const canToggle = isEditing && !past && !booked;
+          let style: React.CSSProperties = {
+            height: 52, borderRadius: 10, fontSize: 13, fontWeight: 600,
+            border: '1.5px solid', cursor: canToggle ? 'pointer' : 'default',
+            display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', gap: 2, transition: 'all 0.15s ease',
+            fontFamily: 'Inter, sans-serif', position: 'relative', outline: 'none',
+          };
+          if (booked) {
+            Object.assign(style, { background: C.dark, color: '#fff', borderColor: C.dark });
+          } else if (past) {
+            Object.assign(style, { background: '#FAFAFA', color: C.text4, borderColor: C.border, opacity: 0.6 });
+          } else if (sel) {
+            Object.assign(style, { background: C.brand, color: '#fff', borderColor: C.brand, boxShadow: '0 2px 12px rgba(10,186,181,0.3)' });
+          } else if (isEditing) {
+            Object.assign(style, { background: '#fff', color: C.text2, borderColor: C.border });
+          } else {
+            Object.assign(style, { background: C.bg, color: C.text4, borderColor: C.border });
+          }
+          return (
+            <button key={slot} onClick={() => canToggle && toggleSlot(slot)} style={style} title={booked ? `${booked.patientId.firstName} ${booked.patientId.lastName}` : ''}>
+              {booked ? (
+                <>
+                  <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', fontWeight: 500 }}>{slot}</span>
+                  <span style={{ fontSize: 9, letterSpacing: '0.08em', fontWeight: 800, color: '#0ABAB5', textTransform: 'uppercase' }}>Booked</span>
+                </>
+              ) : (
+                <span style={{ textDecoration: past ? 'line-through' : 'none' }}>{slot}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col font-sans">
-      <Toaster position="top-right" />
+    <div style={{ height: '100vh', width: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', background: C.bg, fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" }}>
+      <Toaster position="top-right" toastOptions={{ style: { fontFamily: 'Inter', fontSize: 13, borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: '0 4px 20px rgba(0,0,0,0.08)' } }} />
 
-      {/* Header */}
-      <header className="bg-white shadow-sm sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-4">
-            <button
-              onClick={() => navigate('/doctor-dashboard')}
-              className="p-2 rounded-full hover:bg-gray-100 transition-colors text-gray-600"
-            >
-              <FaChevronLeft className="w-5 h-5" />
-            </button>
-            <h1 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-              <FaCalendarAlt className="text-teal-600" />
-              Manage Availability
-            </h1>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-500 hidden sm:inline">
-              Set your weekly schedule
-            </span>
+      {/* TOP NAV */}
+      <header style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', flexShrink: 0, zIndex: 20 }}>
+        {/* Left */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <button onClick={() => navigate('/doctor-dashboard')} style={{ width: 32, height: 32, borderRadius: 8, background: C.bg, border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: C.text2, flexShrink: 0 }}>
+            <FiArrowLeft size={14} strokeWidth={2.5} />
+          </button>
+          <div style={{ width: 1, height: 20, background: C.border }} />
+          <div>
+            <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.text1, lineHeight: '1.2' }}>Availability</p>
+            <p style={{ margin: 0, fontSize: 11, color: C.text3, fontWeight: 500, marginTop: 1 }}>Manage your schedule</p>
           </div>
         </div>
-      </header>
 
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="flex justify-between items-center mb-6">
-          <BackToDashboard />
-          {!isEditing && (
-            <button
-              onClick={handleEditClick}
-              className="px-6 py-2.5 bg-teal-600 text-white rounded-full font-bold shadow-md hover:bg-teal-700 transition-colors flex items-center gap-2"
-            >
-              <FaSave className="w-4 h-4" /> Edit Availability
-            </button>
-          )}
-        </div>
-
-        {/* Strategy Switcher - Only visible during editing */}
+        {/* Center: Mode pill */}
         {isEditing && (
-          <div className="bg-white rounded-2xl shadow-sm p-1 mb-8 max-w-lg mx-auto flex">
-            <button
-              onClick={() => setAvailabilityType('same_slots')}
-              className={`flex-1 py-3 px-6 rounded-xl text-sm font-semibold transition-all duration-200 ${availabilityType === 'same_slots'
-                ? 'bg-teal-600 text-white shadow-md'
-                : 'text-gray-500 hover:bg-gray-50'
-                }`}
-            >
-              Weekly Default Setup
-            </button>
-            <button
-              onClick={() => setAvailabilityType('different_slots')}
-              className={`flex-1 py-3 px-6 rounded-xl text-sm font-semibold transition-all duration-200 ${availabilityType === 'different_slots'
-                ? 'bg-teal-600 text-white shadow-md'
-                : 'text-gray-500 hover:bg-gray-50'
-                }`}
-            >
-              Specific Date Override
-            </button>
+          <div style={{ display: 'flex', alignItems: 'center', background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 3, gap: 2 }}>
+            {([['same_slots', 'Weekly Default'], ['different_slots', 'Specific Day']] as const).map(([v, l]) => (
+              <button key={v} onClick={() => setAvailabilityType(v)} style={{ padding: '5px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', transition: 'all 0.15s', background: availabilityType === v ? '#fff' : 'transparent', color: availabilityType === v ? C.text1 : C.text3, boxShadow: availabilityType === v ? '0 1px 4px rgba(0,0,0,0.08)' : 'none' }}>
+                {l}
+              </button>
+            ))}
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        {/* Right: Actions */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          {!isEditing ? (
+            <button onClick={() => setIsEditing(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 16px', background: C.brand, color: '#fff', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 1px 8px rgba(10,186,181,0.25)' }}>
+              <FiEdit2 size={13} strokeWidth={2.5} />
+              Edit Schedule
+            </button>
+          ) : (
+            <>
+              <button onClick={() => { fetchAvailability(); setIsEditing(false); }} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'transparent', color: C.text2, border: `1px solid ${C.border}`, borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                <FiX size={13} strokeWidth={2.5} />
+                Discard
+              </button>
+              <button onClick={handleSave} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 16px', background: loading ? '#99dbd9' : C.brand, color: '#fff', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', boxShadow: loading ? 'none' : '0 1px 8px rgba(10,186,181,0.25)', transition: 'all 0.15s' }}>
+                {loading ? <div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} /> : <FiCheck size={13} strokeWidth={2.5} />}
+                Save
+              </button>
+            </>
+          )}
+        </div>
+      </header>
 
-          {/* Left Column: Calendar & Slots */}
-          <div className="lg:col-span-2 space-y-6">
-
-            {/* Context Message - Only via Edit Mode */}
-            {isEditing && (
-              <div className="bg-blue-50 border border-blue-100 rounded-xl p-4 flex items-start gap-3">
-                <FaInfoCircle className="text-blue-500 mt-1 flex-shrink-0" />
-                <p className="text-sm text-blue-700">
-                  {availabilityType === 'same_slots'
-                    ? "Select the days you are returning to your default weekly availability, then choose the slots that apply."
-                    : "Select a specific date below to override the default schedule with custom hours."}
-                </p>
-              </div>
-            )}
-
-            {/* Date Strip */}
-            <div className="bg-white rounded-2xl shadow-sm p-6">
-              <h2 className="text-lg font-bold text-gray-800 mb-4 flex items-center justify-between">
-                <span>Select Date(s)</span>
-                {availabilityType === 'different_slots' && (
-                  <span className="text-xs font-normal text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                    Editing: {new Date(currentViewDate).toLocaleDateString(undefined, { dateStyle: 'medium' })}
-                  </span>
+      {/* DATE STRIP */}
+      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '10px 24px', flexShrink: 0 }}>
+        {isEditing && availabilityType === 'same_slots' && (
+          <p style={{ fontSize: 11, color: C.text3, fontWeight: 500, margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ width: 5, height: 5, borderRadius: '50%', background: C.brand, display: 'inline-block', flexShrink: 0 }} />
+            Click days to mark them active. All active days share the same time slots below.
+          </p>
+        )}
+        <div style={{ display: 'flex', gap: 6, overflowX: 'auto' }} className="scrollbar-hide">
+          {nextDays.map(({ dateStr, dayName, dayNum, isToday, shortMonth }) => {
+            const isViewing = currentViewDate === dateStr;
+            const active = isDateActive(dateStr);
+            const hasOverride = customAvailability.some(d => d.date === dateStr && d.slots.length > 0);
+            const isDark = isViewing;
+            return (
+              <button key={dateStr} onClick={() => handleDateClick(dateStr)} style={{
+                flexShrink: 0, width: 52, height: 62, borderRadius: 12,
+                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
+                border: `1.5px solid ${isViewing ? C.brand : active ? C.brandSoft : C.border}`,
+                background: isViewing ? C.brand : active && !isEditing ? C.brandLight : hasOverride ? C.purpleLight : '#fff',
+                cursor: 'pointer', transition: 'all 0.15s ease', position: 'relative',
+              }}>
+                <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: isDark ? 'rgba(255,255,255,0.7)' : C.text3 }}>{dayName}</span>
+                <span style={{ fontSize: 18, fontWeight: 800, color: isDark ? '#fff' : C.text1, lineHeight: 1.1 }}>{dayNum}</span>
+                {isToday && !isViewing && <span style={{ fontSize: 8, fontWeight: 700, color: C.brand, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Today</span>}
+                {(active || hasOverride) && !isViewing && (
+                  <div style={{ position: 'absolute', bottom: 5, width: 4, height: 4, borderRadius: '50%', background: hasOverride ? C.purple : C.brand }} />
                 )}
-              </h2>
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
-              <div className="flex gap-3 overflow-x-auto pb-4 scrollbar-hide">
-                {nextDays.map(({ dateStr, dayName, dayNum }) => {
-                  const isActive = isDateActive(dateStr);
-                  const isViewing = currentViewDate === dateStr;
-                  const hasOverride = customAvailability.some(d => d.date === dateStr && d.slots.length > 0);
+      {/* MAIN CONTENT */}
+      <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 16, padding: '16px 24px' }}>
 
-                  // Style logic depends on mode AND editing state
-                  let buttonStyle = "bg-white border text-gray-600 hover:border-teal-300";
+        {/* TIME SLOTS PANEL */}
+        <div style={{ flex: 1, minWidth: 0, background: C.surface, borderRadius: 16, border: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {/* Slot panel header */}
+          <div style={{ padding: '16px 20px 14px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+            <div>
+              <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: C.text1 }}>
+                {selectedDay ? (selectedDay.isToday ? `Today — ${selectedDay.fullDay}` : `${selectedDay.fullDay}, ${selectedDay.shortMonth} ${selectedDay.dayNum}`) : 'Select a date'}
+              </p>
+              <p style={{ margin: '2px 0 0', fontSize: 12, color: C.text3, fontWeight: 500 }}>
+                {isEditing ? 'Click a slot to toggle availability' : `${selectedCount} slot${selectedCount !== 1 ? 's' : ''} available`}
+              </p>
+            </div>
+            {/* Slot-state legend */}
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+              {[
+                { dot: C.brand, label: 'Available' },
+                { dot: C.dark, label: 'Booked' },
+                { dot: C.border, label: 'Off' },
+              ].map(({ dot, label }) => (
+                <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                  <div style={{ width: 7, height: 7, borderRadius: '50%', background: dot, border: label === 'Off' ? `1px solid ${C.borderStrong}` : 'none' }} />
+                  <span style={{ fontSize: 11, color: C.text3, fontWeight: 500 }}>{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
 
-                  if (!isEditing) {
-                    if (isViewing) buttonStyle = "ring-2 ring-teal-500 border-teal-500 bg-teal-50 text-teal-800";
-                    else if (hasOverride) buttonStyle = "bg-purple-50 text-purple-800 border-purple-200"; // Override indicator in view mode
-                    else if (isActive) buttonStyle = "bg-teal-50 text-teal-800 border-teal-200"; // Default active
-                  } else {
-                    if (availabilityType === 'same_slots') {
-                      if (isActive) buttonStyle = "bg-teal-600 text-white border-teal-600 shadow-md";
-                    } else {
-                      if (isViewing) buttonStyle = "ring-2 ring-teal-500 border-teal-500 bg-teal-50 text-teal-800";
-                      else if (hasOverride) buttonStyle = "bg-purple-100 text-purple-800 border-purple-200"; // Override visual
-                      else if (isActive) buttonStyle = "bg-teal-100 text-teal-800 border-teal-200"; // Standard active
-                    }
-                  }
+          {/* Slots */}
+          <div style={{ flex: 1, overflowY: 'auto', padding: '20px 20px 16px' }} className="scrollbar-hide">
+            <SlotGrid slots={AM_SLOTS} label="Morning" icon={<FiSun size={13} strokeWidth={2} />} />
+            <SlotGrid slots={PM_SLOTS} label="Afternoon & Evening" icon={<FiMoon size={13} strokeWidth={2} />} />
+          </div>
 
-                  return (
-                    <button
-                      key={dateStr}
-                      onClick={() => handleDateClick(dateStr)}
-                      className={`flex-shrink-0 w-16 h-20 rounded-xl flex flex-col items-center justify-center transition-all ${buttonStyle}`}
-                    >
-                      <span className="text-xs font-bold uppercase mb-1">{dayName}</span>
-                      <span className="text-xl font-bold">{dayNum}</span>
-                      {hasOverride && (
-                        <div className="w-1.5 h-1.5 bg-purple-500 rounded-full mt-1"></div>
-                      )}
-                      {!hasOverride && isActive && isEditing && availabilityType === 'different_slots' && (
-                        <div className="w-1.5 h-1.5 bg-teal-500 rounded-full mt-1"></div>
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
+          {/* Footer */}
+          {!isEditing && (
+            <div style={{ borderTop: `1px solid ${C.border}`, padding: '12px 20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+              <p style={{ margin: 0, fontSize: 12, color: C.text3, fontWeight: 500 }}>
+                {selectedCount > 0 ? `${selectedCount} time slots open on this date` : 'No slots available for this date'}
+              </p>
+              <button onClick={() => setIsEditing(true)} style={{ fontSize: 12, fontWeight: 700, color: C.brand, background: C.brandLight, border: `1px solid ${C.brandSoft}`, borderRadius: 8, padding: '5px 14px', cursor: 'pointer' }}>
+                Edit Schedule
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* SESSIONS SIDEBAR */}
+        <div style={{ width: 260, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+          {/* Stats card */}
+          <div style={{ background: C.surface, borderRadius: 16, border: `1px solid ${C.border}`, padding: '16px 16px 14px', flexShrink: 0 }}>
+            <p style={{ margin: '0 0 12px', fontSize: 11, fontWeight: 700, color: C.text3, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Overview</p>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {[
+                { label: 'Sessions', val: upcomingSessions.length, color: C.brand, bg: C.brandLight },
+                { label: 'Active Days', val: activeDates.length + customAvailability.filter(d => d.slots.length > 0).length, color: C.purple, bg: C.purpleLight },
+              ].map(({ label, val, color, bg }) => (
+                <div key={label} style={{ background: bg, borderRadius: 10, padding: '10px 12px' }}>
+                  <p style={{ margin: 0, fontSize: 22, fontWeight: 800, color, lineHeight: 1 }}>{val}</p>
+                  <p style={{ margin: '3px 0 0', fontSize: 11, color, fontWeight: 600, opacity: 0.75 }}>{label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Upcoming sessions */}
+          <div style={{ background: C.surface, borderRadius: 16, border: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+            <div style={{ padding: '14px 16px 10px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+              <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: C.text1 }}>Upcoming Sessions</p>
+              {upcomingSessions.length > 0 && (
+                <span style={{ fontSize: 10, fontWeight: 800, color: C.purple, background: C.purpleLight, padding: '2px 8px', borderRadius: 20 }}>{upcomingSessions.length}</span>
+              )}
             </div>
 
-            {/* Time Slots Grid */}
-            <div className="bg-white rounded-2xl shadow-sm p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-lg font-bold text-gray-800">Available Hours</h2>
-                {availabilityType === 'different_slots' && (
-                  <span className="text-sm text-gray-500">
-                    for {new Date(currentViewDate).toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric' })}
-                  </span>
-                )}
-              </div>
-
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-                {TIME_SLOTS.map((slot) => {
-                  const selected = isSlotSelected(slot);
-                  const inPast = isSlotInPast(currentViewDate, slot);
-
-                  // Check if this specific slot is already booked by a patient
-                  const bookedSession = upcomingSessions.find(s => {
-                    const sessionDateStr = new Date(s.sessionDate).toISOString().split('T')[0];
-                    return sessionDateStr === currentViewDate && s.sessionTime === slot;
-                  });
-
-                  const isButtonDisabled = !isEditing || inPast || !!bookedSession;
-
-                  let buttonClass = '';
-                  let statusLabel = null;
-
-                  if (bookedSession) {
-                    // Distinct "Booked" style
-                    buttonClass = 'bg-teal-700 text-white shadow-inner cursor-not-allowed border-2 border-teal-800 flex-col py-2 px-1';
-                    statusLabel = (
-                      <span className="text-[10px] font-bold uppercase truncate w-full text-center px-1">
-                        Booked: {bookedSession.patientId.firstName}
-                      </span>
-                    );
-                  } else if (inPast) {
-                    // Visually disabled / struck-through for past time
-                    buttonClass = 'bg-gray-100 text-gray-400 opacity-40 line-through cursor-not-allowed';
-                  } else if (selected) {
-                    buttonClass = isEditing
-                      ? 'bg-teal-600 text-white shadow-md transform scale-105'
-                      : 'bg-teal-500 text-white opacity-90';
-                  } else {
-                    buttonClass = isEditing
-                      ? 'bg-gray-50 text-gray-600 hover:bg-gray-100 cursor-pointer'
-                      : 'bg-gray-50 text-gray-400 opacity-50 cursor-not-allowed';
-                  }
-
-                  return (
-                    <button
-                      key={slot}
-                      onClick={() => isEditing && !inPast && !bookedSession && toggleSlot(slot)}
-                      disabled={isButtonDisabled}
-                      className={`min-h-[60px] rounded-xl text-sm font-semibold transition-all duration-200 flex items-center justify-center gap-1 ${buttonClass}`}
-                      title={bookedSession ? `Booked with ${bookedSession.patientId.firstName} ${bookedSession.patientId.lastName}` : ''}
-                    >
-                      {selected && !inPast && !bookedSession && <FaCheck className="text-xs" />}
-                      <span className={bookedSession ? 'text-[12px]' : ''}>{slot}</span>
-                      {statusLabel}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Hint */}
-              {isEditing && (
-                <div className="mt-8 pt-6 border-t border-gray-100 text-center">
-                  <p className="text-sm text-gray-500">
-                    Tap slots to add/remove them from your schedule.
-                  </p>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '10px 12px' }} className="scrollbar-hide">
+              {upcomingSessions.length > 0 ? upcomingSessions.map((s, i) => {
+                const colors = ['#E0E7FF|#4F46E5', '#D1FAE5|#059669', '#FEE2E2|#DC2626', '#FEF3C7|#D97706'];
+                const [bg, fg] = colors[i % colors.length].split('|');
+                return (
+                  <div key={s._id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 0', borderBottom: i < upcomingSessions.length - 1 ? `1px solid ${C.border}` : 'none' }}>
+                    <div style={{ width: 34, height: 34, borderRadius: 10, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      <span style={{ fontSize: 11, fontWeight: 800, color: fg }}>{s.patientId.firstName[0]}{s.patientId.lastName[0]}</span>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: C.text1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.patientId.firstName} {s.patientId.lastName}</p>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.text3, fontWeight: 500 }}>
+                          <FiCalendar size={10} strokeWidth={2} />
+                          {new Date(s.sessionDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        </span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.text3, fontWeight: 500 }}>
+                          <FiClock size={10} strokeWidth={2} />
+                          {s.sessionTime}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }) : (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '28px 16px', textAlign: 'center' }}>
+                  <div style={{ width: 40, height: 40, borderRadius: 12, background: C.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 10, border: `1px solid ${C.border}` }}>
+                    <FiCalendar size={18} color={C.text4} strokeWidth={1.5} />
+                  </div>
+                  <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: C.text2 }}>All clear</p>
+                  <p style={{ margin: '4px 0 0', fontSize: 11, color: C.text3 }}>No upcoming sessions</p>
                 </div>
               )}
             </div>
 
-            {/* Save Action */}
-            {isEditing && (
-              <div className="flex justify-end pt-4 pb-12 gap-4">
-                <button
-                  onClick={handleCancelClick}
-                  disabled={loading}
-                  className="px-6 py-4 rounded-full font-bold text-gray-600 hover:bg-gray-100 transition-all font-sans"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={loading}
-                  className={`flex items-center gap-2 px-8 py-4 rounded-full font-bold text-white shadow-lg transition-all transform hover:-translate-y-1 ${loading ? 'bg-gray-400 cursor-not-allowed' : 'bg-gray-900 hover:bg-gray-800'
-                    }`}
-                >
-                  {loading ? (
-                    <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                  ) : (
-                    <FaSave />
-                  )}
-                  Save Availability
-                </button>
-              </div>
-            )}
-
-          </div>
-
-          {/* Right Column: Upcoming Sessions */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-2xl shadow-sm p-6 sticky top-24">
-              <h2 className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2">
-                <FaClock className="text-teal-600" />
-                Upcoming Sessions
-              </h2>
-
-              <div className="space-y-4">
-                {upcomingSessions.length > 0 ? (
-                  upcomingSessions.map((session) => (
-                    <div
-                      key={session._id}
-                      className="bg-gray-50 rounded-xl p-4 border border-gray-100 hover:shadow-md transition-shadow"
-                    >
-                      <div className="flex justify-between items-start mb-2">
-                        <span className="font-bold text-gray-800">
-                          {session.patientId.firstName} {session.patientId.lastName}
-                        </span>
-                        <span className={`text-xs px-2 py-1 rounded-full font-medium ${session.status === 'confirmed' || session.status === 'scheduled'
-                          ? 'bg-green-100 text-green-700'
-                          : 'bg-gray-200 text-gray-600'
-                          }`}>
-                          {session.status}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-sm text-gray-600 mb-1">
-                        <FaCalendarAlt className="text-gray-400 text-xs" />
-                        {new Date(session.sessionDate).toLocaleDateString()}
-                      </div>
-                      <div className="flex items-center gap-2 text-sm text-gray-600">
-                        <FaClock className="text-gray-400 text-xs" />
-                        {session.sessionTime}
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <div className="text-center py-8 text-gray-400">
-                    <p>No upcoming sessions</p>
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-6 pt-6 border-t border-gray-100 text-center">
-                <button
-                  onClick={() => navigate('/doctor-dashboard')}
-                  className="text-sm text-teal-600 font-semibold hover:text-teal-700"
-                >
-                  View Full Dashboard
-                </button>
-              </div>
+            <div style={{ padding: '10px 12px', borderTop: `1px solid ${C.border}`, flexShrink: 0 }}>
+              <button onClick={() => navigate('/doctor-dashboard')} style={{ width: '100%', padding: '9px', borderRadius: 10, fontSize: 12, fontWeight: 700, color: C.text2, background: C.bg, border: `1px solid ${C.border}`, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'all 0.12s' }}>
+                Back to Dashboard
+              </button>
             </div>
           </div>
-
         </div>
-      </main>
+      </div>
+
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      `}</style>
     </div>
   );
 };

@@ -1,57 +1,49 @@
 const Session = require('../models/session');
-const DoctorAvailability = require('../models/doctorAvailability');
+const { createLogger } = require('./logger');
+
+const logger = createLogger('SESSION-UPDATER');
 
 /**
- * Updates status of past sessions from 'scheduled' to 'completed'.
- * Also releases any booked slots for cancelled sessions if missed.
+ * Updates status of past sessions from 'scheduled' to 'completed' or 'no-show'.
+ * Only processes sessions that ended in the last 24 hours to avoid a full-collection scan.
+ * This is called exclusively by the scheduler cron (every 5 min), NOT inline per-request.
  */
 const updateSessionStatuses = async () => {
     try {
         const now = new Date();
+        const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000); // Past 24 hours
 
-        // 1. Find all scheduled sessions
         const scheduledSessions = await Session.find({
-            status: 'scheduled'
+            status: 'scheduled',
+            sessionDate: { $gte: cutoff, $lte: now }
         });
+
+        if (scheduledSessions.length === 0) return 0;
 
         let updatedCount = 0;
 
         for (const session of scheduledSessions) {
-            // Parse time from UTC-based sessionTime
             const [hours, minutes] = session.sessionTime.split(':').map(Number);
             const sessionStart = new Date(session.sessionDate);
             sessionStart.setUTCHours(hours, minutes, 0, 0);
 
             const sessionEnd = new Date(sessionStart.getTime() + (session.duration * 60000));
 
-            // If session end time is in the past, mark as completed
             if (sessionEnd < now) {
-                // Strict Completion Rule: Both must have joined
-                if (session.doctorJoined && session.patientJoined) {
-                    session.status = 'completed';
-                    session.callStatus = 'completed'; // If using this field
-                    // The original code had session.paymentStatus = 'paid';
-                    // This is removed as per the provided change.
-                } else {
-                    // If time passed but both didn't join, it's a no-show or expired
-                    // For now, let's mark it as 'no-show' to distinguish from successful completion
-                    session.status = 'no-show';
-                    // The original code had logic to update callStatus if it was stuck.
-                    // This new logic only sets callStatus to 'completed' if both joined.
-                    // For 'no-show', callStatus will remain as is (e.g., 'not-started').
-                }
+                session.status = (session.doctorJoined && session.patientJoined) ? 'completed' : 'no-show';
+                if (session.status === 'completed') session.callStatus = 'completed';
                 await session.save();
                 updatedCount++;
             }
         }
 
         if (updatedCount > 0) {
-            console.log(`[SESSION UPDATER] Updated ${updatedCount} sessions to 'completed'`);
+            logger.info('Session status sweep complete', { updated: updatedCount });
         }
 
         return updatedCount;
     } catch (error) {
-        console.error('[SESSION UPDATER] Error updating session statuses:', error);
+        logger.error('Error updating session statuses', { error: error.message });
         return 0;
     }
 };

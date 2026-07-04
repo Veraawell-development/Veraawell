@@ -309,22 +309,22 @@ async function migrateArticles() {
         // Connect to MongoDB
         console.log('Connecting to MongoDB...');
         await mongoose.connect(process.env.MONGO_URI);
-        console.log('✓ Connected to MongoDB');
+        console.log('[OK] Connected to MongoDB');
 
         // Clear existing articles (optional - comment out if you want to keep existing data)
         // await Article.deleteMany({});
-        // console.log('✓ Cleared existing articles');
+        // console.log('[OK] Cleared existing articles');
 
         // Get a super admin user to use as authorId
         const User = require('../models/user');
         const superAdmin = await User.findOne({ role: 'super_admin' });
 
         if (!superAdmin) {
-            console.error('❌ No super admin found. Please create a super admin first.');
+            console.error('[ERR] No super admin found. Please create a super admin first.');
             process.exit(1);
         }
 
-        console.log(`✓ Using super admin: ${superAdmin.username} (${superAdmin._id})`);
+        console.log(`[OK] Using super admin: ${superAdmin.username} (${superAdmin._id})`);
 
         // Insert articles
         console.log(`\nMigrating ${articles.length} articles...`);
@@ -337,17 +337,17 @@ async function migrateArticles() {
                     status: 'published'
                 });
 
-                console.log(`✓ Created: ${article.title}`);
+                console.log(`[OK] Created: ${article.title}`);
             } catch (error) {
                 if (error.code === 11000) {
-                    console.log(`⚠ Skipped (already exists): ${articleData.title}`);
+                    console.log(`[WARN] Skipped (already exists): ${articleData.title}`);
                 } else {
-                    console.error(`❌ Error creating ${articleData.title}:`, error.message);
+                    console.error(`[ERR] Error creating ${articleData.title}:`, error.message);
                 }
             }
         }
 
-        console.log('\n✅ Migration complete!');
+        console.log('\n[OK] Migration complete!');
         console.log(`Total articles in database: ${await Article.countDocuments()}`);
 
         // Display summary
@@ -361,10 +361,10 @@ async function migrateArticles() {
         console.log(`- Featured: ${featured}`);
 
     } catch (error) {
-        console.error('❌ Migration failed:', error);
+        console.error('[ERR] Migration failed:', error);
     } finally {
         await mongoose.disconnect();
-        console.log('\n✓ Disconnected from MongoDB');
+        console.log('\n[OK] Disconnected from MongoDB');
         process.exit(0);
     }
 }

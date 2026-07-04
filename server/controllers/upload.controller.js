@@ -49,11 +49,54 @@ const uploadProfileImage = async (req, res) => {
       transformation: [{ width: 500, height: 500, crop: 'fill', gravity: 'face' }, { quality: 'auto' }, { fetch_format: 'auto' }],
       public_id: `user_${req.user._id}_${Date.now()}`
     });
-    logger.info('Profile image uploaded', { userId: req.user._id.toString().substring(0, 8) });
+    // Auto-save the profile image to both User and DoctorProfile (if doctor)
+    const User = require('../models/user');
+    const DoctorProfile = require('../models/doctorProfile');
+    
+    await User.findByIdAndUpdate(req.user._id, { profileImage: result.secure_url });
+    
+    if (req.user.role === 'doctor') {
+      await DoctorProfile.findOneAndUpdate(
+        { userId: req.user._id },
+        { profileImage: result.secure_url },
+        { upsert: true, new: true }
+      );
+    }
+
+    logger.info('Profile image uploaded and saved', { userId: req.user._id.toString().substring(0, 8) });
     res.json({ success: true, imageUrl: result.secure_url, publicId: result.public_id });
   } catch (error) {
     logger.error('Profile image upload error', { error: error.message });
     res.status(500).json({ success: false, message: 'Failed to upload image', error: error.message });
+  }
+};
+
+/** POST /api/upload/banner-image — Upload therapist banner image */
+const uploadBannerImage = async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ success: false, message: 'No image file provided' });
+    const b64 = Buffer.from(req.file.buffer).toString('base64');
+    const dataURI = `data:${req.file.mimetype};base64,${b64}`;
+    const result = await cloudinary.uploader.upload(dataURI, {
+      folder: 'veerawell/banners',
+      transformation: [{ width: 2400, crop: 'limit' }, { quality: 'auto:best' }, { fetch_format: 'auto' }],
+      public_id: `banner_${req.user._id}_${Date.now()}`
+    });
+    
+    // Auto-save the banner image to the doctor's profile
+    const DoctorProfile = require('../models/doctorProfile');
+    await DoctorProfile.findOneAndUpdate(
+      { userId: req.user._id },
+      { bannerImage: result.secure_url },
+      { upsert: true, new: true }
+    );
+    
+    logger.info('Banner image uploaded and saved', { userId: req.user._id.toString().substring(0, 8) });
+    res.json({ success: true, imageUrl: result.secure_url, publicId: result.public_id });
+  } catch (error) {
+    console.error('Banner image upload error (full):', error);
+    logger.error('Banner image upload error', { error: error.message || error });
+    res.status(500).json({ success: false, message: 'Failed to upload banner image', error: error.message || 'Unknown error' });
   }
 };
 
@@ -138,4 +181,4 @@ const uploadArticleImage = async (req, res) => {
   }
 };
 
-module.exports = { imageUpload, documentUpload, uploadProfileImage, deleteProfileImage, uploadDoctorDocuments, uploadDoctorDocument, uploadArticleImage };
+module.exports = { imageUpload, documentUpload, uploadProfileImage, uploadBannerImage, deleteProfileImage, uploadDoctorDocuments, uploadDoctorDocument, uploadArticleImage };

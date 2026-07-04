@@ -282,11 +282,11 @@ const CareerPage: React.FC = () => {
     <>
       <div className="min-h-screen bg-white">
         {/* Hero Section */}
-        <div className="relative w-full h-[500px] md:h-[971px]">
+        <div className="relative w-full h-[450px] md:h-[650px] lg:h-[750px] overflow-hidden">
           <img
             src="/carrer-bg.svg"
             alt="Career Background"
-            className="absolute inset-0 w-full h-full object-cover"
+            className="absolute inset-0 w-full h-full object-cover object-center"
           />
           <div className="absolute inset-0 flex flex-col items-center justify-center px-4">
             <h1 className="text-white font-extrabold text-[48px] md:text-[110px] mb-2 md:mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -350,56 +350,49 @@ const CareerPage: React.FC = () => {
           }
         `
         }} />
-      </div>
 
-      {/* Why Choose Us Section */}
-      <div className="w-full bg-white px-4 md:px-[37px] py-4 md:py-8">
-        <div className="relative w-full min-h-[400px] md:h-[483px] bg-[#ABA5D1] border border-[rgba(0,0,0,0.16)] rounded-[10px] mb-4 md:mb-8 flex flex-col md:flex-row">
-          <div className="w-full md:w-[362px] h-[250px] md:h-[483px] rounded-[10px] overflow-hidden flex-shrink-0">
+        {/* Why Choose Us Section */}
+      <div className="w-full max-w-7xl mx-auto bg-white px-4 md:px-[37px] py-4 md:py-8">
+        <div className="relative w-full lg:w-[95%] mr-auto h-auto min-h-[180px] md:min-h-[250px] bg-[#ABA5D1] border border-[rgba(0,0,0,0.16)] rounded-[20px] mb-8 flex flex-col md:flex-row overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-300">
+          <div className="w-full md:w-[30%] lg:w-[25%] h-[180px] md:h-auto overflow-hidden flex-shrink-0">
             <img src="/carrer-01.svg" alt="Mental Health Professional" className="w-full h-full object-cover" />
           </div>
-          <div className="flex-1 p-6 md:p-12 flex flex-col justify-center">
-            <h2 className="text-white font-extrabold text-[28px] md:text-[45px] mb-4 md:mb-8 text-left md:text-right" style={{ fontFamily: 'Inter, sans-serif' }}>
+          <div className="flex-1 p-5 md:p-6 lg:p-8 flex flex-col justify-center">
+            <h2 className="text-white font-extrabold text-[24px] md:text-[28px] mb-2 md:mb-4 text-left" style={{ fontFamily: 'Inter, sans-serif' }}>
               Why Choose Us?
             </h2>
-            <div className="text-white text-[16px] md:text-[26px] leading-normal text-justify" style={{ fontFamily: 'Inter, sans-serif' }}>
+            <div className="text-white text-[14px] md:text-[15px] leading-relaxed text-justify" style={{ fontFamily: 'Inter, sans-serif' }}>
               <p>We provide a comprehensive mental wellness platform designed to make therapy accessible, transparent, and effective. With a flexible pricing model, individuals can choose plans that suit their needs without financial strain. Our progress-tracking dashboard and session-wise reports ensure complete clarity on personal growth and improvement. Offering on-demand therapy sessions and a strong network of highly qualified psychologists, we bring expert support right when it's needed the most.</p>
             </div>
           </div>
         </div>
-      </div>
-
       {/* Culture At Veraawell Section */}
-      <div className="w-full bg-white px-4 md:px-[37px] py-4 md:py-8">
-        <div className="relative w-full min-h-[400px] md:h-[483px] bg-[#6DBEDF] border border-[rgba(0,0,0,0.16)] rounded-[10px] mb-4 md:mb-8 flex flex-col md:flex-row">
-          <div className="flex-1 p-6 md:p-12">
-            <h2 className="text-white font-extrabold text-[28px] md:text-[40px] mb-4 md:mb-8" style={{ fontFamily: 'Inter, sans-serif' }}>
+        <div className="relative w-full lg:w-[95%] ml-auto h-auto min-h-[180px] md:min-h-[250px] bg-[#6DBEDF] border border-[rgba(0,0,0,0.16)] rounded-[20px] mb-8 flex flex-col-reverse md:flex-row overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-300">
+          <div className="flex-1 p-5 md:p-6 lg:p-8 flex flex-col justify-center">
+            <h2 className="text-white font-extrabold text-[24px] md:text-[28px] mb-2 md:mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
               Culture At Veraawell
             </h2>
-            <div className="text-white text-[16px] md:text-[26px] leading-normal text-justify space-y-2 md:space-y-4" style={{ fontFamily: 'Inter, sans-serif' }}>
+            <div className="text-white text-[14px] md:text-[15px] leading-relaxed text-justify space-y-2 md:space-y-4" style={{ fontFamily: 'Inter, sans-serif' }}>
               <p>We provide a comprehensive mental wellness platform designed to make therapy accessible, transparent, and effective. With a flexible pricing model, individuals can choose plans that suit their needs without financial strain. Our progress-tracking dashboard and session-wise reports ensure complete clarity on personal growth and improvement. Offering on-demand therapy sessions and a strong network of highly qualified psychologists, we bring expert support right when it's needed the most.</p>
             </div>
           </div>
-          <div className="w-full md:w-[362px] h-[250px] md:h-[483px] rounded-[10px] overflow-hidden flex-shrink-0">
+          <div className="w-full md:w-[30%] lg:w-[25%] h-[180px] md:h-auto overflow-hidden flex-shrink-0">
             <img src="/carrer-02.svg" alt="Culture At Veraawell" className="w-full h-full object-cover" />
           </div>
         </div>
-      </div>
-
       {/* Benefits of Joining Section */}
-      <div className="w-full bg-white px-4 md:px-[37px] py-4 md:py-8">
-        <div className="relative w-full min-h-[300px] bg-[#38ABAE] border border-[rgba(0,0,0,0.16)] rounded-[10px] mb-4 md:mb-8 p-6 md:p-12">
-          <h2 className="text-white font-extrabold text-[32px] md:text-[45px] text-center mb-4 md:mb-8" style={{ fontFamily: 'Inter, sans-serif' }}>
+        <div className="relative w-full lg:w-[95%] mx-auto h-auto min-h-[180px] md:min-h-[250px] bg-[#38ABAE] border border-[rgba(0,0,0,0.16)] rounded-[20px] mb-8 p-5 md:p-6 lg:p-8 flex flex-col justify-center shadow-sm hover:shadow-md transition-shadow duration-300">
+          <h2 className="text-white font-extrabold text-[24px] md:text-[28px] text-center mb-2 md:mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
             Benefits of Joining
           </h2>
-          <div className="text-white text-[16px] md:text-[26px] leading-normal text-justify max-w-6xl mx-auto" style={{ fontFamily: 'Inter, sans-serif' }}>
+          <div className="text-white text-[14px] md:text-[15px] leading-relaxed text-justify max-w-5xl mx-auto" style={{ fontFamily: 'Inter, sans-serif' }}>
             <p>We provide a comprehensive mental wellness platform designed to make therapy accessible, transparent, and effective. With a flexible pricing model, individuals can choose plans that suit their needs without financial strain. Our progress-tracking dashboard and session-wise reports ensure complete clarity on personal growth and improvement. Offering on-demand therapy sessions and a strong network of highly qualified psychologists, we bring expert support right when it's needed the most.</p>
           </div>
         </div>
       </div>
 
       {/* Join Us Now Form - Centered */}
-      <div id="join-us-form" className="w-full bg-white px-4 md:px-[37px] py-4 md:py-8">
+      <div id="join-us-form" className="w-full max-w-6xl mx-auto bg-white px-4 md:px-[37px] py-4 md:py-8">
         <div className="max-w-4xl mx-auto rounded-[10px] p-6 md:p-12" style={{ backgroundColor: 'rgba(248,219,185,0.49)', border: '1px solid rgba(0,0,0,0.16)' }}>
           <h2 className="text-[#BE7959] font-extrabold text-[32px] md:text-[52px] text-center mb-6 md:mb-8" style={{ fontFamily: 'Inter, sans-serif' }}>
             Join Us Now
@@ -598,7 +591,7 @@ const CareerPage: React.FC = () => {
                             <span className="text-xs md:text-sm text-green-700 truncate" style={{ fontFamily: 'Inter, sans-serif' }}>
                               {doc.fileName}
                             </span>
-                            <span className="text-xs text-green-600">✓ Uploaded</span>
+                            <span className="text-xs text-green-600"> Uploaded</span>
                           </div>
                           <button
                             type="button"
@@ -748,7 +741,8 @@ const CareerPage: React.FC = () => {
             </div>
           )}
         </div>
-      </div >
+      </div>
+    </div>
     </>
   );
 };

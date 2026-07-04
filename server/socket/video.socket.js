@@ -63,29 +63,34 @@ module.exports = (io) => {
       log.info('User disconnected', { userId, role, sessionId: socket.roomId });
       if (socket.roomId && activeRooms.has(socket.roomId)) {
         const room = activeRooms.get(socket.roomId);
-        if (room.users.has(userId)) {
-          room.users.delete(userId);
+        if (room.users.has(socket.id)) {
+          room.users.delete(socket.id);
           // Notify other users in the room
           socket.to(socket.roomId).emit('user-left', { userId, role });
-          log.info('User left room', { userId, role, sessionId: socket.roomId });
+          log.info('User socket left room', { socketId: socket.id, userId, role, sessionId: socket.roomId });
           
-          // Update call tracking when ANY user leaves
+          const uniqueUsers = new Set(Array.from(room.users.values()).map(u => u.userId)).size;
           // Mark session as completed immediately when last user leaves
-          if (room.users.size === 0) {
+          if (uniqueUsers === 0) {
             try {
               const session = await Session.findById(socket.roomId);
               if (session && session.callStatus === 'in-progress') {
                 session.callEndTime = new Date();
                 
-                // Calculate used minutes in this segment
+                // Calculate used minutes purely based on the synchronized remaining seconds memory!
+                // This ignores any paused time accurately.
+                const sessionDurationInMinutes = session.duration || 60;
                 let usedMinutes = 0;
-                if (session.callStartTime) {
+                
+                if (room.remainingSeconds !== undefined) {
+                  usedMinutes = sessionDurationInMinutes - Math.ceil(room.remainingSeconds / 60);
+                } else if (session.callStartTime) {
                   const durationMs = session.callEndTime - session.callStartTime;
                   usedMinutes = Math.max(1, Math.round(durationMs / 60000));
                 }
                 
-                // Accumulate duration
-                session.actualDuration = (session.actualDuration || 0) + usedMinutes;
+                // Update duration (max it at session duration)
+                session.actualDuration = Math.max(0, Math.min(sessionDurationInMinutes, usedMinutes));
                 
                 // Check if session is actually completed (time is up)
                 if (session.actualDuration >= session.duration) {
@@ -110,9 +115,17 @@ module.exports = (io) => {
           }
           
           // Clean up empty rooms
-          if (room.users.size === 0) {
+          if (uniqueUsers === 0) {
+            if (room.timerInterval) {
+              clearInterval(room.timerInterval);
+            }
             activeRooms.delete(socket.roomId);
-            log.info('Room cleaned up', { roomId: socket.roomId });
+            log.info('Room cleaned up and timer stopped', { roomId: socket.roomId });
+          } else if (uniqueUsers < 2 && room.timerInterval) {
+            // Pause timer if users drop below 2
+            clearInterval(room.timerInterval);
+            room.timerInterval = null;
+            log.info('Timer paused due to unique users < 2', { roomId: socket.roomId });
           }
         }
       }
@@ -195,20 +208,88 @@ module.exports = (io) => {
 
         // Initialize room if doesn't exist
         if (!activeRooms.has(sessionId)) {
+          // Calculate initial remaining seconds
+          const sessionDurationInMinutes = session.duration || 60;
+          const actualDurationInMinutes = session.actualDuration || 0;
+          let remainingSeconds = Math.max(0, sessionDurationInMinutes * 60 - actualDurationInMinutes * 60);
+
+          if (session.sessionType === 'immediate' && remainingSeconds <= 0) {
+             remainingSeconds = sessionDurationInMinutes * 60;
+          }
+
           activeRooms.set(sessionId, {
             users: new Map(),
-            createdAt: new Date()
+            createdAt: new Date(),
+            timerInterval: null, // Timer starts when both join
+            remainingSeconds: remainingSeconds
           });
-          log.info('Room created', { sessionId });
+          log.info('Room created (timer waiting for 2nd user)', { sessionId, remainingSeconds });
+        } else {
+          // If room already exists, instantly send the current synchronized time to the newly joined user
+          const existingRoom = activeRooms.get(sessionId);
+          if (existingRoom) {
+            socket.emit('timer-sync', { remainingSeconds: existingRoom.remainingSeconds });
+          }
         }
 
         const room = activeRooms.get(sessionId);
-        room.users.set(userId, { role, socketId: socket.id });
+        room.users.set(socket.id, { userId, role });
 
-        log.info(`${role.toUpperCase()} joined room`, {
+        const uniqueUsers = new Set(Array.from(room.users.values()).map(u => u.userId)).size;
+
+        // START TIMER IF BOTH JOINED
+        if (uniqueUsers >= 2 && !room.timerInterval) {
+          log.info('Both users joined, starting timer engine', { sessionId });
+          room.timerInterval = setInterval(async () => {
+            const currentRoom = activeRooms.get(sessionId);
+            const currentUniqueUsers = currentRoom ? new Set(Array.from(currentRoom.users.values()).map(u => u.userId)).size : 0;
+            
+            if (!currentRoom || currentUniqueUsers < 2) {
+              // Pause if someone leaves
+              if (currentRoom && currentRoom.timerInterval) {
+                clearInterval(currentRoom.timerInterval);
+                currentRoom.timerInterval = null;
+                log.info('Timer paused, waiting for user to return', { sessionId });
+              }
+              return;
+            }
+
+            currentRoom.remainingSeconds -= 1;
+            
+            // Broadcast the current synchronized time
+            io.to(sessionId).emit('timer-sync', { remainingSeconds: currentRoom.remainingSeconds });
+
+            // Auto-cut when time is up
+            if (currentRoom.remainingSeconds <= 0) {
+              clearInterval(currentRoom.timerInterval);
+              
+              // Force database update to complete session
+              try {
+                const endingSession = await Session.findById(sessionId);
+                if (endingSession) {
+                  endingSession.callStatus = 'completed';
+                  endingSession.status = 'completed';
+                  endingSession.actualDuration = endingSession.duration;
+                  endingSession.callEndTime = new Date();
+                  await endingSession.save();
+                  log.info('Session auto-completed due to timer', { sessionId });
+                }
+              } catch (err) {
+                log.error('Failed to auto-complete session', { error: err.message });
+              }
+
+              // Broadcast time up to clients
+              io.to(sessionId).emit('session-time-up');
+            }
+          }, 1000);
+        }
+
+        log.info(`${role.toUpperCase()} socket joined room`, {
           sessionId: sessionId.substring(0, 8),
           userId: userId.substring(0, 8),
-          totalUsers: room.users.size
+          socketId: socket.id.substring(0, 8),
+          uniqueUsers,
+          syncedRemainingSeconds: room.remainingSeconds
         });
 
         // Notify the user about successful room join
@@ -216,10 +297,13 @@ module.exports = (io) => {
           sessionId,
           userId,
           role,
-          otherUsers: Array.from(room.users.entries())
-            .filter(([id]) => id !== userId)
-            .map(([id, user]) => ({ userId: id, role: user.role })),
-          userCount: room.users.size,
+          otherUsers: Array.from(new Set(Array.from(room.users.values()).map(u => u.userId)))
+            .filter(id => id !== userId)
+            .map(id => {
+              const u = Array.from(room.users.values()).find(user => user.userId === id);
+              return { userId: id, role: u?.role };
+            }),
+          userCount: uniqueUsers,
           timestamp: new Date().toISOString()
         });
 
@@ -230,9 +314,9 @@ module.exports = (io) => {
           timestamp: new Date().toISOString()
         });
 
-        log.info(`Active users in room ${sessionId.substring(0, 8)}:`, {
-          count: room.users.size,
-          users: Array.from(room.users.keys()).map(id => id.substring(0, 8))
+        log.info(`Active unique users in room ${sessionId.substring(0, 8)}:`, {
+          count: uniqueUsers,
+          users: Array.from(new Set(Array.from(room.users.values()).map(u => u.userId))).map(id => id.substring(0, 8))
         });
 
       } catch (error) {
@@ -250,6 +334,30 @@ module.exports = (io) => {
     socket.on('confirm-end-session', ({ sessionId, agree, confirmedByRole }) => {
       console.log('[VIDEO-SOCKET] Confirm end session', { sessionId, agree, confirmedByRole });
       socket.to(sessionId).emit('confirm-end-session', { agree, confirmedByRole });
+    });
+
+    socket.on('leave-room', ({ sessionId }) => {
+      log.info('User leaving room manually', { userId, role, sessionId });
+      if (activeRooms.has(sessionId)) {
+        const room = activeRooms.get(sessionId);
+        room.users.delete(socket.id);
+        
+        const uniqueUsers = new Set(Array.from(room.users.values()).map(u => u.userId)).size;
+        
+        socket.to(sessionId).emit('user-left', { userId, role });
+        
+        log.info('User removed from room', {
+          sessionId: sessionId.substring(0, 8),
+          count: uniqueUsers
+        });
+
+        if (uniqueUsers < 2 && room.timerInterval) {
+          clearInterval(room.timerInterval);
+          room.timerInterval = null;
+        }
+      }
+      socket.leave(sessionId);
+      socket.roomId = null;
     });
 
     socket.on('patient-ready', ({ sessionId }) => {

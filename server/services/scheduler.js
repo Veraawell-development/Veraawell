@@ -1,153 +1,161 @@
 const cron = require('node-cron');
 const Session = require('../models/session');
-const { sendSMS } = require('./twilioService');
+const { sendSessionReminderEmail } = require('./email.service');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('SCHEDULER');
 
-let task = null;
+let notificationTask = null;
+let statusUpdateTask = null;
 
 /**
- * Start the notification scheduler
- * Runs every minute to check for sessions needing notifications
+ * Sweep past sessions and mark them completed/no-show.
+ * Only processes sessions that ended in the last 24 hours to avoid
+ * scanning the entire sessions collection.
+ */
+const runSessionStatusUpdate = async () => {
+    try {
+        const now = new Date();
+        // Only look at sessions that could have ended since the last sweep (sessions from the past 24h that are still 'scheduled')
+        const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+
+        const scheduledSessions = await Session.find({
+            status: 'scheduled',
+            sessionDate: { $gte: cutoff, $lte: now }
+        });
+
+        if (scheduledSessions.length === 0) return 0;
+
+        let updatedCount = 0;
+        for (const session of scheduledSessions) {
+            const [hours, minutes] = session.sessionTime.split(':').map(Number);
+            const sessionStart = new Date(session.sessionDate);
+            sessionStart.setUTCHours(hours, minutes, 0, 0);
+            const sessionEnd = new Date(sessionStart.getTime() + (session.duration * 60000));
+
+            if (sessionEnd < now) {
+                session.status = (session.doctorJoined && session.patientJoined) ? 'completed' : 'no-show';
+                if (session.status === 'completed') session.callStatus = 'completed';
+                await session.save();
+                updatedCount++;
+            }
+        }
+
+        if (updatedCount > 0) {
+            logger.info(`Session status sweep complete`, { updated: updatedCount });
+        }
+        return updatedCount;
+    } catch (error) {
+        logger.error('Error in session status sweep', { error: error.message });
+        return 0;
+    }
+};
+
+/**
+ * Start the notification scheduler (every minute for reminders)
+ * and the session status sweep (every 5 minutes)
  */
 const startScheduler = () => {
-    if (task) {
+    if (notificationTask && statusUpdateTask) {
         logger.info('Scheduler already running.');
         return;
     }
 
-    logger.info('🔔 Starting Notification Scheduler (Every Minute)...');
+    logger.info('Starting schedulers...');
 
-    // Run every minute: * * * * *
-    task = cron.schedule('* * * * *', async () => {
+    // --- Session Status Sweep: every 5 minutes ---
+    statusUpdateTask = cron.schedule('*/5 * * * *', async () => {
+        await runSessionStatusUpdate();
+    });
+
+    // --- Notification Reminder: every minute ---
+    notificationTask = cron.schedule('* * * * *', async () => {
         try {
             const now = new Date();
 
-            // Get today's date range
-            const startOfDay = new Date(now);
-            startOfDay.setHours(0, 0, 0, 0);
+            // Only fetch sessions in the relevant notification windows:
+            // earliest window starts 16 mins before, latest ends 10 mins after start.
+            const windowStart = new Date(now.getTime() - 10 * 60 * 1000);  // 10 mins ago
+            const windowEnd = new Date(now.getTime() + 16 * 60 * 1000);    // 16 mins ahead
 
-            const endOfDay = new Date(now);
-            endOfDay.setHours(23, 59, 59, 999);
-
-            // Fetch all scheduled sessions for today
             const sessions = await Session.find({
+                status: 'scheduled',
                 sessionDate: {
-                    $gte: startOfDay,
-                    $lte: endOfDay
+                    $gte: new Date(now.toISOString().split('T')[0]), // today
+                    $lte: new Date(now.toISOString().split('T')[0] + 'T23:59:59.999Z')
                 },
-                status: 'scheduled'
+                $or: [
+                    { 'notificationStatus.reminderSent': false },
+                    { 'notificationStatus.startSent': false },
+                    { 'notificationStatus.lateSent': false }
+                ]
             })
-                .populate('patientId', 'firstName lastName phoneNumber')
+                .populate('patientId', 'firstName lastName email')
                 .populate('doctorId', 'firstName lastName');
 
             for (const session of sessions) {
-                // Validate phone number exists before processing
-                if (!session.patientId || !session.patientId.phoneNumber) {
-                    logger.debug(`Skipping session ${session._id}: Patient has no phone number`);
+                if (!session.patientId || !session.patientId.email) {
+                    logger.debug(`Skipping session ${session._id}: Patient has no email`);
                     continue;
                 }
 
-                // Construct session date-time
                 const [hours, minutes] = session.sessionTime.split(':').map(Number);
                 const sessionDateTime = new Date(session.sessionDate);
                 sessionDateTime.setHours(hours, minutes, 0, 0);
 
-                // Calculate difference in minutes
-                // Diff = SessionTime - Now
-                // Positive = Future, Negative = Past
                 const diffMs = sessionDateTime.getTime() - now.getTime();
                 const diffMinutes = diffMs / (1000 * 60);
 
-                // 1. 15 Minutes Before Reminder (Window: 14-16 mins)
+                let changed = false;
+
+                // 1. 15-minute reminder
                 if (diffMinutes >= 14 && diffMinutes <= 16 && !session.notificationStatus.reminderSent) {
-                    await send15MinuteReminder(session);
+                    await sendSessionReminderEmail(session.patientId.email, session, '15min');
                     session.notificationStatus.reminderSent = true;
-                    await session.save();
+                    changed = true;
                 }
-
-                // 2. 2 Minutes Before Reminder (Window: 1-3 mins)
-                // Using 'startSent' flag to track this "Join Now" / "Starting Soon" reminder
+                // 2. Starting-soon (2-min) reminder
                 else if (diffMinutes >= 1 && diffMinutes <= 3 && !session.notificationStatus.startSent) {
-                    await sendStartingSoonReminder(session);
+                    await sendSessionReminderEmail(session.patientId.email, session, 'start');
                     session.notificationStatus.startSent = true;
-                    await session.save();
+                    changed = true;
                 }
-
-                // 3. Late Alert (Window: -10 to -5 mins, i.e., 5-10 mins late)
+                // 3. Late alert
                 else if (diffMinutes >= -10 && diffMinutes <= -5 && !session.notificationStatus.lateSent) {
-                    // Only send if patient hasn't joined
                     if (!session.patientJoined) {
-                        await sendLateAlert(session);
+                        await sendSessionReminderEmail(session.patientId.email, session, 'late');
                         session.notificationStatus.lateSent = true;
-                        await session.save();
+                        changed = true;
                     }
                 }
-            }
 
+                if (changed) await session.save();
+            }
         } catch (error) {
-            logger.error('Error in notification scheduler:', error);
+            logger.error('Error in notification scheduler', { error: error.message });
         }
     });
 
-    logger.info('✅ Notification scheduler started successfully');
+    logger.info('All schedulers started successfully (notifications: 1min, status-sweep: 5min)');
 };
 
 /**
- * Send 15-minute reminder
- */
-const send15MinuteReminder = async (session) => {
-    const patientName = session.patientId.firstName;
-    const doctorName = `Dr. ${session.doctorId.firstName} ${session.doctorId.lastName}`;
-    const time = session.sessionTime;
-
-    const message = `Hi ${patientName}! Your therapy session with ${doctorName} is starting in 15 minutes at ${time}. Please be ready. - Veerawell`;
-
-    logger.info(`📤 Sending 15-min SMS for session ${session._id}`);
-    await sendSMS(session.patientId.phoneNumber, message);
-};
-
-/**
- * Send "Starting Soon" reminder (2 mins before)
- */
-const sendStartingSoonReminder = async (session) => {
-    const patientName = session.patientId.firstName;
-    const doctorName = `Dr. ${session.doctorId.firstName} ${session.doctorId.lastName}`;
-
-    // Include meeting link if available, otherwise just generic message
-    const linkMsg = session.meetingLink ? ` Link: ${session.meetingLink}` : ' Please log in to join.';
-    const message = `Hi ${patientName}! Your session with ${doctorName} starts in 2 minutes!${linkMsg} - Veerawell`;
-
-    logger.info(`📤 Sending 2-min SMS for session ${session._id}`);
-    await sendSMS(session.patientId.phoneNumber, message);
-};
-
-/**
- * Send late alert
- */
-const sendLateAlert = async (session) => {
-    const patientName = session.patientId.firstName;
-    const doctorName = `Dr. ${session.doctorId.firstName} ${session.doctorId.lastName}`;
-
-    const message = `Hi ${patientName}, your session with ${doctorName} has started. Please join immediately to avoid cancellation. - Veerawell`;
-
-    logger.info(`📤 Sending late alert SMS for session ${session._id}`);
-    await sendSMS(session.patientId.phoneNumber, message);
-};
-
-/**
- * Stop the scheduler
+ * Stop all schedulers
  */
 const stopScheduler = () => {
-    if (task) {
-        task.stop();
-        task = null;
-        logger.info('Notification scheduler stopped');
+    if (notificationTask) {
+        notificationTask.stop();
+        notificationTask = null;
     }
+    if (statusUpdateTask) {
+        statusUpdateTask.stop();
+        statusUpdateTask = null;
+    }
+    logger.info('All schedulers stopped');
 };
 
 module.exports = {
     startScheduler,
-    stopScheduler
+    stopScheduler,
+    runSessionStatusUpdate
 };

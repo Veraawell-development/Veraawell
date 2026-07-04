@@ -14,13 +14,17 @@ interface ImageCropModalProps {
     imageSrc: string;
     onClose: () => void;
     onCropComplete: (croppedImage: Blob) => void;
+    aspect?: number;
+    cropShape?: string;
 }
 
 const ImageCropModal: React.FC<ImageCropModalProps> = ({
     isOpen,
     imageSrc,
     onClose,
-    onCropComplete
+    onCropComplete,
+    aspect = 1,
+    cropShape = 'round'
 }) => {
     const [crop, setCrop] = useState({ x: 0, y: 0 });
     const [zoom, setZoom] = useState(1);
@@ -121,6 +125,7 @@ const ImageCropModal: React.FC<ImageCropModalProps> = ({
                         Crop Your Photo
                     </h2>
                     <button
+                        type="button"
                         onClick={onClose}
                         className="text-gray-400 hover:text-gray-600 transition-colors"
                     >
@@ -136,8 +141,8 @@ const ImageCropModal: React.FC<ImageCropModalProps> = ({
                         image={imageSrc}
                         crop={crop}
                         zoom={zoom}
-                        aspect={1}
-                        cropShape="round"
+                        aspect={aspect}
+                        cropShape={cropShape as any}
                         showGrid={false}
                         onCropChange={onCropChange}
                         onZoomChange={onZoomChange}
@@ -173,6 +178,7 @@ const ImageCropModal: React.FC<ImageCropModalProps> = ({
                     {/* Action Buttons */}
                     <div className="flex gap-3">
                         <button
+                            type="button"
                             onClick={onClose}
                             className="flex-1 px-4 py-3 bg-gray-200 text-gray-700 rounded-lg font-semibold hover:bg-gray-300 transition-colors"
                             style={{ fontFamily: 'Inter, sans-serif' }}
@@ -181,6 +187,7 @@ const ImageCropModal: React.FC<ImageCropModalProps> = ({
                             Cancel
                         </button>
                         <button
+                            type="button"
                             onClick={handleUpload}
                             disabled={isProcessing}
                             className="flex-1 px-4 py-3 text-white rounded-lg font-semibold hover:shadow-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"

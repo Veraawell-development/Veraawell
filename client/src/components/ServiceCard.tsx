@@ -4,6 +4,7 @@ type ServiceCardProps = {
   title: string;
   description: string;
   imageSrc?: string; // Made optional
+  imageClassName?: string; // Custom positioning per image
   bgColor?: string;
   onClick?: () => void;
 };
@@ -12,35 +13,36 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   title,
   description,
   imageSrc,
+  imageClassName,
   bgColor = '#38ABAE',
   onClick,
 }) => {
   return (
     <div
-      className="relative overflow-hidden rounded-[22px] text-white shadow-[0_10px_30px_rgba(0,0,0,0.25)] px-6 pt-6 pb-24 min-h-[320px]"
+      className="relative rounded-[20px] text-white shadow-sm hover:shadow-md transition-shadow duration-300 px-6 pt-8 pb-32 min-h-[360px] border border-white/20 flex flex-col items-center"
       style={{ backgroundColor: bgColor }}
     >
       {/* Heading */}
       <h3
-        className="text-center text-3xl md:text-4xl font-extrabold tracking-wide"
-        style={{
-          textShadow:
-            '0 2px 0 rgba(0,0,0,0.25), 0 0 0.5px rgba(0,0,0,0.35), 0 4px 10px rgba(0,0,0,0.15)',
-          letterSpacing: '0.02em',
-        }}
+        className="text-center text-[26px] md:text-[32px] font-extrabold tracking-wide mb-3 drop-shadow-sm"
+        style={{ fontFamily: 'Inter, sans-serif' }}
       >
         {title}
       </h3>
 
       {/* Description */}
-      <p className="mt-5 text-center text-base md:text-lg leading-relaxed max-w-[90%] mx-auto">
+      <p 
+        className="text-center text-[15px] md:text-[17px] leading-relaxed max-w-[95%] mx-auto text-white/95"
+        style={{ fontFamily: 'Inter, sans-serif' }}
+      >
         {description}
       </p>
 
       {/* CTA Button */}
       <button
         onClick={onClick}
-        className="absolute left-1/2 -translate-x-1/2 bottom-6 inline-flex items-center justify-center rounded-full border-[6px] border-white bg-white/20 px-7 md:px-8 py-2.5 md:py-3 text-lg md:text-xl font-extrabold shadow-[0_6px_0_rgba(255,255,255,0.35),0_10px_22px_rgba(0,0,0,0.25)] backdrop-blur-[1px] hover:bg-white/30 transition"
+        className="absolute left-1/2 -translate-x-1/2 bottom-8 inline-flex items-center justify-center rounded-full bg-white px-8 py-3 text-[16px] md:text-[18px] font-bold shadow-sm hover:scale-105 hover:-translate-y-1 hover:shadow-lg transition-all duration-300 z-30"
+        style={{ fontFamily: 'Inter, sans-serif', color: bgColor !== '#ffffff' ? bgColor : '#38ABAE' }}
       >
         View Therapist
       </button>
@@ -50,7 +52,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
         <img
           src={imageSrc}
           alt={title}
-          className="absolute bottom-0 left-0 w-28 md:w-32 lg:w-40 h-auto object-contain select-none pointer-events-none"
+          className={`absolute z-20 h-auto object-contain select-none pointer-events-none drop-shadow-[0_12px_18px_rgba(0,0,0,0.4)] transition-transform duration-300 hover:scale-105 ${imageClassName || '-bottom-4 -left-6 w-32 md:w-40 lg:w-48'}`}
         />
       )}
     </div>

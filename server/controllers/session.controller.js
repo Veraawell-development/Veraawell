@@ -12,7 +12,6 @@ const DoctorProfile = require('../models/doctorProfile');
 const DoctorAvailability = require('../models/doctorAvailability');
 const Review = require('../models/review');
 const SocketEmitter = require('../utils/socketEmitter');
-const { updateSessionStatuses } = require('../utils/sessionUpdater');
 const { calculateSessionPrice, getOrCreateAvailability, getGenderBasedImage } = require('../services/session.service');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { NotFoundError, AuthorizationError } = require('../utils/errors');
@@ -32,7 +31,6 @@ function _emitToUsers(req, event, data, userIds) {
 const getStats = asyncHandler(async (req, res) => {
   if (req.user.role !== 'doctor') throw new AuthorizationError('Access denied');
   const userId = req.user._id.toString();
-  await updateSessionStatuses();
   const stats = await Session.aggregate([
     { $match: { doctorId: new mongoose.Types.ObjectId(userId), status: 'completed' } },
     { $group: { _id: null, totalRevenue: { $sum: '$price' }, totalSessions: { $count: {} }, totalDurationMinutes: { $sum: '$duration' } } }
@@ -78,10 +76,13 @@ const getPendingFeedback = asyncHandler(async (req, res) => {
 const getCallHistory = asyncHandler(async (req, res) => {
   const userId = req.user._id.toString();
   const userRole = req.user.role;
-  await updateSessionStatuses();
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 100;
+  const skip = (page - 1) * limit;
+
   const query = userRole === 'patient' ? { patientId: userId } : { doctorId: userId };
   const callHistory = await Session.find({ ...query, $or: [{ status: { $in: ['completed', 'cancelled'] } }, { callStatus: { $in: ['in-progress', 'completed'] } }, { callStartTime: { $exists: true, $ne: null } }] })
-    .populate('patientId', 'firstName lastName').populate('doctorId', 'firstName lastName').select('+rating').sort({ sessionDate: -1, sessionTime: -1 }).lean();
+    .populate('patientId', 'firstName lastName').populate('doctorId', 'firstName lastName').select('+rating').sort({ sessionDate: -1, sessionTime: -1 }).skip(skip).limit(limit).lean();
   const formatted = callHistory.map(s => ({
     _id: s._id,
     name: userRole === 'patient' ? (s.doctorId ? `Dr. ${s.doctorId.firstName} ${s.doctorId.lastName}` : 'Test Session (Self)') : (s.patientId ? `${s.patientId.firstName} ${s.patientId.lastName}` : 'Test Session (Self)'),
@@ -119,6 +120,18 @@ const bookImmediate = asyncHandler(async (req, res) => {
   try { await Conversation.findOrCreateConversation(patientId, doctorId, saved._id); } catch (e) { logger.warn('Conversation creation failed', { error: e.message }); }
 
   _emitToUsers(req, 'session:booked', { session: populated, patientId, doctorId, sessionId: saved._id.toString(), timestamp: new Date() }, [patientId, doctorId]);
+  
+  try {
+    const emailService = require('../services/email.service');
+    if (populated.patientId.email) {
+      await emailService.sendBookingConfirmationEmail(populated.patientId.email, {
+        date: new Date(saved.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+        time: saved.sessionTime,
+        type: saved.sessionType || 'Immediate'
+      });
+    }
+  } catch (emailErr) { logger.warn('Email send failed', { error: emailErr.message }); }
+
   logger.info('Immediate session booked', { sessionId: saved._id.toString().substring(0, 8) });
   res.status(201).json({ success: true, message: 'Immediate session booked. You can join now.', session: populated });
 });
@@ -169,42 +182,75 @@ const bookSession = asyncHandler(async (req, res) => {
   await session.save();
   const populated = await Session.findById(session._id).populate('patientId', 'firstName lastName email phoneNumber').populate('doctorId', 'firstName lastName email');
 
-  try {
-    const { sendSMS } = require('../services/twilioService');
-    if (populated.patientId.phoneNumber) {
-      const d = new Date(populated.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-      await sendSMS(populated.patientId.phoneNumber, `Hi ${populated.patientId.firstName}! Your session has been confirmed. Date: ${d}, Time: ${populated.sessionTime}, Doctor: Dr. ${populated.doctorId.firstName} ${populated.doctorId.lastName}. - Veerawell`);
-    }
-  } catch (smsErr) { logger.warn('SMS send failed', { error: smsErr.message }); }
+
 
   try { await Conversation.findOrCreateConversation(patientId, doctorId, session._id); } catch (e) { logger.warn('Conversation creation failed', { error: e.message }); }
 
   _emitToUsers(req, 'session:booked', { session: populated, patientId, doctorId, sessionId: session._id.toString(), timestamp: new Date() }, [patientId, doctorId]);
+
+  try {
+    const emailService = require('../services/email.service');
+    if (populated.patientId.email) {
+      await emailService.sendBookingConfirmationEmail(populated.patientId.email, {
+        date: new Date(populated.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+        time: populated.sessionTime,
+        type: populated.sessionType || 'Regular'
+      });
+    }
+  } catch (emailErr) { logger.warn('Email send failed', { error: emailErr.message }); }
   logger.info('Session booked', { sessionId: session._id.toString().substring(0, 8) });
   res.status(201).json({ success: true, message: 'Session booked successfully', session: populated });
 });
 
+const attachDoctorProfiles = async (sessions) => {
+  const doctorIds = [...new Set(sessions.map(s => s.doctorId?._id?.toString()).filter(Boolean))];
+  const doctorProfiles = await DoctorProfile.find({ userId: { $in: doctorIds } }).select('userId profileImage');
+  const profileMap = {};
+  doctorProfiles.forEach(p => {
+    profileMap[p.userId.toString()] = p.profileImage;
+  });
+
+  return sessions.map(session => {
+    const s = session.toObject ? session.toObject() : session;
+    if (s.doctorId && profileMap[s.doctorId._id.toString()]) {
+      s.doctorId.profileImage = profileMap[s.doctorId._id.toString()];
+    }
+    if (s.doctorId && (!s.doctorId.profileImage || s.doctorId.profileImage.includes('doctor-0') || s.doctorId.profileImage === '/doctor-placeholder.svg')) {
+      s.doctorId.profileImage = getGenderBasedImage(s.doctorId);
+    }
+    return s;
+  });
+};
+
 /** GET /api/sessions/my-sessions */
 const getMySessions = asyncHandler(async (req, res) => {
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 100;
+  const skip = (page - 1) * limit;
+
   const userId = req.user._id.toString();
   const query = req.user.role === 'patient' ? { patientId: userId } : { doctorId: userId };
-  await updateSessionStatuses();
-  const sessions = await Session.find(query).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ sessionDate: 1, sessionTime: 1 });
-  res.json(sessions);
+  const sessions = await Session.find(query).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ sessionDate: -1, sessionTime: -1 }).skip(skip).limit(limit);
+  const enrichedSessions = await attachDoctorProfiles(sessions);
+  res.json(enrichedSessions);
 });
 
 /** GET /api/sessions/upcoming */
 const getUpcoming = asyncHandler(async (req, res) => {
   const userId = req.user._id.toString();
   const query = { status: 'scheduled', sessionDate: { $gte: new Date() }, ...(req.user.role === 'patient' ? { patientId: userId } : { doctorId: userId }) };
-  await updateSessionStatuses();
   const sessions = await Session.find(query).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ sessionDate: 1, sessionTime: 1 }).limit(10);
-  res.json(sessions);
+  const enrichedSessions = await attachDoctorProfiles(sessions);
+  res.json(enrichedSessions);
 });
 
 /** GET /api/sessions/doctors — All doctors with profiles (public) */
 const getAllDoctors = asyncHandler(async (req, res) => {
-  const profiles = await DoctorProfile.find({}).populate('userId', 'firstName lastName email isOnline profileCompleted');
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 100;
+  const skip = (page - 1) * limit;
+
+  const profiles = await DoctorProfile.find({}).populate('userId', 'firstName lastName email isOnline profileCompleted').skip(skip).limit(limit);
   const valid = profiles.filter(p => !!p.userId);
   const doctorIds = valid.map(p => p.userId?._id).filter(Boolean);
   const ratingAgg = await Review.aggregate([
@@ -250,12 +296,22 @@ const getDoctorById = asyncHandler(async (req, res) => {
 
 /** GET /api/sessions/:sessionId — Get session by ID */
 const getSessionById = asyncHandler(async (req, res) => {
-  const session = await Session.findById(req.params.sessionId).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email');
+  const session = await Session.findById(req.params.sessionId).populate('patientId', 'firstName lastName email gender').populate('doctorId', 'firstName lastName email gender').lean();
   if (!session) throw new NotFoundError('Session');
   const userId = req.user._id.toString();
   const pId = session.patientId?._id?.toString() || session.patientId?.toString();
   const dId = session.doctorId?._id?.toString() || session.doctorId?.toString();
   if (pId !== userId && dId !== userId) throw new AuthorizationError('Unauthorized to view this session');
+
+  // Fetch doctor profile for image
+  if (session.doctorId) {
+    const DoctorProfile = require('../models/doctorProfile');
+    const docProfile = await DoctorProfile.findOne({ userId: session.doctorId._id }).lean();
+    if (docProfile) {
+      session.doctorId.profileImage = docProfile.profileImage;
+    }
+  }
+
   res.json(session);
 });
 
@@ -297,7 +353,12 @@ const cancelSession = asyncHandler(async (req, res) => {
   const sessionDT = new Date(session.sessionDate);
   const [ch, cm] = session.sessionTime.split(':').map(Number);
   sessionDT.setHours(ch, cm, 0, 0);
-  if ((sessionDT.getTime() - Date.now()) / (1000 * 60 * 60) < 24) return res.status(400).json({ success: false, message: 'Sessions can only be cancelled 24 hours in advance' });
+
+  // Patients can cancel at any time, restriction removed.
+  if (sessionDT.getTime() < Date.now()) {
+    return res.status(400).json({ success: false, message: 'Cannot cancel a session that has already started' });
+  }
+
   session.status = 'cancelled';
   session.paymentStatus = 'refunded';
   await session.save();
@@ -316,10 +377,15 @@ const cancelSession = asyncHandler(async (req, res) => {
 const getCalendar = asyncHandler(async (req, res) => {
   const { year, month } = req.params;
   const userId = req.user._id.toString();
-  const query = { sessionDate: { $gte: new Date(year, month - 1, 1), $lte: new Date(year, month, 0) }, ...(req.user.role === 'patient' ? { patientId: userId } : { doctorId: userId }) };
-  await updateSessionStatuses();
+  const yearNum = parseInt(year);
+  const monthNum = parseInt(month);
+  const startDate = new Date(Date.UTC(yearNum, monthNum - 1, 1));
+  const endDate = new Date(Date.UTC(yearNum, monthNum, 1));
+  const query = { sessionDate: { $gte: startDate, $lt: endDate }, ...(req.user.role === 'patient' ? { patientId: userId } : { doctorId: userId }) };
   const sessions = await Session.find(query).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ sessionDate: 1, sessionTime: 1 });
-  res.json(sessions);
+
+  const enrichedSessions = await attachDoctorProfiles(sessions);
+  res.json(enrichedSessions);
 });
 
 /** GET /api/sessions/patients/:patientId/emergency-contact */
@@ -347,9 +413,16 @@ const getMyTherapists = asyncHandler(async (req, res) => {
     if (s.status === 'completed') { map[dId].completedSessions++; if (!map[dId].lastSession || s.sessionDate > map[dId].lastSession) map[dId].lastSession = s.sessionDate; }
     else { map[dId].upcomingSessions++; if (!map[dId].nextSession || s.sessionDate < map[dId].nextSession) map[dId].nextSession = s.sessionDate; }
   });
-  const therapists = await Promise.all(Object.values(map).map(async t => {
-    const profile = await DoctorProfile.findOne({ userId: t.doctor._id }).select('specialization experience qualification profileImage');
-    return { ...t, profile: profile || null };
+
+  // Batch fetch all doctor profiles in ONE query instead of N separate findOne calls
+  const doctorIds = Object.keys(map);
+  const profiles = await DoctorProfile.find({ userId: { $in: doctorIds } }).select('userId specialization experience qualification profileImage languages pricing rating');
+  const profileMap = {};
+  profiles.forEach(p => { profileMap[p.userId.toString()] = p; });
+
+  const therapists = Object.values(map).map(t => ({
+    ...t,
+    profile: profileMap[t.doctor._id.toString()] || null
   }));
   res.json(therapists);
 });

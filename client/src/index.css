@@ -1,1 +1,444 @@
 @import "tailwindcss";
+
+/* ============================================================
+   VERAAWELL DESIGN SYSTEM
+   Premium Mental Health Platform — Light Mode
+   Brand Color: Teal #0097B2
+   ============================================================ */
+
+/* ---------- Design Tokens ---------- */
+:root {
+  /* Backgrounds */
+  --bg:           #F8F6F2;
+  --bg-2:         #EEF8FA;
+  --bg-3:         #F0EBE4;
+  --surface:      #FFFFFF;
+
+  /* Brand Teal (from logo) */
+  --teal:         #0097B2;
+  --teal-dark:    #007A8E;
+  --teal-light:   #00BDD6;
+  --teal-muted:   #E0F7FA;
+  --teal-glow:    rgba(0, 151, 178, 0.18);
+
+  /* Warm Accent (complementary to teal) */
+  --sage:         #6BA888;
+  --gold:         #C4A882;
+  --gold-dark:    #A8875A;
+  --warm:         #E8956D;
+
+  /* Text */
+  --text:         #1A2E32;
+  --text-2:       #5A7A82;
+  --text-3:       #9BB5BC;
+
+  /* Borders */
+  --border:       rgba(26, 46, 50, 0.08);
+  --border-strong:rgba(26, 46, 50, 0.16);
+
+  /* Dark CTA Section */
+  --dark-bg:      #0A1E22;
+  --dark-surface: #0F2D33;
+  --dark-text:    #F0F8F9;
+  --dark-text-2:  rgba(240, 248, 249, 0.60);
+  --dark-border:  rgba(255, 255, 255, 0.08);
+
+  /* Shadows */
+  --shadow-sm:    0 1px 4px rgba(26,46,50,0.06), 0 1px 2px rgba(26,46,50,0.04);
+  --shadow-md:    0 4px 20px rgba(26,46,50,0.08), 0 2px 6px rgba(26,46,50,0.04);
+  --shadow-lg:    0 20px 60px rgba(26,46,50,0.10), 0 8px 24px rgba(26,46,50,0.06);
+  --shadow-xl:    0 32px 80px rgba(26,46,50,0.12), 0 12px 32px rgba(26,46,50,0.08);
+  --shadow-teal:  0 8px 32px rgba(0,151,178,0.22);
+
+  /* Typography */
+  --font-display: 'Instrument Serif', Georgia, serif;
+  --font-body:    'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono:    'DM Mono', 'Fira Mono', monospace;
+
+  /* Easing */
+  --ease-spring:  cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-bounce:  cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out:     cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+
+/* ---------- Global Resets ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  scroll-behavior: smooth;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+}
+
+::-webkit-scrollbar { display: none; }
+* { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* ---------- Typography ---------- */
+.font-display   { font-family: var(--font-display); }
+.font-mono-vw   { font-family: var(--font-mono); }
+
+/* ---------- Grain Texture ---------- */
+.grain-texture::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+  background-size: 200px 200px;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.03;
+}
+
+/* ---------- Scroll Reveal System ---------- */
+[data-reveal] {
+  opacity: 0;
+  transform: translateY(28px);
+  transition: opacity 0.65s var(--ease-spring), transform 0.65s var(--ease-spring);
+}
+[data-reveal].revealed { opacity: 1; transform: translateY(0); }
+
+[data-reveal][data-delay="1"] { transition-delay: 80ms; }
+[data-reveal][data-delay="2"] { transition-delay: 160ms; }
+[data-reveal][data-delay="3"] { transition-delay: 240ms; }
+[data-reveal][data-delay="4"] { transition-delay: 320ms; }
+[data-reveal][data-delay="5"] { transition-delay: 400ms; }
+[data-reveal][data-delay="6"] { transition-delay: 480ms; }
+
+[data-reveal="right"] {
+  opacity: 0;
+  transform: translateX(32px);
+  transition: opacity 0.65s var(--ease-spring), transform 0.65s var(--ease-spring);
+}
+[data-reveal="right"].revealed { opacity: 1; transform: translateX(0); }
+
+[data-reveal="scale"] {
+  opacity: 0;
+  transform: scale(0.94);
+  transition: opacity 0.55s var(--ease-spring), transform 0.55s var(--ease-spring);
+}
+[data-reveal="scale"].revealed { opacity: 1; transform: scale(1); }
+
+/* ---------- Keyframe Animations ---------- */
+
+/* Ambient blob drift */
+@keyframes blob-drift {
+  0%   { transform: translate(0, 0) scale(1); }
+  33%  { transform: translate(22px, -18px) scale(1.04); }
+  66%  { transform: translate(-14px, 12px) scale(0.97); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+@keyframes blob-drift-2 {
+  0%   { transform: translate(0, 0) scale(1); }
+  33%  { transform: translate(-18px, 16px) scale(1.03); }
+  66%  { transform: translate(20px, -10px) scale(0.98); }
+  100% { transform: translate(0, 0) scale(1); }
+}
+
+/* Wellness card float */
+@keyframes float-card {
+  0%   { transform: translateY(0px); }
+  50%  { transform: translateY(-10px); }
+  100% { transform: translateY(0px); }
+}
+
+/* Pulse dot (session live indicator) */
+@keyframes pulse-ring {
+  0%   { transform: scale(1); opacity: 1; }
+  80%  { transform: scale(2.2); opacity: 0; }
+  100% { transform: scale(2.2); opacity: 0; }
+}
+
+/* CTA shimmer */
+@keyframes shimmer {
+  0%   { left: -120%; }
+  100% { left: 120%; }
+}
+
+/* Hero elements fade up on load */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* Breathe (subtle scale) for decorative elements */
+@keyframes breathe {
+  0%, 100% { transform: scale(1); }
+  50%       { transform: scale(1.04); }
+}
+
+/* SVG path draw for step connectors */
+@keyframes stroke-draw {
+  from { stroke-dashoffset: 200; }
+  to   { stroke-dashoffset: 0; }
+}
+
+/* Organic leaf sway */
+@keyframes leaf-sway {
+  0%, 100% { transform: rotate(-3deg) scale(1); }
+  50%       { transform: rotate(3deg) scale(1.02); }
+}
+
+/* ---------- Hero Blobs ---------- */
+.hero-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(72px);
+  pointer-events: none;
+  will-change: transform;
+}
+.hero-blob-1 {
+  width: 520px;
+  height: 520px;
+  background: radial-gradient(circle, rgba(0,151,178,0.10) 0%, transparent 70%);
+  top: -120px;
+  left: -80px;
+  animation: blob-drift 24s ease-in-out infinite;
+}
+.hero-blob-2 {
+  width: 380px;
+  height: 380px;
+  background: radial-gradient(circle, rgba(107,168,136,0.10) 0%, transparent 70%);
+  bottom: -60px;
+  right: -60px;
+  animation: blob-drift-2 19s ease-in-out infinite;
+}
+/* Soft warm blob */
+.hero-blob-3 {
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, rgba(196,168,130,0.08) 0%, transparent 70%);
+  top: 40%;
+  right: 20%;
+  animation: blob-drift 28s ease-in-out infinite;
+}
+
+/* ---------- Wellness Card ---------- */
+.wellness-card {
+  animation: float-card 6s ease-in-out infinite;
+}
+.wellness-card:hover {
+  animation-play-state: paused;
+}
+
+/* ---------- Pulse Dot ---------- */
+.pulse-dot {
+  position: relative;
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #10B981;
+}
+.pulse-dot::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: #10B981;
+  animation: pulse-ring 2s ease-out infinite;
+}
+
+/* ---------- Shimmer Button ---------- */
+.btn-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.btn-shimmer::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -120%;
+  width: 60%;
+  height: 100%;
+  background: linear-gradient(105deg, transparent 20%, rgba(255,255,255,0.28) 50%, transparent 80%);
+  pointer-events: none;
+}
+.btn-shimmer:hover::after {
+  animation: shimmer 0.55s ease-in-out forwards;
+}
+
+/* ---------- Feature Cards ---------- */
+.feature-card {
+  position: relative;
+  transition: transform 0.25s var(--ease-spring), box-shadow 0.25s var(--ease-out);
+}
+.feature-card:hover { transform: translateY(-5px); }
+
+/* ---------- Stat Cards ---------- */
+.stat-card {
+  transition: transform 0.25s var(--ease-spring), box-shadow 0.25s ease;
+}
+.stat-card:hover { transform: translateY(-4px); box-shadow: var(--shadow-md); }
+
+/* ---------- Testimonial Cards ---------- */
+.testimonial-card {
+  transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), box-shadow 0.3s ease, border-color 0.3s ease;
+  will-change: transform;
+}
+.testimonial-card:hover {
+  transform: translateY(-8px) scale(1.02);
+  border-color: rgba(0, 151, 178, 0.3);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
+  z-index: 10;
+}
+
+/* ---------- Marquee Animation ---------- */
+@keyframes marquee-scroll {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+.marquee-wrapper {
+  overflow: hidden;
+  position: relative;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.marquee-wrapper::before,
+.marquee-wrapper::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  width: 15%;
+  height: 100%;
+  z-index: 2;
+  pointer-events: none;
+}
+.marquee-wrapper::before {
+  left: 0;
+  background: linear-gradient(to right, var(--bg-2), transparent);
+}
+.marquee-wrapper::after {
+  right: 0;
+  background: linear-gradient(to left, var(--bg-2), transparent);
+}
+
+.marquee-track {
+  display: flex;
+  width: max-content;
+  gap: 1.5rem;
+  animation: marquee-scroll 45s linear infinite;
+  padding-bottom: 0.5rem; /* Space for shadow */
+}
+.marquee-track:hover {
+  animation-play-state: paused;
+}
+.marquee-track.reverse {
+  animation-direction: reverse;
+  animation-duration: 55s; /* slightly different speed for variation */
+}
+
+/* ---------- Therapist Cards ---------- */
+.therapist-card {
+  transition: transform 0.3s var(--ease-spring), box-shadow 0.3s ease;
+}
+.therapist-card:hover {
+  transform: translateY(-6px);
+  box-shadow: var(--shadow-teal);
+}
+
+/* ---------- Navbar Scroll State ---------- */
+.navbar-scrolled {
+  background: rgba(248, 246, 242, 0.90) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid var(--border) !important;
+  box-shadow: var(--shadow-sm);
+}
+
+/* ---------- Section Backgrounds ---------- */
+.section-cream   { background: var(--bg); }
+.section-white   { background: var(--surface); }
+.section-tinted  { background: var(--bg-2); }
+.section-warm    { background: var(--bg-3); }
+
+/* ---------- Dark CTA Banner ---------- */
+.cta-banner-bg {
+  background: linear-gradient(135deg, #0A2A30 0%, #062028 50%, #0A1E22 100%);
+  position: relative;
+  overflow: hidden;
+}
+.cta-banner-bg::before {
+  content: '';
+  position: absolute;
+  width: 600px;
+  height: 600px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(0,151,178,0.22) 0%, transparent 65%);
+  top: -200px;
+  right: -120px;
+  pointer-events: none;
+  animation: blob-drift 20s ease-in-out infinite;
+}
+.cta-banner-bg::after {
+  content: '';
+  position: absolute;
+  width: 400px;
+  height: 400px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(107,168,136,0.15) 0%, transparent 65%);
+  bottom: -150px;
+  left: -60px;
+  pointer-events: none;
+  animation: blob-drift-2 17s ease-in-out infinite;
+}
+
+/* ---------- Scroll Progress Bar ---------- */
+.scroll-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--teal), var(--sage));
+  z-index: 9999;
+  transition: width 0.1s linear;
+}
+
+/* ---------- Organic Decorative Leaf SVG ---------- */
+.leaf-decor {
+  position: absolute;
+  opacity: 0.06;
+  pointer-events: none;
+  animation: leaf-sway 8s ease-in-out infinite;
+}
+
+/* ---------- Step Connector ---------- */
+.step-connector {
+  stroke-dasharray: 200;
+  stroke-dashoffset: 200;
+  transition: stroke-dashoffset 0.8s var(--ease-spring);
+}
+.step-connector.revealed { stroke-dashoffset: 0; }
+
+/* ---------- Mobile Optimizations ---------- */
+@media (max-width: 768px) {
+  [data-reveal] { transform: translateY(14px); transition-duration: 0.4s; }
+  [data-reveal="right"] { transform: translateX(0); }
+  .wellness-card { animation: none; }
+  .hero-blob { filter: blur(50px); }
+  .hero-blob-1, .hero-blob-2, .hero-blob-3 { animation-duration: 32s; }
+}
+
+/* ---------- Reduced Motion ---------- */
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal], [data-reveal="right"], [data-reveal="scale"] {
+    opacity: 1 !important; transform: none !important; transition: none !important;
+  }
+  .hero-blob-1, .hero-blob-2, .hero-blob-3,
+  .wellness-card, .cta-banner-bg::before, .cta-banner-bg::after,
+  .step-connector, .leaf-decor { animation: none !important; }
+  .pulse-dot::before { animation: none !important; }
+  .btn-shimmer::after { animation: none !important; }
+}
+
+/* ---------- Selection Color ---------- */
+::selection { background: var(--teal-muted); color: var(--teal-dark); }

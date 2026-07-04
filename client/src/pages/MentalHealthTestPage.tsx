@@ -8,7 +8,6 @@ const MentalHealthTestPage: React.FC = () => {
     const { testType } = useParams<{ testType: string }>();
     const navigate = useNavigate();
 
-    const [sidebarOpen, setSidebarOpen] = useState(false);
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [responses, setResponses] = useState<Record<number, number>>({});
     const [test, setTest] = useState<TestDefinition | null>(null);
@@ -95,121 +94,117 @@ const MentalHealthTestPage: React.FC = () => {
     const options = currentQuestion?.options || test.defaultOptions;
 
     return (
-        <div className="min-h-screen" style={{ backgroundColor: '#E0EAEA' }}>
-            {/* Sidebar */}
-            {sidebarOpen && <div className="fixed inset-0 z-40" onClick={() => setSidebarOpen(false)} />}
-            <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`} style={{ backgroundColor: '#7DA9A8' }}>
-                <div className="h-full flex flex-col p-4 text-white font-serif">
-                    <div className="space-y-3">
-                        <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors" onClick={() => navigate('/patient-dashboard')}>
-                            <span className="text-base font-medium">My Dashboard</span>
-                        </div>
-                        <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors" onClick={() => navigate('/mental-health')}>
-                            <span className="text-base font-medium">All Tests</span>
-                        </div>
+        <div className="h-screen pt-[64px] md:pt-[80px] overflow-hidden bg-[#FAFAFA] font-sans flex flex-col box-border">
+            {/* Ultra-Minimal Header */}
+            <div className="bg-white border-b border-gray-200 z-30 shrink-0">
+                <div className="max-w-3xl mx-auto px-6 h-16 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <button 
+                            onClick={() => navigate('/mental-health')} 
+                            className="flex items-center justify-center w-8 h-8 rounded-md hover:bg-gray-100 text-gray-500 transition-colors"
+                            aria-label="Back to Dashboard"
+                        >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                            </svg>
+                        </button>
+                        <div className="h-5 w-px bg-gray-200"></div>
+                        <h1 className="text-[15px] font-semibold text-gray-900 tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
+                            {test.name}
+                        </h1>
                     </div>
+                    
+                    <div className="text-[13px] font-medium text-gray-400" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        {currentQuestionIndex + 1} / {visibleQuestions.length}
+                    </div>
+                </div>
+                {/* Thin, elegant progress bar */}
+                <div className="w-full bg-gray-100 h-[2px]">
+                    <div
+                        className="h-full bg-teal-500 transition-all duration-300 ease-out"
+                        style={{ width: `${progress}%` }}
+                    />
                 </div>
             </div>
 
-            {/* Header */}
-            <div className="py-2 px-4 shadow-sm" style={{ backgroundColor: '#ABA5D1' }}>
-                <div className="max-w-7xl mx-auto flex items-center justify-between">
-                    <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors">
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16"></path>
-                        </svg>
-                    </button>
-                    <div className="text-center">
-                        <h1 className="text-xl font-bold text-white leading-tight" style={{ fontFamily: 'Bree Serif, serif' }}>{test.name}</h1>
-                        {currentSection && <p className="text-white/80 text-xs font-semibold uppercase tracking-wider">{currentSection.title}</p>}
-                    </div>
-                    <div className="w-10"></div>
-                </div>
-            </div>
-
-            {/* Progress Bar */}
-            <div className="bg-white shadow-sm sticky top-0 z-30">
-                <div className="max-w-4xl mx-auto px-4 py-2">
-                    <div className="flex items-center justify-between mb-1">
-                        <span className="text-xs font-medium text-gray-500">
-                            Question {currentQuestionIndex + 1} of {visibleQuestions.length}
-                        </span>
-                        <span className="text-xs font-medium text-teal-600">
-                            {Math.round(progress)}%
-                        </span>
-                    </div>
-                    <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                        <div
-                            className="h-full bg-gradient-to-r from-teal-400 to-teal-600 transition-all duration-300"
-                            style={{ width: `${progress}%` }}
-                        />
-                    </div>
-                </div>
-            </div>
-
-            {/* Test Content */}
-            <div className="max-w-4xl mx-auto px-4 py-6">
+            {/* Main Test Area - Inner Scrollable if necessary */}
+            <div className="flex-1 overflow-y-auto w-full">
+                <div className="max-w-3xl mx-auto w-full px-6 py-8 md:py-12 flex flex-col min-h-full">
+                    
+                    {/* Section Description if applicable */}
                 {currentSection?.description && (
-                    <div className="mb-6 bg-teal-50 border border-teal-100 rounded-xl p-4 text-teal-800 text-sm italic">
+                    <div className="mb-8 p-4 bg-gray-50 border border-gray-200 rounded-xl text-[14px] text-gray-600 font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>
                         {currentSection.description}
                     </div>
                 )}
 
-                <div className="bg-white rounded-3xl shadow-xl p-6 md:p-10 border border-white/20">
-                    {/* Question */}
-                    <div className="mb-10 text-center">
-                        <p className="text-xl md:text-2xl font-bold text-gray-800 leading-snug" style={{ fontFamily: 'Bree Serif, serif' }}>
-                            {currentQuestion?.text}
-                        </p>
-                    </div>
+                {/* Question */}
+                <div className="mb-10">
+                    <h2 className="text-[24px] md:text-[28px] font-bold text-gray-800 leading-tight tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        {currentQuestion?.text}
+                    </h2>
+                </div>
 
-                    {/* Answer Options */}
-                    <div className="grid grid-cols-1 gap-3">
-                        {options.map((option) => (
+                {/* Options Grid */}
+                <div className="space-y-3 mb-12">
+                    {options.map((option) => {
+                        const isSelected = responses[currentQuestion.id] === option.value;
+                        return (
                             <button
                                 key={option.value}
                                 onClick={() => handleAnswer(option.value)}
-                                className={`group relative w-full py-4 px-6 rounded-2xl text-left transition-all duration-300 border-2 overflow-hidden ${responses[currentQuestion.id] === option.value
-                                        ? 'border-teal-500 bg-teal-50 shadow-md transform scale-[1.01]'
-                                        : 'border-gray-100 bg-gray-50 hover:border-teal-200 hover:bg-white hover:shadow-sm'
-                                    }`}
+                                className={`w-full group flex items-center justify-between p-5 rounded-[12px] border text-left transition-all duration-200 ${
+                                    isSelected 
+                                    ? 'border-teal-500 bg-white ring-1 ring-teal-500 shadow-sm' 
+                                    : 'border-gray-200 bg-white hover:border-gray-400 hover:bg-gray-50'
+                                }`}
                             >
-                                <div className="flex items-center justify-between relative z-10">
-                                    <span className={`text-base font-semibold ${responses[currentQuestion.id] === option.value ? 'text-teal-700' : 'text-gray-600 group-hover:text-gray-800'}`}>
-                                        {option.label}
-                                    </span>
-                                    <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all ${responses[currentQuestion.id] === option.value ? 'border-teal-500 bg-teal-500' : 'border-gray-300'}`}>
-                                        {responses[currentQuestion.id] === option.value && (
-                                            <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
-                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                            </svg>
-                                        )}
-                                    </div>
+                                <span className={`text-[15px] font-semibold ${isSelected ? 'text-gray-900' : 'text-gray-700'}`} style={{ fontFamily: 'Inter, sans-serif' }}>
+                                    {option.label}
+                                </span>
+                                
+                                <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-colors ${
+                                    isSelected 
+                                    ? 'border-teal-500 bg-teal-500' 
+                                    : 'border-gray-300 bg-white'
+                                }`}>
+                                    {isSelected && (
+                                        <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    )}
                                 </div>
                             </button>
-                        ))}
-                    </div>
-
-                    {/* Navigation */}
-                    <div className="mt-10 flex justify-between items-center pt-6 border-t border-gray-100">
-                        <button 
-                            disabled={currentQuestionIndex === 0}
-                            onClick={() => setCurrentQuestionIndex(prev => prev - 1)}
-                            className="text-gray-400 hover:text-teal-600 disabled:opacity-30 flex items-center space-x-1 text-sm font-bold transition-colors"
-                        >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M15 19l-7-7 7-7"/></svg>
-                            <span>Back</span>
-                        </button>
-                        <span className="text-gray-300">|</span>
-                        <div className="text-xs text-gray-400 font-medium">Automatic progress on select</div>
-                    </div>
+                        );
+                    })}
                 </div>
 
-                {/* Test Info */}
-                <div className="mt-8 bg-white/50 backdrop-blur-sm rounded-2xl p-6 border border-white/50 shadow-sm">
-                    <h4 className="text-gray-900 font-bold mb-1 text-sm">{test.fullName}</h4>
-                    <p className="text-gray-600 text-xs leading-relaxed">{test.description}</p>
+                {/* Footer Actions */}
+                <div className="mt-auto pt-8 flex items-center justify-between border-t border-gray-200/60">
+                    <button 
+                        disabled={currentQuestionIndex === 0}
+                        onClick={() => setCurrentQuestionIndex(prev => prev - 1)}
+                        className="flex items-center gap-2 text-[14px] font-semibold text-gray-500 hover:text-gray-900 disabled:opacity-30 transition-colors"
+                        style={{ fontFamily: 'Inter, sans-serif' }}
+                    >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+                        </svg>
+                        Back
+                    </button>
+                    
+                    <span className="text-[13px] font-medium text-gray-400" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        Auto-advances on selection
+                    </span>
                 </div>
+                
+                {/* Assessment Info Context */}
+                <div className="mt-12 text-center">
+                    <p className="text-[12px] font-medium text-gray-400" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        {test.fullName}
+                    </p>
+                </div>
+            </div>
             </div>
         </div>
     );

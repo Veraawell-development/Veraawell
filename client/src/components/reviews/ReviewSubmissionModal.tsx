@@ -118,7 +118,7 @@ const ReviewSubmissionModal: React.FC<ReviewSubmissionModalProps> = ({
                                                 : 'text-gray-300'
                                             }`}
                                     >
-                                        ★
+                                        
                                     </span>
                                 </button>
                             ))}

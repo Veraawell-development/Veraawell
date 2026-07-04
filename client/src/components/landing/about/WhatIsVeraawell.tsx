@@ -1,58 +1,182 @@
+import React from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useScrollReveal } from '../../../hooks/useScrollReveal';
 
-export default function WhatIsVeraawell() {
+const AboutSection: React.FC = () => {
+  const navigate = useNavigate();
+  const sectionRef = useScrollReveal<HTMLElement>();
+
   return (
-    <section className="w-full bg-[#E0EAEA] py-20 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto">
-        {/* Main Container */}
-        <div className="bg-transparent p-6 rounded-2xl">
-          
-          {/* Text Content */}
-          <div className="space-y-6">
-            {/* Title Box */}
-            <div className="flex justify-center">
-              <div className="bg-[#B55D35] opacity-[80%] rounded-full px-12 py-3">
-                <h2 className="text-white text-xl font-semibold leading-7 font-sans">
-                  What is Veraawell?
-                </h2>
-              </div>
-            </div>
+    <section
+      ref={sectionRef}
+      className="section-tinted"
+      style={{ padding: 'clamp(64px, 8vw, 112px) 1rem' }}
+    >
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-16 lg:gap-24 items-center">
 
-            {/* Container with Illustration and Description */}
-            <div className="relative">
-              {/* Illustration positioned outside - Hidden on mobile/tablet, visible on laptop+ */}
-              <div className="hidden lg:block absolute left-15 -top-30 z-10">
-                <div className="w-auto h-32 bg-[#F3F2FF] rounded-full flex items-center justify-center p-1">
-                  <img 
-                    src="/assest02.svg" 
-                    alt="Veraawell illustration" 
-                    className="w-full h-full object-contain"
-                  />
+          {/* Left: Text */}
+          <div>
+            <span
+              data-reveal
+              className="text-xs font-medium tracking-widest uppercase block mb-4"
+              style={{ color: 'var(--teal)', fontFamily: 'var(--font-mono)' }}
+            >
+              — About Veraawell
+            </span>
+
+            <h2
+              data-reveal
+              data-delay="1"
+              className="leading-tight mb-6"
+              style={{
+                fontFamily: 'var(--font-display)',
+                fontSize: 'clamp(28px, 3.5vw, 48px)',
+                color: 'var(--text)',
+                letterSpacing: '-0.02em',
+              }}
+            >
+              We're closing the gap between{' '}
+              <em style={{ color: 'var(--teal)' }}>seeking help</em> and finding it.
+            </h2>
+
+            <p
+              data-reveal
+              data-delay="2"
+              className="mb-6 leading-relaxed"
+              style={{ color: 'var(--text-2)', fontSize: '17px' }}
+            >
+              <strong style={{ color: 'var(--text)', fontWeight: 600 }}>Veraawell</strong> is a
+              platform aimed at revolutionising the culture of mental health in India. We bridge
+              the gap between people who seek professional help and psychologists — giving users
+              the freedom to operate at their own pace and track their journey.
+            </p>
+
+            <div
+              data-reveal
+              data-delay="3"
+              className="w-12 h-px mb-6"
+              style={{ background: 'var(--teal-soft)', opacity: 0.5 }}
+            />
+
+            <p
+              data-reveal
+              data-delay="3"
+              className="text-lg font-semibold mb-7 leading-snug"
+              style={{
+                color: 'var(--text)',
+                fontFamily: 'var(--font-display)',
+                fontStyle: 'italic',
+              }}
+            >
+              Find the perfect therapist for your mental health journey.
+            </p>
+
+            <button
+              data-reveal
+              data-delay="4"
+              onClick={() => navigate('/choose-professional')}
+              className="btn-shimmer inline-flex items-center gap-2 px-7 py-3.5 rounded-full text-sm font-semibold text-white"
+              style={{
+                background: 'var(--teal)',
+                boxShadow: 'var(--shadow-teal)',
+                transition: 'all 0.2s var(--ease-spring)',
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLButtonElement).style.background = 'var(--teal-dark)';
+                (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-2px)';
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLButtonElement).style.background = 'var(--teal)';
+                (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(0)';
+              }}
+            >
+              View Therapists →
+            </button>
+          </div>
+
+          {/* Right: Stats panel */}
+          <div data-reveal="right" data-delay="2">
+            <div
+              className="rounded-2xl p-8"
+              style={{
+                background: 'var(--surface)',
+                border: '1px solid var(--border)',
+                boxShadow: 'var(--shadow-md)',
+              }}
+            >
+              {/* Big stat */}
+              <div className="mb-8">
+                <div
+                  className="leading-none mb-2"
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontSize: 'clamp(56px, 7vw, 80px)',
+                    color: 'var(--teal)',
+                    letterSpacing: '-0.03em',
+                  }}
+                >
+                  1,000+
                 </div>
-              </div>
-              
-              {/* Description Box - Removed background and shadow to "remove the box" as requested */}
-              <div className="p-6 lg:ml-12 mt-10">
-                <p className="text-[#B55D35] text-xl leading-6 font-sans font-medium">
-                  <span className="font-bold">Veraawell</span> is a platform aimed at revolutionizing the culture of mental health in India. We bridge the gap between people who seek professional help and psychologists. We give the user freedom to operate at their own pace and track their mental health journey as their own.
+                <p className="text-sm" style={{ color: 'var(--text-2)' }}>
+                  Indians have started their healing journey through Veraawell
                 </p>
               </div>
+
+              {/* Divider */}
+              <div
+                className="w-full h-px mb-8"
+                style={{ background: 'var(--border)' }}
+              />
+
+              {/* Testimonial pull-quote */}
+              <blockquote>
+                <div
+                  className="text-5xl leading-none mb-3"
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    color: 'var(--teal-soft)',
+                    opacity: 0.5,
+                  }}
+                >
+                  "
+                </div>
+                <p
+                  className="text-base leading-relaxed mb-4"
+                  style={{
+                    fontFamily: 'var(--font-display)',
+                    fontStyle: 'italic',
+                    color: 'var(--text)',
+                    fontSize: '17px',
+                  }}
+                >
+                  I came in feeling lost, and today I feel stronger and more
+                  in control of my life.
+                </p>
+                <div className="flex items-center gap-3">
+                  <div
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
+                    style={{ background: 'var(--teal)' }}
+                  >
+                    I
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>Isha M.</p>
+                    <div className="flex gap-0.5 mt-0.5">
+                      {[...Array(5)].map((_, i) => (
+                        <span key={i} style={{ color: '#F59E0B', fontSize: '11px' }}>★</span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </blockquote>
             </div>
           </div>
-        </div>
 
-        {/* Call to Action Section */}
-        <div className="text-center mt-12 sm:mt-14 md:mt-16 lg:mt-16">
-          <h3 className="text-[#C17B5C] text-[20px] sm:text-[24px] md:text-[28px] lg:text-[28px] font-bold leading-[1.4] mb-8 sm:mb-10 md:mb-12 lg:mb-12 max-w-3xl sm:max-w-3xl md:max-w-4xl lg:max-w-4xl mx-auto font-sans px-4 sm:px-6 md:px-0 lg:px-0">
-            Let's get you started with your mental health journey 
-            with the first step of all, finding the perfect 
-            therapist for you.
-          </h3>
-          
-          <button className="bg-[#E6847A] text-[#FFFDE9] text-[16px] sm:text-[18px] md:text-[20px] lg:text-[20px] font-bold px-10 sm:px-8 md:px-10 lg:px-20 py-2 sm:py-3 md:py-4 lg:py-3 rounded-3xl shadow-[0_4px_8px_rgba(0,0,0,0.15)] transition-all duration-300 transform hover:scale-105 hover:shadow-xl font-sans">
-            View Therapist
-          </button>
         </div>
       </div>
     </section>
   );
-}
+};
+
+export default AboutSection;

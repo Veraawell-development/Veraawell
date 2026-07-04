@@ -3,7 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import DoctorCard from '../components/DoctorCard';
 import { API_CONFIG, API_BASE_URL } from '../config/api';
 import { useDataSocket } from '../hooks/useDataSocket';
-import BackToDashboard from '../components/BackToDashboard';
+import LeafDecor from '../components/ui/LeafDecor';
 
 interface Doctor {
   _id: string;
@@ -46,7 +46,7 @@ const ChooseProfessionalPage: React.FC = () => {
 
   const serviceType = (location.state as any)?.serviceType || 'General';
 
-  // ✨ REAL-TIME: Connect to data socket
+  //  REAL-TIME: Connect to data socket
   const { socket } = useDataSocket();
 
   useEffect(() => {
@@ -62,7 +62,7 @@ const ChooseProfessionalPage: React.FC = () => {
     loadData();
   }, []);
 
-  // ✨ REAL-TIME: Listen for doctor status changes
+  //  REAL-TIME: Listen for doctor status changes
   useEffect(() => {
     if (!socket) return;
 
@@ -142,7 +142,7 @@ const ChooseProfessionalPage: React.FC = () => {
   };
 
   const getDoctorBgColor = (id: string) => {
-    const colors = ['#ABA5D1', '#7DA9A8', '#6DBEDF', '#A8D5BA'];
+    const colors = ['#C8E6C9', '#B2DFDB', '#D1C4E9', '#FFCCBC'];
     let hash = 0;
     for (let i = 0; i < id.length; i++) {
       hash = id.charCodeAt(i) + ((hash << 5) - hash);
@@ -208,25 +208,63 @@ const ChooseProfessionalPage: React.FC = () => {
   const currentCount = currentDoctors.length;
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="h-screen pt-16 md:pt-[80px] bg-[var(--bg-2)] flex flex-col overflow-hidden relative box-border">
+      {/* Background Ornaments */}
+      <LeafDecor 
+        style={{ 
+          position: 'absolute', 
+          top: '-5%', 
+          left: '-10%', 
+          width: '500px', 
+          height: '500px', 
+          opacity: 0.6, 
+          transform: 'rotate(-20deg)', 
+          zIndex: 0 
+        }} 
+      />
+      <div 
+        className="absolute top-[20%] right-[-10%] w-[600px] h-[600px] rounded-full blur-[120px] pointer-events-none z-0" 
+        style={{ background: 'radial-gradient(circle, rgba(107, 168, 136, 0.15), transparent 60%)' }} 
+      />
+
       {/* Hero Section */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-5xl mx-auto px-4 py-12 md:py-16">
-          <BackToDashboard />
-          <div className="text-center max-w-3xl mx-auto">
-            <h1 className="text-3xl md:text-4xl font-bold mb-4 text-gray-900">
-              Find Your Therapist
+      <div className="shrink-0 relative z-10">
+        <div className="max-w-6xl mx-auto px-6 pt-12 pb-6 relative flex flex-col items-center">
+          {/* Back Button */}
+          <button
+            onClick={() => navigate('/patient-dashboard')}
+            className="absolute left-6 top-12 flex items-center gap-3 text-[11px] font-bold tracking-[0.15em] uppercase transition-all duration-300 hover:-translate-x-1"
+            style={{ color: 'var(--teal)' }}
+          >
+            <div className="w-8 h-8 rounded-full flex items-center justify-center transition-all duration-300"
+              style={{ background: 'rgba(0,151,178,0.1)', border: '1px solid rgba(0,151,178,0.2)' }}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" strokeWidth={2.5} viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+              </svg>
+            </div>
+            Back to Dashboard
+          </button>
+          
+          <div className="text-center max-w-2xl mt-14 md:mt-4">
+            <h1 
+              className="text-4xl md:text-5xl font-normal mb-4 text-center leading-tight tracking-tight" 
+              style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}
+            >
+              Find Your <em style={{ color: 'var(--teal)' }}>Therapist</em>
             </h1>
-            <p className="text-base md:text-lg text-gray-600 leading-relaxed mb-8" style={{ fontFamily: 'Inter, sans-serif' }}>
+            <p className="text-[16px] text-gray-500 mb-8 mx-auto max-w-md" style={{ color: 'var(--text-2)' }}>
               Choose a professional who understands you. Start with a free discovery session to find the right fit.
             </p>
 
             {/* Discovery Session Badge */}
-            <div className="inline-flex items-center gap-2 bg-teal-50 border border-teal-200 px-6 py-3 rounded-full">
-              <svg className="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            <div className="inline-flex items-center gap-2 px-5 py-2 rounded-full"
+              style={{ background: 'rgba(107,168,136,0.1)', border: '1px solid rgba(107,168,136,0.2)' }}
+            >
+              <svg className="w-4 h-4" style={{ color: 'var(--sage)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
               </svg>
-              <span className="text-sm font-semibold text-teal-700" style={{ fontFamily: 'Inter, sans-serif' }}>
+              <span className="text-[13px] font-semibold" style={{ color: 'var(--teal-dark)' }}>
                 Free Discovery Session Available
               </span>
             </div>
@@ -235,51 +273,60 @@ const ChooseProfessionalPage: React.FC = () => {
       </div>
 
       {/* Toggle Section */}
-      <div className="bg-white border-b border-gray-200">
-        <div className="max-w-6xl mx-auto px-4 py-6">
-          <div className="flex justify-center">
-            <div className="inline-flex bg-slate-100 rounded-full p-1 gap-1">
-              <button
-                onClick={() => setViewMode('online')}
-                className={`px-8 py-2 rounded-full font-medium transition-all duration-200 ${viewMode === 'online'
-                  ? 'bg-white text-teal-600 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                style={{ fontFamily: 'Inter, sans-serif' }}
-              >
-                Online Now
-              </button>
-              <button
-                onClick={() => setViewMode('all')}
-                className={`px-8 py-2 rounded-full font-medium transition-all duration-200 ${viewMode === 'all'
-                  ? 'bg-white text-teal-600 shadow-sm'
-                  : 'text-slate-600 hover:text-slate-900'
-                  }`}
-                style={{ fontFamily: 'Inter, sans-serif' }}
-              >
-                All Available
-              </button>
-            </div>
+      <div className="shrink-0 relative z-20 pb-4">
+        <div className="max-w-[1200px] mx-auto px-6 flex justify-center">
+          <div 
+            className="inline-flex rounded-full p-1.5 shadow-sm"
+            style={{ background: 'rgba(255,255,255,0.6)', border: '1px solid rgba(255,255,255,0.8)', backdropFilter: 'blur(8px)' }}
+          >
+            <button
+              onClick={() => setViewMode('online')}
+              className={`px-8 py-2.5 rounded-full font-bold text-[13px] transition-all duration-300 ${viewMode === 'online'
+                ? 'shadow-md'
+                : 'bg-transparent opacity-60 hover:opacity-100'
+                }`}
+              style={{ 
+                color: viewMode === 'online' ? '#fff' : 'var(--teal-dark)',
+                background: viewMode === 'online' ? 'var(--teal)' : 'transparent'
+              }}
+            >
+              Available Now
+            </button>
+            <button
+              onClick={() => setViewMode('all')}
+              className={`px-8 py-2.5 rounded-full font-bold text-[13px] transition-all duration-300 ${viewMode === 'all'
+                ? 'shadow-md'
+                : 'bg-transparent opacity-60 hover:opacity-100'
+                }`}
+              style={{ 
+                color: viewMode === 'all' ? '#fff' : 'var(--teal-dark)',
+                background: viewMode === 'all' ? 'var(--teal)' : 'transparent'
+              }}
+            >
+              All Available
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Previous Doctors Section Removed in favor of inline tags */}
-
       {/* Unified Doctors Section */}
-      <div className="max-w-6xl mx-auto px-4 py-10">
-        {/* Section Header */}
-        <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-2">
-            {viewMode === 'online' && (
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-            )}
-            <h2 className="text-xl font-bold text-gray-900">
-              {viewMode === 'online' ? 'Online Now' : 'All Professionals'}
+      <div className="flex-1 overflow-y-auto pb-12 relative z-10">
+        <div className="max-w-6xl mx-auto px-6 pt-6">
+          {/* Section Header */}
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-3">
+            <h2 className="text-[20px] font-semibold tracking-tight" style={{ color: 'var(--text)' }}>
+              {viewMode === 'online' ? 'Available Now' : 'All Professionals'}
             </h2>
+            {viewMode === 'online' && (
+              <span className="relative flex h-2.5 w-2.5">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ backgroundColor: 'var(--sage)' }}></span>
+                <span className="relative inline-flex rounded-full h-2.5 w-2.5" style={{ backgroundColor: 'var(--sage)' }}></span>
+              </span>
+            )}
           </div>
           {!loading && !error && (
-            <span className="text-sm text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>
+            <span className="text-[13px] font-medium" style={{ color: 'var(--text-2)' }}>
               {currentCount} {viewMode === 'online' ? 'online' : 'available'}
             </span>
           )}
@@ -287,27 +334,26 @@ const ChooseProfessionalPage: React.FC = () => {
 
         {/* Content */}
         {loading ? (
-          <div className="text-center py-16">
-            <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-2 border-teal-600 mb-3"></div>
-            <p className="text-sm text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>Loading...</p>
+          <div className="text-center py-20">
+            <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-2 mb-3" style={{ borderColor: 'var(--teal)' }}></div>
+            <p className="text-sm font-medium" style={{ color: 'var(--text-2)' }}>Loading professionals...</p>
           </div>
         ) : error ? (
-          <div className="text-center py-16 bg-white rounded-xl border border-gray-200">
-            <p className="text-red-600 mb-4 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>{error}</p>
+          <div className="text-center py-16 rounded-3xl" style={{ background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(255,255,255,0.9)' }}>
+            <p className="text-red-600 mb-4 text-sm font-medium">{error}</p>
             <button
               onClick={fetchDoctors}
-              className="px-5 py-2 bg-teal-600 text-white text-sm font-semibold rounded-lg hover:bg-teal-700 transition-colors"
-              style={{ fontFamily: 'Inter, sans-serif' }}
+              className="px-6 py-2.5 text-white text-sm font-semibold rounded-full transition-colors shadow-sm"
+              style={{ background: 'var(--teal)' }}
             >
               Try Again
             </button>
           </div>
         ) : currentDoctors.length > 0 ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {viewMode === 'online' ? (
-              // Online doctors view - use DoctorCard component
+              // Online doctors view
               onlineDoctors.map((doctor) => {
-                // Find full doctor data from doctors array
                 const fullDoctorData = doctors.find(d => d.userId._id === doctor._id);
 
                 if (fullDoctorData) {
@@ -320,16 +366,8 @@ const ChooseProfessionalPage: React.FC = () => {
                     : `${fullDoctorData.experience} years`;
 
                   return (
-                    <div key={doctor._id} className="relative">
-                      {/* Online Badge Overlay */}
-                      <div className="absolute top-3 right-3 z-10 flex items-center gap-1.5 bg-green-50 px-2.5 py-1 rounded-full border border-green-200">
-                        <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
-                        <span className="text-xs font-medium text-green-700" style={{ fontFamily: 'Inter, sans-serif' }}>
-                          Online
-                        </span>
-                      </div>
-
                       <DoctorCard
+                        key={doctor._id}
                         name={`Dr. ${fullDoctorData.userId.firstName} ${fullDoctorData.userId.lastName}`}
                         experience={experienceText}
                         qualification={fullDoctorData.qualification.join(', ') || 'Not specified'}
@@ -340,9 +378,17 @@ const ChooseProfessionalPage: React.FC = () => {
                         bgColor={getDoctorBgColor(fullDoctorData.userId._id)}
                         rating={fullDoctorData.rating}
                         isPrevious={previousDoctorIds.has(fullDoctorData._id)}
+                        onViewProfile={() => {
+                          navigate(`/doctor/${fullDoctorData.userId._id}`, {
+                            state: {
+                              serviceType: 'General',
+                              bookingType: 'immediate'
+                            }
+                          });
+                        }}
                         onBookSession={() => handleBookSession(doctor._id, true)}
+                        isOnline={true}
                       />
-                    </div>
                   );
                 }
 
@@ -350,45 +396,61 @@ const ChooseProfessionalPage: React.FC = () => {
                 return (
                   <div
                     key={doctor._id}
-                    className="bg-white border border-gray-200 rounded-xl p-5 hover:border-teal-300 hover:shadow-md transition-all"
+                    className="group rounded-3xl p-6 transition-all duration-300 flex flex-col h-full relative overflow-hidden"
+                    style={{ 
+                      background: 'rgba(255, 255, 255, 0.7)',
+                      border: '1px solid rgba(255, 255, 255, 0.8)',
+                      backdropFilter: 'blur(16px)',
+                      boxShadow: '0 8px 32px rgba(0,0,0,0.02)'
+                    }}
                   >
+                    {/* Hover Glow */}
+                    <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
+                      style={{ background: 'radial-gradient(circle at 50% 0%, rgba(107, 168, 136, 0.05), transparent 70%)' }}
+                    />
+                    
                     {/* Online Badge */}
-                    <div className="flex justify-end mb-3">
-                      <div className="flex items-center gap-1.5 bg-green-50 px-2.5 py-1 rounded-full">
-                        <div className="w-1.5 h-1.5 bg-green-500 rounded-full"></div>
-                        <span className="text-xs font-medium text-green-700" style={{ fontFamily: 'Inter, sans-serif' }}>
+                    <div className="flex justify-end mb-4 relative z-10">
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
+                        style={{ background: 'rgba(107, 168, 136, 0.1)', border: '1px solid rgba(107, 168, 136, 0.2)' }}
+                      >
+                        <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: 'var(--sage)' }}></div>
+                        <span className="text-[11px] font-bold tracking-wide uppercase" style={{ color: 'var(--sage)' }}>
                           Online
                         </span>
                       </div>
                     </div>
 
                     {/* Doctor Info */}
-                    <div className="text-center">
+                    <div className="flex flex-col items-center flex-1 relative z-10">
                       <div
-                        className="w-16 h-16 mx-auto mb-3 rounded-full flex items-center justify-center text-white text-xl font-bold"
+                        className="w-24 h-24 mb-5 rounded-full flex items-center justify-center text-white text-3xl font-display shadow-lg"
                         style={{ backgroundColor: getDoctorBgColor(doctor._id) }}
                       >
                         {doctor.firstName.charAt(0)}{doctor.lastName.charAt(0)}
                       </div>
-                      <h3 className="text-base font-bold mb-1 text-gray-900">
+                      <h3 className="text-xl font-semibold mb-1 text-center" style={{ color: 'var(--text)' }}>
                         Dr. {doctor.firstName} {doctor.lastName}
                       </h3>
-                      <p className="text-xs text-gray-500 mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
+                      <p className="text-[14px] mb-8 text-center truncate w-full" style={{ color: 'var(--text-2)' }}>
                         {doctor.email}
                       </p>
-                      <button
-                        onClick={() => handleBookSession(doctor._id, true)}
-                        className="w-full px-4 py-2 bg-teal-600 text-white text-sm font-semibold rounded-lg hover:bg-teal-700 transition-colors"
-                        style={{ fontFamily: 'Inter, sans-serif' }}
-                      >
-                        Book Now
-                      </button>
+                      
+                      <div className="mt-auto w-full">
+                        <button
+                          onClick={() => handleBookSession(doctor._id, true)}
+                          className="w-full px-4 py-3 text-white text-[14px] font-bold rounded-full transition-all duration-300 shadow-md hover:-translate-y-1"
+                          style={{ background: 'var(--teal)', boxShadow: '0 8px 20px rgba(0,151,178,0.2)' }}
+                        >
+                          Book Now
+                        </button>
+                      </div>
                     </div>
                   </div>
                 );
               })
             ) : (
-              // All doctors view - detailed cards
+              // All doctors view
               doctors.map((doctor) => {
                 return (
                   <DoctorCard
@@ -425,18 +487,19 @@ const ChooseProfessionalPage: React.FC = () => {
             )}
           </div>
         ) : (
-          <div className="text-center py-16 bg-white rounded-2xl border border-slate-100 shadow-sm">
-            <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="text-center py-20 rounded-3xl" style={{ background: 'rgba(255,255,255,0.5)', border: '1px dashed rgba(0,0,0,0.1)' }}>
+            <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" style={{ background: 'rgba(0,151,178,0.05)' }}>
+              <svg className="w-8 h-8 opacity-50" style={{ color: 'var(--teal)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
               </svg>
             </div>
-            <p className="text-slate-600 text-sm font-medium mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+            <p className="text-[15px] font-semibold mb-1" style={{ color: 'var(--dark-text)' }}>
               {viewMode === 'online' ? 'No professionals online' : 'No professionals available'}
             </p>
-            <p className="text-slate-400 text-xs" style={{ fontFamily: 'Inter, sans-serif' }}>Please check back later</p>
+            <p className="text-[13px]" style={{ color: 'var(--dark-text-2)' }}>Please check back later</p>
           </div>
         )}
+        </div>
       </div>
     </div>
   );

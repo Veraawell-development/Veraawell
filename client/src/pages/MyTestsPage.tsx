@@ -2,12 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MENTAL_HEALTH_TESTS } from '../data/mentalHealthTests';
 import { API_CONFIG } from '../config/api';
-import BackToDashboard from '../components/BackToDashboard';
+import { FiArrowLeft, FiChevronRight } from 'react-icons/fi';
 
 const MyTestsPage: React.FC = () => {
     const navigate = useNavigate();
 
-    const [sidebarOpen, setSidebarOpen] = useState(false);
     const [assessments, setAssessments] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
     const [filterType, setFilterType] = useState<string>('all');
@@ -38,14 +37,14 @@ const MyTestsPage: React.FC = () => {
         }
     };
 
-    const getSeverityColor = (severity: string) => {
+    const getSeverityStyle = (severity: string) => {
         switch (severity) {
-            case 'minimal': return { bg: 'bg-green-50', text: 'text-green-700', dot: 'bg-green-500' };
-            case 'mild': return { bg: 'bg-yellow-50', text: 'text-yellow-700', dot: 'bg-yellow-500' };
-            case 'moderate': return { bg: 'bg-orange-50', text: 'text-orange-700', dot: 'bg-orange-500' };
-            case 'moderately-severe': return { bg: 'bg-red-50', text: 'text-red-700', dot: 'bg-red-500' };
-            case 'severe': return { bg: 'bg-red-50', text: 'text-red-800', dot: 'bg-red-600' };
-            default: return { bg: 'bg-gray-50', text: 'text-gray-700', dot: 'bg-gray-500' };
+            case 'minimal': return { bg: 'bg-[#ECFDF5]', text: 'text-[#059669]', dot: 'bg-[#059669]' };
+            case 'mild': return { bg: 'bg-[#FEF3C7]', text: 'text-[#D97706]', dot: 'bg-[#D97706]' };
+            case 'moderate': return { bg: 'bg-[#FFF7ED]', text: 'text-[#EA580C]', dot: 'bg-[#EA580C]' };
+            case 'moderately-severe': return { bg: 'bg-[#FEF2F2]', text: 'text-[#DC2626]', dot: 'bg-[#DC2626]' };
+            case 'severe': return { bg: 'bg-[#FEF2F2]', text: 'text-[#DC2626]', dot: 'bg-[#B91C1C]' };
+            default: return { bg: 'bg-gray-100', text: 'text-gray-600', dot: 'bg-gray-500' };
         }
     };
 
@@ -58,114 +57,83 @@ const MyTestsPage: React.FC = () => {
     ];
 
     return (
-        <div className="min-h-screen" style={{ backgroundColor: '#E0EAEA' }}>
-            {/* Sidebar */}
-            {sidebarOpen && <div className="fixed inset-0 z-40" onClick={() => setSidebarOpen(false)} />}
-            <div className={`fixed left-0 top-0 h-screen w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`} style={{ backgroundColor: '#7DA9A8' }}>
-                <div className="h-full flex flex-col p-4 text-white font-sans">
-                    {/* Sidebar Header */}
-                    <div className="flex items-center justify-between mb-6 border-b border-white/20 pb-4">
-                        <h2 className="text-xl font-bold">Menu</h2>
-                        <button onClick={() => setSidebarOpen(false)} className="p-1 hover:bg-white/10 rounded-full">
-                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        </button>
-                    </div>
-                    <div className="space-y-3 flex-1">
-                        <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors" onClick={() => navigate('/patient-dashboard')}>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-                            </svg>
-                            <span className="text-base font-medium">My Dashboard</span>
-                        </div>
-                        <div className="flex items-center space-x-3 cursor-pointer bg-white/20 p-2 rounded-lg transition-colors">
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                            </svg>
-                            <span className="text-base font-medium">My Tests</span>
-                        </div>
-                        <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors" onClick={() => navigate('/my-journal')}>
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-                            </svg>
-                            <span className="text-base font-medium">My Journal</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Header */}
-            <div className="py-4 px-4 shadow-sm" style={{ backgroundColor: '#ABA5D1' }}>
-                <div className="max-w-7xl mx-auto flex items-center justify-between">
-                    <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors">
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16"></path>
-                        </svg>
+        <div className="min-h-screen pt-[64px] md:pt-[80px] bg-[#FAFAFA] font-sans flex flex-col pb-12 box-border">
+            {/* Main Content Area */}
+            <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 md:py-10">
+                
+                <div className="mb-8 max-w-2xl relative">
+                    <button 
+                        onClick={() => navigate('/patient-dashboard')} 
+                        className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 hover:text-teal-600 transition-colors mb-5 group"
+                        aria-label="Back to Dashboard"
+                        style={{ fontFamily: 'Inter, sans-serif' }}
+                    >
+                        <FiArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+                        Back to Dashboard
                     </button>
-                    <h1 className="text-2xl font-bold text-white">My Tests</h1>
-                    <div className="w-10"></div>
-                </div>
-            </div>
 
-            {/* Content */}
-            <div className="max-w-4xl mx-auto px-4 py-8">
-                <BackToDashboard />
-                {/* Filter Pills */}
-                <div className="flex flex-wrap gap-2 mb-8">
-                    {testTypes.map((type) => (
-                        <button
-                            key={type.id}
-                            onClick={() => setFilterType(type.id)}
-                            className={`px-5 py-2 rounded-full font-medium text-sm transition-all ${filterType === type.id
-                                ? 'bg-white text-teal-600 shadow-md'
-                                : 'bg-white/60 text-gray-600 hover:bg-white hover:shadow-sm'
+                    <h1 className="text-[32px] md:text-[36px] font-extrabold text-gray-800 tracking-tight mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        My Tests
+                    </h1>
+                    <p className="text-[15px] text-gray-500 font-medium leading-relaxed max-w-2xl" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        Review your past mental health assessments to track your progress and wellbeing over time.
+                    </p>
+                </div>
+
+                {/* Sleek Filter Pills */}
+                <div className="flex flex-wrap gap-2 mb-10 border-b border-gray-100 pb-6">
+                    {testTypes.map((type) => {
+                        const isSelected = filterType === type.id;
+                        return (
+                            <button
+                                key={type.id}
+                                onClick={() => setFilterType(type.id)}
+                                className={`px-4 py-2 rounded-full text-[13px] font-semibold transition-all duration-200 border ${
+                                    isSelected
+                                    ? 'bg-teal-600 text-white border-teal-600 shadow-sm'
+                                    : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                                 }`}
-                            style={{ fontFamily: 'Inter, sans-serif' }}
-                        >
-                            {type.label}
-                        </button>
-                    ))}
+                                style={{ fontFamily: 'Inter, sans-serif' }}
+                            >
+                                {type.label}
+                            </button>
+                        );
+                    })}
                 </div>
 
                 {/* Loading State */}
                 {loading && (
-                    <div className="text-center py-16">
-                        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-600 mx-auto mb-4"></div>
-                        <p className="text-gray-500 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>Loading...</p>
+                    <div className="text-center py-20">
+                        <div className="w-8 h-8 border-2 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                        <p className="text-gray-500 text-[13px] font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>Loading records...</p>
                     </div>
                 )}
 
                 {/* Empty State */}
                 {!loading && assessments.length === 0 && (
-                    <div className="bg-white rounded-2xl shadow-sm p-16 text-center">
-                        <div className="w-20 h-20 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                            <svg className="w-10 h-10 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                            </svg>
+                    <div className="bg-white rounded-[24px] border border-gray-100 shadow-sm p-16 text-center max-w-3xl mx-auto">
+                        <div className="w-16 h-16 bg-gray-50 border border-gray-100 rounded-full flex items-center justify-center mx-auto mb-5">
+                            <FiList className="w-6 h-6 text-gray-400" />
                         </div>
-                        <h3 className="text-xl font-bold text-gray-900 mb-2">
-                            No tests yet
+                        <h3 className="text-[18px] font-bold text-gray-800 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                            No tests found
                         </h3>
-                        <p className="text-gray-500 mb-6 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>
-                            Take your first mental health assessment
+                        <p className="text-gray-500 text-[14px] mb-8" style={{ fontFamily: 'Inter, sans-serif' }}>
+                            You haven't completed any assessments in this category yet.
                         </p>
                         <button
-                            onClick={() => navigate('/patient-dashboard')}
-                            className="px-6 py-2.5 rounded-xl font-semibold text-white transition-all shadow-md hover:shadow-lg"
-                            style={{
-                                fontFamily: 'Inter, sans-serif',
-                                background: 'linear-gradient(135deg, #6DBEDF 0%, #5DBEBD 100%)'
-                            }}
+                            onClick={() => navigate('/mental-health')}
+                            className="px-6 py-2.5 rounded-[12px] text-[14px] font-semibold text-white bg-teal-600 hover:bg-teal-700 transition-colors shadow-sm"
+                            style={{ fontFamily: 'Inter, sans-serif' }}
                         >
-                            Take a Test
+                            Take an Assessment
                         </button>
                     </div>
                 )}
 
-                {/* Test History - Minimal Cards */}
+                {/* Minimalist Grid Cards */}
                 {!loading && assessments.length > 0 && (
-                    <div className="space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                         {assessments.map((assessment) => {
                             const test = MENTAL_HEALTH_TESTS[assessment.testType] || {
                                 name: assessment.testType,
@@ -173,62 +141,55 @@ const MyTestsPage: React.FC = () => {
                                 scoring: { maxScore: 100 }
                             };
                             const safeSeverity = assessment.scores?.severity || 'minimal';
-                            const severityColors = getSeverityColor(safeSeverity);
+                            const style = getSeverityStyle(safeSeverity);
 
                             return (
                                 <div
                                     key={assessment._id}
-                                    className="bg-white rounded-xl shadow-sm hover:shadow-md transition-all cursor-pointer overflow-hidden border border-gray-100"
+                                    className="group bg-white rounded-[16px] border border-gray-100 hover:border-teal-200 shadow-sm hover:shadow-md transition-all cursor-pointer overflow-hidden p-6 flex flex-col"
                                     onClick={() => navigate(`/test-results/${assessment._id}`)}
                                 >
-                                    <div className="p-5">
-                                        <div className="flex items-start justify-between mb-3">
-                                            <div className="flex-1">
-                                                <div className="flex items-center gap-2 mb-1">
-                                                    <h3 className="text-lg font-bold text-gray-900">
-                                                        {test.name}
-                                                    </h3>
-                                                    <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full ${severityColors.bg}`}>
-                                                        <div className={`w-1.5 h-1.5 rounded-full ${severityColors.dot}`}></div>
-                                                        <span className={`text-xs font-semibold ${severityColors.text}`} style={{ fontFamily: 'Inter, sans-serif' }}>
-                                                            {safeSeverity.charAt(0).toUpperCase() + safeSeverity.slice(1).replace('-', ' ')}
-                                                        </span>
-                                                    </div>
-                                                </div>
-                                                <p className="text-sm text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                                    {test.fullName}
-                                                </p>
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div className="flex flex-col gap-1">
+                                            <h3 className="text-[16px] font-bold text-gray-800 tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                                {test.name}
+                                            </h3>
+                                            <p className="text-[12px] font-medium text-gray-400" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                                {new Date(assessment.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} • {new Date(assessment.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                            </p>
+                                        </div>
+                                        <span 
+                                            className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide uppercase shrink-0"
+                                            style={{ backgroundColor: style.bg, color: style.text, fontFamily: 'Inter, sans-serif' }}
+                                        >
+                                            <div className={`w-1.5 h-1.5 rounded-full ${style.dot}`}></div>
+                                            {safeSeverity.replace('-', ' ')}
+                                        </span>
+                                    </div>
+                                    
+                                    <p className="text-[13px] text-gray-500 font-medium mb-6 line-clamp-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                        {test.fullName}
+                                    </p>
+
+                                    <div className="mt-auto pt-5 border-t border-gray-50 flex items-center justify-between">
+                                        <div className="flex-1 pr-6">
+                                            <div className="flex items-baseline gap-1.5 mb-1.5">
+                                                <span className="text-[24px] font-black leading-none text-gray-800 tracking-tighter" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                                    {assessment.scores?.total || 0}
+                                                </span>
+                                                <span className="text-[13px] font-bold text-gray-400" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                                    / {test.scoring.maxScore}
+                                                </span>
                                             </div>
-                                            <div className="text-right ml-4">
-                                                <p className="text-sm font-medium text-gray-700" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                                    {new Date(assessment.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                                                </p>
-                                                <p className="text-xs text-gray-400" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                                    {new Date(assessment.completedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                                </p>
+                                            <div className="w-full bg-gray-100 rounded-full h-[3px] overflow-hidden">
+                                                <div
+                                                    className="h-full bg-teal-500 rounded-full transition-all duration-1000"
+                                                    style={{ width: `${assessment.scores?.percentage || 0}%` }}
+                                                />
                                             </div>
                                         </div>
-
-                                        <div className="flex items-center gap-4">
-                                            <div className="flex-1">
-                                                <div className="flex items-center justify-between mb-1.5">
-                                                    <span className="text-xs font-medium text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                                        Score
-                                                    </span>
-                                                    <span className="text-sm font-bold text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                                        {assessment.scores?.total || 0} / {test.scoring.maxScore}
-                                                    </span>
-                                                </div>
-                                                <div className="w-full bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                                                    <div
-                                                        className="h-full bg-gradient-to-r from-teal-500 to-cyan-600 rounded-full transition-all"
-                                                        style={{ width: `${assessment.scores?.percentage || 0}%` }}
-                                                    />
-                                                </div>
-                                            </div>
-                                            <svg className="w-5 h-5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                                            </svg>
+                                        <div className="w-8 h-8 rounded-full border border-gray-100 bg-gray-50 flex items-center justify-center group-hover:bg-teal-50 group-hover:border-teal-200 group-hover:text-teal-600 text-gray-400 transition-all flex-shrink-0">
+                                            <FiChevronRight className="w-4 h-4" />
                                         </div>
                                     </div>
                                 </div>

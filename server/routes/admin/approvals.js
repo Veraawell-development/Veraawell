@@ -3,6 +3,7 @@ const router = express.Router();
 const User = require('../../models/user');
 const DoctorProfile = require('../../models/doctorProfile');
 const { verifyAdminToken, verifySuperAdmin } = require('../../middleware/auth.middleware');
+const emailService = require('../../services/email.service');
 
 // ==================== ADMIN APPROVALS (Super Admin Only) ====================
 
@@ -228,7 +229,7 @@ router.post('/doctors/:doctorId/approve', verifyAdminToken, async (req, res) => 
       timestamp: new Date()
     });
 
-    // ✨ REAL-TIME UPDATE: Notify doctor of approval
+    // REAL-TIME UPDATE: Notify doctor of approval
     const io = req.app.get('io');
     if (io) {
       const SocketEmitter = require('../../utils/socketEmitter');
@@ -244,6 +245,9 @@ router.post('/doctors/:doctorId/approve', verifyAdminToken, async (req, res) => 
         doctorId: doctor._id.toString().substring(0, 8)
       });
     }
+
+    // Send email notification
+    await emailService.sendDoctorApprovedEmail(doctor.email, doctor.firstName);
 
     res.json({
       message: 'Doctor approved successfully',
@@ -286,7 +290,7 @@ router.post('/doctors/:doctorId/reject', verifyAdminToken, async (req, res) => {
       timestamp: new Date()
     });
 
-    // ✨ REAL-TIME UPDATE: Notify doctor of rejection
+    // REAL-TIME UPDATE: Notify doctor of rejection
     const io = req.app.get('io');
     if (io) {
       const SocketEmitter = require('../../utils/socketEmitter');
@@ -302,6 +306,9 @@ router.post('/doctors/:doctorId/reject', verifyAdminToken, async (req, res) => {
         doctorId: doctor._id.toString().substring(0, 8)
       });
     }
+
+    // Send email notification
+    await emailService.sendDoctorRejectedEmail(doctor.email, doctor.firstName);
 
     res.json({
       message: 'Doctor rejected successfully',

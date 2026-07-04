@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FiMenu, FiFileText } from 'react-icons/fi';
+import { FiEye } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
-import BackToDashboard from '../components/BackToDashboard';
 import { API_BASE_URL } from '../config/api';
 
 interface PatientNote {
@@ -15,7 +14,6 @@ interface PatientNote {
 const DoctorSessionNotesPage: React.FC = () => {
   const [notes, setNotes] = useState<PatientNote[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const navigate = useNavigate();
   const { user } = useAuth();
 
@@ -28,8 +26,6 @@ const DoctorSessionNotesPage: React.FC = () => {
 
     try {
       setLoading(true);
-      console.log(' Fetching session notes for doctor:', user.userId);
-
       const token = localStorage.getItem('token');
       const headers: HeadersInit = {};
       if (token) {
@@ -47,7 +43,6 @@ const DoctorSessionNotesPage: React.FC = () => {
 
       const data = await response.json();
       const allNotes = data.notes || [];
-      console.log(' Notes fetched:', allNotes.length);
 
       // Group notes by patient
       const patientMap = new Map<string, { patientName: string; lastDate: Date; patientId: string }>();
@@ -104,101 +99,98 @@ const DoctorSessionNotesPage: React.FC = () => {
     return `${day}${suffix(day)} ${month} ${year}`;
   };
 
+  const getInitials = (name: string) => {
+    const parts = name.split(' ').filter(Boolean);
+    if (parts.length >= 2) {
+      return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    }
+    return name ? name[0].toUpperCase() : '';
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="h-[calc(100vh-80px)] flex items-center justify-center bg-[#FAFAFA]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-600 mx-auto"></div>
-          <p className="mt-4 text-gray-500 font-medium">Loading session notes...</p>
+          <div className="w-8 h-8 border-2 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-500 text-[13px] font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>Loading session notes...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans">
-      {/* Sidebar Overlay */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
-      )}
-
-      {/* Sidebar - Teal Theme */}
-      <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-2xl transform transition-transform duration-300 ease-in-out z-50 bg-white border-r border-gray-100 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}>
-        <div className="h-full flex flex-col p-6">
-          <div className="space-y-2">
-            <button
-              onClick={() => { navigate('/doctor-dashboard'); setSidebarOpen(false); }}
-              className="w-full flex items-center space-x-3 px-4 py-3 text-gray-600 hover:bg-teal-50 hover:text-teal-700 rounded-xl transition-all font-medium"
-            >
-              <span>My Dashboard</span>
-            </button>
-            <button
-              onClick={() => { navigate('/doctor-session-notes'); setSidebarOpen(false); }}
-              className="w-full flex items-center space-x-3 px-4 py-3 bg-teal-50 text-teal-700 rounded-xl transition-all font-bold shadow-sm"
-            >
-              <span>Session Notes</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Header - Teal Gradient */}
-      <div className="bg-[#5DBEBD] text-white shadow-lg relative overflow-hidden">
-        <div className="absolute inset-0 bg-white/10 pattern-dots opacity-10"></div>
-        <div className="px-6 py-6 flex items-center justify-center relative z-10">
-          <button onClick={() => setSidebarOpen(true)} className="absolute left-6 text-white hover:bg-white/20 p-2 rounded-full transition-colors">
-            <FiMenu className="w-6 h-6" />
+    <div className="h-screen pt-[64px] md:pt-[80px] bg-[#FAFAFA] font-sans flex flex-col overflow-hidden box-border">
+      {/* Main Content Area */}
+      <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 md:py-10 flex flex-col min-h-0">
+        
+        <div className="mb-8 max-w-2xl relative shrink-0">
+          <button 
+            onClick={() => navigate('/doctor-dashboard')} 
+            className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 hover:text-teal-600 transition-colors mb-5 group"
+            aria-label="Back to Dashboard"
+            style={{ fontFamily: 'Inter, sans-serif' }}
+          >
+            <svg className="w-4 h-4 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Back to Dashboard
           </button>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-wide" style={{ fontFamily: 'Bree Serif, serif' }}>Session Notes</h1>
-        </div>
-      </div>
 
-      <div className="px-4 py-8 max-w-6xl mx-auto">
-        <BackToDashboard />
+          <h1 className="text-[32px] md:text-[36px] font-extrabold text-gray-800 tracking-tight mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
+            Session Notes
+          </h1>
+          <p className="text-[15px] text-gray-500 font-medium leading-relaxed max-w-2xl" style={{ fontFamily: 'Inter, sans-serif' }}>
+            View and manage session notes for your patients.
+          </p>
+        </div>
+
         {notes.length === 0 ? (
-          <div className="text-center py-20 bg-white rounded-3xl shadow-sm border border-gray-100">
-            <div className="bg-teal-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-              <FiFileText className="w-8 h-8 text-teal-400" />
+          <div className="bg-white rounded-[24px] border border-gray-100 shadow-sm p-16 text-center max-w-3xl mx-auto mt-4 shrink-0">
+            <div className="w-16 h-16 bg-gray-50 border border-gray-100 rounded-full flex items-center justify-center mx-auto mb-5">
+              <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
             </div>
-            <h3 className="text-xl font-bold text-gray-800 mb-2 font-serif">No Notes Yet</h3>
-            <p className="text-gray-500">You haven't created any session notes yet.</p>
+            <h3 className="text-[18px] font-bold text-gray-800 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+              No Notes Yet
+            </h3>
+            <p className="text-gray-500 text-[14px] mb-8" style={{ fontFamily: 'Inter, sans-serif' }}>
+              You haven't created any session notes yet.
+            </p>
           </div>
         ) : (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
-            {/* Table Header */}
-            <div className="grid grid-cols-12 gap-4 px-6 py-4 bg-teal-50/50 border-b border-teal-100 text-teal-900 font-bold text-sm uppercase tracking-wider">
-              <div className="col-span-5 md:col-span-4 pl-4">Patient Name</div>
-              <div className="col-span-4 md:col-span-4 text-center">Last Session</div>
-              <div className="col-span-3 md:col-span-4 text-center">Action</div>
-            </div>
-
-            {/* Table Body */}
-            <div className="divide-y divide-gray-100">
+          <div className="flex-1 overflow-y-auto pr-2 pb-10 min-h-0">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {notes.map((note) => (
                 <div
                   key={note._id}
-                  className="grid grid-cols-12 gap-4 px-6 py-5 items-center hover:bg-gray-50 transition-colors group"
+                  className="group bg-white rounded-[16px] border border-gray-100 hover:border-teal-200 shadow-sm hover:shadow-md transition-all overflow-hidden p-6 flex flex-col"
                 >
-                  <div className="col-span-5 md:col-span-4 pl-4">
-                    <span className="font-bold text-gray-800 text-lg group-hover:text-teal-700 transition-colors" style={{ fontFamily: 'Bree Serif, serif' }}>
-                      {note.patientName}
-                    </span>
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-teal-50 border border-teal-100 flex items-center justify-center shrink-0">
+                        <span className="text-[12px] font-bold text-teal-700 tracking-wider">
+                           {getInitials(note.patientName)}
+                        </span>
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <h3 className="text-[15px] font-bold text-gray-800 tracking-tight line-clamp-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+                          {note.patientName}
+                        </h3>
+                        <p className="text-[12px] font-medium text-gray-400" style={{ fontFamily: 'Inter, sans-serif' }}>
+                          Last Session: {note.lastDate}
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                  <div className="col-span-4 md:col-span-4 text-center">
-                    <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-600">
-                      {note.lastDate}
-                    </span>
-                  </div>
-                  <div className="col-span-3 md:col-span-4 flex justify-center">
+                  
+                  <div className="mt-auto pt-4 border-t border-gray-50 flex items-center justify-between gap-2">
                     <button
                       onClick={() => navigate(`/doctor-session-notes/${note.patientId}`)}
-                      className="flex items-center gap-2 text-teal-600 font-bold hover:text-teal-800 hover:underline decoration-2 underline-offset-4 transition-all"
-                      style={{ fontFamily: 'Bree Serif, serif' }}
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 font-bold text-gray-500 hover:text-teal-600 hover:bg-teal-50 transition-colors text-[11px] uppercase tracking-wider px-3 py-2 rounded-lg border border-gray-100 group-hover:border-teal-100"
                     >
-                      <span className="hidden md:inline">View Details</span>
-                      <span className="md:hidden">View</span>
-                      <FiFileText className="w-4 h-4" />
+                      <FiEye className="w-3.5 h-3.5" />
+                      View Details
                     </button>
                   </div>
                 </div>

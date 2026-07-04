@@ -257,19 +257,24 @@ const PostSessionReportModal: React.FC<PostSessionReportModalProps> = ({
                 );
             case 4:
                 return (
-                    <div className="space-y-6 animate-fadeIn text-center py-8">
+                    <div className="space-y-6 animate-fadeIn text-center py-4">
                         {isSubmitted ? (
                             <div className="space-y-6">
-                                <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
-                                    <svg className="w-10 h-10 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                    </svg>
+                                <div className="flex justify-center mb-4 relative">
+                                    <div className="absolute inset-0 flex items-center justify-center">
+                                        <div className="w-16 h-16 bg-green-50 rounded-full animate-ping opacity-60"></div>
+                                    </div>
+                                    <div className="relative w-12 h-12 bg-green-100 rounded-full flex items-center justify-center border-4 border-white shadow-sm">
+                                        <svg className="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                    </div>
                                 </div>
-                                <div>
-                                    <h3 className="text-2xl font-bold text-gray-900">Report Finalized</h3>
-                                    <p className="text-gray-500 mt-2">The session records have been updated successfully.</p>
+                                <div className="mb-6">
+                                    <h3 className="text-[18px] font-bold text-gray-800 tracking-tight mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>Report Finalized</h3>
+                                    <p className="text-[13px] text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>The session records have been updated successfully.</p>
                                 </div>
-                                <div className="pt-6">
+                                <div className="pt-2">
                                     <PDFDownloadLink
                                         document={
                                             <HospitalReportTemplate
@@ -284,11 +289,12 @@ const PostSessionReportModal: React.FC<PostSessionReportModalProps> = ({
                                             />
                                         }
                                         fileName={`Report_${patientName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`}
-                                        className="inline-flex items-center gap-2 px-8 py-4 bg-teal-600 text-white rounded-2xl font-bold shadow-lg hover:bg-teal-700 transition-all hover:-translate-y-1"
+                                        className="w-full bg-teal-500 hover:bg-teal-600 text-white font-bold py-2.5 rounded-xl shadow-sm transition-colors flex items-center justify-center gap-2 text-[14px]"
+                                        style={{ fontFamily: 'Inter, sans-serif' }}
                                     >
                                         {({ loading }) => (
                                             <>
-                                                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
                                                 {loading ? 'Preparing PDF...' : 'Download PDF Prescription'}
                                             </>
                                         )}
@@ -296,35 +302,43 @@ const PostSessionReportModal: React.FC<PostSessionReportModalProps> = ({
                                 </div>
                                 <button
                                     onClick={onSubmit}
-                                    className="text-gray-400 font-medium hover:text-gray-600 transition-colors text-sm"
+                                    className="w-full bg-transparent hover:bg-gray-50 text-gray-500 hover:text-gray-700 font-medium py-2 rounded-xl transition-colors flex items-center justify-center gap-1.5 text-[13px]"
+                                    style={{ fontFamily: 'Inter, sans-serif' }}
                                 >
                                     Done, Close Portal
                                 </button>
                             </div>
                         ) : (
                             <div className="space-y-4">
-                                <div className="w-16 h-16 bg-teal-50 rounded-full flex items-center justify-center mx-auto">
-                                    <svg className="w-8 h-8 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                    </svg>
+                                <div className="flex justify-center mb-4 relative">
+                                    <div className="absolute inset-0 flex items-center justify-center">
+                                        <div className="w-16 h-16 bg-teal-50 rounded-full animate-ping opacity-60"></div>
+                                    </div>
+                                    <div className="relative w-12 h-12 bg-teal-50 rounded-full flex items-center justify-center border-4 border-white shadow-sm">
+                                        <svg className="w-5 h-5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                        </svg>
+                                    </div>
                                 </div>
-                                <div>
-                                    <h3 className="text-xl font-bold text-gray-900">Ready to Submit?</h3>
-                                    <p className="text-gray-500">Please review all data. Once submitted, an official hospital-style PDF will be generated.</p>
+                                <div className="mb-6">
+                                    <h3 className="text-[18px] font-bold text-gray-800 tracking-tight mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>Ready to Submit?</h3>
+                                    <p className="text-[13px] text-gray-500 max-w-[80%] mx-auto leading-relaxed" style={{ fontFamily: 'Inter, sans-serif' }}>Please review all data. Once submitted, an official hospital-style PDF will be generated.</p>
                                 </div>
-                                <div className="pt-4 space-y-3">
+                                <div className="pt-2 flex flex-col gap-2">
                                     <button
                                         onClick={handleSubmit}
                                         disabled={submitting}
-                                        className="w-full py-4 bg-teal-600 text-white rounded-2xl font-bold shadow-lg hover:bg-teal-700 transition-all flex items-center justify-center gap-2"
+                                        className="w-full bg-teal-500 hover:bg-teal-600 text-white font-bold py-2.5 rounded-xl shadow-sm transition-colors flex items-center justify-center gap-2 text-[14px]"
+                                        style={{ fontFamily: 'Inter, sans-serif' }}
                                     >
                                         {submitting ? (
-                                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                                            <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                                         ) : 'Submit Report & Generate PDF'}
                                     </button>
                                     <button
-                                        onClick={prevStep}
-                                        className="w-full py-3 text-gray-500 font-medium hover:bg-gray-50 rounded-xl transition-all"
+                                        onClick={() => setStep(5)}
+                                        className="w-full bg-transparent hover:bg-gray-50 text-gray-500 hover:text-gray-700 font-medium py-2 rounded-xl transition-colors flex items-center justify-center gap-1.5 text-[13px]"
+                                        style={{ fontFamily: 'Inter, sans-serif' }}
                                     >
                                         Review Again
                                     </button>
@@ -333,30 +347,119 @@ const PostSessionReportModal: React.FC<PostSessionReportModalProps> = ({
                         )}
                     </div>
                 );
+            case 5:
+                return (
+                    <div className="space-y-6 animate-fadeIn">
+                        <div className="bg-teal-50 p-4 rounded-xl border border-teal-100 mb-4">
+                            <p className="text-teal-800 text-sm font-medium">Review Session Report</p>
+                            <p className="text-teal-600 text-xs">Please review all information before submitting. This view is read-only.</p>
+                        </div>
+
+                        <div className="space-y-4 text-sm">
+                            {/* Section 1: Assessment */}
+                            <div className="border border-gray-100 rounded-xl p-4 bg-gray-50/30 space-y-3">
+                                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Primary Assessment</h4>
+                                <div className="grid grid-cols-3 gap-2 text-xs">
+                                    <div className="bg-white p-2 rounded-lg border border-gray-100">
+                                        <p className="text-gray-400">Report Type</p>
+                                        <p className="font-semibold text-gray-800 capitalize mt-0.5">
+                                            {reportTypes.find(t => t.value === formData.reportType)?.label || formData.reportType}
+                                        </p>
+                                    </div>
+                                    <div className="bg-white p-2 rounded-lg border border-gray-100">
+                                        <p className="text-gray-400">Patient Presentation</p>
+                                        <p className="font-semibold text-gray-800 capitalize mt-0.5">
+                                            {moods.find(m => m.value === formData.mood)?.label || formData.mood}
+                                        </p>
+                                    </div>
+                                    <div className="bg-white p-2 rounded-lg border border-gray-100">
+                                        <p className="text-gray-400">Overall Progress</p>
+                                        <div className="flex items-center gap-0.5 mt-0.5">
+                                            {[1, 2, 3, 4, 5].map(star => (
+                                                <svg 
+                                                    key={star} 
+                                                    className={`w-3.5 h-3.5 ${star <= formData.progress ? 'fill-amber-400' : 'fill-gray-200'}`} 
+                                                    viewBox="0 0 20 20"
+                                                >
+                                                    <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z" />
+                                                </svg>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Section 2: Clinical Indicators */}
+                            {formData.observations.length > 0 && (
+                                <div className="border border-gray-100 rounded-xl p-4 bg-gray-50/30 space-y-2">
+                                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Clinical Indicators</h4>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {formData.observations.map(obs => (
+                                            <span key={obs} className="px-2.5 py-1 bg-teal-50 border border-teal-100 text-teal-700 text-xs font-medium rounded-full">
+                                                {obs}
+                                            </span>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Section 3: Summary */}
+                            {formData.summary && (
+                                <div className="border border-gray-100 rounded-xl p-4 bg-gray-50/30 space-y-2">
+                                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Detailed Summary</h4>
+                                    <p className="text-gray-700 whitespace-pre-wrap leading-relaxed text-xs bg-white p-3 rounded-lg border border-gray-100">
+                                        {formData.summary}
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Section 4: Diagnosis & Recommendations */}
+                            {(formData.diagnosis || formData.recommendations) && (
+                                <div className="border border-gray-100 rounded-xl p-4 bg-gray-50/30 space-y-3">
+                                    <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider">Treatment Plan</h4>
+                                    {formData.diagnosis && (
+                                        <div className="bg-white p-3 rounded-lg border border-gray-100">
+                                            <p className="text-xs text-gray-400">Diagnosis / Focus Area</p>
+                                            <p className="font-semibold text-gray-800 text-xs mt-0.5">{formData.diagnosis}</p>
+                                        </div>
+                                    )}
+                                    {formData.recommendations && (
+                                        <div className="bg-white p-3 rounded-lg border border-gray-100">
+                                            <p className="text-xs text-gray-400 mb-1">Recommendations & Next Steps</p>
+                                            <p className="text-gray-700 whitespace-pre-wrap leading-relaxed text-xs">
+                                                {formData.recommendations}
+                                            </p>
+                                        </div>
+                                    )}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                );
             default:
                 return null;
         }
     };
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-gray-900/40 backdrop-blur-xl">
-            <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 sm:p-6 bg-gray-500/20 backdrop-blur-sm transition-opacity duration-300 animate-in fade-in">
+            <div className="bg-white rounded-[24px] shadow-2xl w-full max-w-xl overflow-hidden flex flex-col max-h-[90vh] border border-gray-100 transform transition-all duration-300 animate-in zoom-in-95 relative">
                 {/* Progress Bar */}
-                <div className="h-1.5 w-full bg-gray-100">
+                <div className="h-1 w-full bg-gray-50">
                     <div
                         className="h-full bg-teal-500 transition-all duration-500"
-                        style={{ width: `${(step / 4) * 100}%` }}
+                        style={{ width: `${(Math.min(step, 4) / 4) * 100}%` }}
                     />
                 </div>
 
-                <div className="p-8 flex-1 overflow-y-auto">
+                <div className="p-7 flex-1 overflow-y-auto">
                     {/* Header */}
-                    <div className="flex justify-between items-start mb-8">
+                    <div className="flex justify-between items-start mb-6">
                         <div>
-                            <h2 className="text-2xl font-black text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>
+                            <h2 className="text-[18px] font-bold text-gray-800 tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
                                 Clinical Session Report
                             </h2>
-                            <p className="text-gray-400 text-xs font-semibold uppercase tracking-widest mt-1">
+                            <p className="text-gray-400 text-[10px] font-bold uppercase tracking-widest mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>
                                 Session ID: {sessionId.substring(0, 8)} • Patient: {patientName}
                             </p>
                         </div>
@@ -379,24 +482,34 @@ const PostSessionReportModal: React.FC<PostSessionReportModalProps> = ({
 
                 {/* Footer Actions */}
                 {!isSubmitted && (
-                    <div className="p-6 bg-gray-50/50 border-t border-gray-100 flex justify-between items-center">
+                    <div className="p-6 bg-white border-t border-gray-50 flex justify-between items-center">
                         <div>
                             {step > 1 && (
                                 <button
                                     onClick={prevStep}
-                                    className="px-6 py-2 text-gray-400 hover:text-gray-900 font-bold transition-colors"
+                                    className="px-4 py-2 text-gray-400 hover:text-gray-700 font-medium transition-colors text-[13px]"
+                                    style={{ fontFamily: 'Inter, sans-serif' }}
                                 >
                                     Back
                                 </button>
                             )}
                         </div>
-                        <div className="flex gap-3">
+                        <div className="flex gap-2">
                             {step < 4 ? (
                                 <button
                                     onClick={nextStep}
-                                    className="px-10 py-3 bg-gray-900 text-white rounded-2xl font-bold shadow-xl hover:bg-gray-800 transition-all hover:-translate-y-0.5"
+                                    className="px-6 py-2.5 bg-teal-500 hover:bg-teal-600 text-white font-bold rounded-xl shadow-sm transition-colors text-[13px]"
+                                    style={{ fontFamily: 'Inter, sans-serif' }}
                                 >
                                     Continue
+                                </button>
+                            ) : step === 5 ? (
+                                <button
+                                    onClick={() => setStep(4)}
+                                    className="px-6 py-2.5 bg-teal-500 hover:bg-teal-600 text-white font-bold rounded-xl shadow-sm transition-colors text-[13px]"
+                                    style={{ fontFamily: 'Inter, sans-serif' }}
+                                >
+                                    Back to Submit
                                 </button>
                             ) : null}
                         </div>

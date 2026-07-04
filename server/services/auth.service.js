@@ -5,6 +5,7 @@
 
 const jwt = require('jsonwebtoken');
 const User = require('../models/user');
+const PendingUser = require('../models/pendingUser');
 const { getJWTSecret, getCookieConfig } = require('../config/auth');
 const { TOKEN_EXPIRY } = require('../config/constants');
 const { AuthenticationError, AuthorizationError, NotFoundError, ConflictError } = require('../utils/errors');
@@ -124,16 +125,40 @@ async function registerUser(userData) {
     newUserData.approvalStatus = 'approved';
   }
 
-  const newUser = new User(newUserData);
-  await newUser.save();
+  // Generate 6-digit OTP for email verification
+  const otp = Math.floor(100000 + Math.random() * 900000).toString();
+  newUserData.otp = otp;
+  
+  // Format doctorDetails object if there are any
+  if (role === 'doctor' || role === 'admin') {
+      newUserData.doctorDetails = {
+          documents: newUserData.documents,
+          specialization: newUserData.specialization,
+          licenseNumber: newUserData.licenseNumber,
+          jobRole: newUserData.jobRole,
+          professionalMessage: newUserData.professionalMessage,
+          heardAboutUs: newUserData.heardAboutUs
+      };
+      delete newUserData.documents;
+      delete newUserData.specialization;
+      delete newUserData.licenseNumber;
+      delete newUserData.jobRole;
+      delete newUserData.professionalMessage;
+      delete newUserData.heardAboutUs;
+  }
 
-  logger.info('User registered successfully', {
-    userId: newUser._id.toString().substring(0, 8),
-    email: newUser.email,
-    role: newUser.role
+  // Delete any existing pending user with this email
+  await PendingUser.deleteMany({ email: email.toLowerCase().trim() });
+
+  const pendingUser = new PendingUser(newUserData);
+  await pendingUser.save();
+
+  logger.info('User registration pending OTP verification', {
+    email: pendingUser.email,
+    role: pendingUser.role
   });
 
-  return newUser;
+  return pendingUser;
 }
 
 /**
@@ -236,8 +261,7 @@ async function requestPasswordReset(email) {
   const user = await User.findOne({ email: email.toLowerCase() });
 
   if (!user) {
-    // Don't reveal if user exists or not (security best practice)
-    return null;
+    throw new NotFoundError('User with that email does not exist.');
   }
 
   if (user.googleId) {
@@ -307,6 +331,54 @@ async function getUserProfile(userId) {
   return user;
 }
 
+/**
+ * Update user password
+ */
+async function updatePassword(userId, currentPassword, newPassword) {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new NotFoundError('User');
+  }
+
+  const isMatch = await user.comparePassword(currentPassword);
+  if (!isMatch) {
+    throw new AuthenticationError('Incorrect current password');
+  }
+
+  user.password = newPassword;
+  await user.save();
+  return true;
+}
+
+/**
+ * Delete user account
+ */
+async function deleteAccount(userId) {
+  const user = await User.findById(userId);
+  if (!user) {
+    throw new NotFoundError('User');
+  }
+
+  const Session = require('../models/session');
+  const Conversation = require('../models/conversation');
+  const Message = require('../models/message');
+  const DoctorProfile = require('../models/doctorProfile');
+  const Review = require('../models/review');
+
+  // Cascade delete all associated data in parallel
+  await Promise.all([
+    Session.deleteMany({ $or: [{ patientId: userId }, { doctorId: userId }] }),
+    Conversation.deleteMany({ 'participants.userId': userId }),
+    Message.deleteMany({ $or: [{ senderId: userId }, { receiverId: userId }] }),
+    DoctorProfile.deleteOne({ userId }),
+    Review.deleteMany({ $or: [{ patientId: userId }, { doctorId: userId }] }),
+    User.findByIdAndDelete(userId)
+  ]);
+
+  logger.info('Account and all associated data deleted', { userId: userId.toString().substring(0, 8) });
+  return true;
+}
+
 module.exports = {
   generateToken,
   setAuthCookie,
@@ -314,5 +386,7 @@ module.exports = {
   authenticateUser,
   requestPasswordReset,
   resetPassword,
-  getUserProfile
+  getUserProfile,
+  updatePassword,
+  deleteAccount
 };

@@ -123,10 +123,10 @@ const FeedbackModal: React.FC<FeedbackModalProps> = ({
             {rating > 0 && (
               <p className="text-center mt-2 text-sm text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>
                 {rating === 5 && '⭐ Excellent!'}
-                {rating === 4 && '😊 Very Good'}
-                {rating === 3 && '👍 Good'}
-                {rating === 2 && '😐 Fair'}
-                {rating === 1 && '😞 Needs Improvement'}
+                {rating === 4 && ' Very Good'}
+                {rating === 3 && ' Good'}
+                {rating === 2 && ' Fair'}
+                {rating === 1 && ' Needs Improvement'}
               </p>
             )}
             {errors.rating && (

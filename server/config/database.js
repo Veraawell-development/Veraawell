@@ -32,7 +32,7 @@ async function connectDatabase() {
     logger.info('Mongoose connection options', {
       serverSelectionTimeoutMS: 10000,
       socketTimeoutMS: 45000,
-      maxPoolSize: 10,
+      maxPoolSize: 100,
       retryWrites: true,
       retryReads: true
     });
@@ -43,7 +43,7 @@ async function connectDatabase() {
     await mongoose.connect(mongoUri, {
       serverSelectionTimeoutMS: 10000, // 10 seconds timeout for server selection
       socketTimeoutMS: 45000, // 45 seconds socket timeout
-      maxPoolSize: 10, // Maximum number of connections in the pool
+      maxPoolSize: 100, // Maximum number of connections in the pool
       retryWrites: true, // Enable retryable writes
       retryReads: true, // Enable retryable reads
     });

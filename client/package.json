@@ -9,12 +9,23 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "postinstall": "node fix-macos-security.cjs",
-    "fix-macos": "node fix-macos-security.cjs"
+    "fix-macos": "node fix-macos-security.cjs",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:report": "playwright show-report",
+    "test:e2e:public": "playwright test --project=public-tests",
+    "test:e2e:auth": "playwright test --project=auth-tests",
+    "test:e2e:patient": "playwright test --project=patient-tests",
+    "test:e2e:doctor": "playwright test --project=doctor-tests",
+    "seed:e2e": "node e2e/seed-test-users.js"
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
     "@react-pdf/renderer": "^4.3.2",
     "@tailwindcss/vite": "^4.1.11",
+    "@tanstack/react-query": "^5.101.2",
+    "axios": "^1.18.1",
     "framer-motion": "^12.38.0",
     "jspdf": "^4.0.0",
     "lucide-react": "^0.562.0",
@@ -29,6 +40,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.30.1",
+    "@playwright/test": "^1.61.1",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^4.6.0",

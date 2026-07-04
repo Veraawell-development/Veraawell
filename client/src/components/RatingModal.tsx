@@ -108,8 +108,8 @@ const RatingModal: React.FC<RatingModalProps> = ({
         label: string
     }) => (
         <div className="text-center">
-            <p className="text-gray-700 font-medium mb-3">{label}</p>
-            <div className="flex justify-center gap-2">
+            <p className="text-gray-500 font-medium mb-4 text-sm tracking-wide">{label}</p>
+            <div className="flex justify-center gap-3">
                 {[1, 2, 3, 4, 5].map((star) => (
                     <button
                         key={star}
@@ -117,12 +117,16 @@ const RatingModal: React.FC<RatingModalProps> = ({
                         onClick={() => setScore(star)}
                         onMouseEnter={() => setHoverScore(star)}
                         onMouseLeave={() => setHoverScore(0)}
-                        className="transition-transform hover:scale-110 focus:outline-none"
+                        className="transition-all transform hover:scale-110 focus:outline-none"
                         disabled={isSubmitting}
                     >
-                        <span className={`text-4xl ${star <= (hoverScore || score) ? 'text-[#FFB800]' : 'text-gray-200'}`}>
-                            ★
-                        </span>
+                        <svg 
+                            className={`w-10 h-10 transition-colors duration-200 ${star <= (hoverScore || score) ? 'text-yellow-400 drop-shadow-md' : 'text-gray-200'}`} 
+                            fill="currentColor" 
+                            viewBox="0 0 24 24"
+                        >
+                            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                        </svg>
                     </button>
                 ))}
             </div>
@@ -138,21 +142,21 @@ const RatingModal: React.FC<RatingModalProps> = ({
                     className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 text-2xl transition-colors z-10"
                     style={{ lineHeight: 1 }}
                 >
-                    ✕
+                    
                 </button>
 
                 {/* Header */}
-                <div className="p-8 pb-0 text-center relative">
-                    <h2 className="text-2xl font-bold text-gray-800">Session Feedback</h2>
-                    <p className="text-gray-500 mt-1 text-sm">Your feedback helps us improve Veerawell</p>
+                <div className="p-8 pb-4 text-center relative">
+                    <h2 className="text-2xl font-light tracking-tight text-gray-900">Session Feedback</h2>
+                    <p className="text-gray-400 mt-2 text-sm font-medium">Your feedback helps us improve Veerawell</p>
                 </div>
 
-                <div className="p-8 space-y-6">
+                <div className="p-8 space-y-10">
                     {/* Section 1: Doctor Rating */}
-                    <div className="bg-[#F9FAFB] p-5 rounded-xl border border-gray-100">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="w-8 h-8 text-white rounded-full flex items-center justify-center font-bold text-sm" style={{ backgroundColor: '#7DA9A8' }}>1</div>
-                            <h3 className="text-base font-bold text-gray-800">Rate {doctorName} <span className="text-red-500 font-normal text-xs ml-1">(Mandatory)</span></h3>
+                    <div className="relative">
+                        <div className="flex items-center justify-center gap-2 mb-6">
+                            <span className="text-xs font-bold tracking-widest text-teal-600 uppercase">Rate {doctorName}</span>
+                            <span className="text-[10px] text-red-400 tracking-wider uppercase bg-red-50 px-2 py-0.5 rounded-full">Required</span>
                         </div>
 
                         <StarRating
@@ -163,22 +167,24 @@ const RatingModal: React.FC<RatingModalProps> = ({
                             label="How was your session today?"
                         />
 
-                        <div className="mt-4">
+                        <div className="mt-8">
                             <textarea
                                 value={doctorFeedback}
                                 onChange={(e) => setDoctorFeedback(e.target.value)}
-                                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500 transition-all resize-none text-sm"
-                                rows={3}
+                                className="w-full bg-transparent border-0 border-b border-gray-200 text-gray-800 placeholder-gray-400 focus:border-teal-500 focus:ring-0 outline-none px-0 py-2 transition-all resize-none text-sm"
+                                rows={2}
                                 placeholder="Any comments or suggestions for the doctor? (Optional)"
                             />
                         </div>
                     </div>
 
+                    <div className="h-px w-full bg-gray-100" />
+
                     {/* Section 2: Platform Rating */}
-                    <div className="bg-[#F9FAFB] p-5 rounded-xl border border-gray-100">
-                        <div className="flex items-center gap-3 mb-4">
-                            <div className="w-8 h-8 text-white rounded-full flex items-center justify-center font-bold text-sm" style={{ backgroundColor: '#7DA9A8' }}>2</div>
-                            <h3 className="text-base font-bold text-gray-800">Rate the Platform <span className="text-gray-400 font-normal text-xs ml-1">(Optional)</span></h3>
+                    <div className="relative">
+                        <div className="flex items-center justify-center gap-2 mb-6">
+                            <span className="text-xs font-bold tracking-widest text-gray-600 uppercase">Rate the Platform</span>
+                            <span className="text-[10px] text-gray-400 tracking-wider uppercase bg-gray-100 px-2 py-0.5 rounded-full">Optional</span>
                         </div>
 
                         <StarRating
@@ -189,12 +195,12 @@ const RatingModal: React.FC<RatingModalProps> = ({
                             label="How was your experience with Veerawell?"
                         />
 
-                        <div className="mt-4">
+                        <div className="mt-8">
                             <textarea
                                 value={platformFeedback}
                                 onChange={(e) => setPlatformFeedback(e.target.value)}
-                                className="w-full px-4 py-3 bg-white border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all resize-none text-sm"
-                                rows={3}
+                                className="w-full bg-transparent border-0 border-b border-gray-200 text-gray-800 placeholder-gray-400 focus:border-teal-500 focus:ring-0 outline-none px-0 py-2 transition-all resize-none text-sm"
+                                rows={2}
                                 placeholder="Tell us how we can make our app better... (Optional)"
                             />
                         </div>
@@ -208,26 +214,23 @@ const RatingModal: React.FC<RatingModalProps> = ({
                     )}
 
                     {/* Footer Actions */}
-                    <div className="flex flex-col gap-3 pt-2">
+                    <div className="flex flex-col gap-4 pt-4 pb-2">
                         <button
                             onClick={handleSubmit}
                             disabled={isSubmitting || doctorScore === 0}
-                            className="w-full py-3.5 text-white rounded-full font-semibold transition-all transform active:scale-[0.98] text-sm shadow-md hover:shadow-lg disabled:shadow-none"
+                            className="w-full py-4 text-white rounded-full font-medium transition-all transform active:scale-[0.99] text-sm tracking-wide disabled:opacity-50"
                             style={{ 
-                                background: doctorScore === 0 
-                                    ? '#F3F4F6' 
-                                    : 'linear-gradient(135deg, #10B981 0%, #059669 100%)',
-                                color: doctorScore === 0 ? '#9CA3AF' : '#FFFFFF',
+                                backgroundColor: '#111827',
                                 cursor: doctorScore === 0 ? 'not-allowed' : 'pointer'
                             }}
                         >
-                            {isSubmitting ? 'Submitting...' : 'Submit All Feedback'}
+                            {isSubmitting ? 'Submitting...' : 'Submit Feedback'}
                         </button>
 
                         {!isSubmitting && (
                             <button
                                 onClick={onClose}
-                                className="w-full py-3 text-gray-600 border border-gray-200 rounded-full font-semibold transition-all hover:bg-gray-50 hover:text-gray-800 text-sm"
+                                className="w-full py-2 text-gray-400 font-medium transition-colors hover:text-gray-800 text-xs tracking-wide uppercase"
                             >
                                 Do this later
                             </button>

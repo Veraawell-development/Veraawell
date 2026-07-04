@@ -8,6 +8,7 @@ interface SessionToolsModalProps {
   sessionId: string;
   patientId: string;
   patientName: string;
+  onNewMessage?: () => void;
 }
 
 const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
@@ -15,11 +16,19 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
   onClose,
   sessionId,
   patientId,
-  patientName
+  patientName,
+  onNewMessage
 }) => {
   const [activeTab, setActiveTab] = useState<'notes' | 'tasks' | 'chat'>('notes');
   const [saving, setSaving] = useState(false);
   const [emergencyContact, setEmergencyContact] = useState<{ name: string; phone: string } | null>(null);
+  const [hasUnreadTabMessages, setHasUnreadTabMessages] = useState(false);
+
+  useEffect(() => {
+    if (activeTab === 'chat') {
+      setHasUnreadTabMessages(false);
+    }
+  }, [activeTab]);
 
   // Notes state
   const [noteContent, setNoteContent] = useState('');
@@ -165,23 +174,23 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
         onClick={onClose}
       />
 
-      {/* Side Drawer */}
+      {/* Floating Side Panel */}
       <div
-        className={`absolute top-0 right-0 h-full w-full max-w-md bg-white border-l border-gray-100 shadow-2xl transform transition-transform duration-300 ease-in-out pointer-events-auto flex flex-col ${isOpen ? 'translate-x-0' : 'translate-x-full'}`}
+        className={`absolute top-4 right-4 bottom-4 w-full max-w-md bg-[#18181B]/95 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_0_40px_rgba(0,0,0,0.8)] transform transition-transform duration-300 ease-in-out pointer-events-auto flex flex-col overflow-hidden ${isOpen ? 'translate-x-0' : 'translate-x-[120%]'}`}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-white/10 bg-white/5">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900 tracking-wide" style={{ fontFamily: 'Bree Serif, serif' }}>
+            <h2 className="text-2xl font-bold text-white tracking-wide" style={{ fontFamily: 'Inter, sans-serif' }}>
               Session Tools
             </h2>
-            <p className="text-sm text-gray-500 mt-1 flex items-center gap-2">
-              Patient: <span className="text-teal-600 font-semibold">{patientName}</span>
+            <p className="text-sm text-white/60 mt-1 flex items-center gap-2 font-medium">
+              Patient: <span className="text-white/90">{patientName}</span>
             </p>
           </div>
           <button
             onClick={onClose}
-            className="text-gray-400 hover:text-gray-600 hover:bg-gray-100 p-2 rounded-full transition-all"
+            className="text-white/40 hover:text-white hover:bg-white/10 p-2 rounded-full transition-all"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -191,162 +200,162 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
 
         {/* Emergency Contact */}
         {emergencyContact && (
-          <div className="mx-6 mt-4 p-3 bg-gray-50 border border-gray-100 rounded-xl text-xs text-gray-700">
-            <div className="flex items-center justify-between">
-              <div>
-                <p><span className="font-semibold text-gray-900">Emergency Contact:</span> {emergencyContact.name}</p>
-                <p><span className="font-semibold text-gray-900">Phone:</span> <a href={`tel:${emergencyContact.phone}`} className="font-bold text-teal-600 hover:underline">{emergencyContact.phone}</a></p>
-              </div>
-              <button
-                onClick={() => window.location.href = `tel:${emergencyContact.phone}`}
-                className="px-3 py-1 bg-teal-600 text-white rounded-lg font-semibold hover:bg-teal-700 transition-colors"
-              >
-                Call
-              </button>
+          <div className="px-6 py-3 bg-red-500/5 border-b border-red-500/10 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-[10px] font-bold uppercase tracking-widest text-red-400">Emergency</span>
+              <span className="text-white/80 text-sm font-medium">{emergencyContact.name} <span className="text-white/30 mx-1">&bull;</span> {emergencyContact.phone}</span>
             </div>
+            <button
+              onClick={() => window.location.href = `tel:${emergencyContact.phone}`}
+              className="text-red-400 hover:text-red-300 text-sm font-bold tracking-wide transition-colors"
+            >
+              Call
+            </button>
           </div>
         )}
 
         {/* Notification */}
         {notification && (
-          <div className={`mx-6 mt-4 p-3 rounded-xl text-sm font-medium ${notification.type === 'success' ? 'bg-emerald-50 border border-emerald-100 text-emerald-600' : 'bg-red-50 border border-red-100 text-red-600'}`}>
+          <div className={`px-6 py-3 text-sm font-medium border-b ${notification.type === 'success' ? 'bg-emerald-500/5 border-emerald-500/10 text-emerald-400' : 'bg-red-500/5 border-red-500/10 text-red-400'}`}>
             {notification.message}
           </div>
         )}
 
-        {/* Tabs - Pill Style */}
-        <div className="px-6 py-4">
-          <div className="flex bg-gray-50 p-1 rounded-xl">
-            {(['notes', 'tasks', 'chat'] as const).map((tab) => (
-              <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`flex-1 py-2 text-sm font-semibold rounded-lg transition-all duration-200 capitalize ${activeTab === tab
-                  ? 'bg-white text-teal-600 shadow-sm border border-gray-100'
-                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
-                  }`}
-                style={{ fontFamily: 'Inter, sans-serif' }}
-              >
+        {/* Tabs - Minimal Line Style */}
+        <div className="px-6 pt-4 flex gap-8 border-b border-white/5">
+          {(['notes', 'tasks', 'chat'] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`pb-4 text-sm font-semibold capitalize transition-all outline-none focus:outline-none relative ${activeTab === tab
+                  ? 'text-white'
+                  : 'text-white/40 hover:text-white/70'
+                }`}
+            >
+              <div className="flex items-center gap-1.5">
                 {tab}
-              </button>
-            ))}
-          </div>
+                {tab === 'chat' && hasUnreadTabMessages && (
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                  </span>
+                )}
+              </div>
+              {activeTab === tab && (
+                <div className="absolute bottom-0 left-0 right-0 h-[2px] bg-white rounded-t-full shadow-[0_0_10px_rgba(255,255,255,0.5)]"></div>
+              )}
+            </button>
+          ))}
         </div>
 
         {/* Content - Scrollable */}
-        <div className={`flex-1 overflow-y-auto px-6 pb-6 custom-scrollbar ${activeTab === 'chat' ? 'flex flex-col' : ''}`}>
+        <div className={`flex-1 overflow-y-auto custom-scrollbar ${activeTab === 'chat' ? 'flex flex-col bg-black/20' : 'px-6 pb-6'}`}>
           {/* NOTES TAB */}
           {activeTab === 'notes' && (
-            <div className="space-y-5 animate-fadeIn">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Session Notes</label>
-                <textarea
-                  value={noteContent}
-                  onChange={(e) => setNoteContent(e.target.value)}
-                  placeholder="Type observations here..."
-                  className="w-full h-48 p-4 bg-gray-50 border border-gray-100 rounded-xl text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all resize-none leading-relaxed"
-                />
-              </div>
+              <div className="space-y-8 animate-fadeIn pt-4">
+                <div>
+                  <textarea
+                    value={noteContent}
+                    onChange={(e) => setNoteContent(e.target.value)}
+                    placeholder="Session observations..."
+                    className="w-full h-40 bg-transparent border-none text-white/90 placeholder-white/20 focus:ring-0 outline-none focus:outline-none resize-none text-base leading-relaxed p-0"
+                  />
+                </div>
 
-              <div className="bg-teal-50 border border-teal-100 rounded-xl p-4">
-                <p className="text-xs font-bold text-teal-600 mb-2 flex items-center gap-1">
-                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                  REMEMBER TO INCLUDE
-                </p>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap gap-2 pt-2 border-t border-white/5">
+                  <span className="text-[10px] uppercase font-bold text-white/30 mr-2 self-center tracking-widest">Include:</span>
                   {['Mood', 'Topics', 'Progress', 'Techniques'].map(tag => (
-                    <span key={tag} className="text-[10px] bg-teal-100 text-teal-700 px-2 py-1 rounded-md border border-teal-200">{tag}</span>
+                    <span key={tag} className="text-[10px] uppercase font-bold tracking-widest text-white/50 bg-white/5 px-3 py-1.5 rounded-full border border-white/5">{tag}</span>
                   ))}
                 </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Mood</label>
-                  <input
-                    type="text"
-                    value={mood}
-                    onChange={(e) => setMood(e.target.value)}
-                    placeholder="e.g. Anxious"
-                    className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all"
+                <div className="grid grid-cols-2 gap-x-8 gap-y-8 pt-4 border-t border-white/5">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-white/30 mb-2">Mood</label>
+                    <input
+                      type="text"
+                      value={mood}
+                      onChange={(e) => setMood(e.target.value)}
+                      placeholder="e.g. Anxious"
+                      className="w-full bg-transparent border-0 border-b border-white/10 text-white/90 placeholder-white/20 focus:border-white focus:ring-0 outline-none focus:outline-none py-2 px-0 transition-all text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-white/30 mb-2">Topics</label>
+                    <input
+                      type="text"
+                      value={topicsDiscussed}
+                      onChange={(e) => setTopicsDiscussed(e.target.value)}
+                      placeholder="e.g. Work"
+                      className="w-full bg-transparent border-0 border-b border-white/10 text-white/90 placeholder-white/20 focus:border-white focus:ring-0 outline-none focus:outline-none py-2 px-0 transition-all text-sm"
+                    />
+                  </div>
+                </div>
+
+                <div className="pt-2">
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-white/30 mb-2">Progress & Insights</label>
+                  <textarea
+                    value={progressInsights}
+                    onChange={(e) => setProgressInsights(e.target.value)}
+                    placeholder="Key insights..."
+                    className="w-full h-20 bg-transparent border-0 border-b border-white/10 text-white/90 placeholder-white/20 focus:border-white focus:ring-0 outline-none focus:outline-none py-2 px-0 transition-all resize-none text-sm"
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Topics</label>
+
+                <div className="pt-2">
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-white/30 mb-2">Techniques Used</label>
                   <input
                     type="text"
-                    value={topicsDiscussed}
-                    onChange={(e) => setTopicsDiscussed(e.target.value)}
-                    placeholder="e.g. Work"
-                    className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all"
+                    value={therapeuticTechniques}
+                    onChange={(e) => setTherapeuticTechniques(e.target.value)}
+                    placeholder="e.g. CBT, Breathwork"
+                    className="w-full bg-transparent border-0 border-b border-white/10 text-white/90 placeholder-white/20 focus:border-white focus:ring-0 outline-none focus:outline-none py-2 px-0 transition-all text-sm"
                   />
                 </div>
               </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Progress & Insights</label>
-                <textarea
-                  value={progressInsights}
-                  onChange={(e) => setProgressInsights(e.target.value)}
-                  placeholder="Key insights..."
-                  className="w-full h-24 p-3 bg-gray-50 border border-gray-100 rounded-xl text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all resize-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Techniques Used</label>
-                <input
-                  type="text"
-                  value={therapeuticTechniques}
-                  onChange={(e) => setTherapeuticTechniques(e.target.value)}
-                  placeholder="e.g. CBT, Breathwork"
-                  className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all"
-                />
-              </div>
-            </div>
           )}
 
           {/* TASKS TAB */}
           {activeTab === 'tasks' && (
-            <div className="space-y-5 animate-fadeIn">
+            <div className="space-y-8 animate-fadeIn pt-4">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Task Title</label>
+                <label className="block text-[10px] font-bold uppercase tracking-widest text-white/30 mb-2">Task Title</label>
                 <input
                   type="text"
                   value={taskTitle}
                   onChange={(e) => setTaskTitle(e.target.value)}
                   placeholder="What needs to be done?"
-                  className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all"
+                  className="w-full bg-transparent border-0 border-b border-white/10 text-white/90 placeholder-white/20 focus:border-white focus:ring-0 outline-none focus:outline-none py-2 px-0 transition-all text-sm"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Description</label>
+                <label className="block text-[10px] font-bold uppercase tracking-widest text-white/30 mb-2">Description</label>
                 <textarea
                   value={taskDescription}
                   onChange={(e) => setTaskDescription(e.target.value)}
                   placeholder="Details..."
-                  className="w-full h-32 p-3 bg-gray-50 border border-gray-100 rounded-xl text-gray-900 placeholder-gray-400 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all resize-none"
+                  className="w-full h-32 bg-transparent border-0 border-b border-white/10 text-white/90 placeholder-white/20 focus:border-white focus:ring-0 outline-none focus:outline-none py-2 px-0 transition-all resize-none text-sm"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-x-8 gap-y-8">
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Due Date</label>
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-white/30 mb-2">Due Date</label>
                   <input
                     type="date"
                     value={taskDueDate}
                     onChange={(e) => setTaskDueDate(e.target.value)}
-                    className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl text-gray-900 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all icon-white"
-                    style={{ colorScheme: 'light' }}
+                    className="w-full bg-transparent border-0 border-b border-white/10 text-white/90 focus:border-white focus:ring-0 outline-none focus:outline-none py-2 px-0 transition-all icon-white text-sm"
+                    style={{ colorScheme: 'dark' }}
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-gray-500 mb-2">Priority</label>
+                  <label className="block text-[10px] font-bold uppercase tracking-widest text-white/30 mb-2">Priority</label>
                   <select
                     value={taskPriority}
                     onChange={(e) => setTaskPriority(e.target.value as any)}
-                    className="w-full p-3 bg-gray-50 border border-gray-100 rounded-xl text-gray-900 focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 transition-all"
+                    className="w-full bg-transparent border-0 border-b border-white/10 text-white/90 focus:border-white focus:ring-0 outline-none focus:outline-none py-2 px-0 transition-all text-sm [&>option]:bg-[#18181B]"
                   >
                     <option value="low">Low</option>
                     <option value="medium">Medium</option>
@@ -358,20 +367,25 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
           )}
 
 
-          {/* CHAT TAB */}
-          {activeTab === 'chat' && (
-            <div className="h-full animate-fadeIn flex flex-col">
-              <SessionChat targetUserId={patientId} targetUserName={patientName} />
-            </div>
-          )}
+          {/* CHAT TAB - Always mount so it receives messages */}
+          <div className={`h-full flex-col ${activeTab === 'chat' ? 'flex animate-fadeIn' : 'hidden'}`}>
+            <SessionChat 
+              targetUserId={patientId} 
+              targetUserName={patientName} 
+              onNewMessage={() => {
+                if (activeTab !== 'chat') setHasUnreadTabMessages(true);
+                if (onNewMessage) onNewMessage();
+              }} 
+            />
+          </div>
         </div>
 
         {/* Footer - Hide if Chat is active */}
         {activeTab !== 'chat' && (
-          <div className="px-6 py-5 border-t border-gray-100 bg-gray-50/50 backdrop-blur-md flex justify-end space-x-3">
+          <div className="px-6 py-5 border-t border-white/10 bg-black/20 backdrop-blur-md flex justify-end space-x-3">
             <button
               onClick={onClose}
-              className="px-6 py-2.5 text-sm font-semibold text-gray-500 hover:text-gray-700 transition-colors"
+              className="px-6 py-2.5 text-sm font-semibold text-white/50 hover:text-white/80 transition-colors"
             >
               Cancel
             </button>
@@ -381,11 +395,11 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
                 else if (activeTab === 'tasks') handleSaveTask();
               }}
               disabled={saving}
-              className="px-8 py-2.5 bg-gradient-to-r from-teal-600 to-teal-500 text-white text-sm font-bold rounded-xl shadow-lg hover:shadow-teal-500/20 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              className="px-8 py-2.5 bg-white text-black text-sm font-bold rounded-xl shadow-lg hover:bg-gray-200 hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
             >
               {saving ? (
                 <span className="flex items-center gap-2">
-                  <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                  <svg className="animate-spin h-4 w-4 text-black" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
                   Saving...
                 </span>
               ) : (

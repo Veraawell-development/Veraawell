@@ -20,6 +20,7 @@ const BackToDashboard: React.FC<BackToDashboardProps> = ({ className = "" }) => 
 
     return (
         <button
+            type="button"
             onClick={handleBack}
             className={`flex items-center gap-2 group transition-all duration-200 hover:gap-3 mb-6 ${className}`}
             style={{ fontFamily: 'Inter, sans-serif' }}

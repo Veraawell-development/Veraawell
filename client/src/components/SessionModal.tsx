@@ -152,44 +152,12 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
     }
   };
 
-  const handleRatingSubmit = async (ratingData: { score: number; review: string }) => {
+  const handleRatingSubmit = (ratingData: { score: number; review: string }) => {
     if (!session) return;
-
-    try {
-      console.log('[RATING] Submitting rating:', { sessionId: session._id, score: ratingData.score });
-
-      const token = localStorage.getItem('token');
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/ratings/${session._id}/rate`, {
-        method: 'POST',
-        headers,
-        credentials: 'include',
-        body: JSON.stringify(ratingData)
-      });
-
-      console.log('[RATING] Response status:', response.status);
-
-      if (response.ok) {
-        const data = await response.json();
-        console.log('[RATING] Success:', data);
-        setHasRating(true);
-        setShowRatingModal(false);
-        alert('Thank you for your rating!');
-      } else {
-        const data = await response.json();
-        console.error('[RATING] Error response:', data);
-        alert(data.message || 'Failed to submit rating');
-      }
-    } catch (error) {
-      console.error('Error submitting rating:', error);
-      alert('Failed to submit rating');
-    }
+    console.log('[RATING] Rating successfully submitted via RatingModal:', { sessionId: session._id, score: ratingData.score });
+    setHasRating(true);
+    setShowRatingModal(false);
+    alert('Thank you for your rating!');
   };
 
   if (!isOpen || !session) return null;
@@ -230,16 +198,8 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
       return false;
     }
 
-    const sessionDateTime = new Date(session.sessionDate);
-    const [hours, minutes] = session.sessionTime.split(':').map(Number);
-    sessionDateTime.setHours(hours, minutes, 0, 0);
-
-    const now = new Date();
-    const timeDiff = sessionDateTime.getTime() - now.getTime();
-    const hoursDiff = timeDiff / (1000 * 60 * 60);
-
-    // Can cancel if session is at least 24 hours away
-    return hoursDiff >= 24;
+    // Patients can cancel any scheduled session at any time
+    return true;
   };
 
   const handleJoinSession = async () => {
@@ -340,8 +300,8 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
         console.log('[SESSION MODAL] Authorization header added for cancel');
       }
 
-      const response = await fetch(`${API_BASE_URL}/sessions/cancel/${session._id}`, {
-        method: 'PUT',
+      const response = await fetch(`${API_BASE_URL}/sessions/${session._id}/cancel`, {
+        method: 'POST',
         credentials: 'include',
         headers
       });
@@ -428,7 +388,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
           className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 text-2xl transition-colors z-10"
           style={{ lineHeight: 1 }}
         >
-          ✕
+          
         </button>
 
         <div className="p-10 space-y-8">
@@ -491,18 +451,22 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
             className="rounded-xl p-6 border border-gray-100"
             style={{ backgroundColor: '#F9FAFB' }}
           >
-            <div className="grid grid-cols-3 gap-6 text-center text-sm text-gray-600">
-              <div className="space-y-1">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center text-sm text-gray-600">
+              <div className="space-y-1 md:border-r border-gray-200">
                 <p className="font-semibold text-gray-700">Date</p>
                 <p>{sessionDateTime.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '/')}</p>
               </div>
-              <div className="space-y-1 border-x border-gray-200">
+              <div className="space-y-1 md:border-r border-gray-200">
                 <p className="font-semibold text-gray-700">Time</p>
-                <p>{sessionDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}</p>
+                <p>{sessionDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}</p>
+              </div>
+              <div className="space-y-1 md:border-r border-gray-200">
+                <p className="font-semibold text-gray-700">Duration</p>
+                <p>{session.duration || 60} minutes</p>
               </div>
               <div className="space-y-1">
                 <p className="font-semibold text-gray-700">Mode</p>
-                <p>{session.callMode || 'Video Call'}</p>
+                <p>{session.callMode || 'Video Calling'}</p>
               </div>
             </div>
           </div>
@@ -564,7 +528,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
                   ⏰ Session will be available to join 15 minutes before start time
                 </p>
                 <p className="text-xs mt-1 text-amber-700">
-                  {userRole === 'patient' ? 'You can cancel this session up to 24 hours before the scheduled time' : 'Please be ready to join at the scheduled time'}
+                  {userRole === 'patient' ? 'You can cancel this session at any time before it starts' : 'Please be ready to join at the scheduled time'}
                 </p>
               </div>
             )}
@@ -572,7 +536,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
             {(session.status === 'completed' || session.status === 'ended') && (
               <div className="space-y-3 w-full">
                 <div className="text-center py-3 px-6 rounded-xl bg-green-50 border border-green-100">
-                  <p className="text-sm font-semibold text-green-800">✓ Session Completed</p>
+                  <p className="text-sm font-semibold text-green-800"> Session Completed</p>
                 </div>
 
                 <div className="flex gap-4 justify-center">
@@ -597,14 +561,24 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
             )}
 
             {session.status === 'cancelled' && (
-              <div className="text-center py-3 px-6 rounded-xl bg-red-50 border border-red-100 w-full">
-                <p className="text-sm font-semibold text-red-800">✕ Session Cancelled</p>
+              <div className="flex justify-center w-full py-2">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-gray-200 bg-gray-50 text-gray-500">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                  <span className="text-[11px] font-bold uppercase tracking-wider">Session Cancelled</span>
+                </div>
               </div>
             )}
 
             {session.status === 'no-show' && (
-              <div className="text-center py-3 px-6 rounded-xl bg-amber-50 border border-amber-100 w-full">
-                <p className="text-sm font-semibold text-amber-800">No Show</p>
+              <div className="flex justify-center w-full py-2">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full border border-red-100 bg-red-50/50 text-red-500">
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="text-[11px] font-bold uppercase tracking-wider">No Show</span>
+                </div>
               </div>
             )}
           </div>

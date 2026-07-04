@@ -7,6 +7,7 @@ import { LuStethoscope } from 'react-icons/lu';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config/api';
 import toast from 'react-hot-toast';
+import LeafDecor from '../components/ui/LeafDecor';
 
 // ── Animation variants ────────────────────────────────────────────────────────
 const fadeUp = {
@@ -26,21 +27,34 @@ interface FieldProps {
 function Field({ label, type, value, onChange, placeholder, icon, disabled, toggle, showPw, onToggle }: FieldProps) {
   return (
     <motion.div variants={fadeUp} className="space-y-1">
-      <label className="block text-[11px] font-medium text-neutral-400 tracking-wide">{label}</label>
+      <label className="block text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>{label}</label>
       <div className="relative group">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 group-focus-within:text-neutral-600 transition-colors pointer-events-none text-[13px]">
+        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400 group-focus-within:text-[var(--teal)] transition-colors pointer-events-none">
           {icon}
         </span>
         <input
           type={toggle ? (showPw ? 'text' : 'password') : type}
           value={value} onChange={e => onChange(e.target.value)}
           placeholder={placeholder} disabled={disabled}
-          className="w-full pl-9 pr-9 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-[13px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900/8 focus:border-neutral-400 hover:border-neutral-300 transition-all disabled:opacity-40"
+          className="w-full pl-10 pr-10 py-2.5 bg-white border rounded-xl text-[13px] transition-all disabled:opacity-40"
+          style={{
+            borderColor: 'var(--border)',
+            color: 'var(--text)',
+            outline: 'none',
+          }}
+          onFocus={e => {
+            e.target.style.borderColor = 'var(--teal)';
+            e.target.style.boxShadow = '0 0 0 3px var(--teal-muted)';
+          }}
+          onBlur={e => {
+            e.target.style.borderColor = 'var(--border)';
+            e.target.style.boxShadow = 'none';
+          }}
         />
         {toggle && (
           <button type="button" onClick={onToggle}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 transition-colors">
-            {showPw ? <FiEyeOff size={13} /> : <FiEye size={13} />}
+            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 transition-colors">
+            {showPw ? <FiEyeOff size={15} /> : <FiEye size={15} />}
           </button>
         )}
       </div>
@@ -68,6 +82,9 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   const [showPw, setShowPw] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const [showLoginPw, setShowLoginPw] = useState(false);
+  const [step, setStep] = useState<'auth' | 'verify'>('auth');
+  const [otp, setOtp] = useState('');
+  const [registeredEmail, setRegisteredEmail] = useState('');
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -98,6 +115,12 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
       });
       const data = await res.json();
       if (res.ok) {
+        if (data.requiresVerification) {
+          setRegisteredEmail(data.email || username);
+          setStep('verify');
+          setLoading(false);
+          return;
+        }
         if (data.token) setAuthToken(data.token);
         if (onSuccess) onSuccess();
         if (redirectFrom) navigate(redirectFrom, { state: { serviceType: redirectServiceType, bookingType: redirectBookingType } });
@@ -106,7 +129,13 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
           const errorMsgs = Object.values(data.errors).join(', ');
           setError(errorMsgs);
         } else {
-          setError(data.message || 'Login failed');
+          if (data.requiresVerification) {
+          setRegisteredEmail(data.email || username);
+          setStep('verify');
+          setLoading(false);
+          return;
+        }
+        setError(data.message || 'Login failed');
         }
       }
     } catch { setError('Network error. Please try again.'); }
@@ -149,6 +178,12 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
       const data = await res.json();
       
       if (res.ok) {
+        if (data.requiresVerification) {
+          setRegisteredEmail(data.email || email);
+          setStep('verify');
+          setLoading(false);
+          return;
+        }
         toast.success('Account created!');
         if (data.token) setAuthToken(data.token);
         await checkAuth();
@@ -170,320 +205,342 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
     window.location.href = `${API_BASE_URL}/auth/google?role=${isProfessional ? 'doctor' : 'patient'}`;
   };
 
+  const handleVerifyOTP = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otp || otp.length !== 6) return setError('Please enter a 6-digit verification code');
+    setLoading(true); setError('');
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/verify-signup`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: registeredEmail, otp })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success('Email verified successfully!');
+        if (data.token) setAuthToken(data.token);
+        await checkAuth();
+        setLoading(false);
+        navigate(isProfessional ? '/doctor-dashboard' : '/patient-dashboard');
+      } else {
+        setError(data.message || 'Verification failed');
+        setLoading(false);
+      }
+    } catch {
+      setError('Network error. Please try again.');
+      setLoading(false);
+    }
+  };
+
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-[#fcfbfa]">
-
+    <div className="min-h-screen flex flex-col md:flex-row bg-[var(--bg-2)] relative overflow-hidden font-sans">
+      
+      {/* Decorative ambient background */}
+      <div 
+        className="absolute top-[-20%] left-[-10%] w-[60%] aspect-square rounded-full pointer-events-none"
+        style={{ background: 'radial-gradient(circle, var(--teal-muted) 0%, transparent 60%)', opacity: 0.6 }}
+      />
+      <div 
+        className="absolute bottom-[-20%] right-[-10%] w-[60%] aspect-square rounded-full pointer-events-none"
+        style={{ background: 'radial-gradient(circle, rgba(107, 168, 136, 0.15) 0%, transparent 60%)', opacity: 0.6 }}
+      />
+      
       {/* ── Left branding panel (desktop only) ──────────────────────────── */}
-      <div className="hidden md:flex md:w-3/5 flex-col items-center justify-center p-10 relative overflow-hidden"
-        style={{ background: 'linear-gradient(145deg, #002b34 0%, #005463 100%)' }}>
+      <div className="hidden md:flex md:w-[55%] flex-col items-start justify-center p-12 lg:p-20 relative z-10">
 
-        {/* Back button — icon only, top-left of dark panel */}
+        {/* Back button */}
         <motion.button
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
           onClick={() => navigate('/')}
-          className="absolute top-5 left-5 w-8 h-8 rounded-full flex items-center justify-center transition-all hover:scale-110 z-20"
-          style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}
+          className="absolute top-10 left-12 w-12 h-12 rounded-full flex items-center justify-center transition-transform hover:-translate-x-1"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}
           title="Back to Home"
         >
-          <FiArrowLeft size={14} style={{ color: 'rgba(255,255,255,0.55)' }} />
+          <FiArrowLeft size={18} style={{ color: 'var(--text-2)' }} />
         </motion.button>
-
-        {/* Ambient center glow */}
-        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-          <div className="w-72 h-72 rounded-full blur-3xl" style={{ background: 'radial-gradient(circle, rgba(20,184,166,0.15) 0%, transparent 65%)' }} />
-        </div>
 
         <motion.div
           initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, delay: 0.15 }}
-          className="relative z-10 flex flex-col items-center text-center max-w-xs w-full"
+          className="relative z-10 max-w-xl w-full mt-12"
         >
-          {/* Logo */}
-          {/* <img src="/logo.png" alt="Veraawell" className="h-7 w-auto mx-auto mb-10 brightness-0 invert opacity-60" /> */}
-
-          {/* ── Orbital Constellation SVG ──────────────────────────────────── */}
-          <div className="w-64 h-64 mb-8 relative">
-            <svg viewBox="0 0 280 280" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
-              <defs>
-                <radialGradient id="coreGlow" cx="50%" cy="50%" r="50%">
-                  <stop offset="0%" stopColor="#0097b2" stopOpacity="0.8" />
-                  <stop offset="60%" stopColor="#0097b2" stopOpacity="0.2" />
-                  <stop offset="100%" stopColor="#0097b2" stopOpacity="0" />
-                </radialGradient>
-              </defs>
-
-              {/* Static orbit rings */}
-              <circle cx="140" cy="140" r="56"  stroke="#fff3db" strokeWidth="0.5" fill="none" opacity="0.15" />
-              <circle cx="140" cy="140" r="84"  stroke="#fff3db" strokeWidth="0.5" fill="none" opacity="0.1" />
-              <circle cx="140" cy="140" r="112" stroke="#fff3db" strokeWidth="0.5" fill="none" opacity="0.05" />
-
-              {/* Center orb — pulsing glow */}
-              <motion.circle cx="140" cy="140" r="30"
-                fill="url(#coreGlow)"
-                animate={{ scale: [1, 1.15, 1], opacity: [0.5, 0.8, 0.5] }}
-                transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-                style={{ originX: '140px', originY: '140px' }}
-              />
-              <circle cx="140" cy="140" r="14" fill="#0097b2" opacity="0.4" />
-              <circle cx="140" cy="140" r="6"  fill="#fff3db" opacity="0.9" />
-
-              {/* Orbit 1 — r=56, 7s CW, 1 particle */}
-              <motion.g
-                animate={{ rotate: 360 }}
-                transition={{ duration: 7, repeat: Infinity, ease: 'linear' }}
-                style={{ originX: '140px', originY: '140px' }}
-              >
-                <circle cx={140 + 56} cy="140" r="5" fill="#fff3db" opacity="0.9" />
-                <circle cx={140 + 56} cy="140" r="9" fill="#0097b2" opacity="0.2" />
-              </motion.g>
-
-              {/* Orbit 2 — r=84, 11s CCW, 2 particles offset 180° */}
-              <motion.g
-                animate={{ rotate: -360 }}
-                transition={{ duration: 11, repeat: Infinity, ease: 'linear' }}
-                style={{ originX: '140px', originY: '140px' }}
-              >
-                <circle cx={140 + 84} cy="140" r="4"   fill="#0097b2" opacity="0.8" />
-                <circle cx={140 + 84} cy="140" r="8"   fill="#0097b2" opacity="0.15" />
-                <circle cx={140 - 84} cy="140" r="3"   fill="#fff3db" opacity="0.7" />
-              </motion.g>
-
-              {/* Orbit 3 — r=112, 16s CW, 1 small particle */}
-              <motion.g
-                animate={{ rotate: 360 }}
-                transition={{ duration: 16, repeat: Infinity, ease: 'linear', delay: 2 }}
-                style={{ originX: '140px', originY: '140px' }}
-              >
-                <circle cx={140 + 112} cy="140" r="3.5" fill="#fff3db" opacity="0.7" />
-                <circle cx={140 + 112} cy="140" r="7"   fill="#fff3db" opacity="0.1" />
-              </motion.g>
-
-              {/* Tiny ambient sparkles — very subtle, just scale-pulse */}
-              {[
-                { cx: 68,  cy: 82,  r: 1.5, d: 2.5 },
-                { cx: 210, cy: 72,  r: 1.2, d: 3.8 },
-                { cx: 54,  cy: 200, r: 1.8, d: 3.2 },
-                { cx: 218, cy: 195, r: 1.4, d: 4.1 },
-                { cx: 140, cy: 30,  r: 1.2, d: 2.8 },
-              ].map((s, i) => (
-                <motion.circle key={i} cx={s.cx} cy={s.cy} r={s.r} fill="#fff3db"
-                  animate={{ opacity: [0.1, 0.4, 0.1], scale: [0.8, 1.2, 0.8] }}
-                  transition={{ duration: s.d, repeat: Infinity, ease: 'easeInOut', delay: i * 0.6 }}
-                  style={{ originX: `${s.cx}px`, originY: `${s.cy}px` }}
-                />
-              ))}
-            </svg>
+          <LeafDecor 
+            style={{ 
+              position: 'absolute', 
+              top: '-140px', 
+              left: '-80px', 
+              width: '320px', 
+              height: '320px', 
+              transform: 'rotate(-15deg)', 
+              opacity: 0.04, 
+              zIndex: -1 
+            }} 
+          />
+          
+          <div className="flex items-center gap-2 mb-6">
+            <span className="w-2 h-2 rounded-full" style={{ background: 'var(--teal)' }} />
+            <span
+              className="text-xs font-semibold tracking-widest uppercase"
+              style={{ color: 'var(--teal)', fontFamily: 'var(--font-mono)' }}
+            >
+              Veraawell
+            </span>
           </div>
 
-          {/* Copy */}
-          <h2 className="text-xl font-semibold tracking-tight leading-snug mb-2.5" style={{ color: '#fff3db' }}>
-            Mental wellness,<br />made accessible.
+          <h2 
+            className="leading-tight mb-6" 
+            style={{ 
+              fontFamily: 'var(--font-display)', 
+              fontSize: 'clamp(44px, 5vw, 64px)', 
+              color: 'var(--text)',
+              letterSpacing: '-0.02em',
+            }}
+          >
+            Your mind deserves the same care as your <em style={{ color: 'var(--teal)' }}>body.</em>
           </h2>
-          <p className="text-xs leading-relaxed mb-8" style={{ color: '#fff3db', opacity: 0.7 }}>
-            Connect with certified therapists and take<br />control of your mental health journey.
+          <p className="text-lg leading-relaxed mb-12" style={{ color: 'var(--text-2)', fontFamily: 'var(--font-body)' }}>
+            Connect with verified therapists, track your progress, and take control of your mental wellness journey at your own pace.
           </p>
 
           {/* Trust bullets */}
-          <div className="flex flex-col gap-2.5 text-left w-full px-4">
-            {['Licensed professionals', 'Private & confidential', 'Sessions on your schedule'].map(t => (
-              <div key={t} className="flex items-center gap-3">
-                <div className="w-1 h-1 rounded-full flex-shrink-0" style={{ background: '#fff3db', opacity: 0.7 }} />
-                <span className="text-[11px]" style={{ color: '#fff3db', opacity: 0.7 }}>{t}</span>
+          <div className="flex flex-col gap-4">
+            {[
+              { icon: '✓', text: 'Verified, licensed professionals' },
+              { icon: '✓', text: 'Bank-level privacy & encryption' },
+              { icon: '✓', text: 'Flexible sessions on your schedule' }
+            ].map(t => (
+              <div key={t.text} className="flex items-center gap-4 bg-white/40 backdrop-blur-sm p-4 rounded-2xl border border-white/60 w-fit pr-8">
+                <div className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-white text-xs shadow-sm" style={{ background: 'var(--teal)' }}>
+                  {t.icon}
+                </div>
+                <span className="text-[15px] font-semibold" style={{ color: 'var(--text)' }}>{t.text}</span>
               </div>
             ))}
           </div>
         </motion.div>
       </div>
 
-
-
       {/* ── Right form panel ─────────────────────────────────────────────── */}
-      <div className="w-full md:w-2/5 flex flex-col items-center justify-center px-5 py-8 relative">
+      <div className="w-full md:w-[45%] flex flex-col items-center justify-center p-6 sm:p-10 relative z-10">
 
-
-
-
+        {/* Mobile back button */}
+        <motion.button
+          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
+          onClick={() => navigate('/')}
+          className="md:hidden absolute top-6 left-6 w-12 h-12 rounded-full flex items-center justify-center transition-transform active:scale-95 z-20"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: 'var(--shadow-sm)' }}
+        >
+          <FiArrowLeft size={18} style={{ color: 'var(--text-2)' }} />
+        </motion.button>
 
         {/* Form card */}
         <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
-          className="w-full max-w-sm bg-white rounded-2xl border border-neutral-200/80 shadow-sm overflow-hidden">
+          className="w-full max-w-[400px] rounded-[24px] p-6 sm:p-8 relative overflow-hidden"
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            boxShadow: 'var(--shadow-lg)',
+          }}
+        >
+          <div className="mb-6">
+            <h1 className="text-2xl font-semibold tracking-normal mb-1.5" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
+              {registerMode ? 'Create account' : 'Welcome back'}
+            </h1>
+            <p className="text-[13px]" style={{ color: 'var(--text-2)' }}>
+              {registerMode ? 'Join Veraawell today and start your journey.' : 'Sign in to continue your wellness journey.'}
+            </p>
+          </div>
 
-          {/* Accent top bar */}
-          <div className="h-0.5 bg-[#0097b2]" />
-
-          <div className="px-6 pt-6 pb-5">
-            {/* Title */}
-            <div className="mb-5">
-              <h1 className="text-base font-semibold text-neutral-900 tracking-tight">
-                {registerMode ? 'Create account' : 'Welcome back'}
-              </h1>
-              <p className="text-[11px] text-neutral-400 mt-0.5">
-                {registerMode ? 'Join Veraawell today' : 'Sign in to continue'}
-              </p>
+          {/* Sign In / Sign Up toggle */}
+          {canSignUp && step === 'auth' && (
+            <div className="flex bg-neutral-100 rounded-xl p-1 mb-6 gap-1">
+              {['Sign In', 'Sign Up'].map((label, i) => {
+                const active = i === 0 ? !registerMode : registerMode;
+                return (
+                  <button key={label}
+                    onClick={() => { setRegisterMode(i === 1); setIsProfessional(false); clearMsgs(); }}
+                    className={`flex-1 py-2 rounded-lg text-[13px] font-semibold transition-all duration-200 ${active ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}>
+                    {label}
+                  </button>
+                );
+              })}
             </div>
+          )}
 
-            {/* Sign In / Sign Up toggle */}
-            {canSignUp && (
-              <div className="flex bg-neutral-100 rounded-xl p-0.5 mb-5 gap-0.5">
-                {['Sign In', 'Sign Up'].map((label, i) => {
-                  const active = i === 0 ? !registerMode : registerMode;
+          {/* Role selector — login only */}
+          {!registerMode && step === 'auth' && (
+            <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="mb-5">
+              <p className="text-[10px] font-semibold text-neutral-400 uppercase tracking-widest mb-2 text-center" style={{ fontFamily: 'var(--font-mono)' }}>I am a</p>
+              <div className="grid grid-cols-2 gap-2">
+                {[{ label: 'Patient', val: false, icon: <FiUser size={16} /> }, { label: 'Doctor', val: true, icon: <LuStethoscope size={16} /> }].map(({ label, val, icon }) => {
+                  const active = isProfessional === val;
                   return (
-                    <button key={label}
-                      onClick={() => { setRegisterMode(i === 1); setIsProfessional(false); clearMsgs(); }}
-                      className={`flex-1 py-1.5 rounded-[10px] text-xs font-medium transition-all duration-200 ${active ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-700'}`}>
+                    <button key={label} onClick={() => setIsProfessional(val)}
+                      className={`relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-[1.5px] text-[13px] font-semibold transition-all duration-200 justify-center ${active ? (val ? 'border-[var(--sage)] bg-[rgba(107,168,136,0.08)] text-[var(--sage)]' : 'border-[var(--teal)] bg-[var(--teal-muted)] text-[var(--teal)]') : 'border-[var(--border)] text-[var(--text-3)] hover:border-neutral-300'}`}>
+                      <span>{icon}</span>
                       {label}
                     </button>
                   );
                 })}
               </div>
-            )}
+            </motion.div>
+          )}
 
-            {/* Role selector — login only */}
-            {!registerMode && (
-              <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className="mb-4">
-                <p className="text-[10px] font-semibold text-neutral-400 uppercase tracking-widest mb-2 text-center">I am a</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {[{ label: 'Patient', val: false, icon: <FiUser size={15} /> }, { label: 'Doctor', val: true, icon: <LuStethoscope size={15} /> }].map(({ label, val, icon }) => {
-                    const active = isProfessional === val;
-                    return (
-                      <button key={label} onClick={() => setIsProfessional(val)}
-                        className={`relative flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-xs font-medium transition-all duration-200 justify-center ${active ? (val ? 'border-neutral-800 bg-neutral-50 text-neutral-900' : 'border-[#0097b2] bg-[#0097b2]/5 text-[#007c93]') : 'border-neutral-200 text-neutral-500 hover:border-neutral-300'}`}>
-                        <span className={`${active ? (val ? 'text-neutral-700' : 'text-[#0097b2]') : 'text-neutral-400'}`}>{icon}</span>
-                        {label}
-                        {active && (
-                          <motion.span layoutId="role-dot"
-                            className="absolute top-1.5 right-1.5 w-3 h-3 rounded-full flex items-center justify-center"
-                            style={{ background: val ? '#1f2937' : '#0097b2' }}>
-                            <svg width="6" height="5" viewBox="0 0 6 5" fill="none">
-                              <path d="M1 2.5L2.5 4L5.5 1" stroke="white" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                            </svg>
-                          </motion.span>
-                        )}
-                      </button>
-                    );
-                  })}
+          {/* Doctor notice in signup */}
+          {registerMode && step === 'auth' && (
+            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[12px] text-neutral-500 mb-5 text-center">
+              <LuStethoscope className="inline mr-1" size={13} />
+              Doctor?{' '}
+              <a href="/careers" className="text-[var(--teal)] font-semibold underline underline-offset-4 hover:text-[var(--teal-dark)] transition-colors">Join us here</a>
+            </motion.p>
+          )}
+
+          {/* Forms */}
+          <AnimatePresence mode="wait">
+            {step === 'verify' ? (
+              <motion.form key="verify" variants={stagger} initial="initial" animate="animate" exit="exit"
+                onSubmit={handleVerifyOTP} className="space-y-4 text-center mt-2">
+                <div className="w-16 h-16 mx-auto bg-emerald-50 rounded-full flex items-center justify-center mb-2">
+                  <FiMail size={28} className="text-emerald-500" />
                 </div>
+                <h3 className="text-[17px] font-semibold text-neutral-800">Check your email</h3>
+                <p className="text-[13px] text-neutral-500 max-w-xs mx-auto leading-relaxed">
+                  We've sent a 6-digit verification code to <br/><span className="font-medium text-neutral-800">{registeredEmail}</span>
+                </p>
+                <div className="pt-2">
+                  <input type="text" value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="------" disabled={loading}
+                    className="w-full text-center tracking-[0.5em] font-mono text-xl py-3 bg-white border rounded-xl transition-all disabled:opacity-40"
+                    style={{ borderColor: 'var(--border)', color: 'var(--text)', outline: 'none' }}
+                    onFocus={e => { e.target.style.borderColor = 'var(--teal)'; e.target.style.boxShadow = '0 0 0 3px var(--teal-muted)'; }}
+                    onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }} />
+                </div>
+                <motion.button variants={fadeUp} type="submit" disabled={loading || otp.length !== 6} whileTap={{ scale: 0.98 }}
+                  className="w-full py-3 text-white text-[14px] font-semibold rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 mt-2 disabled:opacity-50"
+                  style={{ background: 'var(--teal)' }}>
+                  {loading ? <Spinner text="Verifying..." /> : 'Verify Account'}
+                </motion.button>
+                <button type="button" onClick={() => setStep('auth')} className="text-[12px] text-neutral-400 hover:text-neutral-600 font-medium mt-2">
+                  Back to login
+                </button>
+              </motion.form>
+            ) : registerMode ? (
+              <motion.form key="register" variants={stagger} initial="initial" animate="animate" exit="exit"
+                onSubmit={handleRegister} className="space-y-3">
+                <Field label="Full Name" type="text" value={firstName} onChange={setFirstName}
+                  placeholder="Your full name" icon={<FiUser size={15} />} disabled={loading} />
+                <Field label="Email" type="email" value={email} onChange={setEmail}
+                  placeholder="rahul.sharma@gmail.com" icon={<FiMail size={15} />} disabled={loading} />
+                <Field label="Phone" type="tel" value={phoneNo} onChange={setPhoneNo}
+                  placeholder="+91 98765 43210" icon={<FiPhone size={15} />} disabled={loading} />
+                
+                {/* Password row */}
+                <motion.div variants={fadeUp} className="space-y-1">
+                  <label className="block text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>Password</label>
+                  <div className="relative group">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400 group-focus-within:text-[var(--teal)] transition-colors pointer-events-none"><FiLock size={15} /></span>
+                    <input type={showPw ? 'text' : 'password'} value={registerPassword}
+                      onChange={e => setRegisterPassword(e.target.value)} placeholder="Password" disabled={loading}
+                      className="w-full pl-10 pr-10 py-2.5 bg-white border rounded-xl text-[13px] transition-all disabled:opacity-40"
+                      style={{ borderColor: 'var(--border)', color: 'var(--text)', outline: 'none' }}
+                      onFocus={e => { e.target.style.borderColor = 'var(--teal)'; e.target.style.boxShadow = '0 0 0 3px var(--teal-muted)'; }}
+                      onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }} />
+                    <button type="button" onClick={() => setShowPw(p => !p)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600">
+                      {showPw ? <FiEyeOff size={15} /> : <FiEye size={15} />}
+                    </button>
+                  </div>
+                </motion.div>
+
+                <motion.div variants={fadeUp} className="space-y-1">
+                  <label className="block text-[11px] font-semibold uppercase tracking-widest" style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>Confirm</label>
+                  <div className="relative group">
+                    <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400 group-focus-within:text-[var(--teal)] transition-colors pointer-events-none"><FiLock size={15} /></span>
+                    <input type={showConfirm ? 'text' : 'password'} value={registerConfirm}
+                      onChange={e => setRegisterConfirm(e.target.value)} placeholder="Confirm Password" disabled={loading}
+                      className="w-full pl-10 pr-10 py-2.5 bg-white border rounded-xl text-[13px] transition-all disabled:opacity-40"
+                      style={{ borderColor: 'var(--border)', color: 'var(--text)', outline: 'none' }}
+                      onFocus={e => { e.target.style.borderColor = 'var(--teal)'; e.target.style.boxShadow = '0 0 0 3px var(--teal-muted)'; }}
+                      onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }} />
+                    <button type="button" onClick={() => setShowConfirm(p => !p)}
+                      className="absolute right-3.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600">
+                      {showConfirm ? <FiEyeOff size={15} /> : <FiEye size={15} />}
+                    </button>
+                  </div>
+                </motion.div>
+
+                <motion.button variants={fadeUp} type="submit" disabled={loading} whileTap={{ scale: 0.98 }}
+                  className="w-full mt-3 py-2.5 text-white text-[14px] font-semibold rounded-xl transition-all shadow-sm flex items-center justify-center gap-2"
+                  style={{ background: 'var(--teal)', border: '1px solid rgba(0,0,0,0.05)' }}
+                  onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = 'var(--teal-dark)'}
+                  onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = 'var(--teal)'}>
+                  {loading ? <Spinner text="Creating Account..." /> : 'Create Account'}
+                </motion.button>
+              </motion.form>
+            ) : (
+              <motion.form key="login" variants={stagger} initial="initial" animate="animate" exit="exit"
+                onSubmit={handleLogin} className="space-y-3">
+                <Field label="Email or Phone" type="text" value={username} onChange={setUsername}
+                  placeholder="Enter your email or phone" icon={<FiMail size={15} />} disabled={loading} />
+                <Field label="Password" type="password" value={password} onChange={setPassword}
+                  placeholder="Enter your password" icon={<FiLock size={15} />} disabled={loading}
+                  toggle showPw={showLoginPw} onToggle={() => setShowLoginPw(p => !p)} />
+                <motion.div variants={fadeUp} className="flex justify-end pt-0.5">
+                  <button type="button" onClick={() => navigate('/forgot-password')}
+                    className="text-[13px] text-[var(--teal)] hover:text-[var(--teal-dark)] font-semibold transition-colors underline-offset-4 hover:underline">
+                    Forgot password?
+                  </button>
+                </motion.div>
+                <motion.button variants={fadeUp} type="submit" disabled={loading} whileTap={{ scale: 0.98 }}
+                  className="w-full py-2.5 text-white text-[14px] font-semibold rounded-xl transition-all shadow-sm flex items-center justify-center gap-2"
+                  style={{ background: isProfessional ? 'var(--sage)' : 'var(--teal)', border: '1px solid rgba(0,0,0,0.05)' }}
+                  onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = isProfessional ? '#5b8f74' : 'var(--teal-dark)'}
+                  onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = isProfessional ? 'var(--sage)' : 'var(--teal)'}>
+                  {loading ? <Spinner text="Signing in..." /> : `Sign In as ${isProfessional ? 'Doctor' : 'Patient'}`}
+                </motion.button>
+              </motion.form>
+            )}
+          </AnimatePresence>
+
+          {/* Divider */}
+          {!isProfessional && step === 'auth' && (
+            <div className="flex items-center gap-4 my-5">
+              <div className="flex-1 h-px bg-neutral-200" />
+              <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-widest" style={{ fontFamily: 'var(--font-mono)' }}>or continue with</span>
+              <div className="flex-1 h-px bg-neutral-200" />
+            </div>
+          )}
+
+          {/* Google */}
+          {!isProfessional && step === 'auth' && (
+            <motion.button whileTap={{ scale: 0.98 }} onClick={handleGoogleAuth}
+              className="w-full flex items-center justify-center gap-2 py-2.5 border border-neutral-200 rounded-xl text-[14px] font-semibold text-neutral-700 bg-white hover:bg-neutral-50 hover:border-neutral-300 transition-all shadow-sm">
+              <FcGoogle size={18} /> Google
+            </motion.button>
+          )}
+
+          {/* Error / success */}
+          <AnimatePresence>
+            {(error || registerMsg) && (
+              <motion.div key="msg" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+                className={`mt-5 px-3 py-2.5 rounded-xl text-[12px] font-semibold text-center border ${registerMsg.includes('successful') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-600 border-red-200'}`}>
+                {error || registerMsg}
               </motion.div>
             )}
+          </AnimatePresence>
 
-            {/* Doctor notice in signup */}
-            {registerMode && (
-              <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-[11px] text-neutral-400 mb-4 text-center">
-                <LuStethoscope className="inline mr-1" size={11} />
-                Doctor?{' '}
-                <a href="/careers" className="text-neutral-700 font-medium underline underline-offset-2 hover:text-neutral-900">Join us here</a>
-              </motion.p>
-            )}
-
-            {/* Forms */}
-            <AnimatePresence mode="wait">
-              {registerMode ? (
-                <motion.form key="register" variants={stagger} initial="initial" animate="animate" exit="exit"
-                  onSubmit={handleRegister} className="space-y-2.5">
-                  <Field label="Full Name" type="text" value={firstName} onChange={setFirstName}
-                    placeholder="Your full name" icon={<FiUser size={13} />} disabled={loading} />
-                  <Field label="Email" type="email" value={email} onChange={setEmail}
-                    placeholder="rahul.sharma@gmail.com" icon={<FiMail size={13} />} disabled={loading} />
-                  <Field label="Phone" type="tel" value={phoneNo} onChange={setPhoneNo}
-                    placeholder="+91 98765 43210" icon={<FiPhone size={13} />} disabled={loading} />
-                  {/* Password row — side by side to save vertical space */}
-                  <motion.div variants={fadeUp} className="grid grid-cols-2 gap-2">
-                    <div className="space-y-1">
-                      <label className="block text-[11px] font-medium text-neutral-400">Password</label>
-                      <div className="relative group">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 text-[13px] pointer-events-none"><FiLock size={13} /></span>
-                        <input type={showPw ? 'text' : 'password'} value={registerPassword}
-                          onChange={e => setRegisterPassword(e.target.value)} placeholder="Password" disabled={loading}
-                          className="w-full pl-9 pr-8 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-[12px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900/8 focus:border-neutral-400 hover:border-neutral-300 transition-all disabled:opacity-40" />
-                        <button type="button" onClick={() => setShowPw(p => !p)}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600">
-                          {showPw ? <FiEyeOff size={12} /> : <FiEye size={12} />}
-                        </button>
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <label className="block text-[11px] font-medium text-neutral-400">Confirm</label>
-                      <div className="relative group">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 text-[13px] pointer-events-none"><FiLock size={13} /></span>
-                        <input type={showConfirm ? 'text' : 'password'} value={registerConfirm}
-                          onChange={e => setRegisterConfirm(e.target.value)} placeholder="Confirm" disabled={loading}
-                          className="w-full pl-9 pr-8 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-[12px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900/8 focus:border-neutral-400 hover:border-neutral-300 transition-all disabled:opacity-40" />
-                        <button type="button" onClick={() => setShowConfirm(p => !p)}
-                          className="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600">
-                          {showConfirm ? <FiEyeOff size={12} /> : <FiEye size={12} />}
-                        </button>
-                      </div>
-                    </div>
-                  </motion.div>
-
-                  <motion.button variants={fadeUp} type="submit" disabled={loading} whileTap={{ scale: 0.98 }}
-                    className="w-full mt-1 py-2 bg-[#0097b2] hover:bg-[#007c93] text-white text-xs font-medium rounded-xl transition-all disabled:opacity-50 shadow-sm">
-                    {loading ? <Spinner text="Creating..." /> : 'Create Account'}
-                  </motion.button>
-                </motion.form>
-              ) : (
-                <motion.form key="login" variants={stagger} initial="initial" animate="animate" exit="exit"
-                  onSubmit={handleLogin} className="space-y-2.5">
-                  <Field label="Email or Phone" type="text" value={username} onChange={setUsername}
-                    placeholder="Enter your email or phone" icon={<FiMail size={13} />} disabled={loading} />
-                  <Field label="Password" type="password" value={password} onChange={setPassword}
-                    placeholder="Enter your password" icon={<FiLock size={13} />} disabled={loading}
-                    toggle showPw={showLoginPw} onToggle={() => setShowLoginPw(p => !p)} />
-                  <motion.div variants={fadeUp} className="flex justify-end">
-                    <button type="button" onClick={() => navigate('/forgot-password')}
-                      className="text-[11px] text-neutral-500 hover:text-neutral-900 font-medium transition-colors">
-                      Forgot password?
-                    </button>
-                  </motion.div>
-                  <motion.button variants={fadeUp} type="submit" disabled={loading} whileTap={{ scale: 0.98 }}
-                    className="w-full py-2 bg-[#0097b2] hover:bg-[#007c93] text-white text-xs font-medium rounded-xl transition-all disabled:opacity-50 shadow-sm">
-                    {loading ? <Spinner text="Signing in..." /> : `Sign In as ${isProfessional ? 'Doctor' : 'Patient'}`}
-                  </motion.button>
-                </motion.form>
-              )}
-            </AnimatePresence>
-
-            {/* Divider */}
-            {!isProfessional && (
-              <div className="flex items-center gap-3 my-4">
-                <div className="flex-1 h-px bg-neutral-100" />
-                <span className="text-[10px] font-medium text-neutral-400 uppercase tracking-widest">or</span>
-                <div className="flex-1 h-px bg-neutral-100" />
-              </div>
-            )}
-
-            {/* Google */}
-            {!isProfessional && (
-              <motion.button whileTap={{ scale: 0.98 }} onClick={handleGoogleAuth}
-                className="w-full flex items-center justify-center gap-2 py-2 border border-neutral-200 rounded-xl text-xs font-medium text-neutral-700 hover:bg-neutral-50 hover:border-neutral-300 transition-all">
-                <FcGoogle size={15} /> Continue with Google
-              </motion.button>
-            )}
-
-            {/* Error / success */}
-            <AnimatePresence>
-              {(error || registerMsg) && (
-                <motion.div key="msg" initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-                  className={`mt-3 px-3 py-2 rounded-xl text-[11px] font-medium text-center border ${registerMsg.includes('successful') ? 'bg-emerald-50 text-emerald-700 border-emerald-200' : 'bg-red-50 text-red-600 border-red-200'}`}>
-                  {error || registerMsg}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Admin */}
-            <div className="mt-4 pt-3 border-t border-neutral-100 text-center">
-              <button onClick={() => navigate('/admin-login')}
-                className="inline-flex items-center gap-1 text-[11px] text-neutral-400 hover:text-neutral-600 font-medium transition-colors">
-                Admin Portal <FiChevronRight size={11} />
-              </button>
-            </div>
+          {/* Admin */}
+          <div className="mt-6 pt-4 border-t border-neutral-100 text-center">
+            <button onClick={() => navigate('/admin-login')}
+              className="inline-flex items-center gap-1.5 text-[11px] text-neutral-400 hover:text-neutral-600 font-semibold transition-colors uppercase tracking-widest" style={{ fontFamily: 'var(--font-mono)' }}>
+              Admin Portal <FiChevronRight size={13} />
+            </button>
           </div>
         </motion.div>
 
         {/* Footer */}
-        <p className="mt-5 text-[11px] text-neutral-400">
+        <p className="mt-8 text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
           Veraawell &copy; {new Date().getFullYear()}
         </p>
       </div>

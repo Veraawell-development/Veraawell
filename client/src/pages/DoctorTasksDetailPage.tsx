@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { FiMenu, FiCheckSquare, FiArrowLeft, FiCalendar, FiFlag } from 'react-icons/fi';
+import { FiCheckSquare, FiArrowLeft, FiCalendar, FiFlag } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
-import BackToDashboard from '../components/BackToDashboard';
 import { API_BASE_URL } from '../config/api';
 
 interface Task {
@@ -21,7 +20,6 @@ interface Task {
 const DoctorTasksDetailPage: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [patientName, setPatientName] = useState('');
   const navigate = useNavigate();
   const { patientId } = useParams();
@@ -51,7 +49,7 @@ const DoctorTasksDetailPage: React.FC = () => {
 
       setTasks(tasksArray);
       if (tasksArray.length > 0 && tasksArray[0].patientId) {
-        setPatientName(`${tasksArray[0].patientId.firstName} ${tasksArray[0].patientId.lastName}`);
+        setPatientName(`${tasksArray[0].patientId.firstName || ''} ${tasksArray[0].patientId.lastName || ''}`.trim());
       }
     } catch (error) {
       console.error('Error fetching patient tasks:', error);
@@ -82,117 +80,95 @@ const DoctorTasksDetailPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="h-[calc(100vh-80px)] flex items-center justify-center bg-[#FAFAFA]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-teal-600 mx-auto"></div>
-          <p className="mt-4 text-gray-500 font-medium">Loading tasks...</p>
+          <div className="w-8 h-8 border-2 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-500 text-[13px] font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>Loading tasks...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans">
-      {/* Sidebar Overlay */}
-      {sidebarOpen && (
-        <div className="fixed inset-0 z-40 bg-black/20 backdrop-blur-sm" onClick={() => setSidebarOpen(false)} />
-      )}
-
-      {/* Sidebar - Teal Theme */}
-      <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-2xl transform transition-transform duration-300 ease-in-out z-50 bg-white border-r border-gray-100 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}>
-        <div className="h-full flex flex-col p-6">
-          <div className="space-y-2">
-            <button
-              onClick={() => { navigate('/doctor-dashboard'); setSidebarOpen(false); }}
-              className="w-full flex items-center space-x-3 px-4 py-3 text-gray-600 hover:bg-teal-50 hover:text-teal-700 rounded-xl transition-all font-medium"
-            >
-              <span>My Dashboard</span>
-            </button>
-            <button
-              onClick={() => { navigate('/doctor-tasks'); setSidebarOpen(false); }}
-              className="w-full flex items-center space-x-3 px-4 py-3 bg-teal-50 text-teal-700 rounded-xl transition-all font-bold shadow-sm"
-            >
-              <span>Back to List</span>
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Header - Teal Gradient */}
-      <div className="bg-[#5DBEBD] text-white shadow-lg relative overflow-hidden">
-        <div className="absolute inset-0 bg-white/10 pattern-dots opacity-10"></div>
-        <div className="px-6 py-6 flex items-center justify-center relative z-10">
-          <button onClick={() => setSidebarOpen(true)} className="absolute left-6 text-white hover:bg-white/20 p-2 rounded-full transition-colors">
-            <FiMenu className="w-6 h-6" />
+    <div className="h-screen pt-[64px] md:pt-[80px] bg-[#FAFAFA] font-sans flex flex-col overflow-hidden box-border">
+      {/* Main Content Area */}
+      <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 md:py-10 flex flex-col min-h-0">
+        
+        <div className="mb-8 max-w-2xl relative shrink-0">
+          <button 
+            onClick={() => navigate('/doctor-tasks')} 
+            className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 hover:text-teal-600 transition-colors mb-5 group"
+            aria-label="Back to All Patients"
+            style={{ fontFamily: 'Inter, sans-serif' }}
+          >
+            <svg className="w-4 h-4 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Back to All Patients
           </button>
-          <h1 className="text-2xl md:text-3xl font-bold tracking-wide" style={{ fontFamily: 'Bree Serif, serif' }}>
+
+          <h1 className="text-[32px] md:text-[36px] font-extrabold text-gray-800 tracking-tight mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
             {patientName ? `${patientName}'s Tasks` : 'Patient Tasks'}
           </h1>
-        </div>
-      </div>
-
-      <div className="px-4 py-8 max-w-5xl mx-auto">
-        <BackToDashboard />
-        <div className="flex items-center mb-6">
-          <button
-            onClick={() => navigate('/doctor-tasks')}
-            className="flex items-center text-teal-600 hover:text-teal-800 font-medium transition-colors"
-          >
-            <FiArrowLeft className="mr-2" /> Back to All Patients
-          </button>
+          <p className="text-[15px] text-gray-500 font-medium leading-relaxed max-w-2xl" style={{ fontFamily: 'Inter, sans-serif' }}>
+            View and monitor all the tasks assigned to this patient.
+          </p>
         </div>
 
         {tasks.length === 0 ? (
-          <div className="text-center py-20 bg-white rounded-3xl shadow-sm border border-gray-100">
-            <div className="bg-teal-50 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-              <FiCheckSquare className="w-8 h-8 text-teal-400" />
+          <div className="bg-white rounded-[24px] border border-gray-100 shadow-sm p-16 text-center max-w-3xl mx-auto mt-4 shrink-0">
+            <div className="w-16 h-16 bg-gray-50 border border-gray-100 rounded-full flex items-center justify-center mx-auto mb-5">
+              <FiCheckSquare className="w-6 h-6 text-gray-400" />
             </div>
-            <h3 className="text-xl font-bold text-gray-800 mb-2 font-serif">No Tasks Found</h3>
-            <p className="text-gray-500">No tasks assigned to this patient yet.</p>
+            <h3 className="text-[18px] font-bold text-gray-800 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+              No Tasks Found
+            </h3>
+            <p className="text-gray-500 text-[14px] mb-8" style={{ fontFamily: 'Inter, sans-serif' }}>
+              No tasks have been assigned to this patient yet.
+            </p>
           </div>
         ) : (
-          <div className="space-y-4">
-            {tasks.map((task) => (
-              <div
-                key={task._id}
-                className="bg-white rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all p-6 relative overflow-hidden group"
-              >
-                <div className="absolute top-0 right-0 w-32 h-32 bg-teal-50 rounded-full -mr-16 -mt-16 opacity-50 group-hover:opacity-100 transition-opacity"></div>
-
-                <div className="relative z-10">
-                  <div className="flex justify-between items-start mb-4">
+          <div className="flex-1 overflow-y-auto pr-2 pb-10 min-h-0">
+            <div className="space-y-5 max-w-4xl">
+              {tasks.map((task) => (
+                <div
+                  key={task._id}
+                  className="bg-white rounded-[16px] border border-gray-100 hover:border-teal-100 shadow-sm transition-all overflow-hidden p-6 flex flex-col"
+                >
+                  <div className="flex justify-between items-start mb-5 pb-5 border-b border-gray-50">
                     <div>
-                      <h3 className="text-xl font-bold text-gray-800 mb-1" style={{ fontFamily: 'Bree Serif, serif' }}>
+                      <h3 className="text-[16px] font-bold text-gray-800 tracking-tight mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>
                         {task.title}
                       </h3>
-                      <p className="text-gray-500 text-sm flex items-center gap-2">
-                        <FiCalendar className="w-4 h-4" />
+                      <p className="text-[12px] font-medium text-gray-500 flex items-center gap-1.5" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        <FiCalendar className="w-3.5 h-3.5" />
                         Due: {formatDate(task.dueDate)}
                       </p>
                     </div>
-                    <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border flex items-center gap-1 ${getPriorityColor(task.priority)}`}>
+                    <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-bold tracking-wide uppercase border ${getPriorityColor(task.priority)}`} style={{ fontFamily: 'Inter, sans-serif' }}>
                       <FiFlag className="w-3 h-3" />
                       {task.priority}
                     </span>
                   </div>
-
-                  <div className="bg-gray-50 rounded-xl p-4 border border-gray-100 text-gray-700">
-                    {task.description ? (
-                      <p className="whitespace-pre-wrap">{task.description}</p>
-                    ) : (
-                      <p className="italic text-gray-400">No additional description.</p>
-                    )}
+                  
+                  <div className="prose prose-sm max-w-none">
+                    <div className="text-[14px] leading-relaxed font-medium text-gray-600 bg-gray-50/50 p-5 rounded-xl border border-gray-100" style={{ fontFamily: 'Inter, sans-serif' }}>
+                      {task.description ? (
+                        <p className="whitespace-pre-wrap">{task.description}</p>
+                      ) : (
+                        <p className="italic text-gray-400">No additional description.</p>
+                      )}
+                    </div>
                   </div>
 
-                  <div className="mt-4 flex justify-end">
-                    <span className={`text-sm font-medium ${task.status === 'completed' ? 'text-green-600' : 'text-amber-600'}`}>
+                  <div className="mt-5 pt-5 border-t border-gray-50 flex justify-end">
+                    <span className={`text-[12px] font-bold tracking-wide ${task.status === 'completed' ? 'text-green-600' : 'text-amber-600'}`} style={{ fontFamily: 'Inter, sans-serif' }}>
                       Status: {task.status.charAt(0).toUpperCase() + task.status.slice(1)}
                     </span>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
       </div>

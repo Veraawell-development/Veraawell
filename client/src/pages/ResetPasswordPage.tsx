@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
 import { API_BASE_URL } from '../config/api';
+import LeafDecor from '../components/ui/LeafDecor';
 
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
@@ -74,95 +75,176 @@ export default function ResetPasswordPage() {
     setLoading(false);
   };
 
-  if (!token) {
+    if (!token) {
     return (
-      <div className="min-h-[80vh] flex items-center justify-center bg-black p-2 sm:p-4">
-        <div className="w-full max-w-md bg-gray-900 rounded-3xl shadow-xl p-4 sm:p-8 border border-gray-800">
-          <h2 className="text-xl font-bold text-center mb-6 text-white">Invalid Reset Link</h2>
-          <p className="text-gray-300 text-center mb-6">{error}</p>
-          <button
-            onClick={() => navigate('/login')}
-            className="w-full bg-green-500 text-black py-2 rounded-3xl hover:bg-green-400 transition font-semibold"
+      <div className="min-h-screen flex items-center justify-center bg-[var(--bg-2)] relative overflow-hidden px-4">
+        {/* Background Decor */}
+        <LeafDecor 
+            style={{ 
+                position: 'absolute', 
+                top: '-10%', 
+                right: '-5%', 
+                width: '600px', 
+                height: '600px', 
+                opacity: 0.3, 
+                transform: 'rotate(15deg) scaleX(-1)', 
+                zIndex: 0 
+            }} 
+        />
+        <div 
+            className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] rounded-full blur-[100px] pointer-events-none z-0" 
+            style={{ background: 'radial-gradient(circle, rgba(0, 151, 178, 0.15), transparent 60%)' }} 
+        />
+        <div className="w-full max-w-md relative z-10">
+          <div className="rounded-[32px] p-8 sm:p-10 shadow-2xl relative overflow-hidden text-center"
+            style={{ 
+              background: 'rgba(255, 255, 255, 0.75)', 
+              border: '1px solid rgba(255, 255, 255, 1)', 
+              backdropFilter: 'blur(20px)',
+              boxShadow: '0 24px 60px rgba(0,151,178,0.08)'
+            }}
           >
-            Go to Login
-          </button>
+            <h2 className="text-3xl font-normal mb-3 tracking-tight" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}>
+              Invalid Link
+            </h2>
+            <p className="text-[15px] mb-8 leading-relaxed" style={{ color: 'var(--text-2)' }}>
+              {error || 'This password reset link is invalid or has expired.'}
+            </p>
+            <button
+              onClick={() => navigate('/login')}
+              className="w-full py-4 rounded-full font-bold transition-all text-[15px] hover:-translate-y-0.5"
+              style={{ background: 'var(--teal)', color: 'white', boxShadow: '0 8px 20px rgba(0,151,178,0.25)' }}
+            >
+              Go to Login
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-[80vh] flex items-center justify-center bg-black p-2 sm:p-4">
-      <div className="w-full max-w-md bg-gray-900 rounded-3xl shadow-xl p-4 sm:p-8 border border-gray-800">
-        <h2 className="text-xl font-bold text-center mb-6 text-white">Reset Your Password</h2>
-        
-        {message && (
-          <div className="text-center text-green-400 mb-4">{message}</div>
-        )}
-        
-        {error && (
-          <div className="text-center text-red-400 mb-4">{error}</div>
-        )}
-        {isGoogleUser ? (
-          <div className="text-center text-yellow-400 mb-4">You signed up with Google. Please use Google Sign-In to log in. Password reset is not available for Google accounts.</div>
-        ) : (
-        <form onSubmit={handleResetPassword} className="space-y-4">
-          <div className="relative">
-            <input
-              type={showPassword ? 'text' : 'password'}
-              placeholder="New Password"
-              value={newPassword}
-              onChange={e => setNewPassword(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-700 bg-gray-800 text-white rounded-3xl focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
-              disabled={loading}
-              autoFocus
-            />
-            <button 
-              type="button" 
-              tabIndex={-1} 
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" 
-              onClick={() => setShowPassword(v => !v)}
-            >
-              {showPassword ? <FaEyeSlash /> : <FaEye />}
-            </button>
-          </div>
+    <div className="min-h-screen flex items-center justify-center bg-[var(--bg-2)] relative overflow-hidden px-4">
+      {/* Background Decor */}
+      <LeafDecor 
+          style={{ 
+              position: 'absolute', 
+              top: '-10%', 
+              right: '-5%', 
+              width: '600px', 
+              height: '600px', 
+              opacity: 0.3, 
+              transform: 'rotate(15deg) scaleX(-1)', 
+              zIndex: 0 
+          }} 
+      />
+      <div 
+          className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] rounded-full blur-[100px] pointer-events-none z-0" 
+          style={{ background: 'radial-gradient(circle, rgba(0, 151, 178, 0.15), transparent 60%)' }} 
+      />
 
-          <div className="relative">
-            <input
-              type={showConfirmPassword ? 'text' : 'password'}
-              placeholder="Confirm New Password"
-              value={confirmPassword}
-              onChange={e => setConfirmPassword(e.target.value)}
-              className="w-full px-4 py-2 border border-gray-700 bg-gray-800 text-white rounded-3xl focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
-              disabled={loading}
-            />
-            <button 
-              type="button" 
-              tabIndex={-1} 
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400" 
-              onClick={() => setShowConfirmPassword(v => !v)}
-            >
-              {showConfirmPassword ? <FaEyeSlash /> : <FaEye />}
-            </button>
-          </div>
-
-          <button 
-            type="submit" 
-            className="w-full bg-green-500 text-black py-2 rounded-3xl hover:bg-green-400 transition disabled:opacity-50 text-base font-semibold" 
-            disabled={loading}
-          >
-            {loading ? 'Resetting Password...' : 'Reset Password'}
-          </button>
-        </form>
-        )}
+      <div className="w-full max-w-md relative z-10">
         <button 
-          type="button" 
-          className="w-full text-green-400 py-2 rounded-3xl hover:bg-gray-800 transition mt-4 text-sm font-semibold" 
           onClick={() => navigate('/login')}
-          disabled={loading}
+          className="flex items-center gap-2 text-sm font-medium mb-6 transition-colors opacity-70 hover:opacity-100"
+          style={{ color: 'var(--teal-dark)' }}
         >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M10 19l-7-7m0 0l7-7m-7 7h18" /></svg>
           Back to Login
         </button>
+
+        <div className="rounded-[32px] p-8 sm:p-10 shadow-2xl relative overflow-hidden"
+          style={{ 
+            background: 'rgba(255, 255, 255, 0.75)', 
+            border: '1px solid rgba(255, 255, 255, 1)', 
+            backdropFilter: 'blur(20px)',
+            boxShadow: '0 24px 60px rgba(0,151,178,0.08)'
+          }}
+        >
+          <h2 className="text-3xl font-normal mb-3 tracking-tight" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}>
+            Reset Password
+          </h2>
+          
+          <p className="text-[15px] mb-8 leading-relaxed" style={{ color: 'var(--text-2)' }}>
+            Create a new password for your account. Make sure it's at least 6 characters long.
+          </p>
+
+          {message && (
+            <div className="text-center text-sm mb-6 p-4 rounded-2xl flex items-start gap-3" style={{ background: 'rgba(16, 185, 129, 0.1)', color: '#059669', border: '1px solid rgba(16, 185, 129, 0.2)' }}>
+              {message}
+            </div>
+          )}
+          
+          {error && (
+            <div className="text-center text-sm mb-6 p-4 rounded-2xl" style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#DC2626', border: '1px solid rgba(239, 68, 68, 0.2)' }}>
+              {error}
+            </div>
+          )}
+          
+          {isGoogleUser ? (
+            <div className="text-center text-sm mb-6 p-4 rounded-2xl" style={{ background: 'rgba(234, 179, 8, 0.1)', color: '#CA8A04', border: '1px solid rgba(234, 179, 8, 0.2)' }}>
+              You signed up with Google. Please use Google Sign-In to log in. Password reset is not available for Google accounts.
+            </div>
+          ) : (
+            <form onSubmit={handleResetPassword} className="space-y-5">
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  placeholder="New Password"
+                  value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  className="w-full px-5 py-4 bg-white/70 border border-white focus:bg-white text-[15px] rounded-2xl focus:outline-none transition-all duration-300"
+                  style={{ color: 'var(--text)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)' }}
+                  disabled={loading}
+                  autoFocus
+                />
+                <button 
+                  type="button" 
+                  tabIndex={-1} 
+                  className="absolute right-4 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 transition-opacity" 
+                  style={{ color: 'var(--text-3)' }}
+                  onClick={() => setShowPassword(v => !v)}
+                >
+                  {showPassword ? <FaEyeSlash size={18} /> : <FaEye size={18} />}
+                </button>
+              </div>
+
+              <div className="relative">
+                <input
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  placeholder="Confirm New Password"
+                  value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  className="w-full px-5 py-4 bg-white/70 border border-white focus:bg-white text-[15px] rounded-2xl focus:outline-none transition-all duration-300"
+                  style={{ color: 'var(--text)', boxShadow: 'inset 0 2px 4px rgba(0,0,0,0.02)' }}
+                  disabled={loading}
+                />
+                <button 
+                  type="button" 
+                  tabIndex={-1} 
+                  className="absolute right-4 top-1/2 -translate-y-1/2 opacity-50 hover:opacity-100 transition-opacity" 
+                  style={{ color: 'var(--text-3)' }}
+                  onClick={() => setShowConfirmPassword(v => !v)}
+                >
+                  {showConfirmPassword ? <FaEyeSlash size={18} /> : <FaEye size={18} />}
+                </button>
+              </div>
+
+              <button 
+                type="submit" 
+                className="w-full py-4 rounded-full font-bold transition-all disabled:opacity-50 text-[15px] flex items-center justify-center hover:-translate-y-0.5" 
+                style={{ background: 'var(--teal)', color: 'white', boxShadow: '0 8px 20px rgba(0,151,178,0.25)' }}
+                disabled={loading}
+              >
+                {loading ? (
+                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                ) : (
+                  'Reset Password'
+                )}
+              </button>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );

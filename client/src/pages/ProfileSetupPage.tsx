@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import ProfileImageUpload from '../components/ProfileImageUpload';
+import BannerImageUpload from '../components/BannerImageUpload';
 import BackToDashboard from '../components/BackToDashboard';
 import { API_BASE_URL } from '../config/api';
 
@@ -9,16 +10,18 @@ const ProfileSetupPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [isSaving, setIsSaving] = useState(false);
-  const [isEditing, setIsEditing] = useState(true);
+  const [isEditing] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 4;
+  console.log('[ProfileSetupPage] RENDER - user:', user?.userId, 'role:', user?.role, 'currentStep:', currentStep);
 
   // Form state for doctor profile
   const [formData, setFormData] = useState({
     name: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
     profileImage: '',
+    bannerImage: '',
     qualification: [] as string[],
     languages: [] as string[],
     type: '',
@@ -57,9 +60,16 @@ const ProfileSetupPage: React.FC = () => {
   React.useEffect(() => {
     const fetchProfile = async () => {
       try {
+        const token = localStorage.getItem('token');
+        const headers: Record<string, string> = {};
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        console.log('[ProfileSetupPage] Fetching profile data...');
         const response = await fetch(`${API_BASE_URL}/profile/setup`, {
           method: 'GET',
           credentials: 'include',
+          headers,
         });
 
         if (response.ok) {
@@ -68,6 +78,7 @@ const ProfileSetupPage: React.FC = () => {
             setFormData({
               name: data.profile.name || `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
               profileImage: data.profile.profileImage || '',
+              bannerImage: data.profile.bannerImage || '',
               qualification: data.profile.qualification || [],
               languages: data.profile.languages || [],
               type: data.profile.type || '',
@@ -87,7 +98,7 @@ const ProfileSetupPage: React.FC = () => {
               quoteAuthor: data.profile.quoteAuthor || '',
               introduction: data.profile.introduction || ''
             });
-            setIsEditing(false); // Disable editing if profile data is loaded
+            // Keep isEditing true so users can always edit their profile
           }
         }
       } catch (err) {
@@ -105,6 +116,7 @@ const ProfileSetupPage: React.FC = () => {
     e.preventDefault();
     setIsSaving(true);
     setError(null);
+    console.log('[ProfileSetupPage] handleSubmit called - will navigate to dashboard after save');
 
     try {
       const response = await fetch(`${API_BASE_URL}/profile/setup`, {
@@ -135,6 +147,7 @@ const ProfileSetupPage: React.FC = () => {
       }
 
       // Redirect to dashboard after successful save
+      console.log('[ProfileSetupPage] Save successful - navigating to dashboard');
       navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save profile');
@@ -172,6 +185,10 @@ const ProfileSetupPage: React.FC = () => {
     }
   };
 
+  const canNavigateToStep = (targetStep: number) => {
+    return true; // Allow free navigation for easier editing
+  };
+
   const getStepTitle = () => {
     switch (currentStep) {
       case 1: return 'Basic Information';
@@ -193,61 +210,105 @@ const ProfileSetupPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex flex-col">
-      {/* Modern Header */}
-      <div className="sticky top-0 z-10 backdrop-blur-md bg-white/80 border-b border-gray-200 shadow-sm">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <BackToDashboard className="!mb-4" />
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => navigate(-1)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                aria-label="Go back"
-              >
-                <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+    <div className="flex-1 min-h-0 w-full bg-gray-50 flex flex-col overflow-hidden pt-[64px] md:pt-[80px] box-border">
+      {/* Minimal Header */}
+      <div className="flex-shrink-0 z-10 bg-white border-b border-gray-100 px-4 sm:px-8 py-3.5 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => navigate(-1)}
+            className="p-1.5 hover:bg-gray-100 rounded-md transition-colors text-gray-400 hover:text-gray-700"
+            aria-label="Go back"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <div>
+            <h1 className="text-lg font-semibold text-gray-900">Profile Settings</h1>
+            <p className="text-xs text-gray-500 mt-0.5">Manage your public profile and preferences</p>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handleSubmit}
+            disabled={isSaving}
+            className="bg-teal-600 hover:bg-teal-700 text-white px-5 py-2 rounded-full font-medium text-sm transition-colors flex items-center gap-1.5 disabled:opacity-70 disabled:cursor-not-allowed"
+          >
+            {isSaving ? (
+              <>
+                <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
                 </svg>
-              </button>
-              <div>
-                <h1 className="text-xl font-bold text-gray-900">Profile Setup</h1>
-                <p className="text-sm text-gray-500">Step {currentStep} of {totalSteps}</p>
-              </div>
-            </div>
-            <div className="flex items-center gap-2 text-sm text-gray-600">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <circle cx="12" cy="12" r="10" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6l4 2" />
-              </svg>
-              <span>5-10 min</span>
-            </div>
-          </div>
-
-          {/* Progress Bar */}
-          <div className="mt-6 flex items-center gap-2">
-            {[1, 2, 3, 4].map((step) => (
-              <div key={step} className="flex-1 flex flex-col items-center gap-2">
-                <div className={`w-full h-2 rounded-full transition-all duration-300 ${step <= currentStep ? 'bg-teal-500' : 'bg-gray-200'
-                  }`} />
-                <span className={`text-xs font-medium ${step <= currentStep ? 'text-teal-600' : 'text-gray-400'
-                  }`}>
-                  {step === 1 && 'Basic'}
-                  {step === 2 && 'Credentials'}
-                  {step === 3 && 'Pricing'}
-                  {step === 4 && 'Personal'}
-                </span>
-              </div>
-            ))}
-          </div>
+                Saving...
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Save Changes
+              </>
+            )}
+          </button>
         </div>
       </div>
 
-      {/* Main Content */}
-      <div className="flex-1 max-w-4xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col">
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex-1 flex flex-col max-h-[calc(100vh-280px)]">
+      {/* Main Content Area (Sidebar + Form) */}
+      <div className="flex-1 overflow-hidden p-4 sm:p-6 lg:p-8 flex justify-center">
+        <div className="max-w-6xl w-full flex bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+          {/* Sidebar */}
+          <div className="w-64 flex-shrink-0 border-r border-gray-200 bg-gray-50 overflow-y-auto hidden md:block">
+            <nav className="p-4 space-y-2">
+            {[
+              { step: 1, title: 'Basic Information', icon: 'M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z' },
+              { step: 2, title: 'Qualifications', icon: 'M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z' },
+              { step: 3, title: 'Session Pricing', icon: 'M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z' },
+              { step: 4, title: 'Personal Touch', icon: 'M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z' },
+            ].map((item) => (
+              <button
+                key={item.step}
+                type="button"
+                onClick={() => setCurrentStep(item.step)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all text-left font-medium ${
+                  currentStep === item.step
+                    ? 'bg-white shadow-sm border border-gray-200 text-teal-700'
+                    : 'text-gray-600 hover:bg-gray-200/50 hover:text-gray-900'
+                }`}
+              >
+                <div className={`p-1.5 rounded-lg ${currentStep === item.step ? 'bg-teal-50 text-teal-600' : 'bg-gray-100 text-gray-400'}`}>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={item.icon} />
+                  </svg>
+                </div>
+                <span className="text-sm">{item.title}</span>
+              </button>
+            ))}
+          </nav>
+        </div>
 
+        {/* Mobile Tabs */}
+        <div className="md:hidden flex overflow-x-auto border-b border-gray-200 bg-gray-50 px-2 py-2 shrink-0 hide-scrollbar">
+          {[1, 2, 3, 4].map((step) => (
+            <button
+              key={step}
+              type="button"
+              onClick={() => setCurrentStep(step)}
+              className={`flex-shrink-0 px-4 py-2 text-sm font-medium rounded-full transition-colors ${
+                currentStep === step ? 'bg-teal-50 text-teal-700' : 'text-gray-500'
+              }`}
+            >
+              {step === 1 ? 'Basic' : step === 2 ? 'Credentials' : step === 3 ? 'Pricing' : 'Personal'}
+            </button>
+          ))}
+        </div>
+
+        {/* Right Form Area */}
+        <div className="flex-1 bg-white overflow-y-auto relative">
           {error && (
-            <div className="mx-8 mt-6 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg flex items-start gap-3">
+            <div className="m-4 sm:m-8 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg flex items-start gap-3">
               <svg className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
               </svg>
@@ -258,145 +319,111 @@ const ProfileSetupPage: React.FC = () => {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="flex-1 flex flex-col">
-            {/* Step Header */}
-            <div className="px-8 pt-8 pb-6 border-b border-gray-200">
-              <div className="flex items-center gap-3">
-                <div className={`w-12 h-12 rounded-full flex items-center justify-center ${currentStep === 1 ? 'bg-teal-100' :
-                  currentStep === 2 ? 'bg-blue-100' :
-                    currentStep === 3 ? 'bg-green-100' :
-                      'bg-amber-100'
-                  }`}>
-                  {currentStep === 1 && (
-                    <svg className="w-6 h-6 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                  )}
-                  {currentStep === 2 && (
-                    <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-                    </svg>
-                  )}
-                  {currentStep === 3 && (
-                    <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                  )}
-                  {currentStep === 4 && (
-                    <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-                    </svg>
-                  )}
-                </div>
-                <div>
-                  <h2 className="text-2xl font-bold text-gray-900">{getStepTitle()}</h2>
-                  <p className="text-sm text-gray-500 mt-1">{getStepDescription()}</p>
-                </div>
-              </div>
-
-              {/* Edit Details Button */}
-              {!isEditing && (
-                <button
-                  type="button"
-                  onClick={() => setIsEditing(true)}
-                  className="flex items-center gap-1.5 transition-colors text-teal-600 hover:text-teal-700"
-                  style={{ fontFamily: 'Inter, sans-serif' }}
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                  </svg>
-                  <span className="text-sm font-medium">edit details</span>
-                </button>
-              )}
+          <div className="max-w-4xl mx-auto px-4 py-4 sm:px-8 sm:py-6">
+            <div className="mb-4">
+              <h2 className="text-xl font-bold text-gray-900">{getStepTitle()}</h2>
+              <p className="text-sm text-gray-500 mt-0.5">{getStepDescription()}</p>
             </div>
 
-            {/* Step Content - Scrollable if needed */}
-            <div className="flex-1 overflow-y-auto px-8 py-6">
-              <fieldset disabled={!isEditing} className={`space-y-6 max-w-2xl transition-opacity duration-200 ${!isEditing ? 'opacity-70' : ''}`}>
+            <form id="profile-form" onSubmit={handleSubmit} className="space-y-5">
 
                 {/* STEP 1: Basic Information */}
                 {currentStep === 1 && (
                   <>
-                    {/* Profile Image Upload */}
-                    <div className="flex justify-center mb-8">
-                      <ProfileImageUpload
-                        currentImage={formData.profileImage}
-                        onImageUpdate={(imageUrl) => setFormData({ ...formData, profileImage: imageUrl })}
-                        onImageRemove={() => setFormData({ ...formData, profileImage: '' })}
-                        defaultImage="/male.png"
-                      />
-                    </div>
-
-                    {/* Name */}
-                    <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Full Name <span className="text-red-500">*</span>
-                      </label>
-                      <input
-                        type="text"
-                        value={formData.name}
-                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                        onFocus={() => setFocusedField('name')}
-                        onBlur={() => setFocusedField(null)}
-                        className={`w-full px-4 py-3 border rounded-xl transition-all duration-200 ${focusedField === 'name'
-                          ? 'border-teal-500 ring-4 ring-teal-100 bg-white'
-                          : 'border-gray-300 bg-gray-50 hover:border-gray-400'
-                          } focus:outline-none`}
-                        placeholder="Dr. John Doe"
-                        required
-                      />
-                    </div>
-
-                    {/* Type */}
-                    <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Professional Type <span className="text-red-500">*</span>
-                      </label>
-                      <div className="relative">
-                        <select
-                          value={formData.type}
-                          onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                          onFocus={() => setFocusedField('type')}
-                          onBlur={() => setFocusedField(null)}
-                          className={`w-full px-4 py-3 border rounded-xl appearance-none transition-all duration-200 ${focusedField === 'type'
-                            ? 'border-teal-500 ring-4 ring-teal-100 bg-white'
-                            : 'border-gray-300 bg-gray-50 hover:border-gray-400'
-                            } focus:outline-none cursor-pointer`}
-                          required
-                        >
-                          <option value="">Select your professional type</option>
-                          {typeOptions.map(opt => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                        <svg className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
+                    {/* Images Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-2">
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-gray-700">Profile Banner</label>
+                        <BannerImageUpload
+                          currentImage={formData.bannerImage}
+                          onImageUpdate={(imageUrl) => setFormData({ ...formData, bannerImage: imageUrl })}
+                          onImageRemove={() => setFormData({ ...formData, bannerImage: '' })}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-gray-700">Profile Picture</label>
+                        <ProfileImageUpload
+                          currentImage={formData.profileImage}
+                          onImageUpdate={(imageUrl) => setFormData({ ...formData, profileImage: imageUrl })}
+                          onImageRemove={() => setFormData({ ...formData, profileImage: '' })}
+                          defaultImage="/male.png"
+                        />
                       </div>
                     </div>
 
-                    {/* Experience */}
-                    <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Years of Experience <span className="text-red-500">*</span>
-                      </label>
-                      <div className="relative">
+                    {/* Inputs Grid */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {/* Name */}
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-gray-700">
+                          Full Name <span className="text-red-500">*</span>
+                        </label>
                         <input
-                          type="number"
-                          value={formData.experience}
-                          onChange={(e) => setFormData({ ...formData, experience: e.target.value })}
-                          onFocus={() => setFocusedField('experience')}
+                          type="text"
+                          value={formData.name}
+                          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                          onFocus={() => setFocusedField('name')}
                           onBlur={() => setFocusedField(null)}
-                          className={`w-full px-4 py-3 border rounded-xl transition-all duration-200 ${focusedField === 'experience'
-                            ? 'border-teal-500 ring-4 ring-teal-100 bg-white'
+                          className={`w-full px-3 py-2 text-sm border rounded-lg transition-all duration-200 ${focusedField === 'name'
+                            ? 'border-teal-500 ring-2 ring-teal-100 bg-white'
                             : 'border-gray-300 bg-gray-50 hover:border-gray-400'
                             } focus:outline-none`}
-                          placeholder="e.g., 5"
-                          min="0"
-                          max="50"
+                          placeholder="Dr. John Doe"
                           required
                         />
-                        <span className="absolute right-4 top-1/2 -translate-y-1/2 text-sm text-gray-400">years</span>
+                      </div>
+
+                      {/* Type */}
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-gray-700">
+                          Professional Type <span className="text-red-500">*</span>
+                        </label>
+                        <div className="relative">
+                          <select
+                            value={formData.type}
+                            onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                            onFocus={() => setFocusedField('type')}
+                            onBlur={() => setFocusedField(null)}
+                            className={`w-full px-3 py-2 text-sm border rounded-lg appearance-none transition-all duration-200 ${focusedField === 'type'
+                              ? 'border-teal-500 ring-2 ring-teal-100 bg-white'
+                              : 'border-gray-300 bg-gray-50 hover:border-gray-400'
+                              } focus:outline-none cursor-pointer`}
+                            required
+                          >
+                            <option value="">Select type</option>
+                            {typeOptions.map(opt => (
+                              <option key={opt} value={opt}>{opt}</option>
+                            ))}
+                          </select>
+                          <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </div>
+                      </div>
+
+                      {/* Experience */}
+                      <div className="space-y-1">
+                        <label className="block text-xs font-medium text-gray-700">
+                          Experience <span className="text-red-500">*</span>
+                        </label>
+                        <div className="relative">
+                          <input
+                            type="number"
+                            value={formData.experience}
+                            onChange={(e) => setFormData({ ...formData, experience: e.target.value })}
+                            onFocus={() => setFocusedField('experience')}
+                            onBlur={() => setFocusedField(null)}
+                            className={`w-full px-3 py-2 text-sm border rounded-lg transition-all duration-200 ${focusedField === 'experience'
+                              ? 'border-teal-500 ring-2 ring-teal-100 bg-white'
+                              : 'border-gray-300 bg-gray-50 hover:border-gray-400'
+                              } focus:outline-none`}
+                            placeholder="5"
+                            min="0"
+                            max="50"
+                            required
+                          />
+                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400">years</span>
+                        </div>
                       </div>
                     </div>
                   </>
@@ -404,18 +431,18 @@ const ProfileSetupPage: React.FC = () => {
 
                 {/* STEP 2: Qualifications & Expertise */}
                 {currentStep === 2 && (
-                  <>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     {/* Qualification */}
-                    <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-gray-700">
                         Qualifications <span className="text-red-500">*</span>
                       </label>
                       <div className="relative">
                         <select
                           onFocus={() => setFocusedField('qualification')}
                           onBlur={() => setFocusedField(null)}
-                          className={`w-full px-4 py-3 border rounded-xl appearance-none transition-all duration-200 ${focusedField === 'qualification'
-                            ? 'border-teal-500 ring-4 ring-teal-100 bg-white'
+                          className={`w-full px-3 py-2 text-sm border rounded-lg appearance-none transition-all duration-200 ${focusedField === 'qualification'
+                            ? 'border-teal-500 ring-2 ring-teal-100 bg-white'
                             : 'border-gray-300 bg-gray-50 hover:border-gray-400'
                             } focus:outline-none cursor-pointer`}
                           onChange={(e) => {
@@ -425,32 +452,26 @@ const ProfileSetupPage: React.FC = () => {
                             }
                           }}
                         >
-                          <option value="">Add a qualification</option>
+                          <option value="">Add</option>
                           {qualificationOptions.filter(opt => !formData.qualification.includes(opt)).map(opt => (
                             <option key={opt} value={opt}>{opt}</option>
                           ))}
                         </select>
-                        <svg className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                         </svg>
                       </div>
                       {formData.qualification.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mt-3">
+                        <div className="flex flex-wrap gap-1.5 mt-2">
                           {formData.qualification.map(qual => (
-                            <span key={qual} className="inline-flex items-center gap-2 px-3 py-1.5 bg-teal-50 text-teal-700 rounded-lg text-sm font-medium border border-teal-200">
-                              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                              </svg>
+                            <span key={qual} className="inline-flex items-center gap-1 px-2 py-1 bg-teal-50 text-teal-700 rounded-md text-xs font-medium border border-teal-200">
                               {qual}
                               <button
                                 type="button"
                                 onClick={() => handleMultiSelect('qualification', qual)}
-                                className="ml-1 hover:bg-teal-200 rounded-full p-0.5 transition-colors"
-                                aria-label={`Remove ${qual}`}
+                                className="ml-0.5 hover:bg-teal-200 rounded-full p-0.5 transition-colors"
                               >
-                                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                                </svg>
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
                               </button>
                             </span>
                           ))}
@@ -459,16 +480,16 @@ const ProfileSetupPage: React.FC = () => {
                     </div>
 
                     {/* Languages */}
-                    <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Languages Spoken <span className="text-red-500">*</span>
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-gray-700">
+                        Languages <span className="text-red-500">*</span>
                       </label>
                       <div className="relative">
                         <select
                           onFocus={() => setFocusedField('languages')}
                           onBlur={() => setFocusedField(null)}
-                          className={`w-full px-4 py-3 border rounded-xl appearance-none transition-all duration-200 ${focusedField === 'languages'
-                            ? 'border-teal-500 ring-4 ring-teal-100 bg-white'
+                          className={`w-full px-3 py-2 text-sm border rounded-lg appearance-none transition-all duration-200 ${focusedField === 'languages'
+                            ? 'border-teal-500 ring-2 ring-teal-100 bg-white'
                             : 'border-gray-300 bg-gray-50 hover:border-gray-400'
                             } focus:outline-none cursor-pointer`}
                           onChange={(e) => {
@@ -478,32 +499,26 @@ const ProfileSetupPage: React.FC = () => {
                             }
                           }}
                         >
-                          <option value="">Add a language</option>
+                          <option value="">Add</option>
                           {languageOptions.filter(opt => !formData.languages.includes(opt)).map(opt => (
                             <option key={opt} value={opt}>{opt}</option>
                           ))}
                         </select>
-                        <svg className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                         </svg>
                       </div>
                       {formData.languages.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mt-3">
+                        <div className="flex flex-wrap gap-1.5 mt-2">
                           {formData.languages.map(lang => (
-                            <span key={lang} className="inline-flex items-center gap-2 px-3 py-1.5 bg-blue-50 text-blue-700 rounded-lg text-sm font-medium border border-blue-200">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" />
-                              </svg>
+                            <span key={lang} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 text-blue-700 rounded-md text-xs font-medium border border-blue-200">
                               {lang}
                               <button
                                 type="button"
                                 onClick={() => handleMultiSelect('languages', lang)}
-                                className="ml-1 hover:bg-blue-200 rounded-full p-0.5 transition-colors"
-                                aria-label={`Remove ${lang}`}
+                                className="ml-0.5 hover:bg-blue-200 rounded-full p-0.5 transition-colors"
                               >
-                                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                                </svg>
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
                               </button>
                             </span>
                           ))}
@@ -512,16 +527,16 @@ const ProfileSetupPage: React.FC = () => {
                     </div>
 
                     {/* Specialization */}
-                    <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Areas of Specialization <span className="text-red-500">*</span>
+                    <div className="space-y-1.5">
+                      <label className="block text-xs font-medium text-gray-700">
+                        Specializations <span className="text-red-500">*</span>
                       </label>
                       <div className="relative">
                         <select
                           onFocus={() => setFocusedField('specialization')}
                           onBlur={() => setFocusedField(null)}
-                          className={`w-full px-4 py-3 border rounded-xl appearance-none transition-all duration-200 ${focusedField === 'specialization'
-                            ? 'border-teal-500 ring-4 ring-teal-100 bg-white'
+                          className={`w-full px-3 py-2 text-sm border rounded-lg appearance-none transition-all duration-200 ${focusedField === 'specialization'
+                            ? 'border-teal-500 ring-2 ring-teal-100 bg-white'
                             : 'border-gray-300 bg-gray-50 hover:border-gray-400'
                             } focus:outline-none cursor-pointer`}
                           onChange={(e) => {
@@ -531,40 +546,33 @@ const ProfileSetupPage: React.FC = () => {
                             }
                           }}
                         >
-                          <option value="">Add a specialization</option>
+                          <option value="">Add</option>
                           {specializationOptions.filter(opt => !formData.specialization.includes(opt)).map(opt => (
                             <option key={opt} value={opt}>{opt}</option>
                           ))}
                         </select>
-                        <svg className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                         </svg>
                       </div>
                       {formData.specialization.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mt-3">
+                        <div className="flex flex-wrap gap-1.5 mt-2">
                           {formData.specialization.map(spec => (
-                            <span key={spec} className="inline-flex items-center gap-2 px-3 py-1.5 bg-purple-50 text-purple-700 rounded-lg text-sm font-medium border border-purple-200">
-                              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                                <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
-                                <path fillRule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm9.707 5.707a1 1 0 00-1.414-1.414L9 12.586l-1.293-1.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
-                              </svg>
+                            <span key={spec} className="inline-flex items-center gap-1 px-2 py-1 bg-purple-50 text-purple-700 rounded-md text-xs font-medium border border-purple-200">
                               {spec}
                               <button
                                 type="button"
                                 onClick={() => handleMultiSelect('specialization', spec)}
-                                className="ml-1 hover:bg-purple-200 rounded-full p-0.5 transition-colors"
-                                aria-label={`Remove ${spec}`}
+                                className="ml-0.5 hover:bg-purple-200 rounded-full p-0.5 transition-colors"
                               >
-                                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                                </svg>
+                                <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" /></svg>
                               </button>
                             </span>
                           ))}
                         </div>
                       )}
                     </div>
-                  </>
+                  </div>
                 )}
 
                 {/* STEP 3: Session Details */}
@@ -774,8 +782,9 @@ const ProfileSetupPage: React.FC = () => {
                   <>
                     {/* Quote */}
                     <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Favorite Quote
+                      <label className="block text-sm font-medium text-gray-700 flex justify-between items-center">
+                        <span>Favorite Quote</span>
+                        <span className="text-xs text-gray-400 font-normal">Optional</span>
                       </label>
                       <input
                         type="text"
@@ -789,6 +798,28 @@ const ProfileSetupPage: React.FC = () => {
                           } focus:outline-none`}
                         placeholder="Enter an inspiring quote"
                       />
+                      
+                      {/* Quote suggestions */}
+                      <div className="mt-2">
+                        <span className="text-xs text-gray-500 font-medium block mb-1.5">Or choose a suggested quote template:</span>
+                        <div className="flex flex-wrap gap-2">
+                          {[
+                            { text: "Who looks outside, dreams; who looks inside, awakes", author: "Carl Jung" },
+                            { text: "The good life is a process, not a state of being.", author: "Carl Rogers" },
+                            { text: "Although the world is full of suffering, it is also full of the overcoming of it.", author: "Helen Keller" }
+                          ].map((q, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => setFormData({ ...formData, quote: q.text, quoteAuthor: q.author })}
+                              className="text-xs px-3 py-1.5 bg-gray-100 hover:bg-teal-50 hover:text-teal-700 border border-gray-200 rounded-lg text-left transition-colors font-medium text-gray-600 max-w-full sm:max-w-xs truncate"
+                              title={`"${q.text}" - ${q.author}`}
+                            >
+                              "{q.text}"
+                            </button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
 
                     {/* Quote Author */}
@@ -812,8 +843,9 @@ const ProfileSetupPage: React.FC = () => {
 
                     {/* Introduction */}
                     <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Professional Introduction
+                      <label className="block text-sm font-medium text-gray-700 flex justify-between items-center">
+                        <span>Professional Introduction</span>
+                        <span className="text-xs text-gray-400 font-normal">Optional</span>
                       </label>
                       <textarea
                         value={formData.introduction}
@@ -826,87 +858,52 @@ const ProfileSetupPage: React.FC = () => {
                           } focus:outline-none`}
                         rows={5}
                         placeholder="Write a brief introduction about yourself, your approach to therapy, and what patients can expect from working with you..."
-                        maxLength={150}
+                        maxLength={1000}
                       />
                       <div className="flex items-center justify-between text-xs">
                         <span className="text-gray-500">This will appear on your public profile</span>
-                        <span className={`font-medium ${formData.introduction.length >= 150 ? 'text-red-500' : 'text-gray-500'}`}>
-                          {formData.introduction.length}/150 characters
+                        <span className={`font-medium ${formData.introduction.length >= 1000 ? 'text-red-500' : 'text-gray-500'}`}>
+                          {formData.introduction.length}/1000 characters
                         </span>
+                      </div>
+
+                      {/* Bio templates */}
+                      <div className="mt-2">
+                        <span className="text-xs text-gray-500 font-medium block mb-1.5">Or choose a profile bio template:</span>
+                        <div className="grid grid-cols-1 gap-2">
+                          {[
+                            {
+                              label: "Clinical Psychologist Profile",
+                              text: "I am a clinical psychologist dedicated to helping individuals navigate anxiety, depression, and life transitions. My approach is client-centered and evidence-based, creating a warm, safe, and judgment-free space to foster growth, self-awareness, and resilience."
+                            },
+                            {
+                              label: "Counselor / Relationship Specialist",
+                              text: "As a professional counselor, I specialize in relationship dynamics, stress management, and personal growth. I work collaboratively with my clients to develop practical coping strategies and build healthier communication patterns for a more fulfilling life."
+                            },
+                            {
+                              label: "Veraawell General Therapist Bio",
+                              text: "At Veraawell, we believe mental wellness is not a luxury — it's a necessity. Our mission is simple: to make professional psychological support accessible, reliable, and timely for everyone who needs it. I am here to guide you on your journey."
+                            }
+                          ].map((t, idx) => (
+                            <button
+                              key={idx}
+                              type="button"
+                              onClick={() => setFormData({ ...formData, introduction: t.text })}
+                              className="text-xs p-3 bg-gray-50 hover:bg-teal-50 hover:text-teal-700 border border-gray-200 hover:border-teal-200 rounded-xl text-left transition-all font-medium text-gray-600 shadow-sm"
+                            >
+                              <span className="font-bold text-teal-600 block mb-1">{t.label}</span>
+                              <span className="line-clamp-2 font-normal text-gray-500 leading-relaxed">{t.text}</span>
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   </>
                 )}
 
-              </fieldset>
-            </div>
-
-            {/* Navigation Buttons */}
-            <div className="px-8 py-6 border-t border-gray-200 bg-gray-50">
-              <div className="flex items-center justify-between gap-4">
-                <button
-                  type="button"
-                  onClick={handlePrevious}
-                  disabled={currentStep === 1}
-                  className="px-6 py-3 text-gray-700 font-medium rounded-xl hover:bg-gray-200 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                  </svg>
-                  Previous
-                </button>
-
-                <div className="flex items-center gap-3">
-                  {currentStep < totalSteps ? (
-                    <button
-                      type="button"
-                      onClick={handleNext}
-                      disabled={!canProceed()}
-                      className="px-8 py-3 bg-gradient-to-r from-teal-500 to-teal-600 text-white font-semibold rounded-xl shadow-md hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-2"
-                    >
-                      Next Step
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                    </button>
-                  ) : (
-                    <button
-                      type="submit"
-                      disabled={isSaving}
-                      className="px-8 py-3 bg-gradient-to-r from-teal-500 to-teal-600 text-white font-semibold rounded-xl shadow-md hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-2"
-                    >
-                      {isSaving ? (
-                        <>
-                          <svg className="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                          </svg>
-                          <span>Saving...</span>
-                        </>
-                      ) : (
-                        <>
-                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                          </svg>
-                          <span>{isEditing ? 'Complete Setup' : 'Go to Dashboard'}</span>
-                        </>
-                      )}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Validation hint */}
-              {!canProceed() && currentStep < totalSteps && (
-                <p className="text-sm text-amber-600 mt-3 flex items-center gap-2">
-                  <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
-                    <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-                  </svg>
-                  Please fill in all required fields to continue
-                </p>
-              )}
-            </div>
-          </form>
+            </form>
+          </div>
+        </div>
         </div>
       </div>
     </div>

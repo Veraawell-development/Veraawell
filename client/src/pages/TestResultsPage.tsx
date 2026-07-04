@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { MENTAL_HEALTH_TESTS } from '../data/mentalHealthTests';
 import { API_CONFIG } from '../config/api';
-import BackToDashboard from '../components/BackToDashboard';
+import { FiArrowLeft, FiRefreshCw, FiList, FiAlertCircle } from 'react-icons/fi';
 
 const TestResultsPage: React.FC = () => {
     const { id } = useParams<{ id: string }>();
@@ -11,7 +11,6 @@ const TestResultsPage: React.FC = () => {
 
     const [assessment, setAssessment] = useState<any>(null);
     const [loading, setLoading] = useState(true);
-    const [sidebarOpen, setSidebarOpen] = useState(false);
 
     useEffect(() => {
         // Check if we have preview data from location state
@@ -53,10 +52,9 @@ const TestResultsPage: React.FC = () => {
 
     if (loading) {
         return (
-            <div className="min-h-screen flex items-center justify-center" style={{ backgroundColor: '#E0EAEA' }}>
+            <div className="min-h-screen pt-[64px] md:pt-[80px] flex items-center justify-center bg-[#FAFAFA] box-border">
                 <div className="text-center">
-                    <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-teal-600 mx-auto"></div>
-                    <p className="mt-4 text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>Loading results...</p>
+                    <div className="w-8 h-8 border-2 border-gray-900 border-t-transparent rounded-full animate-spin mx-auto"></div>
                 </div>
             </div>
         );
@@ -74,152 +72,123 @@ const TestResultsPage: React.FC = () => {
     const { total, severity, percentage } = assessment.scores || { total: 0, severity: 'minimal', percentage: 0 };
     const safeSeverity = severity || 'minimal';
 
-    const getSeverityColor = (sev: string) => {
+    const getSeverityStyle = (sev: string) => {
         switch (sev) {
-            case 'minimal': return { bg: 'bg-green-50', border: 'border-green-500', text: 'text-green-700', bar: 'from-green-400 to-green-600' };
-            case 'mild': return { bg: 'bg-yellow-50', border: 'border-yellow-500', text: 'text-yellow-700', bar: 'from-yellow-400 to-yellow-600' };
-            case 'moderate': return { bg: 'bg-orange-50', border: 'border-orange-500', text: 'text-orange-700', bar: 'from-orange-400 to-orange-600' };
-            case 'moderately-severe': return { bg: 'bg-red-50', border: 'border-red-500', text: 'text-red-700', bar: 'from-red-400 to-red-600' };
-            case 'severe': return { bg: 'bg-red-50', border: 'border-red-600', text: 'text-red-800', bar: 'from-red-500 to-red-700' };
-            default: return { bg: 'bg-gray-50', border: 'border-gray-500', text: 'text-gray-700', bar: 'from-gray-400 to-gray-600' };
+            case 'minimal': return { bg: 'bg-[#ECFDF5]', text: 'text-[#059669]', bar: 'bg-[#059669]' };
+            case 'mild': return { bg: 'bg-[#FEF3C7]', text: 'text-[#D97706]', bar: 'bg-[#D97706]' };
+            case 'moderate': return { bg: 'bg-[#FFF7ED]', text: 'text-[#EA580C]', bar: 'bg-[#EA580C]' };
+            case 'moderately-severe': return { bg: 'bg-[#FEF2F2]', text: 'text-[#DC2626]', bar: 'bg-[#DC2626]' };
+            case 'severe': return { bg: 'bg-[#FEF2F2]', text: 'text-[#DC2626]', bar: 'bg-[#B91C1C]' };
+            default: return { bg: 'bg-gray-100', text: 'text-gray-600', bar: 'bg-gray-600' };
         }
     };
 
-    const colors = getSeverityColor(safeSeverity);
+    const style = getSeverityStyle(safeSeverity);
+    const interpretationText = typeof assessment.interpretation === 'string' 
+        ? assessment.interpretation 
+        : assessment.interpretation?.description || 'Based on your responses, your symptoms fall into this category. Please review with your healthcare provider.';
 
     return (
-        <div className="min-h-screen" style={{ backgroundColor: '#E0EAEA' }}>
-            {/* Sidebar */}
-            {sidebarOpen && <div className="fixed inset-0 z-40" onClick={() => setSidebarOpen(false)} />}
-            <div className={`fixed left-0 top-16 h-[calc(100vh-4rem)] w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`} style={{ backgroundColor: '#7DA9A8' }}>
-                <div className="h-full flex flex-col p-4 text-white font-serif">
-                    <div className="space-y-3">
-                        <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors" onClick={() => navigate('/patient-dashboard')}>
-                            <span className="text-base font-medium">My Dashboard</span>
-                        </div>
-                        <div className="flex items-center space-x-3 cursor-pointer hover:bg-white/10 p-2 rounded-lg transition-colors" onClick={() => navigate('/my-tests')}>
-                            <span className="text-base font-medium">My Tests</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            {/* Header */}
-            <div className="py-4 px-4 shadow-sm" style={{ backgroundColor: '#ABA5D1' }}>
-                <div className="max-w-7xl mx-auto flex items-center justify-between">
-                    <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-white hover:bg-white/20 p-2 rounded-lg transition-colors">
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16"></path>
-                        </svg>
-                    </button>
-                    <h1 className="text-2xl font-bold text-white" style={{ fontFamily: 'Bree Serif, serif' }}>Test Results</h1>
-                    <div className="w-10"></div>
-                </div>
-            </div>
-
+        <div className="min-h-screen pt-[64px] md:pt-[80px] bg-[#FAFAFA] font-sans flex flex-col pb-12 box-border">
             {/* Results Content */}
-            <div className="max-w-4xl mx-auto px-4 py-8">
-                <BackToDashboard />
-                <div className="bg-white rounded-2xl shadow-xl p-8">
-                    {/* Header */}
-                    <div className="text-center mb-8">
-                        <h2 className="text-3xl font-bold text-gray-900 mb-2" style={{ fontFamily: 'Bree Serif, serif' }}>
-                            {test.name} Results
-                        </h2>
-                        <p className="text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>
-                            {test.fullName}
-                        </p>
-                        <p className="text-sm text-gray-500 mt-2" style={{ fontFamily: 'Inter, sans-serif' }}>
-                            Completed: {assessment.completedAt ? new Date(assessment.completedAt).toLocaleDateString('en-US', {
+            <div className="flex-1 max-w-3xl mx-auto w-full px-6 py-8 md:py-10">
+                
+                {/* Header Information */}
+                <div className="mb-12 relative">
+                    <button 
+                        onClick={() => navigate('/mental-health')} 
+                        className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 hover:text-gray-900 transition-colors mb-5 group"
+                        aria-label="Back to Assessments"
+                        style={{ fontFamily: 'Inter, sans-serif' }}
+                    >
+                        <FiArrowLeft className="w-4 h-4 group-hover:-translate-x-1 transition-transform" />
+                        Back to Assessments
+                    </button>
+
+                    <h1 className="text-[32px] md:text-[36px] font-extrabold text-gray-800 tracking-tight leading-tight mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        {test.name}
+                    </h1>
+                    <p className="text-[15px] text-gray-500 font-medium mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        {test.fullName}
+                    </p>
+                    <div className="inline-flex items-center gap-2 px-3 py-1 bg-gray-100 rounded-md border border-gray-200/50">
+                        <span className="text-[12px] font-medium text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>
+                            Completed on {assessment.completedAt ? new Date(assessment.completedAt).toLocaleDateString('en-US', {
                                 year: 'numeric',
                                 month: 'long',
                                 day: 'numeric',
-                                hour: '2-digit',
-                                minute: '2-digit'
                             }) : 'N/A'}
-                        </p>
+                        </span>
+                    </div>
+                </div>
+
+                {/* Score Card */}
+                <div className="bg-white rounded-[24px] border border-gray-200 shadow-sm p-8 md:p-10 mb-8">
+                    <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
+                        <div>
+                            <p className="text-[13px] font-semibold text-gray-400 uppercase tracking-wider mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>Total Score</p>
+                            <div className="flex items-baseline gap-2">
+                                <span className="text-[64px] leading-none font-black tracking-tighter text-gray-800" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                    {total}
+                                </span>
+                                <span className="text-[20px] font-bold text-gray-300" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                    / {test.scoring.maxScore}
+                                </span>
+                            </div>
+                        </div>
+                        <div className="flex-shrink-0">
+                            <span 
+                                className="inline-flex px-4 py-1.5 rounded-full text-[14px] font-bold tracking-wide"
+                                style={{ backgroundColor: style.bg, color: style.text, fontFamily: 'Inter, sans-serif' }}
+                            >
+                                {safeSeverity.charAt(0).toUpperCase() + safeSeverity.slice(1).replace('-', ' ')}
+                            </span>
+                        </div>
                     </div>
 
-                    {/* Score Display */}
-                    <div className="mb-8">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>Your Score</h3>
-                            <div className={`px-4 py-2 rounded-full ${colors.bg} ${colors.border} border-2`}>
-                                <span className={`font-bold text-lg ${colors.text}`} style={{ fontFamily: 'Inter, sans-serif' }}>
-                                    {safeSeverity.charAt(0).toUpperCase() + safeSeverity.slice(1).replace('-', ' ')}
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* Progress Bar */}
-                        <div className="mb-4">
-                            <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm font-medium text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                    Score: {total} / {test.scoring.maxScore}
-                                </span>
-                                <span className="text-sm font-medium text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                    {percentage}%
-                                </span>
-                            </div>
-                            <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
-                                <div
-                                    className={`h-full bg-gradient-to-r ${colors.bar} transition-all duration-500`}
-                                    style={{ width: `${percentage}%` }}
-                                />
-                            </div>
-                        </div>
+                    {/* Minimal Progress Line */}
+                    <div className="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden mb-12">
+                        <div
+                            className={`h-full ${style.bar} transition-all duration-1000 ease-out`}
+                            style={{ width: `${percentage}%` }}
+                        />
                     </div>
 
                     {/* Interpretation */}
-                    {assessment.interpretation && (
-                        <div className={`p-6 rounded-xl ${colors.bg} ${colors.border} border-l-4 mb-8`}>
-                            <h3 className="text-lg font-bold mb-2" style={{ fontFamily: 'Bree Serif, serif', color: colors.text.replace('text-', '') }}>
-                                What This Means
-                            </h3>
-                            <p className="text-gray-700 leading-relaxed" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                {typeof assessment.interpretation === 'string' ? assessment.interpretation : assessment.interpretation?.description || 'No description available'}
-                            </p>
-                        </div>
-                    )}
-
-                    {/* Disclaimer */}
-                    <div className="p-6 bg-blue-50 rounded-xl border-l-4 border-blue-500 mb-8">
-                        <h3 className="text-lg font-bold text-blue-900 mb-2" style={{ fontFamily: 'Bree Serif, serif' }}>
-                            Important Information
-                        </h3>
-                        <p className="text-blue-800 text-sm leading-relaxed" style={{ fontFamily: 'Inter, sans-serif' }}>
-                            This screening is not a diagnosis. If you're experiencing significant distress or mental health concerns,
-                            please consult with a qualified mental health professional for a comprehensive evaluation.
+                    <div className="prose prose-sm max-w-none">
+                        <h3 className="text-[16px] font-bold text-gray-800 mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>What this means</h3>
+                        <p className="text-[15px] text-gray-600 leading-relaxed" style={{ fontFamily: 'Inter, sans-serif' }}>
+                            {interpretationText}
                         </p>
                     </div>
+                </div>
 
-                    {/* Action Buttons */}
-                    <div className="flex flex-col sm:flex-row gap-4">
-                        <button
-                            onClick={() => navigate('/patient-dashboard')}
-                            className="flex-1 py-3 rounded-xl font-bold text-white transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
-                            style={{
-                                fontFamily: 'Bree Serif, serif',
-                                background: 'linear-gradient(135deg, #6DBEDF 0%, #5DBEBD 100%)'
-                            }}
-                        >
-                            Back to Dashboard
-                        </button>
-                        <button
-                            onClick={() => navigate(`/mental-health/${assessment.testType}`)}
-                            className="flex-1 py-3 rounded-xl font-bold bg-white border-2 border-teal-500 text-teal-600 hover:bg-teal-50 transition-all"
-                            style={{ fontFamily: 'Bree Serif, serif' }}
-                        >
-                            Retake Test
-                        </button>
-                        <button
-                            onClick={() => navigate('/my-tests')}
-                            className="flex-1 py-3 rounded-xl font-bold bg-white border-2 border-gray-300 text-gray-700 hover:bg-gray-50 transition-all"
-                            style={{ fontFamily: 'Bree Serif, serif' }}
-                        >
-                            View History
-                        </button>
-                    </div>
+                {/* Disclaimer Context */}
+                <div className="flex items-start gap-3 p-5 bg-gray-50 rounded-[16px] border border-gray-200 mb-10">
+                    <FiAlertCircle className="w-5 h-5 text-gray-400 flex-shrink-0 mt-0.5" />
+                    <p className="text-[13px] text-gray-500 leading-relaxed font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        This screening tool is not a diagnostic instrument. You are encouraged to share your results with a physician or healthcare provider. Veera Health is not a substitute for professional medical advice, diagnosis, or treatment.
+                    </p>
+                </div>
+
+                {/* Actions */}
+                <div className="flex flex-col sm:flex-row gap-3 pt-6 border-t border-gray-200/60">
+                    <button
+                        onClick={() => navigate(`/mental-health/${assessment.testType}`)}
+                        className="flex-1 py-3 px-4 bg-teal-600 hover:bg-teal-700 text-white text-[14px] font-semibold rounded-[12px] transition-colors flex items-center justify-center gap-2"
+                        style={{ fontFamily: 'Inter, sans-serif' }}
+                    >
+                        <FiRefreshCw className="w-4 h-4" />
+                        Retake Assessment
+                    </button>
+                    <button
+                        onClick={() => navigate('/my-tests')}
+                        className="flex-1 py-3 px-4 bg-white border border-gray-200 hover:border-gray-300 hover:bg-gray-50 text-gray-700 text-[14px] font-semibold rounded-[12px] transition-colors flex items-center justify-center gap-2"
+                        style={{ fontFamily: 'Inter, sans-serif' }}
+                    >
+                        <FiList className="w-4 h-4" />
+                        View History
+                    </button>
                 </div>
             </div>
         </div>

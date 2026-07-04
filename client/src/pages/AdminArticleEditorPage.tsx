@@ -244,7 +244,7 @@ const AdminArticleEditorPage: React.FC = () => {
         return (
             <div className="min-h-screen flex items-center justify-center bg-[#fcfbfa]">
                 <div className="text-center p-8 bg-white rounded-2xl shadow-sm border border-neutral-100 max-w-md">
-                    <div className="text-red-500 mb-4 text-3xl">⚠️</div>
+                    <div className="text-red-500 mb-4 text-3xl">️</div>
                     <h3 className="text-sm font-semibold text-neutral-900 mb-1">Error Loading Article</h3>
                     <p className="text-xs text-neutral-500 mb-6">{error}</p>
                     <button

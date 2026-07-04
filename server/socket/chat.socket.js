@@ -10,6 +10,7 @@ const jwt = require('jsonwebtoken');
 const Conversation = require('../models/conversation');
 const Message = require('../models/message');
 const { getJWTSecret } = require('../config/auth');
+const SocketEmitter = require('../utils/socketEmitter');
 
 // Store active users and their socket IDs
 const activeUsers = new Map(); // userId -> socketId
@@ -249,6 +250,16 @@ const initializeChatSocket = (io) => {
         const receiverSocketId = activeUsers.get(receiver.userId.toString());
         if (receiverSocketId) {
           chatNamespace.to(`user:${receiver.userId}`).emit('message:notification', {
+            conversationId,
+            message: formattedMessage,
+            senderName: formattedMessage.senderName
+          });
+        }
+        
+        // NEW: Broadcast to the /data namespace so dashboards can show real-time notifications
+        if (io) {
+          const socketEmitter = new SocketEmitter(io);
+          socketEmitter.emitToUser(receiver.userId.toString(), 'chat:new-message', {
             conversationId,
             message: formattedMessage,
             senderName: formattedMessage.senderName

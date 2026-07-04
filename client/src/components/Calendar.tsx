@@ -7,10 +7,12 @@ import type { Session } from '../types';
 interface CalendarProps {
   userRole: 'patient' | 'doctor';
   onSessionClick?: (session: Session) => void;
-  refreshTrigger?: number; // Add refresh trigger prop
+  refreshTrigger?: number;
+  hideTitle?: boolean;
+  hideManageButton?: boolean;
 }
 
-const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTrigger }) => {
+const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTrigger, hideTitle, hideManageButton }) => {
   const navigate = useNavigate();
   const [currentDate, _setCurrentDate] = useState(new Date());
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -119,27 +121,29 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
     currentDate.getFullYear() === today.getFullYear();
 
   return (
-    <div className="p-6 text-white flex flex-col h-full rounded-2xl shadow-lg transition-shadow hover:shadow-xl" style={{ backgroundColor: '#ABA5D1' }}>
-      {/* Calendar Title */}
-      <div className="border-b border-white/30 pb-4 mb-6">
-        <h3 className="text-3xl font-bold text-center tracking-wide" style={{ fontFamily: 'Bree Serif, serif' }}>Calendar</h3>
-      </div>
+    <div className="flex flex-col h-full bg-transparent min-h-0">
+      {/* Calendar Title (Optional) */}
+      {!hideTitle && (
+        <div className="border-b border-gray-100 pb-2 mb-3">
+          <h3 className="text-xl font-bold text-gray-900 tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>Calendar</h3>
+        </div>
+      )}
 
       {/* Month and Year Header */}
-      <div className="flex items-center justify-between mb-6 px-2">
-        <h4 className="text-2xl font-bold" style={{ fontFamily: 'Bree Serif, serif' }}>{monthNames[currentDate.getMonth()]}</h4>
-        <p className="text-2xl font-bold opacity-80" style={{ fontFamily: 'Inter, sans-serif' }}>{currentDate.getFullYear()}</p>
+      <div className="flex items-center justify-between mb-2 px-1">
+        <h4 className="text-lg font-bold text-gray-800" style={{ fontFamily: 'Inter, sans-serif' }}>{monthNames[currentDate.getMonth()]}</h4>
+        <p className="text-sm font-bold text-gray-500 uppercase tracking-wider" style={{ fontFamily: 'Inter, sans-serif' }}>{currentDate.getFullYear()}</p>
       </div>
 
       {/* Day Headers */}
-      <div className="grid grid-cols-7 gap-2 text-center text-sm mb-4 opacity-90" style={{ fontFamily: 'Inter, sans-serif' }}>
+      <div className="grid grid-cols-7 gap-1 text-center text-[10px] mb-1 font-bold text-gray-400 uppercase tracking-widest" style={{ fontFamily: 'Inter, sans-serif' }}>
         {dayNames.map(day => (
-          <div key={day} className="font-bold uppercase tracking-wider">{day}</div>
+          <div key={day}>{day}</div>
         ))}
       </div>
 
       {/* Calendar Grid */}
-      <div className="grid grid-cols-7 gap-2 text-center text-base flex-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+      <div className="grid grid-cols-7 gap-1 text-center text-xs sm:text-sm flex-1 min-h-0" style={{ fontFamily: 'Inter, sans-serif' }}>
         {/* Empty cells */}
         {Array.from({ length: firstDay }, (_, i) => (
           <div key={`empty-${i}`} className="p-1"></div>
@@ -148,188 +152,208 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
         {/* Days */}
         {Array.from({ length: daysInMonth }, (_, i) => {
           const day = i + 1;
-          const daysSessions = getSessionsForDate(day);
+          const daySessions = getSessionsForDate(day);
           const isToday = isCurrentMonth && day === today.getDate();
+          const hasSessions = daySessions.length > 0;
 
-          let dayBackgroundColor = '';
-          const hasSessions = daysSessions.length > 0;
-
-          // Determine color based on highest priority session
+          let statusColor = '';
           if (hasSessions) {
-            // Check for any joinable first
-            if (daysSessions.some(s => getSessionVisualStatus(s) === 'joinable')) {
-              dayBackgroundColor = 'bg-[#FF9F1C] shadow-md'; // Yellow/Orange
-            }
-            // Then check for any upcoming (future scheduled)
-            else if (daysSessions.some(s => getSessionVisualStatus(s) === 'upcoming')) {
-              dayBackgroundColor = 'bg-[#EF4444] shadow-md'; // Red
-            }
-            // If strictly cancelled?
-            else if (daysSessions.every(s => getSessionVisualStatus(s) === 'cancelled')) {
-              dayBackgroundColor = 'bg-gray-400';
-            }
-            // Otherwise, if they are completed (or past), show green
-            else {
-              dayBackgroundColor = 'bg-[#78BE9F] shadow-md'; // Green
+            if (daySessions.some(s => getSessionVisualStatus(s) === 'joinable')) {
+              statusColor = 'bg-amber-400';
+            } else if (daySessions.some(s => getSessionVisualStatus(s) === 'upcoming')) {
+              statusColor = 'bg-red-500';
+            } else if (daySessions.some(s => getSessionVisualStatus(s) === 'completed')) {
+              statusColor = 'bg-green-500';
+            } else {
+              statusColor = 'bg-gray-400';
             }
           }
 
           return (
-            <div
-              key={day}
-              className={`p-2 min-h-[60px] md:min-h-0 flex flex-col items-center justify-start relative font-semibold rounded-xl transition-all duration-200 ${hasSessions
-                ? `${dayBackgroundColor} cursor-pointer hover:scale-105 hover:brightness-110`
-                : isToday
-                  ? 'bg-white/20 ring-2 ring-white'
-                  : 'hover:bg-white/10'
-                }`}
-              onClick={() => {
-                if (daysSessions.length === 1 && onSessionClick) {
-                  onSessionClick(daysSessions[0]);
-                } else if (daysSessions.length > 1 && onSessionClick) {
-                  setSelectedDateSessions(daysSessions);
-                  setShowSessionSelector(true);
-                }
-              }}
-              onMouseEnter={() => hasSessions && setHoveredDate(day)}
-              onMouseLeave={() => setHoveredDate(null)}
-            >
-              <span>{day}</span>
+            <div key={day} className="flex justify-center items-center py-1">
+              <div
+                className={`relative flex items-center justify-center rounded-full font-medium cursor-pointer transition-all w-8 h-8 sm:w-10 sm:h-10 ${
+                  isToday 
+                    ? 'bg-teal-50 text-teal-700 ring-1 ring-teal-200 font-bold' 
+                    : 'hover:bg-gray-50 text-gray-700'
+                } ${hasSessions ? 'font-bold' : ''}`}
+                onMouseEnter={() => setHoveredDate(day)}
+                onMouseLeave={() => setHoveredDate(null)}
+                onClick={() => {
+                  if (hasSessions) {
+                    setSelectedDateSessions(daySessions);
+                    setShowSessionSelector(true);
+                  }
+                }}
+              >
+                <span>{day}</span>
+                {hasSessions && (
+                  <div className={`absolute bottom-0 sm:bottom-1 w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full ${statusColor}`}></div>
+                )}
 
-              {daysSessions.length > 1 && (
-                <div className="absolute top-1 right-1 w-2 h-2 rounded-full bg-white animate-pulse"></div>
-              )}
-
-              {/* Tooltip */}
-              {hoveredDate === day && daysSessions.length > 0 && (
-                <div className="absolute z-50 bottom-full mb-2 w-48 bg-white text-gray-800 rounded-lg shadow-xl p-2 text-left pointer-events-none transform -translate-x-1/2 left-1/2">
-                  <div className="text-xs font-bold text-[#ABA5D1] mb-1" style={{ fontFamily: 'Bree Serif, serif' }}>
-                    {daysSessions.length} Session{daysSessions.length > 1 ? 's' : ''}
-                  </div>
-                  {daysSessions.map(s => (
-                    <div key={s._id} className="text-[10px] py-1 border-b border-gray-100 last:border-0 flex items-center justify-between">
-                      <span className="font-bold">{s.sessionTime}</span>
-                      <span className={`capitalize ${getSessionVisualStatus(s) === 'completed' ? 'text-green-600' :
-                        getSessionVisualStatus(s) === 'upcoming' ? 'text-red-500' :
-                          getSessionVisualStatus(s) === 'joinable' ? 'text-orange-500' : 'text-gray-500'
-                        }`}>
-                        {getSessionVisualStatus(s)}
-                      </span>
+                {/* Tooltip */}
+                {hoveredDate === day && hasSessions && (
+                  <div className="absolute z-50 bottom-full mb-3 w-64 bg-white/95 backdrop-blur-xl text-gray-800 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-4 text-left transform -translate-x-1/2 left-1/2 border border-white/50 cursor-default" onClick={(e) => e.stopPropagation()}>
+                    <div className="text-xs font-bold text-gray-400 mb-3 uppercase tracking-widest border-b border-gray-100 pb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                      {daySessions.length} Session{daySessions.length > 1 ? 's' : ''}
                     </div>
-                  ))}
-                </div>
-              )}
+                    <div className="flex flex-col gap-3">
+                      {daySessions.map(s => (
+                        <div key={s._id} className="flex items-center justify-between">
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-xs font-bold text-gray-900 truncate" style={{ fontFamily: 'Inter, sans-serif' }}>
+                              {s.sessionTime} • {userRole === 'patient' 
+                                ? (s.doctorId?.firstName ? `Dr. ${s.doctorId.firstName}` : 'Doctor')
+                                : (s.patientId?.firstName ? s.patientId.firstName : 'Patient')}
+                            </span>
+                            <span className="text-[10px] text-gray-500 capitalize">{s.sessionType}</span>
+                          </div>
+                          <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded-full ${
+                            getSessionVisualStatus(s) === 'completed' ? 'bg-green-100 text-green-700' :
+                            getSessionVisualStatus(s) === 'cancelled' ? 'bg-gray-100 text-gray-600' :
+                            getSessionVisualStatus(s) === 'joinable' ? 'bg-amber-100 text-amber-700' :
+                            'bg-blue-50 text-blue-600'
+                          }`}>
+                            {getSessionVisualStatus(s) === 'joinable' ? 'Ready' : getSessionVisualStatus(s)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           );
         })}
       </div>
 
       {/* Legend */}
-      <div className="mt-6 pt-4 border-t border-white/20 text-xs font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>
-        <div className="flex flex-wrap gap-4 justify-center">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-[#EF4444] rounded-full"></div>
-            <span>Upcoming</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-[#FF9F1C] rounded-full animate-pulse"></div>
-            <span>Ready to Join</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-[#78BE9F] rounded-full"></div>
-            <span>Completed</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 bg-gray-400 rounded-full"></div>
-            <span>Cancelled</span>
-          </div>
+      <div className="mt-2 pt-2 border-t border-gray-100 flex flex-wrap items-center justify-center gap-3 text-[9px] font-bold text-gray-500 uppercase tracking-wider shrink-0" style={{ fontFamily: 'Inter, sans-serif' }}>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-red-500"></div>
+          <span>Upcoming</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-amber-400"></div>
+          <span>Ready</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-green-500"></div>
+          <span>Completed</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-2 h-2 rounded-full bg-gray-400"></div>
+          <span>Cancelled</span>
         </div>
       </div>
 
       {/* Session Selector Modal */}
       {showSessionSelector && (
         <div
-          className="fixed inset-0 flex items-center justify-center z-[100] px-4"
-          style={{ backgroundColor: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(4px)' }}
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50 transition-opacity"
           onClick={() => setShowSessionSelector(false)}
         >
           <div
-            className="bg-white rounded-[24px] shadow-2xl max-w-lg w-full overflow-hidden transform transition-all"
+            className="bg-white max-w-md w-full rounded-2xl shadow-xl overflow-hidden flex flex-col max-h-[85vh] transform transition-all"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-6 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
+            <div className="px-6 py-5 flex items-center justify-between border-b border-gray-100">
               <div>
-                <h3 className="text-xl font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+                <h3 className="text-xl font-semibold text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>
                   Select Session
                 </h3>
-                <p className="text-sm text-gray-500 mt-1">
-                  {selectedDateSessions.length} sessions available on this date
+                <p className="text-xs text-gray-500 mt-1">
+                  {selectedDateSessions.length} session{selectedDateSessions.length > 1 ? 's' : ''} available
                 </p>
               </div>
               <button
                 onClick={() => setShowSessionSelector(false)}
-                className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500 transition-colors"
+                className="text-gray-400 hover:text-gray-600 transition-colors p-2"
               >
-                ✕
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
               </button>
             </div>
 
-            <div className="p-4 space-y-3 max-h-[60vh] overflow-y-auto">
-              {selectedDateSessions.map((session) => {
-                const status = getSessionVisualStatus(session);
-                const isJoinable = status === 'joinable';
+            <div className="p-4 overflow-y-auto">
+              <div className="space-y-3">
+                {selectedDateSessions.map((session) => {
+                  const status = getSessionVisualStatus(session);
+                  const isJoinable = status === 'joinable';
 
-                return (
-                  <div
-                    key={session._id}
-                    onClick={() => {
-                      setShowSessionSelector(false);
-                      if (onSessionClick) onSessionClick(session);
-                    }}
-                    className={`group relative border rounded-xl p-4 cursor-pointer transition-all hover:shadow-md ${isJoinable
-                      ? 'bg-amber-50 border-amber-200 hover:border-amber-300'
-                      : 'bg-white border-gray-100 hover:border-teal-200'
-                      }`}
-                  >
-                    <div className="flex items-center gap-4">
-                      <div className={`w-14 h-14 rounded-xl flex flex-col items-center justify-center ${isJoinable ? 'bg-amber-100 text-amber-700' : 'bg-gray-50 text-gray-600'
-                        }`}>
-                        <span className="text-xs font-medium">{session.sessionTime.split(':')[0]}</span>
-                        <span className="text-lg font-bold">{session.sessionTime.split(':')[1]}</span>
+                  return (
+                    <div
+                      key={session._id}
+                      onClick={() => {
+                        if (!isJoinable) {
+                          setShowSessionSelector(false);
+                          if (onSessionClick) onSessionClick(session);
+                        }
+                      }}
+                      className={`group flex items-center gap-4 p-4 rounded-xl border transition-all ${isJoinable
+                          ? 'border-amber-200 bg-amber-50/30'
+                          : 'border-gray-100 hover:border-gray-200 cursor-pointer'
+                        }`}
+                    >
+                      <div className={`w-12 h-12 flex flex-col items-center justify-center rounded-lg border ${isJoinable ? 'bg-amber-100/50 border-amber-200 text-amber-700' : 'bg-gray-50 border-gray-100 text-gray-600'} shrink-0`}>
+                        <span className="text-[10px] font-medium tracking-wide">{session.sessionTime.split(':')[0]}</span>
+                        <span className="text-sm font-bold">{session.sessionTime.split(':')[1]}</span>
                       </div>
 
-                      <div className="flex-1">
-                        <h4 className="font-bold text-gray-900" style={{ fontFamily: 'Bree Serif, serif' }}>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="font-semibold text-gray-900 truncate" style={{ fontFamily: 'Inter, sans-serif' }}>
                           {userRole === 'patient'
                             ? (session.doctorId?.firstName ? `Dr. ${session.doctorId.firstName} ${session.doctorId.lastName}` : 'Doctor')
                             : (session.patientId?.firstName ? `${session.patientId.firstName} ${session.patientId.lastName}` : 'Patient')
                           }
                         </h4>
                         <div className="flex items-center gap-2 mt-1">
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide ${status === 'completed' ? 'bg-green-100 text-green-700' :
-                            status === 'upcoming' ? 'bg-red-100 text-red-700' :
-                              status === 'joinable' ? 'bg-amber-100 text-amber-700' :
-                                'bg-gray-100 text-gray-600'
-                            }`}>
-                            {status}
+                          <span className="text-xs text-gray-500 capitalize">{session.sessionType}</span>
+                          <span className="text-gray-300">•</span>
+                          <span className={`text-[10px] font-semibold uppercase tracking-wider ${status === 'completed' ? 'text-green-600' :
+                              status === 'upcoming' ? 'text-red-500' :
+                                status === 'joinable' ? 'text-amber-600' :
+                                  'text-gray-500'
+                              }`}>
+                            {status === 'joinable' ? 'Ready' : status}
                           </span>
-                          <span className="text-xs text-gray-400 capitalize">• {session.sessionType}</span>
                         </div>
                       </div>
 
-                      <div className="text-gray-300 group-hover:text-teal-500 transition-colors">
-                        ➜
-                      </div>
+                      {isJoinable ? (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowSessionSelector(false);
+                            if (session.meetingLink) {
+                              window.open(`/video-call/${session._id}`, '_blank');
+                            } else {
+                              window.location.href = `/messages`;
+                            }
+                          }}
+                          className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold rounded-lg transition-colors flex items-center gap-1.5 shrink-0 shadow-sm"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                          </svg>
+                          Join
+                        </button>
+                      ) : (
+                        <svg className="w-4 h-4 text-gray-300 group-hover:text-gray-400 transition-colors shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      )}
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {userRole === 'doctor' && (
+      {!hideManageButton && userRole === 'doctor' && (
         <div className="mt-6 flex justify-center">
           <button
             onClick={() => navigate('/manage-calendar')}

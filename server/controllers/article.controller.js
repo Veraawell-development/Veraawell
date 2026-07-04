@@ -382,7 +382,7 @@ exports.deleteArticle = asyncHandler(async (req, res) => {
 
         logger.info(`Article deleted: ${article.title} by ${req.admin._id}`);
 
-        // ✨ REAL-TIME UPDATE: Broadcast article deletion to all patients
+        // REAL-TIME UPDATE: Broadcast article deletion to all patients
         const io = req.app.get('io');
         if (io) {
             const SocketEmitter = require('../utils/socketEmitter');
@@ -426,7 +426,7 @@ exports.publishArticle = asyncHandler(async (req, res) => {
 
         logger.info(`Article published: ${article.title} by ${req.admin._id}`);
 
-        // ✨ REAL-TIME UPDATE: Broadcast new article to all patients
+        // REAL-TIME UPDATE: Broadcast new article to all patients
         const io = req.app.get('io');
         if (io) {
             const SocketEmitter = require('../utils/socketEmitter');

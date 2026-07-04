@@ -70,6 +70,10 @@ const doctorProfileSchema = new mongoose.Schema({
     type: String,
     default: '/doctor-placeholder.svg'
   },
+  bannerImage: {
+    type: String,
+    default: '/profile-bg.svg'
+  },
   bio: {
     type: String,
     maxlength: 1000

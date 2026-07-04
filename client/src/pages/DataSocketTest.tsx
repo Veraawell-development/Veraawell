@@ -17,9 +17,9 @@ const DataSocketTest: React.FC = () => {
 
     useEffect(() => {
         if (isConnected) {
-            addLog('✅ Connected to data socket');
+            addLog(' Connected to data socket');
         } else if (error) {
-            addLog(`❌ Error: ${error}`);
+            addLog(` Error: ${error}`);
         }
     }, [isConnected, error]);
 
@@ -28,12 +28,12 @@ const DataSocketTest: React.FC = () => {
 
         // Test ping/pong
         socket.on('pong', (data) => {
-            addLog(`🏓 Pong received: ${JSON.stringify(data)}`);
+            addLog(` Pong received: ${JSON.stringify(data)}`);
         });
 
         // Listen for test events
         socket.on('test:event', (data) => {
-            addLog(`📨 Test event received: ${JSON.stringify(data)}`);
+            addLog(` Test event received: ${JSON.stringify(data)}`);
         });
 
         return () => {
@@ -45,7 +45,7 @@ const DataSocketTest: React.FC = () => {
     const sendPing = () => {
         if (socket) {
             socket.emit('ping');
-            addLog('🏓 Ping sent');
+            addLog(' Ping sent');
         }
     };
 
@@ -62,9 +62,9 @@ const DataSocketTest: React.FC = () => {
                     borderRadius: '4px'
                 }}>
                     {isConnected ? (
-                        <span style={{ color: '#155724' }}>✅ Connected (Socket ID: {socket?.id})</span>
+                        <span style={{ color: '#155724' }}> Connected (Socket ID: {socket?.id})</span>
                     ) : error ? (
-                        <span style={{ color: '#721c24' }}>❌ Error: {error}</span>
+                        <span style={{ color: '#721c24' }}> Error: {error}</span>
                     ) : (
                         <span style={{ color: '#856404' }}>⏳ Connecting...</span>
                     )}

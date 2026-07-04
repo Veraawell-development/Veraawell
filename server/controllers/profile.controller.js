@@ -16,7 +16,7 @@ const logger = createLogger('PROFILE-CONTROLLER');
  */
 const setupProfile = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const user = await User.findById(userId);
+  const user = await User.findById(userId).select('-password -resetToken -resetTokenExpiry -signupOTP');
 
   if (!user) {
     throw new NotFoundError('User');
@@ -30,6 +30,7 @@ const setupProfile = asyncHandler(async (req, res) => {
     gender,
     emergencyContact,
     profileImage,
+    bannerImage,
     qualification,
     languages,
     type,
@@ -73,6 +74,7 @@ const setupProfile = asyncHandler(async (req, res) => {
     const profileData = {
       userId: user._id,
       profileImage: profileImage || '',
+      bannerImage: bannerImage || '/profile-bg.svg',
       qualification: qualification || [],
       languages: languages || [],
       type: type || '',
@@ -129,7 +131,7 @@ const setupProfile = asyncHandler(async (req, res) => {
  */
 const getProfileStatus = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const user = await User.findById(userId);
+  const user = await User.findById(userId).select('-password -resetToken -resetTokenExpiry -signupOTP');
 
   if (!user) {
     throw new NotFoundError('User');
@@ -146,7 +148,7 @@ const getProfileStatus = asyncHandler(async (req, res) => {
  */
 const getProfile = asyncHandler(async (req, res) => {
   const userId = req.user._id;
-  const user = await User.findById(userId);
+  const user = await User.findById(userId).select('-password -resetToken -resetTokenExpiry -signupOTP');
 
   if (!user) {
     throw new NotFoundError('User');
@@ -170,6 +172,7 @@ const getProfile = asyncHandler(async (req, res) => {
       profile: {
         name: `${user.firstName} ${user.lastName}`.trim(),
         profileImage: doctorProfile.profileImage || '',
+        bannerImage: doctorProfile.bannerImage || '/profile-bg.svg',
         qualification: doctorProfile.qualification || [],
         languages: doctorProfile.languages || [],
         type: doctorProfile.type || '',
@@ -215,7 +218,7 @@ const updateProfile = asyncHandler(async (req, res) => {
   const userId = req.user._id;
   const { phoneNumber, countryCode } = req.body;
 
-  const user = await User.findById(userId);
+  const user = await User.findById(userId).select('-password -resetToken -resetTokenExpiry -signupOTP');
   if (!user) {
     throw new NotFoundError('User');
   }

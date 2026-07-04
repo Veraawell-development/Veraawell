@@ -15,10 +15,11 @@ interface Message {
 interface SessionChatProps {
     targetUserId: string;
     targetUserName: string;
+    onNewMessage?: () => void;
 }
 
-const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName }) => {
-    const { token } = useAuth();
+const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName, onNewMessage }) => {
+    const { token, user } = useAuth();
     const [messages, setMessages] = useState<Message[]>([]);
     const [newMessage, setNewMessage] = useState('');
     const [loading, setLoading] = useState(true);
@@ -100,6 +101,10 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName 
                     if (prev.some(m => m._id === message._id)) {
                         return prev;
                     }
+                    // Trigger notification callback if message is from the other person
+                    if (onNewMessage && message.senderId !== user?.userId) {
+                        onNewMessage();
+                    }
                     return [...prev, message];
                 });
             });
@@ -141,7 +146,7 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName 
     if (loading) {
         return (
             <div className="h-full flex items-center justify-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-500"></div>
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
             </div>
         );
     }
@@ -157,9 +162,9 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName 
     return (
         <div className="flex flex-col h-full bg-transparent">
             {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-4 custom-scrollbar">
+            <div className="flex-1 overflow-y-auto p-6 space-y-5 custom-scrollbar">
                 {messages.length === 0 ? (
-                    <div className="text-center text-gray-400 text-sm mt-10">
+                    <div className="text-center text-white/40 text-sm mt-10">
                         <p>Start chatting with {targetUserName}</p>
                     </div>
                 ) : (
@@ -168,13 +173,13 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName 
                         return (
                             <div key={msg._id || idx} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                                 <div
-                                    className={`max-w-[75%] px-4 py-3 rounded-2xl text-sm ${isMe
-                                        ? 'bg-teal-600 text-white rounded-br-none shadow-sm'
-                                        : 'bg-gray-100 text-gray-800 rounded-bl-none'
+                                    className={`max-w-[80%] px-4 py-3 rounded-2xl text-sm shadow-sm ${isMe
+                                        ? 'bg-white text-black rounded-br-none'
+                                        : 'bg-[#27272A] text-white/90 rounded-bl-none border border-white/5'
                                         }`}
                                 >
-                                    <p className="leading-relaxed">{msg.text}</p>
-                                    <p className={`text-[10px] mt-1.5 text-right ${isMe ? 'text-teal-100' : 'text-gray-400'}`}>
+                                    <p className="leading-relaxed font-medium">{msg.text}</p>
+                                    <p className={`text-[10px] mt-1.5 font-semibold tracking-wider uppercase text-right ${isMe ? 'text-black/40' : 'text-white/40'}`}>
                                         {msg.timestamp}
                                     </p>
                                 </div>
@@ -186,23 +191,23 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName 
             </div>
 
             {/* Input Area */}
-            <div className="p-4 bg-white/95 backdrop-blur-sm border-t border-gray-100">
-                <div className="flex gap-3">
+            <div className="p-4 bg-transparent border-t border-white/10">
+                <div className="flex gap-3 relative items-center">
                     <input
                         type="text"
                         value={newMessage}
                         onChange={(e) => setNewMessage(e.target.value)}
                         onKeyPress={handleKeyPress}
                         placeholder="Type a message..."
-                        className="flex-1 bg-gray-50 border border-transparent rounded-full px-4 py-3 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:bg-white focus:border-teal-500/50 focus:ring-4 focus:ring-teal-500/5 transition-all"
+                        className="flex-1 bg-black/40 border border-white/10 rounded-full px-5 py-3 text-sm text-white/90 placeholder-white/30 focus:outline-none focus:border-white/30 focus:ring-1 focus:ring-white/30 transition-all shadow-inner"
                     />
                     <button
                         onClick={handleSendMessage}
                         disabled={!newMessage.trim()}
-                        className="bg-teal-600 hover:bg-teal-700 disabled:opacity-30 disabled:cursor-not-allowed text-white w-11 h-11 rounded-full flex items-center justify-center transition-all shadow-sm hover:shadow"
+                        className="bg-white hover:bg-gray-200 disabled:opacity-30 disabled:cursor-not-allowed text-black w-12 h-12 rounded-full flex items-center justify-center transition-all shadow-lg shrink-0"
                     >
-                        <svg className="w-5 h-5 transform rotate-45 -translate-x-0.5 translate-y-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                        <svg className="w-5 h-5 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M3.478 2.404a.75.75 0 00-.926.941l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.404z" />
                         </svg>
                     </button>
                 </div>

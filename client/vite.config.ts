@@ -10,5 +10,11 @@ export default defineConfig({
     proxy: {
       '/api': 'http://localhost:5001',
     },
+    // Exclude Playwright output dirs from the file watcher to prevent
+    // Vite from trying to process the test report HTML/CSS assets
+    watch: {
+      ignored: ['**/playwright-report/**', '**/test-results/**', '**/e2e/.auth/**'],
+    },
   },
 })
+

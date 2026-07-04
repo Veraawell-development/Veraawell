@@ -1,292 +1,259 @@
-# Veraawell 🚀
+# Veraawell
 
-A modern, secure mental health platform built with the MERN stack. Veraawell provides a safe and secure environment for mental health professionals and patients to connect, featuring robust authentication with OAuth integration, secure session management, and encrypted communication channels.
+A modern, secure mental health platform built with the MERN stack. Veraawell provides a safe, scalable, and confidential environment for mental health professionals and patients to connect. It features robust authentication, optimized scheduling, and secure communication channels.
 
 ## Technical Overview
-Our platform leverages cutting-edge technologies to ensure security, privacy, and seamless user experience:
 
-- **Authentication & Security**: OAuth integration, JWT-based session management, and encrypted data transmission
-- **Role-Based Access**: Separate secure portals for mental health professionals and patients
-- **Real-time Communication**: WebSocket integration for secure messaging
-- **Data Privacy**: End-to-end encryption for sensitive medical data
-- **Scalable Architecture**: MERN stack with cloud deployment for high availability
+Our platform leverages cutting-edge technologies to ensure security, privacy, scalability, and a seamless user experience.
 
-## System Architecture
+- **Authentication & Security**: JWT-based session management, Google OAuth integration, and strict rate-limiting policies.
+- **Role-Based Access**: Specialized secure portals for mental health professionals (doctors) and patients.
+- **Real-time Communication**: WebSocket (Socket.io) integration for instant messaging and WebRTC for secure video/audio sessions.
+- **Data Integrity & Privacy**: Robust database schemas, input sanitization, and strict access controls.
+- **Scalable Architecture**: Highly optimized MERN stack designed for single-instance high concurrency (engineered to handle up to 100k DAU efficiently).
 
-### High-Level Overview
+---
+
+## High-Level Design (HLD)
+
+### System Architecture
+
+The Veraawell system follows a robust client-server architecture with external service integrations for specialized tasks.
+
 ```mermaid
 graph TD
-    A[Frontend - Vercel] -->|API Requests| B[Backend - Render]
-    B -->|Store/Query Data| C[MongoDB Atlas]
-    B -->|Send Emails| D[Gmail/SMTP]
-    B -->|OAuth| E[Google Auth]
+    Client[Client Browser / Mobile] -->|HTTPS / WSS| CDN[Vercel Edge Network]
+    CDN -->|API Requests| API[Express API Server - Render]
     
-    subgraph Frontend Stack
-    A1[React + Vite] -->|UI Framework| A2[TypeScript]
-    A2 -->|Styling| A3[Tailwind CSS]
+    API -->|Read/Write| DB[(MongoDB Atlas)]
+    API -->|SMTP/API| Email[Resend Email Service]
+    API -->|OAuth 2.0| Auth[Google OAuth]
+    API -->|Asset Uploads| CDN2[Cloudinary]
+    
+    subgraph Frontend Architecture
+    UI[React + Vite] --> Router[React Router]
+    Router --> State[Context API / Hooks]
+    State --> Styling[Tailwind CSS]
     end
     
-    subgraph Backend Stack
-    B1[Node.js] -->|Framework| B2[Express.js]
-    B2 -->|Auth| B3[JWT + Passport]
-    B3 -->|Security| B4[bcrypt]
+    subgraph Backend Architecture
+    Route[Express Router] --> Middle[Auth / Validation Middleware]
+    Middle --> Controller[Controllers]
+    Controller --> Service[Services / Cron Jobs]
+    Service --> Model[Mongoose Models]
     end
 ```
 
-### Authentication Flow
+### Component Architecture
+1. **Presentation Layer (Frontend)**: A Single Page Application (SPA) built with React and TypeScript. It manages state locally and communicates with the backend via RESTful APIs and WebSockets.
+2. **Application Layer (Backend)**: An Express.js Node server adhering to the MVC (Model-View-Controller) pattern. It handles business logic, real-time socket connections, and scheduled cron jobs.
+3. **Data Layer (Database)**: A MongoDB NoSQL database hosted on Atlas, utilizing compound indexes and optimized aggregation pipelines for fast data retrieval.
+4. **External Services**: 
+   - **Resend**: Transactional email delivery (OTPs, session reminders).
+   - **Cloudinary**: Profile picture and banner asset management.
+   - **Google Cloud**: OAuth 2.0 authentication.
+
+---
+
+## Low-Level Design (LLD)
+
+### Database Schema & Entity Relationship
+
+The data layer is highly relational despite being a NoSQL database, utilizing ObjectIds for referencing.
+
+```mermaid
+erDiagram
+    User ||--o{ Session : participates
+    User ||--o{ DoctorProfile : has_one
+    User ||--o{ Review : writes/receives
+    User ||--o{ Message : sends/receives
+    User ||--o{ Conversation : participates
+    
+    Conversation ||--o{ Message : contains
+    Session ||--o| Conversation : spawns
+    Session ||--o| Review : generates
+    
+    User {
+        ObjectId _id
+        String email
+        String role
+        String password
+        String status
+    }
+    
+    DoctorProfile {
+        ObjectId userId
+        String[] specialization
+        Number experience
+        Object pricing
+        Object rating
+    }
+    
+    Session {
+        ObjectId patientId
+        ObjectId doctorId
+        Date sessionDate
+        String status
+        String callMode
+    }
+    
+    Conversation {
+        Object[] participants
+        Date updatedAt
+    }
+    
+    Message {
+        ObjectId conversationId
+        ObjectId senderId
+        String text
+        Boolean isRead
+    }
+```
+
+### Core Business Flows
+
+#### 1. Real-Time Chat & Messaging Flow
 ```mermaid
 sequenceDiagram
-    participant U as User
-    participant F as Frontend
-    participant B as Backend
+    participant P as Patient Client
+    participant API as REST API
+    participant WSS as Socket.io Server
     participant DB as MongoDB
-    participant E as Email
+    participant D as Doctor Client
 
-    %% Regular Auth Flow
-    U->>F: Enter Credentials
-    F->>B: POST /api/auth/login
-    B->>DB: Verify User
-    DB-->>B: User Data
-    B->>F: Set HTTP-Only Cookie
-    F->>U: Redirect to Dashboard
+    P->>API: GET /api/chat/conversations
+    API->>DB: Aggregate Unread Counts (Batch)
+    DB-->>API: Conversation List
+    API-->>P: Render UI
 
-    %% Password Reset Flow
-    U->>F: Click Forgot Password
-    F->>B: POST /api/auth/forgot-password
-    B->>DB: Generate Reset Token
-    B->>E: Send Reset Email
-    E-->>U: Reset Link
-    U->>F: Click Reset Link
-    F->>B: POST /api/auth/reset-password
-    B->>DB: Update Password
-    B-->>F: Success Response
-    F->>U: Show Success Message
+    P->>WSS: Emit 'send_message' (text, receiverId)
+    WSS->>DB: Create Message Document
+    WSS->>DB: Update Conversation lastMessage
+    DB-->>WSS: Acknowledgment
+    WSS->>D: Emit 'receive_message'
+    D-->>WSS: Emit 'mark_read'
+    WSS->>DB: Update Message Status
 ```
 
-### Data Model
+#### 2. Session Booking & Synchronization
 ```mermaid
-classDiagram
-    class User {
-        +String firstName
-        +String lastName
-        +String email
-        +String password
-        +String role
-        +String googleId
-        +String resetToken
-        +Date resetTokenExpiry
-        +comparePassword()
-        +setResetToken()
-        +clearResetToken()
-    }
+sequenceDiagram
+    participant U as Patient
+    participant API as Backend Controller
+    participant DB as MongoDB
+    participant Cron as Node-Cron Scheduler
+    participant E as Resend (Email)
+
+    U->>API: POST /api/sessions/book
+    API->>DB: Validate Doctor Availability
+    API->>DB: Atomic Insert Session (Status: scheduled)
+    API-->>U: Booking Confirmed
+
+    Note over Cron: Runs every 1 minute
+    Cron->>DB: Query Upcoming Sessions (24h Window)
+    DB-->>Cron: Sessions Needing Reminders
+    Cron->>E: Send 15-min / 2-min Reminder
     
-    class AuthController {
-        +login()
-        +register()
-        +forgotPassword()
-        +resetPassword()
-        +googleAuth()
-        +logout()
-    }
-    
-    class EmailService {
-        +sendResetEmail()
-        +sendWelcomeEmail()
-    }
-    
-    AuthController --> User
-    AuthController --> EmailService
+    Note over Cron: Runs every 5 minutes
+    Cron->>DB: Sweep Past Sessions
+    Cron->>DB: Update Status to 'completed' or 'no-show'
 ```
 
-## 🛠️ Tech Stack
+### Backend Optimizations
+- **N+1 Query Elimination**: Heavy endpoints (like Chat unread counts and Therapist lists) utilize single aggregation pipelines and batch queries to process data in O(1) database calls rather than O(N).
+- **Decoupled Schedulers**: Session status sweeping and email notifications are handled by background `node-cron` workers, removing blocking I/O from client-facing REST endpoints.
+- **Connection Pooling**: MongoDB connection pool max size is configured to handle high concurrency.
+- **Index Optimization**: Extensive use of compound indexes for fast reads and sorts on frequently accessed collections.
+- **Security Hardening**: Body parsers limited to 1MB to prevent DoS attacks. Strict error suppression on auth endpoints (e.g., password resets) prevents user enumeration. Cascade deletion is implemented to ensure data integrity.
+
+---
+
+## Tech Stack
 
 ### Frontend
-- **Framework**: React 18 with Vite
-- **Language**: TypeScript
+- **Core**: React 18, TypeScript, Vite
 - **Styling**: Tailwind CSS
 - **Routing**: React Router v6
-- **State Management**: React Context + Hooks
-- **Build Tool**: Vite
+- **State Management**: React Context, Custom Hooks
+- **Video/Audio**: WebRTC implementation
 - **Deployment**: Vercel
 
 ### Backend
-- **Runtime**: Node.js
-- **Framework**: Express.js
-- **Database**: MongoDB with Mongoose
-- **Authentication**: 
-  - JWT (HttpOnly cookies)
-  - Passport.js
-  - Google OAuth 2.0
-- **Email**: Nodemailer with SMTP
-- **Deployment**: Render.com
+- **Core**: Node.js, Express.js
+- **Database**: MongoDB (Mongoose ODM)
+- **Real-Time**: Socket.io
+- **Security**: JWT, bcrypt, Helmet, express-rate-limit, express-mongo-sanitize
+- **Services**: Resend (Emails), Cloudinary (Images)
+- **Deployment**: Render
 
-## 🔒 Security Features
+---
 
-1. **Password Security**
-   - Bcrypt hashing with salt rounds
-   - Password strength validation
-   - Secure password reset flow
+## Environment Variables Configuration
 
-2. **Session Management**
-   - HttpOnly cookies
-   - Secure session handling
-   - CSRF protection
+Create a `.env` file in both `client` and `server` directories.
 
-3. **OAuth Integration**
-   - Google OAuth 2.0
-   - State parameter validation
-   - Secure callback handling
-
-4. **API Security**
-   - CORS configuration
-   - Rate limiting
-   - Input validation
-
-## 📧 Email Configuration
-
-### Gmail Setup
-1. Enable 2FA on your Gmail account
-2. Generate App Password:
-   - Go to Google Account settings
-   - Security → 2-Step Verification → App passwords
-   - Select "Mail" and name it "Veraawell"
-   - Copy the 16-character password
-
-### Environment Variables
+### Server (`server/.env`)
 ```env
-# Email Configuration
-EMAIL_USER=your-gmail@gmail.com
-EMAIL_PASS=your-16-character-app-password
+# Server
+PORT=5000
+NODE_ENV=development
+FRONTEND_URL=http://localhost:5173
 
-# Auth Configuration
-JWT_SECRET=your-jwt-secret
-SESSION_SECRET=your-session-secret
+# Database
+MONGO_URI=your-mongodb-atlas-uri
 
-# OAuth Configuration
+# Authentication
+JWT_SECRET=your-secure-jwt-secret
+SESSION_SECRET=your-secure-session-secret
+ADMIN_JWT_SECRET=your-secure-admin-secret
+
+# OAuth Integrations
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
 
-# Database
-MONGO_URI=your-mongodb-uri
+# External Services
+RESEND=your-resend-api-key
+CLOUDINARY_CLOUD_NAME=your-cloud-name
+CLOUDINARY_API_KEY=your-api-key
+CLOUDINARY_API_SECRET=your-api-secret
 ```
 
-### Alternative Email Services
-```javascript
-// SendGrid Configuration
-const transporter = nodemailer.createTransporter({
-  host: 'smtp.sendgrid.net',
-  port: 587,
-  auth: {
-    user: 'apikey',
-    pass: process.env.SENDGRID_API_KEY
-  }
-});
-
-// Mailgun Configuration
-const transporter = nodemailer.createTransporter({
-  host: 'smtp.mailgun.org',
-  port: 587,
-  auth: {
-    user: process.env.MAILGUN_USER,
-    pass: process.env.MAILGUN_PASS
-  }
-});
+### Client (`client/.env`)
+```env
+VITE_API_URL=http://localhost:5000/api
+VITE_SOCKET_URL=http://localhost:5000
 ```
 
-## 🚀 Getting Started
+---
 
-1. **Clone and Install**
+## Getting Started
+
+1. **Clone the repository**
    ```bash
    git clone https://github.com/your-username/veraawell.git
    cd veraawell
    ```
 
-2. **Setup Frontend**
+2. **Install Dependencies**
    ```bash
-   cd client
-   npm install
-   cp .env.example .env
-   ```
-
-3. **Setup Backend**
-   ```bash
+   # Install backend dependencies
    cd server
    npm install
-   cp .env.example .env
+
+   # Install frontend dependencies
+   cd ../client
+   npm install
    ```
 
-4. **Configure Environment**
-   - Set up all environment variables
-   - Configure MongoDB connection
-   - Set up email service
-   - Configure OAuth credentials
-
-5. **Run Development Servers**
+3. **Start Development Servers**
    ```bash
-   # Terminal 1 - Frontend
-   cd client && npm run dev
+   # In the server directory
+   npm run dev
 
-   # Terminal 2 - Backend
-   cd server && npm run dev
+   # In the client directory (new terminal)
+   npm run dev
    ```
-
-## 🌐 Deployment
-
-### Frontend (Vercel)
-1. Connect your GitHub repository
-2. Configure build settings:
-   - Framework Preset: Vite
-   - Build Command: `npm run build`
-   - Output Directory: `dist`
-3. Add environment variables
-4. Deploy!
-
-### Backend (Render)
-1. Create a new Web Service
-2. Connect your repository
-3. Configure:
-   - Environment: Node
-   - Build Command: `npm install`
-   - Start Command: `npm start`
-4. Add environment variables
-5. Deploy!
-
-## 🧪 Testing
-
-### Manual Test Cases
-- [ ] Regular authentication flow
-- [ ] Google OAuth flow
-- [ ] Password reset flow
-- [ ] Session persistence
-- [ ] Error handling
-- [ ] Input validation
-- [ ] Mobile responsiveness
-
-### Security Checklist
-- [ ] HTTPS enforced
-- [ ] Secure cookies
-- [ ] XSS protection
-- [ ] CSRF protection
-- [ ] Rate limiting
-- [ ] Input sanitization
-
-## 🔜 Roadmap
-
-1. **Short Term**
-- Add email verification
-   - Implement rate limiting
-   - Add user profiles
-
-2. **Medium Term**
-   - Add more OAuth providers
-   - Implement 2FA
-   - Add audit logging
-
-3. **Long Term**
-   - Add admin dashboard
-   - Implement role-based access
-   - Add analytics
 
 ---
 
-**Made with ❤️ by Abhigyan Raj | IIIT Delhi** 
+**Developed for high availability and secure mental health care delivery.**

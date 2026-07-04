@@ -22,7 +22,7 @@ function initializeSockets(io) {
     const { initializeDataSocket } = require('./data.socket');
     initializeDataSocket(io);
 
-    logger.info('All socket namespaces initialized ✅');
+    logger.info('All socket namespaces initialized');
 }
 
 module.exports = { initializeSockets };

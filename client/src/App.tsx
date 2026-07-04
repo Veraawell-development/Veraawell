@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import PatientSettingsPage from './pages/PatientSettingsPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AdminProvider, useAdmin } from './context/AdminContext';
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, Navigate } from 'react-router-dom';
@@ -48,6 +49,9 @@ import MessagesPage from './pages/MessagesPage';
 import MyTestsPage from './pages/MyTestsPage';
 import MyTherapistPage from './pages/MyTherapistPage';
 import FAQPage from './pages/FAQPage';
+import ContactPage from './pages/ContactPage';
+import PrivacyPage from './pages/PrivacyPage';
+import TermsPage from './pages/TermsPage';
 import ArticlesPage from './pages/ArticlesPage';
 import ArticleDetailPage from './pages/ArticleDetailPage';
 import AdminArticleEditorPage from './pages/AdminArticleEditorPage';
@@ -63,15 +67,19 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles 
   const { isLoggedIn, user, loading } = useAuth();
   const location = useLocation();
 
+  console.log('[ProtectedRoute]', location.pathname, '| loading:', loading, '| isLoggedIn:', isLoggedIn, '| role:', user?.role, '| allowedRoles:', allowedRoles);
+
   if (loading) {
     return <LoadingScreen />;
   }
 
   if (!isLoggedIn) {
+    console.log('[ProtectedRoute] REDIRECTING to / - not logged in');
     return <Navigate to="/" state={{ from: location }} replace />;
   }
 
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
+    console.log('[ProtectedRoute] REDIRECTING to / - role mismatch:', user.role, 'not in', allowedRoles);
     return <Navigate to="/" replace />;
   }
 
@@ -95,72 +103,26 @@ const AdminProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children
 
 function AppRoutes() {
   const { isLoggedIn, user, checkAuth, setAuthToken } = useAuth();
-  const [isAppReady, setIsAppReady] = useState(false);
 
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Initialize app on first load only
+  // Initialize app on first load
   useEffect(() => {
     const hasLoadedBefore = sessionStorage.getItem('appInitialized');
-
-    // If already loaded in this session, skip loader
-    if (hasLoadedBefore) {
-      setIsAppReady(true);
-      // Check auth silently in background (don't block UI)
-      checkAuth().catch((error) => {
-        console.log('[App] Auth check failed on reload:', error?.message || 'Unknown error');
+    
+    if (!hasLoadedBefore) {
+      sessionStorage.setItem('appInitialized', 'true');
+      // Wake up backend (don't wait for it)
+      wakeUpBackend().catch(() => {
+        console.log('Backend wakeup failed, continuing anyway');
       });
-      return;
     }
 
-    const initializeApp = async () => {
-      try {
-        // Wake up backend (don't wait for it)
-        wakeUpBackend().catch(() => {
-          console.log('Backend wakeup failed, continuing anyway');
-        });
-
-        // Professional Approach: Wait for DOM to be interactive, not for all heavy images to load
-        const waitForDOM = () => {
-          return new Promise<void>((resolve) => {
-            if (document.readyState === 'interactive' || document.readyState === 'complete') {
-              resolve();
-            } else {
-              window.addEventListener('DOMContentLoaded', () => resolve());
-            }
-          });
-        };
-
-        await waitForDOM();
-
-        // Reduced fallback timeout from 5s to 1.5s for instant feel
-        const initializationTimeout = setTimeout(() => {
-          if (!isAppReady) {
-            console.warn('[App] Initialization taking too long, forcing ready state');
-            setIsAppReady(true);
-            sessionStorage.setItem('appInitialized', 'true');
-          }
-        }, 1500); // 1.5 second timeout
-
-        // Try to check auth silently (don't fail if not logged in)
-        await checkAuth().catch((error) => {
-          console.log('[App] Auth check failed on first load:', error?.message || 'User not logged in');
-        });
-
-        clearTimeout(initializationTimeout);
-        // Mark as initialized
-        sessionStorage.setItem('appInitialized', 'true');
-        setIsAppReady(true);
-      } catch (error) {
-        console.error('Failed to initialize app:', error);
-        // Continue anyway to show the UI
-        sessionStorage.setItem('appInitialized', 'true');
-        setIsAppReady(true);
-      }
-    };
-
-    initializeApp();
+    // Check auth silently in background (don't block UI)
+    checkAuth().catch((error) => {
+      console.log('[App] Auth check failed:', error?.message || 'Unknown error');
+    });
   }, [checkAuth]);
 
   useEffect(() => {
@@ -242,13 +204,10 @@ function AppRoutes() {
     location.pathname === '/admin-login' || location.pathname === '/admin-signup';
   const isVideoCallRoute = location.pathname.startsWith('/video-call');
 
-  // Show loading screen only on first load
-  if (!isAppReady) {
-    return <LoadingScreen />;
-  }
+
 
   return (
-    <main className="flex-1 flex flex-col bg-black">
+    <main className="flex-1 flex flex-col">
       {!isAuthRoute && !isVideoCallRoute && <Navbar />}
       <Routes>
         <Route
@@ -263,9 +222,13 @@ function AppRoutes() {
         <Route path="/about" element={<AboutPage />} />
         <Route path="/careers" element={<CareerPage />} />
         <Route path="/services" element={<ServicesPage />} />
-        <Route path="/doctor/:doctorId" element={<ProtectedRoute allowedRoles={['patient']}><DoctorProfilePage /></ProtectedRoute>} />
-        <Route path="/choose-professional" element={<ProtectedRoute allowedRoles={['patient']}><ChooseProfessionalPage /></ProtectedRoute>} />
+        <Route path="/contact" element={<ContactPage />} />
+        <Route path="/privacy" element={<PrivacyPage />} />
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/doctor/:doctorId" element={<DoctorProfilePage />} />
+        <Route path="/choose-professional" element={<ChooseProfessionalPage />} />
         <Route path="/patient-dashboard" element={<ProtectedRoute allowedRoles={['patient']}><PatientDashboard /></ProtectedRoute>} />
+        <Route path="/settings" element={<ProtectedRoute allowedRoles={['patient']}><PatientSettingsPage /></ProtectedRoute>} />
         <Route path="/doctor-dashboard" element={<ProtectedRoute allowedRoles={['doctor']}><DoctorDashboard /></ProtectedRoute>} />
         <Route path="/manage-calendar" element={<ProtectedRoute allowedRoles={['doctor']}><ManageCalendar /></ProtectedRoute>} />
         <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
@@ -328,13 +291,18 @@ function AppWithFooter() {
     location.pathname === '/doctor-session-notes' || location.pathname.startsWith('/doctor-session-notes/') ||
     location.pathname === '/messages' || location.pathname === '/admin-login' ||
     location.pathname === '/admin-signup' || location.pathname === '/admin-dashboard' ||
-    location.pathname === '/super-admin-dashboard';
+    location.pathname === '/super-admin-dashboard' || location.pathname.startsWith('/mental-health') ||
+    location.pathname.startsWith('/my-tests') || location.pathname === '/my-therapists' ||
+    location.pathname.startsWith('/test-results') || location.pathname === '/patient-profile-setup' ||
+    location.pathname === '/profile-setup' || location.pathname === '/choose-professional' ||
+    location.pathname === '/manage-calendar';
   const isVideoCallRoute = location.pathname.startsWith('/video-call');
+  const isDoctorProfileRoute = location.pathname.startsWith('/doctor/');
 
   return (
-    <div className="min-h-screen flex flex-col bg-black">
+    <div className="min-h-screen flex flex-col" style={{ background: 'var(--bg)' }}>
       <AppRoutes />
-      {!isAuthRoute && !isVideoCallRoute && <Footer />}
+      {!isAuthRoute && !isVideoCallRoute && !isDoctorProfileRoute && <Footer />}
     </div>
   );
 }
@@ -348,51 +316,32 @@ export default function App() {
             position="top-right"
             reverseOrder={false}
             gutter={8}
-            containerClassName=""
-            containerStyle={{}}
             toastOptions={{
               duration: 4000,
               style: {
-                background: '#1f2937',
-                color: '#fff',
-                padding: '16px 20px',
-                borderRadius: '12px',
-                boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.3), 0 8px 10px -6px rgba(0, 0, 0, 0.2)',
-                border: '1px solid rgba(255, 255, 255, 0.1)',
+                background: 'rgba(24, 24, 27, 0.95)',
+                backdropFilter: 'blur(16px)',
+                WebkitBackdropFilter: 'blur(16px)',
+                color: '#ffffff',
+                padding: '12px 20px',
+                borderRadius: '16px',
+                boxShadow: '0 10px 40px -10px rgba(0,0,0,0.5)',
+                border: '1px solid rgba(255,255,255,0.1)',
                 fontSize: '14px',
                 fontWeight: '500',
                 maxWidth: '400px',
+                letterSpacing: '0.01em',
               },
               success: {
-                duration: 3000,
                 iconTheme: {
-                  primary: '#10b981',
-                  secondary: '#fff',
-                },
-                style: {
-                  background: '#065f46',
-                  border: '1px solid #10b981',
+                  primary: '#10B981',
+                  secondary: '#ffffff',
                 },
               },
               error: {
-                duration: 5000,
                 iconTheme: {
-                  primary: '#ef4444',
-                  secondary: '#fff',
-                },
-                style: {
-                  background: '#7f1d1d',
-                  border: '1px solid #ef4444',
-                },
-              },
-              loading: {
-                iconTheme: {
-                  primary: '#3b82f6',
-                  secondary: '#fff',
-                },
-                style: {
-                  background: '#1e3a8a',
-                  border: '1px solid #3b82f6',
+                  primary: '#EF4444',
+                  secondary: '#ffffff',
                 },
               },
             }}

@@ -21,10 +21,18 @@ const getConversations = asyncHandler(async (req, res) => {
   const conversations = await Conversation.getConversationsForUser(userId);
   logger.debug('Conversations found', { count: conversations.length });
 
-  const formattedConversations = await Promise.all(conversations.map(async (conv) => {
+  // Batch fetch all unread counts in a single aggregation instead of N separate queries
+  const convIds = conversations.map(c => c._id);
+  const unreadAgg = await Message.aggregate([
+    { $match: { conversationId: { $in: convIds }, receiverId: req.user._id, isRead: false } },
+    { $group: { _id: '$conversationId', count: { $sum: 1 } } }
+  ]);
+  const unreadMap = {};
+  unreadAgg.forEach(r => { unreadMap[r._id.toString()] = r.count; });
+
+  const formattedConversations = conversations.map((conv) => {
     const otherParticipant = conv.participants.find(p => p.userId && p.userId._id && p.userId._id.toString() !== userId);
     if (!otherParticipant) return null;
-    const unreadCount = await Message.getUnreadCount(conv._id, userId);
     return {
       _id: conv._id,
       userId: otherParticipant.userId._id,
@@ -32,10 +40,10 @@ const getConversations = asyncHandler(async (req, res) => {
       userRole: otherParticipant.role,
       lastMessage: conv.lastMessage?.text || '',
       lastMessageTime: conv.lastMessage?.timestamp ? new Date(conv.lastMessage.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '',
-      unreadCount,
+      unreadCount: unreadMap[conv._id.toString()] || 0,
       updatedAt: conv.updatedAt
     };
-  }));
+  });
 
   const validConversations = formattedConversations.filter(c => c !== null).sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
   res.json(validConversations);
@@ -108,10 +116,12 @@ const markAsRead = asyncHandler(async (req, res) => {
 
 /** GET /api/chat/unread-count — Total unread messages across all conversations */
 const getUnreadCount = asyncHandler(async (req, res) => {
-  const userId = req.user._id.toString();
-  const conversations = await Conversation.find({ 'participants.userId': req.user._id });
-  let totalUnread = 0;
-  for (const conv of conversations) { totalUnread += await Message.getUnreadCount(conv._id, userId); }
+  // Single aggregation instead of N+1 queries
+  const result = await Message.aggregate([
+    { $match: { receiverId: req.user._id, isRead: false } },
+    { $count: 'total' }
+  ]);
+  const totalUnread = result.length > 0 ? result[0].total : 0;
   res.json({ success: true, unreadCount: totalUnread });
 });
 

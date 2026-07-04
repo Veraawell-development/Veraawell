@@ -8,7 +8,6 @@ type DoctorCardProps = {
   language: string;
   treatsFor: string;
   imageSrc: string;
-  bgColor?: string;
   rating?: {
     average: number;
     totalReviews: number;
@@ -16,6 +15,8 @@ type DoctorCardProps = {
   onBookSession?: () => void;
   onViewProfile?: () => void;
   isPrevious?: boolean;
+  isOnline?: boolean;
+  bgColor?: string;
 };
 
 const DoctorCard: React.FC<DoctorCardProps> = ({
@@ -26,96 +27,118 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
   language,
   treatsFor,
   imageSrc,
-  bgColor = '#ABA5D1',
   rating = { average: 0, totalReviews: 0 },
   onBookSession,
   onViewProfile,
   isPrevious = false,
+  isOnline = false,
+  bgColor,
 }) => {
   return (
     <div
-      className={`bg-white border rounded-xl overflow-hidden hover:shadow-md transition-all ${onViewProfile ? 'cursor-pointer' : ''} ${isPrevious ? 'border-teal-500 ring-1 ring-teal-500' : 'border-gray-200 hover:border-teal-300'}`}
+      className={`group rounded-3xl p-6 transition-all duration-300 flex flex-col h-full relative overflow-hidden ${onViewProfile ? 'cursor-pointer' : ''}`}
       onClick={onViewProfile}
+      style={{ 
+        background: 'rgba(255, 255, 255, 0.7)',
+        border: '1px solid rgba(255, 255, 255, 0.8)',
+        backdropFilter: 'blur(16px)',
+        boxShadow: '0 8px 32px rgba(0,0,0,0.03)'
+      }}
     >
-      {/* Top Section with Image and Info */}
-      <div className="flex relative">
-        {/* Previous Selection Tag */}
-        {isPrevious && (
-          <div className="absolute top-0 left-0 bg-teal-600 text-white text-[10px] font-bold px-2 py-0.5 rounded-br-lg z-10 font-sans tracking-wide">
-            YOUR THERAPIST
-          </div>
-        )}
+      {/* Hover Glow */}
+      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
+        style={{ background: 'radial-gradient(circle at 50% 0%, rgba(0, 151, 178, 0.05), transparent 70%)' }}
+      />
 
-        {/* Doctor Image */}
-        <div className="w-32 h-44 flex-shrink-0">
-          <img
-            src={imageSrc}
-            alt={name}
-            className="w-full h-full object-cover"
-          />
-        </div>
-
-        {/* Doctor Info */}
-        <div className="flex-1 p-4 flex flex-col justify-center" style={{ backgroundColor: bgColor }}>
-          <div className="text-white space-y-1.5">
-            <h3 className="text-base font-bold leading-tight mb-2" style={{ fontFamily: 'Bree Serif, serif' }}>{name}</h3>
-            <div className="space-y-1 text-xs leading-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
-              <p className="text-white/90"><span className="font-semibold text-white">Experience:</span> {experience}</p>
-              <p className="text-white/90"><span className="font-semibold text-white">Qualification:</span> {qualification}</p>
-              <p className="text-white/90"><span className="font-semibold text-white">Pricing:</span> {pricing}</p>
-              <p className="text-white/90"><span className="font-semibold text-white">Language:</span> {language}</p>
+      {/* Header: Image & Basic Info */}
+      <div className="flex gap-4 items-start relative z-10">
+        <img
+          src={imageSrc}
+          alt={name}
+          className="w-16 h-16 rounded-full object-cover shadow-md"
+          style={{ border: `2px solid ${bgColor || 'rgba(0,151,178,0.2)'}` }}
+        />
+        <div className="flex-1 min-w-0">
+          <div className="flex flex-col gap-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              {isOnline && (
+                <span className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-full"
+                  style={{ background: 'rgba(107, 168, 136, 0.1)', border: '1px solid rgba(107, 168, 136, 0.2)' }}>
+                  <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: 'var(--sage)' }}></div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--sage)' }}>Online</span>
+                </span>
+              )}
+              {isPrevious && (
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider"
+                  style={{ background: 'rgba(0, 151, 178, 0.1)', border: '1px solid rgba(0, 151, 178, 0.2)', color: 'var(--teal)' }}>
+                  Your Therapist
+                </span>
+              )}
             </div>
+            <h3 className="text-[19px] font-semibold truncate mt-1" style={{ color: 'var(--text)' }}>
+              {name}
+            </h3>
+            
+            <p className="text-[13px] truncate" style={{ color: 'var(--text-2)' }} title={qualification}>
+              {qualification}
+            </p>
+          </div>
+          
+          {/* Star Rating */}
+          <div className="flex items-center gap-1.5 mt-2">
+            {rating.totalReviews === 0 ? (
+              <span className="text-xs font-semibold px-2 py-0.5 rounded-md" style={{ background: 'rgba(0,0,0,0.04)', color: 'var(--text-2)' }}>New</span>
+            ) : (
+              <div className="flex items-center">
+                <svg className="w-4 h-4" style={{ color: 'var(--gold)' }} fill="currentColor" viewBox="0 0 20 20">
+                   <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z" />
+                </svg>
+                <span className="text-[13px] font-bold ml-1" style={{ color: 'var(--text)' }}>{rating.average.toFixed(1)}</span>
+                <span className="text-[12px] ml-1" style={{ color: 'var(--text-2)' }}>({rating.totalReviews})</span>
+              </div>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Bottom Section */}
-      <div className="px-4 py-3 bg-white">
+      <hr className="my-5 border-0 h-px" style={{ background: 'linear-gradient(90deg, transparent, rgba(0,0,0,0.05), transparent)' }} />
+
+      {/* Info List */}
+      <div className="space-y-3 flex-1 relative z-10">
+        <div className="flex justify-between items-center text-[13px]">
+          <span style={{ color: 'var(--text-2)' }}>Experience</span>
+          <span className="font-semibold" style={{ color: 'var(--text)' }}>{experience}</span>
+        </div>
+        <div className="flex justify-between items-center text-[13px]">
+          <span style={{ color: 'var(--text-2)' }}>Session Fee</span>
+          <span className="font-semibold" style={{ color: 'var(--text)' }}>{pricing}</span>
+        </div>
+        <div className="flex justify-between items-center text-[13px]">
+          <span style={{ color: 'var(--text-2)' }}>Language</span>
+          <span className="font-semibold truncate ml-4 text-right" style={{ color: 'var(--text)' }} title={language}>{language}</span>
+        </div>
+        
         {/* Treats For */}
-        <div className="mb-3">
-          <p className="text-gray-700 text-xs leading-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
-            <span className="font-semibold text-gray-900">Treats for:</span> {treatsFor}
+        <div className="pt-2">
+          <span className="block mb-1 text-[13px]" style={{ color: 'var(--text-2)' }}>Expertise</span>
+          <p className="text-[14px] font-medium leading-snug line-clamp-2" style={{ color: 'var(--text)' }} title={treatsFor}>
+            {treatsFor || 'General Consultation'}
           </p>
         </div>
+      </div>
 
-        {/* Rating and Book Button */}
-        <div className="flex items-center justify-between">
-          {/* Star Rating */}
-          <div className="flex items-center gap-1">
-            {rating.totalReviews === 0 ? (
-              <span className="text-xs font-medium text-teal-600 bg-teal-50 px-2 py-0.5 rounded" style={{ fontFamily: 'Inter, sans-serif' }}>
-                New
-              </span>
-            ) : (
-              <>
-                {[...Array(5)].map((_, i) => (
-                  <svg key={i} className={`w-4 h-4 fill-current ${i < Math.round(rating.average) ? 'text-amber-400' : 'text-gray-300'
-                    }`} viewBox="0 0 20 20">
-                    <path d="M10 15l-5.878 3.09 1.123-6.545L.489 6.91l6.572-.955L10 0l2.939 5.955 6.572.955-4.756 4.635 1.123 6.545z" />
-                  </svg>
-                ))}
-                <span className="text-xs text-gray-600 ml-1" style={{ fontFamily: 'Inter, sans-serif' }}>
-                  ({rating.totalReviews})
-                </span>
-              </>
-            )}
-          </div>
-
-          {/* Book Session Button */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation(); // Prevent triggering card click
-              onBookSession?.();
-            }}
-            className={`font-semibold py-1.5 px-4 rounded-lg text-xs transition-colors ${isPrevious
-              ? 'bg-teal-700 text-white hover:bg-teal-800 ring-2 ring-teal-700 ring-offset-1'
-              : 'bg-teal-600 text-white hover:bg-teal-700'
-              }`}
-            style={{ fontFamily: 'Inter, sans-serif' }}
-          >
-            {isPrevious ? 'Book Again' : 'Book Session'}
-          </button>
-        </div>
+      {/* Action Button */}
+      <div className="pt-6 mt-auto relative z-10">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onBookSession?.();
+          }}
+          className="w-full py-3 text-white text-[14px] font-bold rounded-full transition-all duration-300 shadow-md hover:-translate-y-1"
+          style={{ background: 'var(--teal)', boxShadow: '0 8px 20px rgba(0,151,178,0.2)' }}
+        >
+          {isPrevious ? 'Book Again' : 'Book Session'}
+        </button>
       </div>
     </div>
   );

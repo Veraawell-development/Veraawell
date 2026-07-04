@@ -33,6 +33,7 @@ export interface Session {
     _id: string;
     firstName: string;
     lastName: string;
+    profileImage?: string;
   };
   meetingLink?: string;
   price: number;

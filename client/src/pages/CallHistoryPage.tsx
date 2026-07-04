@@ -87,89 +87,124 @@ const CallHistoryPage: React.FC = () => {
 
 
 
+  const getInitials = (name: string) => {
+    const parts = name.replace('Dr. ', '').split(' ');
+    if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    return name.substring(0, 2).toUpperCase();
+  };
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#F9FAFB] font-sans">
+      <div className="h-[calc(100vh-80px)] flex items-center justify-center bg-[#FAFAFA] font-sans">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#7DA9A8] mx-auto"></div>
-          <p className="mt-4 text-gray-500 text-sm">Loading call history...</p>
+          <div className="w-8 h-8 border-2 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-gray-500 text-[13px] font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>Loading call history...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#F9FAFB] font-sans">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-100">
-        <div className="px-6 py-4 flex items-center justify-between max-w-4xl mx-auto">
-          <button
-            onClick={() => navigate(-1)}
-            className="text-gray-500 hover:text-gray-700 transition-colors"
+    <div className="h-screen pt-[64px] md:pt-[80px] bg-[#FAFAFA] font-sans flex flex-col overflow-hidden box-border">
+      {/* Main Content Area */}
+      <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 md:py-10 flex flex-col min-h-0">
+        
+        <div className="mb-8 max-w-2xl relative shrink-0">
+          <button 
+            onClick={() => navigate('/patient-dashboard')} 
+            className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 hover:text-teal-600 transition-colors mb-5 group"
+            aria-label="Back to Dashboard"
+            style={{ fontFamily: 'Inter, sans-serif' }}
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            <svg className="w-4 h-4 group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
+            Back to Dashboard
           </button>
-          <h1 className="text-xl font-bold text-gray-800">Call History</h1>
-          <div className="w-6"></div> {/* Spacer for centering */}
+          
+          <h1 className="text-[32px] md:text-[36px] font-extrabold text-gray-800 tracking-tight mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
+            Call History
+          </h1>
+          <p className="text-[15px] text-gray-500 font-medium leading-relaxed max-w-2xl" style={{ fontFamily: 'Inter, sans-serif' }}>
+            Review your past consultation sessions and payment details.
+          </p>
         </div>
-      </div>
-
-      {/* Content */}
-      <div className="px-6 py-8 max-w-4xl mx-auto">
-        <BackToDashboard />
         
         {error && (
-          <div className="bg-red-50 border border-red-100 text-red-600 px-4 py-3 rounded-lg text-sm mb-6">
+          <div className="bg-red-50 border border-red-100 text-red-600 px-4 py-3 rounded-xl text-[13px] mb-8 flex items-center font-medium shrink-0">
             {error}
           </div>
         )}
 
         {callHistory.length === 0 ? (
-          <div className="text-center py-16">
-            <FiPhone className="mx-auto text-5xl text-gray-300 mb-4" />
-            <p className="text-lg font-semibold text-gray-600">No call history yet</p>
-            <p className="text-sm text-gray-500 mt-1">Your completed and cancelled sessions will appear here</p>
+          <div className="bg-white rounded-[24px] border border-gray-100 shadow-sm p-16 text-center max-w-3xl mx-auto mt-4 shrink-0">
+            <div className="w-16 h-16 bg-gray-50 border border-gray-100 rounded-full flex items-center justify-center mx-auto mb-5">
+              <FiPhone className="w-6 h-6 text-gray-400" />
+            </div>
+            <h3 className="text-[18px] font-bold text-gray-800 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+              No call history yet
+            </h3>
+            <p className="text-gray-500 text-[14px] mb-8" style={{ fontFamily: 'Inter, sans-serif' }}>
+              Your completed and cancelled sessions will appear here.
+            </p>
           </div>
         ) : (
-          <div className="space-y-4">
-            {callHistory.map((call) => (
-              <div
-                key={call._id}
-                className="bg-white rounded-xl border border-gray-100 p-6 hover:shadow-sm transition-shadow"
-              >
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Left Column */}
-                  <div className="grid grid-cols-3 md:grid-cols-1 gap-2 md:gap-1 text-sm">
-                    <div>
-                      <p className="text-xs text-gray-400">Name</p>
-                      <p className="font-semibold text-gray-800">{call.name}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-400">Date</p>
-                      <p className="font-medium text-gray-700">{formatDate(call.date)}</p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-400">Mode</p>
-                      <p className={`font-medium ${getModeColor(call.mode)}`}>{call.mode}</p>
+          <div className="flex-1 overflow-y-auto pr-2 pb-10 min-h-0">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+              {callHistory.map((call) => (
+                <div
+                  key={call._id}
+                  className="group bg-white rounded-[16px] border border-gray-100 hover:border-teal-200 shadow-sm hover:shadow-md transition-all cursor-default overflow-hidden p-6 flex flex-col"
+                >
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-teal-50 border border-teal-100 flex items-center justify-center shrink-0">
+                        <span className="text-[12px] font-bold text-teal-700 tracking-wider">
+                          {getInitials(call.name)}
+                        </span>
+                      </div>
+                      <div className="flex flex-col gap-0.5">
+                        <h3 className="text-[15px] font-bold text-gray-800 tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
+                          {call.name}
+                        </h3>
+                        <p className="text-[12px] font-medium text-gray-400" style={{ fontFamily: 'Inter, sans-serif' }}>
+                          {formatDate(call.date)}
+                        </p>
+                      </div>
                     </div>
                   </div>
+                  
+                  <div className="mb-6">
+                    <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide uppercase ${
+                      call.mode === 'Cancelled & Refunded' ? 'bg-red-50 text-red-600' : 
+                      call.mode === 'Voice Calling' ? 'bg-purple-50 text-purple-600' : 
+                      'bg-teal-50 text-teal-600'
+                    }`} style={{ fontFamily: 'Inter, sans-serif' }}>
+                      {call.mode}
+                    </span>
+                  </div>
 
-                  {/* Right Column */}
-                  <div className="grid grid-cols-2 md:grid-cols-1 gap-2 md:gap-1 text-sm md:text-right">
+                  <div className="mt-auto pt-5 border-t border-gray-50 flex items-center justify-between">
                     <div>
-                      <p className="text-xs text-gray-400">Duration</p>
-                      <p className="font-medium text-gray-700">{call.duration} minutes</p>
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Duration</p>
+                      <div className="flex items-baseline gap-1">
+                        <span className="text-[20px] font-black leading-none text-gray-800 tracking-tighter" style={{ fontFamily: 'Inter, sans-serif' }}>
+                          {call.duration}
+                        </span>
+                        <span className="text-[12px] font-bold text-gray-400">mins</span>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-xs text-gray-400">Payment Amount</p>
-                      <p className="font-semibold text-gray-800">Rs.{call.paymentAmount}</p>
+                    
+                    <div className="text-right">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Amount</p>
+                      <span className="text-[16px] font-bold text-teal-600 tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        ₹{call.paymentAmount}
+                      </span>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
         )}
       </div>
