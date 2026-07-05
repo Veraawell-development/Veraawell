@@ -3,58 +3,74 @@ import React from 'react';
 type ServiceCardProps = {
   title: string;
   description: string;
-  imageSrc?: string; // Made optional
-  imageClassName?: string; // Custom positioning per image
-  bgColor?: string;
+  accent?: string;
+  index: number;
   onClick?: () => void;
 };
 
 const ServiceCard: React.FC<ServiceCardProps> = ({
   title,
   description,
-  imageSrc,
-  imageClassName,
-  bgColor = '#38ABAE',
+  accent = 'var(--teal)',
+  index,
   onClick,
 }) => {
   return (
     <div
-      className="relative rounded-[20px] text-white shadow-sm hover:shadow-md transition-shadow duration-300 px-6 pt-8 pb-32 min-h-[360px] border border-white/20 flex flex-col items-center"
-      style={{ backgroundColor: bgColor }}
+      onClick={onClick}
+      className="feature-card relative rounded-[32px] p-8 md:p-10 flex flex-col h-full min-h-[360px] overflow-hidden cursor-pointer group"
+      style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+      }}
     >
-      {/* Heading */}
-      <h3
-        className="text-center text-[26px] md:text-[32px] font-extrabold tracking-wide mb-3 drop-shadow-sm"
-        style={{ fontFamily: 'Inter, sans-serif' }}
-      >
-        {title}
-      </h3>
+      {/* Decorative subtle background gradient on hover */}
+      <div 
+        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none z-0"
+        style={{
+          background: `radial-gradient(circle at bottom right, ${accent}15, transparent 70%)`
+        }}
+      />
 
-      {/* Description */}
-      <p 
-        className="text-center text-[15px] md:text-[17px] leading-relaxed max-w-[95%] mx-auto text-white/95"
-        style={{ fontFamily: 'Inter, sans-serif' }}
-      >
-        {description}
-      </p>
+      <div className="relative z-20 flex flex-col h-full">
+        {/* Top Header Row (Number) */}
+        <div className="flex justify-between items-start mb-10">
+          {/* Overline Number */}
+          <div 
+            className="text-xs font-bold tracking-[0.2em]"
+            style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}
+          >
+            {String(index + 1).padStart(2, '0')}
+          </div>
+        </div>
 
-      {/* CTA Button */}
-      <button
-        onClick={onClick}
-        className="absolute left-1/2 -translate-x-1/2 bottom-8 inline-flex items-center justify-center rounded-full bg-white px-8 py-3 text-[16px] md:text-[18px] font-bold shadow-sm hover:scale-105 hover:-translate-y-1 hover:shadow-lg transition-all duration-300 z-30"
-        style={{ fontFamily: 'Inter, sans-serif', color: bgColor !== '#ffffff' ? bgColor : '#38ABAE' }}
-      >
-        View Therapist
-      </button>
+        {/* Title */}
+        <h3 
+          className="text-[26px] md:text-[28px] font-bold mb-4 drop-shadow-sm"
+          style={{ color: 'var(--text)', fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}
+        >
+          {title}
+        </h3>
 
-      {/* Illustration - Only render if imageSrc is provided */}
-      {imageSrc && (
-        <img
-          src={imageSrc}
-          alt={title}
-          className={`absolute z-20 h-auto object-contain select-none pointer-events-none drop-shadow-[0_12px_18px_rgba(0,0,0,0.4)] transition-transform duration-300 hover:scale-105 ${imageClassName || '-bottom-4 -left-6 w-32 md:w-40 lg:w-48'}`}
-        />
-      )}
+        {/* Description */}
+        <p 
+          className="text-[15px] leading-relaxed max-w-[95%] sm:max-w-[90%]"
+          style={{ color: 'var(--text-2)' }}
+        >
+          {description}
+        </p>
+
+        {/* Action Link */}
+        <div 
+          className="mt-auto pt-12 flex items-center gap-2 font-semibold text-[15px] transition-colors"
+          style={{ color: accent }}
+        >
+          View therapists
+          <svg className="w-4 h-4 transform group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+          </svg>
+        </div>
+      </div>
     </div>
   );
 };

@@ -226,6 +226,15 @@ body {
   animation-play-state: paused;
 }
 
+@keyframes float-illustration {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-12px); }
+}
+
+.animate-float-img {
+  animation: float-illustration 8s ease-in-out infinite;
+}
+
 /* ---------- Pulse Dot ---------- */
 .pulse-dot {
   position: relative;

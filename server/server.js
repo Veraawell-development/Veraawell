@@ -61,6 +61,28 @@ async function startServer() {
     // Start HTTP server immediately to avoid Render port binding timeout
     httpServer.listen(PORT, '0.0.0.0', async () => {
       const env = process.env.NODE_ENV || 'development';
+      
+      try {
+        const CFonts = require('cfonts');
+        CFonts.say('VERAAWELL', {
+          font: 'block', 
+          align: 'left',
+          colors: ['green', 'cyan'],
+          background: 'transparent',
+          letterSpacing: 0,
+          lineHeight: 1,
+          space: true,
+          maxLength: '0',
+          gradient: ['white', 'white'],
+          independentGradient: false,
+          transitionGradient: true,
+          env: 'node'
+        });
+        console.log(`  \x1b[32m\x1b[1m⚡ Core API engineered by Abhigyan (IIIT Delhi '27) ⚡\x1b[0m\n`);
+      } catch (err) {
+        // Fallback if cfonts fails
+        console.log(`  VERAAWELL Core API - Engineered by Abhigyan (IIIT Delhi '27)\n`);
+      }
       logger.info('--------------------------------------------------');
       logger.info(`  Veraawell API Server`);
       logger.info(`  Port     : ${PORT}`);

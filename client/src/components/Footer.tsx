@@ -124,6 +124,7 @@ const Footer: React.FC = () => {
                 { label: 'Contact Us', href: '/contact' },
                 { label: 'Privacy Policy', href: '/privacy' },
                 { label: 'Terms of Service', href: '/terms' },
+                { label: 'Refund Policy', href: '/refund-policy' },
               ].map(({ label, href }) => (
                 <li key={label}>
                   <a
@@ -191,6 +192,7 @@ const Footer: React.FC = () => {
             {[
               { label: 'Privacy', to: '/privacy' },
               { label: 'Terms', to: '/terms' },
+              { label: 'Refunds', to: '/refund-policy' },
               { label: 'Cookies', href: '#' },
             ].map(({ label, to, href }) =>
               to ? (

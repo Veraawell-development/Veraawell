@@ -1,75 +1,63 @@
 import React, { useState } from 'react';
 import ServiceCard from '../components/ServiceCard';
 import BookingPreferenceModal from '../components/BookingPreferenceModal';
+import LeafDecor from '../components/ui/LeafDecor';
+import SparkDecor from '../components/ui/SparkDecor';
+import { useScrollReveal } from '../hooks/useScrollReveal';
 
 const services = [
   {
-    title: 'DEPRESSION',
-    description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
-    image: '/service-01.svg',
-    imageClassName: 'w-32 md:w-40 lg:w-48 -bottom-3 -left-4',
-    color: '#6DBEDF' // Blue
+    title: 'Depression',
+    description: 'Specialized therapy to help you overcome depressive episodes, manage symptoms, and rediscover joy and motivation in your daily life.',
+    accent: 'var(--blue)'
   },
   {
-    title: 'ANXIETY',
-    description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
-    image: '/service-02.svg',
-    imageClassName: 'w-24 md:w-32 lg:w-36 -bottom-0 left-0 drop-shadow-[0_8px_12px_rgba(0,0,0,0.3)]',
-    color: '#38ABAE' // Teal
+    title: 'Anxiety',
+    description: 'Learn effective coping mechanisms and cognitive strategies to manage generalized anxiety, panic attacks, and social anxiety.',
+    accent: 'var(--teal)'
   },
   {
-    title: 'TRAUMA',
-    description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
-    image: '/service-03.svg',
-    imageClassName: 'w-28 md:w-32 lg:w-40 -bottom-2 -left-4',
-    color: '#ABA5D1' // Purple
+    title: 'Trauma',
+    description: 'A safe, supportive environment to process past traumatic experiences using evidence-based approaches like EMDR and TF-CBT.',
+    accent: 'var(--purple)'
   },
   {
-    title: 'STUDENT',
-    description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
-    image: '/service-04.svg',
-    imageClassName: 'w-32 md:w-40 lg:w-48 bottom-0 -left-2', // Hard bottom edge
-    color: '#38ABAE' // Teal
+    title: 'Student Wellbeing',
+    description: 'Navigate academic pressure, transition anxiety, and social challenges with specialized support designed specifically for students.',
+    accent: 'var(--teal)'
   },
   {
-    title: 'MARRIAGE',
-    description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
-    image: '/service-05.svg',
-    imageClassName: 'w-32 md:w-40 lg:w-48 -bottom-2 left-0',
-    color: '#ABA5D1' // Purple
+    title: 'Marriage & Couples',
+    description: 'Strengthen communication, rebuild trust, and resolve conflicts through guided couple therapy and relationship counseling.',
+    accent: 'var(--purple)'
   },
   {
-    title: 'CHILD THERAPY',
-    description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
-    image: '/service-07.svg',
-    imageClassName: 'w-28 md:w-36 lg:w-40 bottom-0 left-2', // Hard bottom edge portrait
-    color: '#6DBEDF' // Blue
+    title: 'Child Therapy',
+    description: 'Child-friendly therapeutic approaches to help younger patients process emotions, manage behavior, and build resilience.',
+    accent: 'var(--blue)'
   },
   {
-    title: 'GENDER-RELATED',
-    description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
-    image: '/service-08.svg',
-    imageClassName: 'w-24 md:w-28 lg:w-32 bottom-0 left-4', // Hard bottom edge standing
-    color: '#ABA5D1' // Purple
+    title: 'Gender & Identity',
+    description: 'Affirming care and support for exploring gender identity, sexual orientation, and navigating social transitions.',
+    accent: 'var(--purple)'
   },
   {
-    title: 'RELATIONSHIP',
-    description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
-    image: '/service-06.svg',
-    imageClassName: 'w-32 md:w-40 lg:w-44 bottom-0 -left-2', // Hard bottom edge
-    color: '#6DBEDF' // Blue
+    title: 'Relationship',
+    description: 'Individual counseling focused on attachment patterns, boundary setting, and building healthier interpersonal connections.',
+    accent: 'var(--blue)'
   },
   {
-    title: 'ADDICTION',
-    description: 'Addiction is a condition where a person becomes dependent on a substance or behavior despite its harmful effects. It often impacts mental',
-    color: '#38ABAE' // Teal
-    // No image property
+    title: 'Addiction Recovery',
+    description: 'Compassionate, non-judgmental support to understand triggers and develop sustainable strategies for long-term recovery.',
+    accent: 'var(--teal)'
   }
 ];
 
 const ServicesPage: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedService, setSelectedService] = useState('General');
+  const headerRef = useScrollReveal<HTMLDivElement>();
+  const gridRef = useScrollReveal<HTMLDivElement>();
 
   const handleViewTherapist = (serviceType: string) => {
     setSelectedService(serviceType);
@@ -77,42 +65,99 @@ const ServicesPage: React.FC = () => {
   };
 
   return (
-    <div className="bg-white">
-      {/* Hero Section */}
-      <div className="relative w-full h-[450px] md:h-[650px] lg:h-[750px] overflow-hidden">
-        <img
-          src="/service-bg.svg"
-          alt="Our Services Background"
-          className="absolute inset-0 w-full h-full object-cover object-center"
+    <div className="bg-[var(--bg)] min-h-screen relative overflow-hidden font-sans">
+      
+      {/* Soft, warm, immersive background gradients */}
+      <div 
+        className="absolute top-[-10%] left-[-20%] w-[80vw] h-[80vw] rounded-full mix-blend-multiply filter blur-[120px] opacity-50 z-0"
+        style={{ background: 'radial-gradient(circle, rgba(0,151,178,0.12) 0%, transparent 70%)', animation: 'blob-drift 25s ease-in-out infinite alternate' }}
+      />
+      <div 
+        className="absolute bottom-[-10%] right-[-10%] w-[70vw] h-[70vw] rounded-full mix-blend-multiply filter blur-[100px] opacity-50 z-0"
+        style={{ background: 'radial-gradient(circle, rgba(107,168,136,0.12) 0%, transparent 70%)', animation: 'blob-drift-2 20s ease-in-out infinite alternate' }}
+      />
+      <div 
+        className="absolute top-[40%] right-[10%] w-[50vw] h-[50vw] rounded-full mix-blend-multiply filter blur-[90px] opacity-40 z-0"
+        style={{ background: 'radial-gradient(circle, rgba(196,168,130,0.12) 0%, transparent 70%)', animation: 'blob-drift 30s ease-in-out infinite alternate-reverse' }}
+      />
+
+      {/* ── NEW Premium Reusable Decor Elements ── */}
+      
+      {/* Decorative organic solid blobs (LeafDecor) */}
+      <div className="absolute top-0 right-0 pointer-events-none z-0">
+        <LeafDecor
+          style={{
+            position: 'absolute',
+            top: '-60px',
+            right: '-60px',
+            width: '380px',
+            height: '380px',
+            transform: 'rotate(45deg)',
+            opacity: 0.8,
+            animation: 'float-card 10s ease-in-out infinite alternate'
+          }}
         />
-        <div className="absolute inset-0 flex flex-col items-center justify-center px-4">
-          <h1 className="text-white font-extrabold text-[48px] md:text-[110px] mb-2 md:mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
-            Our Services
-          </h1>
-          <div className="relative">
-            <div className="h-[3px] md:h-[6px] w-[200px] md:w-[522px] bg-white mx-auto mb-1 md:mb-2"></div>
-            <p className="text-white text-[28px] md:text-[64px] font-normal text-center" style={{ fontFamily: 'Bree Serif, serif', textShadow: '0px 4px 4px rgba(0,0,0,0.25)' }}>
-              Making You Happier
-            </p>
-          </div>
-        </div>
       </div>
 
-      {/* Services Grid */}
-      <div className="py-12 px-4 md:px-8 lg:px-16">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+
+      {/* 3. Bottom Left Leaf (flipped) - moved up */}
+      <div className="absolute bottom-[20%] left-0 pointer-events-none z-0">
+        <LeafDecor
+          style={{
+            position: 'absolute',
+            bottom: '0px',
+            left: '-60px',
+            width: '280px',
+            height: '280px',
+            transform: 'rotate(-25deg) scaleX(-1)',
+            opacity: 0.6,
+            animation: 'float-card 12s ease-in-out infinite alternate-reverse'
+          }}
+        />
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-32 pb-24 relative z-10">
+        
+        {/* Premium Typographic Hero */}
+        <div ref={headerRef} className="text-center max-w-3xl mx-auto mb-20 relative">
+          
+          {/* Responsive Sparkle anchored to text */}
+          <div className="absolute top-[10%] -left-8 md:-left-16 lg:-left-24 pointer-events-none z-0 hidden sm:block">
+            <SparkDecor
+              color="var(--gold)"
+              style={{
+                width: '120px',
+                height: '120px',
+                opacity: 0.6,
+                animation: 'float-card 8s ease-in-out infinite alternate-reverse'
+              }}
+            />
+          </div>
+          <span className="text-xs font-medium tracking-widest uppercase block mb-4" style={{ color: 'var(--teal)', fontFamily: 'var(--font-mono)' }}>
+            — Expertise & Specialties
+          </span>
+          <h1 className="leading-tight mb-6" style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(40px, 5vw, 64px)', color: 'var(--text)', letterSpacing: '-0.02em' }}>
+            Find the right support for <em style={{ color: 'var(--teal)' }}>your journey.</em>
+          </h1>
+          <p className="text-lg md:text-xl" style={{ color: 'var(--text-2)' }}>
+            Our network of verified professionals specializes in a wide range of therapeutic areas, providing personalized care designed around you.
+          </p>
+        </div>
+
+        {/* Services Bento-style Grid */}
+        <div ref={gridRef} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
           {services.map((service, index) => (
             <ServiceCard
               key={index}
+              index={index}
               title={service.title}
               description={service.description}
-              imageSrc={service.image}
-              imageClassName={service.imageClassName}
-              bgColor={service.color}
+              accent={service.accent}
               onClick={() => handleViewTherapist(service.title)}
             />
           ))}
         </div>
+
       </div>
 
       {/* Booking Preference Modal */}

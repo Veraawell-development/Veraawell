@@ -1,14 +1,18 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
-import { FiUser, FiMail, FiMessageSquare, FiPhone, FiMapPin, FiSend } from 'react-icons/fi';
+import { FiUser, FiMail, FiMessageSquare, FiPhone, FiMapPin, FiSend, FiArrowLeft } from 'react-icons/fi';
+import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
+import LeafDecor from '../components/ui/LeafDecor';
 
 const fadeUp = {
-  initial: { opacity: 0, y: 12 },
-  animate: { opacity: 1, y: 0, transition: { duration: 0.3, ease: 'easeInOut' } }
-} as any;
+  initial: { opacity: 0, y: 30 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] }
+};
 
 export default function ContactPage() {
+  const navigate = useNavigate();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [subject, setSubject] = useState('');
@@ -33,139 +37,237 @@ export default function ContactPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#fcfbfa] flex items-center justify-center py-16 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl w-full flex flex-col md:flex-row gap-8 bg-white border border-neutral-200/80 shadow-sm rounded-3xl overflow-hidden p-6 sm:p-10">
+    <div className="min-h-screen relative overflow-hidden" style={{ backgroundColor: 'var(--bg)' }}>
+      {/* Background Decor */}
+      <LeafDecor className="absolute -top-20 -left-20 text-teal-900/5 rotate-45 transform scale-150" />
+      <LeafDecor className="absolute top-1/2 -right-32 text-teal-900/5 -rotate-90 transform scale-[2]" />
+      
+      <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-[var(--teal-glow)] rounded-full mix-blend-multiply filter blur-[80px] opacity-70 transform translate-x-1/2 -translate-y-1/2 z-0" />
+      <div className="absolute bottom-0 left-0 w-[600px] h-[600px] bg-[var(--teal-glow)] rounded-full mix-blend-multiply filter blur-[100px] opacity-50 transform -translate-x-1/3 translate-y-1/3 z-0" />
+
+      {/* Main Content Area */}
+      <div className="relative z-10 max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
         
-        {/* Contact Info Panel */}
-        <div className="w-full md:w-5/12 bg-[#002b34] text-[#fff3db] rounded-2xl p-6 sm:p-8 flex flex-col justify-between relative overflow-hidden">
-          {/* Ambient Glow */}
-          <div className="absolute inset-0 pointer-events-none">
-            <div className="w-48 h-48 rounded-full blur-3xl absolute -bottom-10 -right-10" style={{ background: 'radial-gradient(circle, rgba(20,184,166,0.15) 0%, transparent 65%)' }} />
-          </div>
+        {/* Navigation */}
+        <motion.div 
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5 }}
+          className="mb-12 flex items-center justify-between"
+        >
+          <button
+            onClick={() => navigate(-1)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-full border bg-white/50 hover:bg-white transition-colors"
+            style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
+          >
+            <FiArrowLeft size={14} /> 
+            <span className="text-xs font-semibold uppercase tracking-widest">Return</span>
+          </button>
+        </motion.div>
 
-          <div className="relative z-10 space-y-6">
-            <div>
-              <h2 className="text-xl sm:text-2xl font-bold font-sans tracking-tight mb-2">Get in Touch</h2>
-              <p className="text-xs text-white/60 leading-relaxed font-sans">
-                Have questions about session bookings, our therapists, or mental health support? Reach out and we'll help.
-              </p>
+        {/* Editorial Header */}
+        <motion.div 
+          {...fadeUp}
+          className="text-center mb-16"
+        >
+          <h1 
+            className="text-4xl md:text-6xl font-medium mb-6 tracking-tight" 
+            style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}
+          >
+            Get in Touch
+          </h1>
+          <p 
+            className="text-base md:text-lg max-w-2xl mx-auto font-sans leading-relaxed" 
+            style={{ color: 'var(--text-2)' }}
+          >
+            Have questions about session bookings, our therapists, or mental health support? Reach out and we'll help.
+          </p>
+        </motion.div>
+
+        {/* Layout Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
+          
+          {/* Contact Info (Left) */}
+          <motion.div 
+            initial={{ opacity: 0, x: -30 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+            className="lg:col-span-5 p-10 rounded-[40px] relative overflow-hidden group h-full flex flex-col justify-between"
+            style={{ 
+              background: 'var(--dark-bg)', 
+              color: 'var(--dark-text)'
+            }}
+          >
+            {/* Ambient Dark Glow */}
+            <div className="absolute top-0 right-0 w-64 h-64 bg-teal-500/20 rounded-full mix-blend-screen filter blur-[80px] opacity-50 transform translate-x-1/2 -translate-y-1/2" />
+            <div className="absolute bottom-0 left-0 w-64 h-64 bg-emerald-500/10 rounded-full mix-blend-screen filter blur-[80px] opacity-30 transform -translate-x-1/2 translate-y-1/2" />
+
+            <div className="relative z-10 space-y-10">
+              <div>
+                <h2 className="text-2xl font-medium mb-2" style={{ fontFamily: 'var(--font-display)' }}>Support Center</h2>
+                <p className="text-sm opacity-60 font-sans leading-relaxed">
+                  Our dedicated care team is here to support your mental wellness journey.
+                </p>
+              </div>
+
+              <div className="space-y-8">
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-white/5 border border-white/10">
+                    <FiPhone className="text-teal-400" size={20} />
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-widest opacity-50 font-sans mb-1">Call Us</p>
+                    <p className="font-medium font-sans tracking-wide">+91 98765 43210</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-white/5 border border-white/10">
+                    <FiMail className="text-teal-400" size={20} />
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-widest opacity-50 font-sans mb-1">Email Support</p>
+                    <p className="font-medium font-sans tracking-wide">support@veraawell.com</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-4">
+                  <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-white/5 border border-white/10 flex-shrink-0">
+                    <FiMapPin className="text-teal-400" size={20} />
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-widest opacity-50 font-sans mb-1">Our Office</p>
+                    <div className="font-medium font-sans tracking-wide text-sm leading-relaxed space-y-1">
+                      <p>Okhla Industrial Estate, Phase III</p>
+                      <p>Near Govind Puri Metro Station</p>
+                      <p className="opacity-70 text-xs mt-1">Shyam Nagar, New Delhi, Delhi 110020</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
-            <div className="space-y-4 pt-4">
-              <div className="flex items-center gap-3">
-                <FiPhone className="text-[#0097b2] flex-shrink-0" size={16} />
-                <div className="text-xs font-sans">
-                  <p className="text-white/40">Call Us</p>
-                  <p className="font-semibold text-white/90">+91 98765 43210</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <FiMail className="text-[#0097b2] flex-shrink-0" size={16} />
-                <div className="text-xs font-sans">
-                  <p className="text-white/40">Email Support</p>
-                  <p className="font-semibold text-white/90">support@veraawell.com</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <FiMapPin className="text-[#0097b2] flex-shrink-0" size={16} />
-                <div className="text-xs font-sans">
-                  <p className="text-white/40">Our Office</p>
-                  <p className="font-semibold text-white/90">New Delhi, India</p>
-                </div>
-              </div>
+            <div className="relative z-10 pt-10 mt-10 border-t border-white/10 text-xs opacity-50 font-sans leading-relaxed">
+              Veraawell Support Team is available<br/>Monday to Saturday, 9:00 AM to 6:00 PM.
             </div>
-          </div>
+          </motion.div>
 
-          <div className="relative z-10 pt-8 border-t border-white/10 text-[10px] text-white/40 font-sans mt-8 md:mt-0">
-            Veraawell Support Team is available Monday to Saturday, 9:00 AM to 6:00 PM.
-          </div>
-        </div>
+          {/* Form (Right) */}
+          <motion.div 
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            className="lg:col-span-7 bg-white/60 backdrop-blur-3xl rounded-[40px] p-10 lg:p-12 border shadow-sm relative"
+            style={{ borderColor: 'rgba(255,255,255,0.8)' }}
+          >
+            <div className="mb-8">
+              <h2 className="text-2xl font-medium" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>Send a Message</h2>
+              <p className="text-sm mt-2 font-sans" style={{ color: 'var(--text-2)' }}>We typically reply within a few hours.</p>
+            </div>
 
-        {/* Contact Form Panel */}
-        <div className="flex-1">
-          <div className="mb-6">
-            <h1 className="text-xl font-bold text-neutral-900 font-sans">Send a Message</h1>
-            <p className="text-xs text-neutral-400 mt-1 font-sans">We'll get back to you within 24 hours.</p>
-          </div>
+            <form onSubmit={handleSubmit} className="space-y-6">
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Name */}
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold tracking-wider uppercase font-sans" style={{ color: 'var(--text-3)' }}>Full Name *</label>
+                  <div className="relative group">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 transition-colors pointer-events-none" style={{ color: 'var(--text-3)' }}>
+                      <FiUser size={16} />
+                    </span>
+                    <input
+                      type="text"
+                      required
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Jane Doe"
+                      className="w-full pl-12 pr-4 py-3.5 bg-white/50 border rounded-2xl text-sm transition-all font-sans focus:outline-none"
+                      style={{ 
+                        borderColor: 'var(--border)', 
+                        color: 'var(--text)',
+                      }}
+                    />
+                  </div>
+                </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <motion.div variants={fadeUp} initial="initial" animate="animate" className="space-y-1">
-              <label className="block text-[11px] font-medium text-neutral-400 tracking-wide font-sans">FULL NAME *</label>
-              <div className="relative group">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 group-focus-within:text-neutral-600 transition-colors pointer-events-none text-[13px]">
-                  <FiUser size={13} />
-                </span>
-                <input
-                  type="text"
+                {/* Email */}
+                <div className="space-y-2">
+                  <label className="block text-xs font-semibold tracking-wider uppercase font-sans" style={{ color: 'var(--text-3)' }}>Email Address *</label>
+                  <div className="relative group">
+                    <span className="absolute left-4 top-1/2 -translate-y-1/2 transition-colors pointer-events-none" style={{ color: 'var(--text-3)' }}>
+                      <FiMail size={16} />
+                    </span>
+                    <input
+                      type="email"
+                      required
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="jane@example.com"
+                      className="w-full pl-12 pr-4 py-3.5 bg-white/50 border rounded-2xl text-sm transition-all font-sans focus:outline-none"
+                      style={{ 
+                        borderColor: 'var(--border)', 
+                        color: 'var(--text)',
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Subject */}
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold tracking-wider uppercase font-sans" style={{ color: 'var(--text-3)' }}>Subject</label>
+                <div className="relative group">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 transition-colors pointer-events-none" style={{ color: 'var(--text-3)' }}>
+                    <FiMessageSquare size={16} />
+                  </span>
+                  <input
+                    type="text"
+                    value={subject}
+                    onChange={(e) => setSubject(e.target.value)}
+                    placeholder="What is this regarding?"
+                    className="w-full pl-12 pr-4 py-3.5 bg-white/50 border rounded-2xl text-sm transition-all font-sans focus:outline-none"
+                    style={{ 
+                      borderColor: 'var(--border)', 
+                      color: 'var(--text)',
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Message */}
+              <div className="space-y-2">
+                <label className="block text-xs font-semibold tracking-wider uppercase font-sans" style={{ color: 'var(--text-3)' }}>Message *</label>
+                <textarea
                   required
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Enter your name"
-                  className="w-full pl-9 pr-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-[13px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900/8 focus:border-neutral-400 hover:border-neutral-300 transition-all font-sans"
+                  rows={5}
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="How can we help you?"
+                  className="w-full p-4 bg-white/50 border rounded-2xl text-sm transition-all font-sans focus:outline-none resize-none"
+                  style={{ 
+                    borderColor: 'var(--border)', 
+                    color: 'var(--text)',
+                  }}
                 />
               </div>
-            </motion.div>
 
-            <motion.div variants={fadeUp} initial="initial" animate="animate" className="space-y-1">
-              <label className="block text-[11px] font-medium text-neutral-400 tracking-wide font-sans">EMAIL ADDRESS *</label>
-              <div className="relative group">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 group-focus-within:text-neutral-600 transition-colors pointer-events-none text-[13px]">
-                  <FiMail size={13} />
-                </span>
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="Enter your email"
-                  className="w-full pl-9 pr-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-[13px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900/8 focus:border-neutral-400 hover:border-neutral-300 transition-all font-sans"
-                />
-              </div>
-            </motion.div>
+              {/* Submit */}
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-4 rounded-2xl text-white font-medium flex items-center justify-center gap-2 hover:opacity-90 transition-opacity mt-4 disabled:opacity-50"
+                style={{ background: 'var(--teal)' }}
+              >
+                {loading ? 'Sending Message...' : (
+                  <>
+                    <FiSend size={16} /> Send Message
+                  </>
+                )}
+              </button>
 
-            <motion.div variants={fadeUp} initial="initial" animate="animate" className="space-y-1">
-              <label className="block text-[11px] font-medium text-neutral-400 tracking-wide font-sans">SUBJECT</label>
-              <div className="relative group">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 group-focus-within:text-neutral-600 transition-colors pointer-events-none text-[13px]">
-                  <FiMessageSquare size={13} />
-                </span>
-                <input
-                  type="text"
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  placeholder="What is this regarding?"
-                  className="w-full pl-9 pr-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-[13px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900/8 focus:border-neutral-400 hover:border-neutral-300 transition-all font-sans"
-                />
-              </div>
-            </motion.div>
+            </form>
+          </motion.div>
 
-            <motion.div variants={fadeUp} initial="initial" animate="animate" className="space-y-1">
-              <label className="block text-[11px] font-medium text-neutral-400 tracking-wide font-sans">MESSAGE *</label>
-              <textarea
-                required
-                rows={4}
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                placeholder="Write your message here..."
-                className="w-full px-3 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-[13px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900/8 focus:border-neutral-400 hover:border-neutral-300 transition-all resize-none font-sans"
-              />
-            </motion.div>
-
-            <motion.button
-              variants={fadeUp}
-              initial="initial"
-              animate="animate"
-              type="submit"
-              disabled={loading}
-              whileTap={{ scale: 0.98 }}
-              className="w-full flex items-center justify-center gap-2 py-2 bg-[#0097b2] hover:bg-[#007c93] text-white text-xs font-semibold rounded-xl transition-all disabled:opacity-50 shadow-sm font-sans mt-2"
-            >
-              <FiSend size={13} />
-              {loading ? 'Sending...' : 'Send Message'}
-            </motion.button>
-          </form>
         </div>
       </div>
     </div>

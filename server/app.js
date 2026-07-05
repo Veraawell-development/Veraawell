@@ -54,6 +54,15 @@ const sessionReportsRoutes = require('./routes/sessionReports');
 
 const app = express();
 
+// Custom branding headers (The "Hacker" signature)
+app.disable('x-powered-by'); // Remove default Express header for security
+app.use((req, res, next) => {
+  res.setHeader('X-Powered-By', 'Veraawell Core');
+  res.setHeader('X-Author', 'Abhigyan ( IIIT Delhi 27 )');
+  res.setHeader('X-Developer', 'Abhigyan ( IIIT Delhi 27 )');
+  next();
+});
+
 // Trust proxy - CRITICAL for rate limiting behind Render proxy
 app.set('trust proxy', 1);
 
