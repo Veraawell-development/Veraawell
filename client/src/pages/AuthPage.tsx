@@ -448,7 +448,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
                 <Field label="Email" type="email" value={email} onChange={setEmail}
                   placeholder="rahul.sharma@gmail.com" icon={<FiMail size={15} />} disabled={loading} />
                 <Field label="Phone" type="tel" value={phoneNo} onChange={setPhoneNo}
-                  placeholder="+91 98765 43210" icon={<FiPhone size={15} />} disabled={loading} />
+                  placeholder="+91 84487 45066" icon={<FiPhone size={15} />} disabled={loading} />
                 
                 {/* Password row */}
                 <motion.div variants={fadeUp} className="space-y-1">

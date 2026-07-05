@@ -117,7 +117,7 @@ export default function ContactPage() {
                   </div>
                   <div>
                     <p className="text-xs uppercase tracking-widest opacity-50 font-sans mb-1">Call Us</p>
-                    <p className="font-medium font-sans tracking-wide">+91 98765 43210</p>
+                    <p className="font-medium font-sans tracking-wide">+91 84487 45066</p>
                   </div>
                 </div>
 
