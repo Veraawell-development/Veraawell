@@ -8,8 +8,8 @@ import LeafDecor from '../components/ui/LeafDecor';
 const fadeUp = {
   initial: { opacity: 0, y: 30 },
   animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] }
-};
+  transition: { duration: 0.6, ease: 'easeOut' }
+} as any;
 
 export default function ContactPage() {
   const navigate = useNavigate();
@@ -91,7 +91,7 @@ export default function ContactPage() {
           <motion.div 
             initial={{ opacity: 0, x: -30 }}
             animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.6, delay: 0.1, ease: 'easeOut' }}
             className="lg:col-span-5 p-10 rounded-[40px] relative overflow-hidden group h-full flex flex-col justify-between"
             style={{ 
               background: 'var(--dark-bg)', 
@@ -156,7 +156,7 @@ export default function ContactPage() {
           <motion.div 
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            transition={{ duration: 0.6, delay: 0.2, ease: 'easeOut' }}
             className="lg:col-span-7 bg-white/60 backdrop-blur-3xl rounded-[40px] p-10 lg:p-12 border shadow-sm relative"
             style={{ borderColor: 'rgba(255,255,255,0.8)' }}
           >

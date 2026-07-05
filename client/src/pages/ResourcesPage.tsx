@@ -7,8 +7,8 @@ import LeafDecor from '../components/ui/LeafDecor';
 const fadeUp = {
   initial: { opacity: 0, y: 30 },
   animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] }
-};
+  transition: { duration: 0.6, ease: 'easeOut' }
+} as any;
 
 const staggerContainer = {
   animate: {
@@ -158,7 +158,7 @@ const ResourcesPage: React.FC = () => {
         <motion.div 
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
+          transition={{ duration: 0.6, delay: 0.3, ease: 'easeOut' }}
           className="rounded-[40px] p-12 text-center relative overflow-hidden border shadow-sm"
           style={{ background: 'var(--bg-2)', borderColor: 'var(--border)' }}
         >

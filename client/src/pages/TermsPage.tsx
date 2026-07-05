@@ -6,8 +6,8 @@ import LeafDecor from '../components/ui/LeafDecor';
 const fadeUp = {
   initial: { opacity: 0, y: 30 },
   animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.6, ease: [0.22, 1, 0.36, 1] }
-};
+  transition: { duration: 0.6, ease: 'easeOut' }
+} as any;
 
 export default function TermsPage() {
   const navigate = useNavigate();
@@ -70,7 +70,7 @@ export default function TermsPage() {
         <motion.div 
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
+          transition={{ duration: 0.6, delay: 0.1, ease: 'easeOut' }}
           className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-16"
         >
           <div 
@@ -112,7 +112,7 @@ export default function TermsPage() {
         <motion.div 
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
+          transition={{ duration: 0.6, delay: 0.2, ease: 'easeOut' }}
           className="bg-white/40 backdrop-blur-3xl rounded-[40px] p-8 md:p-16 border border-white/60 shadow-sm space-y-12"
         >
           <section className="space-y-4">

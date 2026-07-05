@@ -1,8 +1,8 @@
 import React from 'react';
 
-const LeafDecor: React.FC<{ style?: React.CSSProperties }> = ({ style }) => (
+const LeafDecor: React.FC<{ style?: React.CSSProperties; className?: string }> = ({ style, className = "" }) => (
   <svg
-    className="leaf-decor"
+    className={`leaf-decor ${className}`}
     width="220"
     height="220"
     viewBox="0 0 220 220"
