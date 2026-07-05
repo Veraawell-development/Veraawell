@@ -5,7 +5,7 @@ import removeConsole from 'vite-plugin-remove-console'
 
 // https://vite.dev/config/
 export default defineConfig({
-  plugins: [react(), tailwindcss(), removeConsole()],
+  plugins: [react(), tailwindcss(), removeConsole({ includes: ['log'] })],
   server: {
     proxy: {
       '/api': 'http://localhost:5001',
