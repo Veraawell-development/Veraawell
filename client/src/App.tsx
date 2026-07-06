@@ -201,7 +201,7 @@ function AppRoutes() {
   // Check if current route is auth-related or video call
   const isAuthRoute = location.pathname === '/login' || location.pathname === '/signup' ||
     location.pathname === '/forgot-password' || location.pathname === '/reset-password' ||
-    location.pathname.startsWith('/admin') || location.pathname === '/super-admin-dashboard' ||
+    location.pathname.startsWith('/admin') || location.pathname.startsWith('/super-admin-dashboard') ||
     location.pathname === '/admin-login' || location.pathname === '/admin-signup';
   const isVideoCallRoute = location.pathname.startsWith('/video-call');
 

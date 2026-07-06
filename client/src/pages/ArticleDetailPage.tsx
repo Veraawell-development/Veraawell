@@ -5,6 +5,8 @@ import {
     ThumbsUp, ThumbsDown, ChevronRight, ArrowLeft
 } from 'lucide-react';
 import { API_BASE_URL } from '../config/api';
+import SparkDecor from '../components/ui/SparkDecor';
+import LeafDecor from '../components/ui/LeafDecor';
 
 interface Article {
     _id: string;
@@ -123,93 +125,98 @@ const ArticleDetailPage: React.FC = () => {
     const catStyle = getCategoryStyle(article.category);
 
     return (
-        <div className="min-h-screen bg-[#FAFAF9]" style={{ fontFamily: 'Inter, sans-serif' }}>
-
+        <div className="min-h-screen bg-[var(--bg)] relative overflow-hidden font-sans">
             {/* Reading Progress Bar */}
             <div
-                className="fixed top-0 left-0 h-[3px] bg-[#0097b2] z-[100] transition-all duration-100"
+                className="fixed top-0 left-0 h-[4px] bg-gradient-to-r from-[var(--teal-muted)] to-[var(--teal)] z-[100] transition-all duration-100"
                 style={{ width: `${scrollProgress}%` }}
             />
 
-            {/* Sticky Top Breadcrumb */}
-            <div className="bg-white border-b border-gray-100">
-                <div className="max-w-6xl mx-auto px-4 md:px-8 py-4 flex items-center gap-2 text-[13px] text-gray-400">
-                    <button onClick={() => navigate('/')} className="hover:text-[#0097b2] transition-colors flex items-center gap-1">
-                        <Home size={13} /> Home
-                    </button>
-                    <ChevronRight size={13} className="text-gray-300" />
-                    <button onClick={() => navigate('/resources/articles')} className="hover:text-[#0097b2] transition-colors">
-                        Articles
-                    </button>
-                    <ChevronRight size={13} className="text-gray-300" />
-                    <span className="text-gray-600 font-medium line-clamp-1 max-w-[200px]">{article.title}</span>
-                </div>
+            {/* ── Background Immersive Gradients & Decor ── */}
+            <div 
+              className="absolute top-[-5%] left-[-10%] w-[60vw] h-[60vw] rounded-full mix-blend-multiply filter blur-[120px] opacity-40 z-0 pointer-events-none"
+              style={{ background: 'radial-gradient(circle, rgba(0,151,178,0.1) 0%, transparent 70%)', animation: 'blob-drift 25s ease-in-out infinite alternate' }}
+            />
+            <div 
+              className="absolute top-[10%] right-[-10%] w-[50vw] h-[50vw] rounded-full mix-blend-multiply filter blur-[100px] opacity-40 z-0 pointer-events-none"
+              style={{ background: 'radial-gradient(circle, rgba(224,122,95,0.08) 0%, transparent 70%)', animation: 'blob-drift-2 20s ease-in-out infinite alternate' }}
+            />
+            
+            <div className="absolute top-[15%] right-[15%] pointer-events-none z-0 hidden lg:block opacity-60">
+              <SparkDecor color="var(--teal)" style={{ width: '60px', height: '60px', animation: 'float-card 7s ease-in-out infinite alternate-reverse' }} />
             </div>
 
-            {/* Hero + Title Area */}
-            <div className="bg-white border-b border-gray-100">
-                <div className="max-w-6xl mx-auto px-4 md:px-8 py-10 md:py-14">
+            {/* ── Hero + Title Area ── */}
+            <div className="relative z-10 pt-32 pb-16">
+                <div className="max-w-4xl mx-auto px-4 md:px-8 text-center flex flex-col items-center">
                     <button
                         onClick={() => navigate('/resources/articles')}
-                        className="flex items-center gap-2 text-[13px] text-gray-400 hover:text-[#0097b2] transition-colors mb-8 group"
+                        className="flex items-center gap-2 text-[13px] font-bold uppercase tracking-widest text-[var(--text-3)] hover:text-[var(--teal)] transition-colors mb-10 group"
+                        style={{ fontFamily: 'var(--font-mono)' }}
                     >
-                        <ArrowLeft size={14} className="group-hover:-translate-x-0.5 transition-transform" />
-                        All Articles
+                        <ArrowLeft size={16} className="group-hover:-translate-x-1 transition-transform" />
+                        Back to Articles
                     </button>
 
-                    <div className="max-w-[720px]">
-                        <span
-                            className="inline-block px-3 py-1 rounded-full text-[12px] font-semibold mb-5"
-                            style={{ backgroundColor: catStyle.bg, color: catStyle.text }}
-                        >
-                            {article.category}
-                        </span>
-                        <h1 className="text-[30px] md:text-[44px] font-extrabold text-[#1A1A1A] leading-tight mb-6" style={{ fontFamily: 'Inter, sans-serif' }}>
-                            {article.title}
-                        </h1>
-                        <p className="text-[16px] text-gray-500 leading-relaxed mb-8">
-                            {article.description}
-                        </p>
+                    <span
+                        className="inline-block px-4 py-1.5 rounded-full text-[13px] font-bold mb-6 tracking-wide shadow-sm"
+                        style={{ backgroundColor: catStyle.bg, color: catStyle.text }}
+                    >
+                        {article.category}
+                    </span>
+                    
+                    <h1 className="text-[36px] md:text-[56px] font-extrabold text-[var(--text)] leading-[1.1] mb-8" style={{ fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}>
+                        {article.title}
+                    </h1>
+                    
+                    <p className="text-[18px] md:text-[20px] text-[var(--text-2)] leading-relaxed mb-12 max-w-3xl" style={{ fontFamily: 'var(--font-body)' }}>
+                        {article.description}
+                    </p>
 
-                        {/* Meta */}
-                        <div className="flex flex-wrap items-center gap-4 text-[13px] text-gray-400 pb-8 border-b border-gray-100">
-                            <div className="flex items-center gap-2.5">
-                                <div className="w-8 h-8 rounded-full bg-[#F3ECE5] flex items-center justify-center text-[#BE7959] font-bold text-[11px]">
-                                    {article.author?.charAt(0) || 'A'}
+                    {/* Premium Meta */}
+                    <div className="flex flex-wrap items-center justify-center gap-6 md:gap-10">
+                        <div className="flex items-center gap-3">
+                            <div className="w-12 h-12 rounded-full bg-[#F3ECE5] flex items-center justify-center text-[var(--coral)] font-bold text-[15px] shadow-sm">
+                                {article.author?.charAt(0) || 'A'}
+                            </div>
+                            <div className="flex flex-col text-left">
+                                <span className="font-bold text-[15px] text-[var(--text)]">{article.author}</span>
+                                <div className="flex items-center gap-1.5 text-[13px] text-[var(--text-3)] font-medium mt-0.5">
+                                    <Clock size={12} />
+                                    <span>{article.readTime}</span>
                                 </div>
-                                <span className="font-semibold text-gray-700 text-[14px]">{article.author}</span>
                             </div>
-                            <span className="text-gray-200">|</span>
-                            <div className="flex items-center gap-1.5">
-                                <Clock size={13} />
-                                <span>{article.readTime}</span>
-                            </div>
-                            {article.publishedDate && (
-                                <>
-                                    <span className="text-gray-200">|</span>
-                                    <span>
+                        </div>
+                        
+                        {article.publishedDate && (
+                            <>
+                                <div className="w-px h-10 bg-[var(--border)] hidden md:block"></div>
+                                <div className="flex flex-col text-left">
+                                    <span className="text-[12px] font-bold uppercase tracking-widest text-[var(--text-3)]" style={{ fontFamily: 'var(--font-mono)' }}>Published</span>
+                                    <span className="font-medium text-[15px] text-[var(--text-2)] mt-0.5">
                                         {new Date(article.publishedDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                                     </span>
-                                </>
-                            )}
-                        </div>
+                                </div>
+                            </>
+                        )}
                     </div>
                 </div>
             </div>
 
-            {/* Main Content */}
-            <div className="max-w-6xl mx-auto px-4 md:px-8 py-10 flex flex-col lg:flex-row gap-10 lg:gap-14">
+            {/* ── Main Content Area ── */}
+            <div className="relative z-10 max-w-[1400px] mx-auto px-4 md:px-8 pb-32 flex flex-col lg:flex-row gap-10 lg:gap-10 items-start">
 
                 {/* Article Body */}
-                <div className="flex-1 min-w-0">
-                    <div className="bg-white rounded-[32px] p-6 md:p-10 lg:p-12 shadow-sm border border-gray-100">
-                        {/* Featured Image */}
+                <div className="flex-1 min-w-0 w-full">
+                    <div className="bg-white rounded-[40px] p-6 md:p-10 lg:p-12 shadow-md border border-[var(--border)] relative overflow-hidden">
+                        {/* Featured Image - Premium Frame */}
                         {article.image && (
-                            <div className="mb-10 rounded-[20px] overflow-hidden shadow-sm">
+                            <div className="mb-14 rounded-[32px] overflow-hidden bg-[#FDF6F3] relative group shadow-inner">
+                                <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent z-10 pointer-events-none"></div>
                                 <img
                                     src={article.image}
                                     alt={article.title}
-                                    className="w-full h-auto object-cover max-h-[440px]"
+                                    className="w-full h-auto object-cover max-h-[500px] mix-blend-multiply group-hover:scale-[1.02] transition-transform duration-700 ease-out"
                                 />
                             </div>
                         )}
@@ -221,253 +228,145 @@ const ArticleDetailPage: React.FC = () => {
                         />
 
                         {/* Inline Promo */}
-                        <div className="mt-12 bg-gradient-to-r from-[#0097b2] to-[#38ABAE] rounded-[20px] p-6 md:p-8 flex flex-col sm:flex-row items-center gap-6">
-                            <div className="flex-1">
-                                <p className="text-white font-bold text-[18px] mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        <div className="mt-16 bg-[var(--surface)] border border-[var(--border)] rounded-[32px] p-8 md:p-10 flex flex-col sm:flex-row items-center justify-between gap-8 relative overflow-hidden group hover:shadow-lg transition-all duration-300">
+                            <div className="absolute -right-20 -bottom-20 w-64 h-64 bg-[var(--teal-muted)] rounded-full filter blur-3xl opacity-20 group-hover:opacity-40 transition-opacity pointer-events-none"></div>
+                            <div className="relative z-10">
+                                <h3 className="text-[24px] font-bold text-[var(--text)] mb-2" style={{ fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}>
                                     Start Your Healing Journey
-                                </p>
-                                <p className="text-white/80 text-[13px] leading-relaxed">
-                                    Get 15% off your first 3 sessions. Use code <strong className="text-white">FIRST15</strong>
+                                </h3>
+                                <p className="text-[var(--text-2)] text-[15px] leading-relaxed">
+                                    Get 15% off your first 3 sessions. Use code <strong className="text-[var(--teal)]">FIRST15</strong>
                                 </p>
                             </div>
                             <button
                                 onClick={() => navigate('/choose-professional')}
-                                className="flex-shrink-0 bg-white text-[#0097b2] font-bold text-[13px] px-6 py-3 rounded-full hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2"
+                                className="relative z-10 flex-shrink-0 bg-[var(--teal)] text-white font-medium text-[15px] px-8 py-4 rounded-full shadow-md hover:shadow-xl hover:-translate-y-1 transition-all duration-300 flex items-center gap-2"
                             >
-                                Book a Session <ArrowRight size={14} />
+                                Book a Session <ArrowRight size={16} />
                             </button>
                         </div>
                     </div>
-
-                    {/* Tags */}
-                    {article.tags && article.tags.length > 0 && (
-                        <div className="mt-10 pt-8 border-t border-gray-100">
-                            <p className="text-[12px] font-semibold uppercase tracking-widest text-gray-400 mb-3">Tags</p>
-                            <div className="flex flex-wrap gap-2">
-                                {article.tags.map(tag => (
-                                    <span key={tag} className="px-3 py-1 bg-white border border-gray-200 text-gray-500 rounded-full text-[13px] font-medium hover:border-gray-400 transition-colors cursor-default">
-                                        {tag}
-                                    </span>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Related Articles */}
-                    {relatedArticles.length > 0 && (
-                        <div className="mt-14">
-                            <div className="flex items-center gap-3 mb-6">
-                                <span className="text-[11px] font-bold uppercase tracking-widest text-gray-400">Related Articles</span>
-                                <div className="flex-1 h-px bg-gray-100" />
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                {relatedArticles.map((rel) => {
-                                    const relCat = getCategoryStyle(rel.category);
-                                    return (
-                                        <div
-                                            key={rel._id}
-                                            onClick={() => navigate(`/resources/articles/${rel.slug}`)}
-                                            className="group bg-white rounded-[16px] border border-gray-100 overflow-hidden hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 cursor-pointer"
-                                        >
-                                            {rel.image ? (
-                                                <img src={rel.image} alt={rel.title} className="w-full h-[120px] object-cover group-hover:scale-105 transition-transform duration-500" />
-                                            ) : (
-                                                <div className="w-full h-[120px] bg-gradient-to-br from-[#E0F7FA] to-[#B2EBF2] flex items-center justify-center"><span className="text-xs text-[#0097b2] font-bold tracking-widest uppercase">Veraawell</span></div>
-                                            )}
-                                            <div className="p-4">
-                                                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full" style={{ backgroundColor: relCat.bg, color: relCat.text }}>
-                                                    {rel.category}
-                                                </span>
-                                                <h4 className="text-[13px] font-bold text-[#1A1A1A] mt-2 line-clamp-2 group-hover:text-[#0097b2] transition-colors leading-snug">
-                                                    {rel.title}
-                                                </h4>
-                                                <div className="flex items-center gap-1 mt-2 text-[11px] text-gray-400">
-                                                    <Clock size={10} /> {rel.readTime}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    )}
                 </div>
 
-                {/* Sidebar */}
-                <div className="w-full lg:w-[300px] flex-shrink-0">
-                    <div className="sticky top-24 space-y-5">
-
-                        {/* Booking CTA */}
-                        <div className="bg-white border border-gray-100 rounded-[20px] p-6 shadow-sm">
-                            <div className="flex justify-center -space-x-2 mb-5">
-                                {[
-                                    'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=80&h=80&fit=crop',
-                                    'https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=80&h=80&fit=crop',
-                                    'https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=80&h=80&fit=crop',
-                                ].map((src, i) => (
-                                    <img key={i} src={src} alt="Therapist" className="w-10 h-10 rounded-full border-2 border-white object-cover" style={{ zIndex: i }} />
-                                ))}
+                {/* ── Sticky Sidebar ── */}
+                <div className="w-full lg:w-[320px] flex-shrink-0 lg:sticky lg:top-32 space-y-8">
+                    
+                    {/* Floating Glassmorphic Bento CTA */}
+                    <div className="bg-white/60 backdrop-blur-xl rounded-[32px] p-8 border border-white/80 shadow-[0_8px_30px_rgb(0,0,0,0.04)] relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-[var(--teal-muted)] to-[var(--coral-muted)] rounded-full filter blur-2xl opacity-30 group-hover:opacity-50 transition-opacity"></div>
+                        
+                        <div className="relative z-10 flex flex-col items-center text-center">
+                            <div className="flex -space-x-4 mb-6">
+                                <img src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=100&h=100&fit=crop" alt="Pro" className="w-14 h-14 rounded-full border-4 border-white shadow-sm object-cover" />
+                                <img src="https://images.unsplash.com/photo-1559839734-2b71ea197ec2?w=100&h=100&fit=crop" alt="Pro" className="w-14 h-14 rounded-full border-4 border-white shadow-sm object-cover" />
+                                <img src="https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?w=100&h=100&fit=crop" alt="Pro" className="w-14 h-14 rounded-full border-4 border-white shadow-sm object-cover" />
                             </div>
-                            <h3 className="text-[16px] font-bold text-[#1A1A1A] text-center mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                            
+                            <h3 className="text-[22px] font-bold text-[var(--text)] mb-3" style={{ fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}>
                                 Talk to a Professional
                             </h3>
-                            <p className="text-[13px] text-gray-500 text-center mb-5 leading-relaxed">
+                            <p className="text-[14px] text-[var(--text-2)] mb-8 leading-relaxed">
                                 Connect with licensed therapists at Veraawell. First session at 15% off.
                             </p>
+                            
                             <button
                                 onClick={() => navigate('/choose-professional')}
-                                className="w-full py-3 bg-[#0097b2] hover:bg-[#007a91] text-white text-[13px] font-bold rounded-full transition-colors"
+                                className="w-full bg-[var(--teal)] text-white font-semibold text-[15px] py-4 rounded-full shadow-md hover:shadow-lg hover:bg-[var(--teal-dark)] hover:-translate-y-0.5 transition-all duration-300"
                             >
                                 Book Now
                             </button>
                         </div>
+                    </div>
 
-                        {/* Share */}
-                        <div className="bg-white border border-gray-100 rounded-[20px] p-5 shadow-sm">
-                            <p className="text-[13px] font-bold text-[#1A1A1A] mb-1">Share this article</p>
-                            <p className="text-[12px] text-gray-400 mb-4">Help someone who might need to read this.</p>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={handleCopy}
-                                    title={copied ? 'Copied!' : 'Copy link'}
-                                    className={`w-9 h-9 rounded-full border flex items-center justify-center transition-all ${copied ? 'border-green-300 bg-green-50 text-green-600' : 'border-gray-200 text-gray-500 hover:bg-gray-50'}`}
-                                >
-                                    <Link2 size={15} />
-                                </button>
-                                <button
-                                    onClick={() => window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(article.title + ' ' + window.location.href)}`)}
-                                    className="w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center text-green-500 hover:bg-green-50 transition-all"
-                                >
-                                    <MessageCircle size={15} />
-                                </button>
-                                <button
-                                    onClick={() => window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(article.title)}&url=${encodeURIComponent(window.location.href)}`)}
-                                    className="w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center text-blue-400 hover:bg-blue-50 transition-all"
-                                >
-                                    <Twitter size={15} />
-                                </button>
-                                <button
-                                    onClick={() => window.open(`https://www.linkedin.com/shareArticle?mini=true&url=${encodeURIComponent(window.location.href)}&title=${encodeURIComponent(article.title)}`)}
-                                    className="w-9 h-9 rounded-full border border-gray-200 flex items-center justify-center text-blue-600 hover:bg-blue-50 transition-all"
-                                >
-                                    <Linkedin size={15} />
-                                </button>
-                            </div>
+                    {/* Sharing */}
+                    <div className="bg-white rounded-[32px] p-8 border border-[var(--border)] shadow-sm">
+                        <h4 className="text-[12px] font-bold uppercase tracking-widest text-[var(--text-3)] mb-6 text-center" style={{ fontFamily: 'var(--font-mono)' }}>
+                            Share this article
+                        </h4>
+                        <div className="flex items-center justify-center gap-4">
+                            <button onClick={handleCopy} className="w-12 h-12 rounded-full bg-[var(--surface)] hover:bg-[var(--teal)] text-[var(--text-2)] hover:text-white flex items-center justify-center transition-all duration-300">
+                                <Link2 size={18} />
+                            </button>
+                            <button className="w-12 h-12 rounded-full bg-[var(--surface)] hover:bg-[#1DA1F2] text-[var(--text-2)] hover:text-white flex items-center justify-center transition-all duration-300">
+                                <Twitter size={18} />
+                            </button>
+                            <button className="w-12 h-12 rounded-full bg-[var(--surface)] hover:bg-[#0A66C2] text-[var(--text-2)] hover:text-white flex items-center justify-center transition-all duration-300">
+                                <Linkedin size={18} />
+                            </button>
                         </div>
-
-                        {/* Feedback */}
-                        <div className="bg-white border border-gray-100 rounded-[20px] p-5 shadow-sm">
-                            <p className="text-[13px] font-bold text-[#1A1A1A] mb-1 text-center">Was this helpful?</p>
-                            <p className="text-[12px] text-gray-400 mb-4 text-center">Let us know how we're doing.</p>
-                            <div className="flex gap-3">
-                                <button
-                                    onClick={() => setFeedback('yes')}
-                                    className={`flex-1 py-2.5 rounded-xl flex items-center justify-center gap-2 text-[13px] font-semibold transition-all border ${
-                                        feedback === 'yes'
-                                            ? 'border-green-400 bg-green-50 text-green-600'
-                                            : 'border-gray-200 text-gray-500 hover:bg-gray-50'
-                                    }`}
-                                >
-                                    <ThumbsUp size={14} /> Yes
-                                </button>
-                                <button
-                                    onClick={() => setFeedback('no')}
-                                    className={`flex-1 py-2.5 rounded-xl flex items-center justify-center gap-2 text-[13px] font-semibold transition-all border ${
-                                        feedback === 'no'
-                                            ? 'border-red-400 bg-red-50 text-red-500'
-                                            : 'border-gray-200 text-gray-500 hover:bg-gray-50'
-                                    }`}
-                                >
-                                    <ThumbsDown size={14} /> No
-                                </button>
-                            </div>
-                            {feedback && (
-                                <p className="text-center text-[12px] text-gray-400 mt-3">
-                                    {feedback === 'yes' ? 'Thank you for your feedback!' : "We'll work to improve this."}
-                                </p>
-                            )}
-                        </div>
+                        {copied && <p className="text-center text-[12px] text-[var(--teal)] font-medium mt-4">Link copied!</p>}
                     </div>
                 </div>
             </div>
 
-            {/* Article Styles */}
             <style>{`
                 .article-body {
-                    font-family: 'Inter', sans-serif;
-                    color: #4b5563; /* Gray-600 for better readability */
-                    font-size: 17px;
-                    line-height: 1.85;
-                    overflow-wrap: break-word;
-                    word-wrap: break-word;
+                    font-family: var(--font-body);
+                    color: var(--text-2);
+                    font-size: 18px;
+                    line-height: 1.75;
                 }
                 .article-body h2 {
-                    font-family: 'Inter', sans-serif;
-                    color: #111827; /* Gray-900 */
-                    font-size: 26px;
+                    font-family: var(--font-display);
+                    color: var(--text);
+                    font-size: 32px;
+                    font-weight: 700;
+                    margin-top: 56px;
+                    margin-bottom: 24px;
+                    line-height: 1.2;
+                    letter-spacing: -0.02em;
+                }
+                .article-body h3 {
+                    font-family: var(--font-display);
+                    color: var(--text);
+                    font-size: 24px;
                     font-weight: 700;
                     margin-top: 48px;
                     margin-bottom: 20px;
-                    line-height: 1.3;
-                }
-                .article-body h3 {
-                    font-family: 'Inter', sans-serif;
-                    color: #111827;
-                    font-size: 20px;
-                    font-weight: 700;
-                    margin-top: 40px;
-                    margin-bottom: 16px;
+                    letter-spacing: -0.01em;
                 }
                 .article-body p {
-                    margin-bottom: 24px;
+                    margin-bottom: 20px;
                 }
                 .article-body strong {
-                    color: #111827;
+                    color: var(--text);
                     font-weight: 600;
                 }
                 .article-body ul {
-                    margin-bottom: 28px;
+                    margin-bottom: 32px;
                     padding-left: 24px;
-                    list-style-type: disc;
-                }
-                .article-body ol {
-                    margin-bottom: 28px;
-                    padding-left: 24px;
-                    list-style-type: decimal;
+                    list-style-type: none;
                 }
                 .article-body li {
-                    margin-bottom: 12px;
-                    color: #4b5563;
-                    padding-left: 8px;
+                    margin-bottom: 16px;
+                    position: relative;
+                    padding-left: 16px;
                 }
-                .article-body li::marker {
-                    color: #0097b2;
+                .article-body li::before {
+                    content: '•';
+                    color: var(--teal);
                     font-weight: bold;
-                }
-                .article-body img {
-                    border-radius: 16px;
-                    margin: 36px 0;
-                    width: 100%;
-                    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+                    position: absolute;
+                    left: 0;
                 }
                 .article-body blockquote {
-                    border-left: 4px solid #0097b2;
-                    margin: 32px 0;
-                    padding: 20px 24px;
-                    background: #F0FBFD;
-                    border-radius: 0 16px 16px 0;
+                    border-left: 4px solid var(--teal);
+                    margin: 40px 0;
+                    padding: 24px 32px;
+                    background: var(--surface);
+                    border-radius: 0 24px 24px 0;
                     font-style: italic;
-                    color: #007a91;
-                    font-size: 18px;
+                    color: var(--text);
+                    font-size: 20px;
                 }
                 .article-body a {
-                    color: #0097b2;
+                    color: var(--teal);
                     text-decoration: underline;
                     text-underline-offset: 4px;
                     font-weight: 500;
                 }
                 .article-body a:hover {
-                    color: #007a91;
+                    color: var(--teal-dark);
                     text-decoration-thickness: 2px;
                 }
             `}</style>

@@ -1,0 +1,64 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=0.5in, landscape]{geometry}
+\usepackage{tabularx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+
+\begin{document}
+
+\begin{center}
+    \Huge\textbf{User Traffic Analysis \& Scaling Phases}
+\end{center}
+
+\vspace{0.5cm}
+
+\renewcommand{\arraystretch}{1.5}
+\noindent
+\begin{tabularx}{\textwidth}{@{} 
+    >{\hsize=0.8\hsize\raggedright\arraybackslash}X 
+    >{\hsize=0.6\hsize\raggedright\arraybackslash}X 
+    >{\hsize=0.8\hsize\raggedright\arraybackslash}X 
+    >{\hsize=1.6\hsize\raggedright\arraybackslash}X 
+    >{\hsize=1.6\hsize\raggedright\arraybackslash}X 
+    >{\hsize=0.6\hsize\raggedright\arraybackslash}X @{}}
+\toprule
+\textbf{Phase} & \textbf{Active Users (DAU \& MAU)} & \textbf{Peak Concurrent (CCU) \& Video} & \textbf{Infrastructure \& Plans Required} & \textbf{System Status \& Notes} & \textbf{Est. Cost/Mo} \\
+\midrule
+\textbf{Phase 1: Free Tier} \newline \textit{Beta \& Early Launch} 
+& \textbf{DAU:} 0 -- 1,000 \newline \textbf{MAU:} 0 -- 30,000
+& \textbf{CCU:} Up to 100 \newline \textbf{Video:} 50+ calls \newline \textbf{New:} $<$ 50/day
+& \textbf{Backend:} Render Free Tier (512MB RAM) \newline \textbf{Database:} MongoDB M0 (Max 500 connections) \newline \textbf{Resend:} Free Tier (100 emails/day)
+& \textcolor{green!70!black}{\textbf{Highly Capable:}} Node.js handles 100s of WebSockets easily. WebRTC video is Peer-to-Peer, requiring ZERO backend bandwidth.
+& \$0 \\
+\midrule
+\textbf{Phase 2: Standard Tier} \newline \textit{Growth \& Marketing}
+& \textbf{DAU:} 1,000 -- 10,000 \newline \textbf{MAU:} 30,000 -- 300,000
+& \textbf{CCU:} 100 -- 1,000 \newline \textbf{Video:} 500+ calls \newline \textbf{New:} 100 -- 500/day
+& \textbf{Backend:} Render Standard (\$25) - 2GB RAM \newline \textbf{Database:} MongoDB M10 (\$25) - Higher connection limits \newline \textbf{Resend:} Pro Tier (\$20)
+& \textcolor{green!70!black}{\textbf{Perfectly Stable:}} A single Node.js instance on 2GB RAM can hold over 10,000 concurrent socket connections effortlessly.
+& \$70 \\
+\midrule
+\textbf{Phase 3: High Density} \newline \textit{Established Brand}
+& \textbf{DAU:} 10,000 -- 50,000 \newline \textbf{MAU:} 300,000 -- 1.5M
+& \textbf{CCU:} 1,000 -- 5,000 \newline \textbf{Video:} 2,000+ calls \newline \textbf{New:} 1,000+/day
+& \textbf{Backend:} Render Pro (\$50) - 4GB RAM, 2 CPUs \newline \textbf{Database:} MongoDB M20 (\$60) \newline \textbf{Resend:} Pro Tier (\$30)
+& \textcolor{orange!90!black}{\textbf{Approaching CPU Limit:}} The memory (4GB) is plenty, but the single-threaded Node.js event loop will start getting saturated at 5,000+ highly active CCU.
+& \$140 \\
+\midrule
+\textbf{Phase 4: Multi-Instance Scale} \newline \textit{Enterprise Traffic}
+& \textbf{DAU:} 50,000 -- 250,000+ \newline \textbf{MAU:} 1.5M -- 7.5M+
+& \textbf{CCU:} 5,000 -- 30,000+ \newline \textbf{Video:} 10,000+ calls
+& \textbf{Backend:} AWS EC2 Auto-Scaling or Render Load Balancing (\$150+) \newline \textbf{Database:} Dedicated M40+ Cluster (\$300+) \newline \textbf{Redis:} Managed Redis (\$15)
+& \textcolor{blue!80!black}{\textbf{Infinite Horizontal Scale:}} Requires integrating a Redis Adapter to sync Socket.io events across multiple NodeJS server instances.
+& \$500+ \\
+\bottomrule
+\end{tabularx}
+
+\vspace{1cm}
+\noindent\Large\textbf{Why Your Code is Incredibly Scalable} \normalsize \\
+\vspace{0.2cm} \\
+Your current codebase leverages \textbf{Node.js}, which is highly optimized for asynchronous I/O and WebSocket handling. Because your backend relies on \textbf{raw WebRTC} for video calls, the server only acts as a signaling mechanism. Once the initial handshake (offer/answer) is complete, the video stream is \textbf{Peer-to-Peer}, meaning it consumes 0\% CPU and 0\% bandwidth on your server. 
+\newline\newline
+A single \$25 Render instance (2GB RAM) allocates roughly 50KB per socket connection, allowing you to comfortably hold \textbf{over 10,000 concurrent users} before hitting memory limits. You only need to scale to Multi-Instance (Phase 4) when the single-threaded CPU event loop becomes the bottleneck, typically around 5,000+ highly active concurrent connections doing constant chat operations.
+
+\end{document}

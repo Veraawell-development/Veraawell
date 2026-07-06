@@ -4,6 +4,9 @@ import { useDataSocket } from '../hooks/useDataSocket';
 import toast from 'react-hot-toast';
 import { Search, Clock, ArrowUpRight, ChevronRight } from 'lucide-react';
 import { API_BASE_URL } from '../config/api';
+import { useScrollReveal } from '../hooks/useScrollReveal';
+import SparkDecor from '../components/ui/SparkDecor';
+import LeafDecor from '../components/ui/LeafDecor';
 
 interface Article {
     _id: string;
@@ -59,6 +62,13 @@ const ArticlesPage: React.FC = () => {
 
     const { socket } = useDataSocket();
 
+    const headerRef = useScrollReveal<HTMLDivElement>();
+    const categoriesRef = useScrollReveal<HTMLDivElement>();
+    const featuredRef = useScrollReveal<HTMLDivElement>();
+    const gridRef = useScrollReveal<HTMLDivElement>();
+    const ctaRef = useScrollReveal<HTMLDivElement>();
+
+
     useEffect(() => {
         fetchArticles();
     }, [searchQuery, selectedCategory]);
@@ -97,55 +107,65 @@ const ArticlesPage: React.FC = () => {
     const visibleCategories = showAllCategories ? categories : categories.slice(0, 7);
 
     return (
-        <div className="min-h-screen bg-[#FAFAF9]" style={{ fontFamily: 'Inter, sans-serif' }}>
+        <div className="min-h-screen bg-[var(--bg)] relative overflow-hidden font-sans">
 
-            {/* Page Header */}
-            <div className="w-full bg-white border-b border-gray-100">
-                <div className="max-w-6xl mx-auto px-4 md:px-8 py-12 md:py-16">
-                    {/* Breadcrumb */}
-                    <div className="flex items-center gap-1.5 text-[13px] text-gray-400 mb-6">
-                        <button onClick={() => navigate('/')} className="hover:text-[#0097b2] transition-colors">Home</button>
-                        <ChevronRight size={13} className="text-gray-300" />
-                        <span className="text-gray-700 font-medium">Wellness Articles</span>
-                    </div>
+            {/* ── Background Immersive Gradients & Decor ── */}
+            <div 
+              className="absolute top-[-10%] left-[-20%] w-[80vw] h-[80vw] rounded-full mix-blend-multiply filter blur-[120px] opacity-40 z-0 pointer-events-none"
+              style={{ background: 'radial-gradient(circle, rgba(0,151,178,0.12) 0%, transparent 70%)', animation: 'blob-drift 25s ease-in-out infinite alternate' }}
+            />
+            <div 
+              className="absolute bottom-[-10%] right-[-10%] w-[70vw] h-[70vw] rounded-full mix-blend-multiply filter blur-[100px] opacity-40 z-0 pointer-events-none"
+              style={{ background: 'radial-gradient(circle, rgba(224,122,95,0.08) 0%, transparent 70%)', animation: 'blob-drift-2 20s ease-in-out infinite alternate' }}
+            />
+            
+            <div className="absolute top-[20%] right-[10%] pointer-events-none z-0 hidden lg:block opacity-60">
+              <SparkDecor color="var(--teal)" style={{ width: '80px', height: '80px', animation: 'float-card 7s ease-in-out infinite alternate-reverse' }} />
+            </div>
 
-                    <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-                        <div>
-                            <h1 className="text-[36px] md:text-[48px] font-extrabold text-[#1A1A1A] leading-tight mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                Wellness Articles
-                            </h1>
-                            <p className="text-[15px] text-gray-500 max-w-md leading-relaxed">
-                                Clinically vetted insights on mental health, written by professionals who care.
-                            </p>
-                        </div>
+            {/* ── Page Header ── */}
+            <div className="w-full relative z-10 pt-32 pb-16">
+                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center flex flex-col items-center">
+                    
+                    <span className="text-xs font-medium tracking-widest uppercase block mb-4" style={{ color: 'var(--teal)', fontFamily: 'var(--font-mono)' }}>
+                        — Resources
+                    </span>
+                    <h1 className="leading-tight mb-6" style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(40px, 5vw, 64px)', color: 'var(--text)', letterSpacing: '-0.02em' }}>
+                        Wellness Articles
+                    </h1>
+                    <p className="text-[18px] md:text-[20px] text-[var(--text-2)] max-w-2xl leading-relaxed mb-10" style={{ fontFamily: 'var(--font-body)' }}>
+                        Clinically vetted insights on mental health, written by professionals who care.
+                    </p>
 
-                        {/* Search */}
-                        <div className="relative w-full md:w-72 flex-shrink-0">
-                            <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    {/* Premium Search */}
+                    <div className="relative w-full max-w-xl group">
+                        <div className="absolute -inset-1 bg-gradient-to-r from-[var(--teal-muted)] to-[var(--coral-muted)] rounded-[32px] blur opacity-25 group-hover:opacity-40 transition duration-500"></div>
+                        <div className="relative flex items-center bg-[var(--surface)] border border-[var(--border)] rounded-[32px] px-6 py-4 shadow-sm focus-within:border-[var(--teal)] transition-colors">
+                            <Search className="w-5 h-5 text-[var(--text-3)]" />
                             <input
                                 type="text"
-                                placeholder="Search articles..."
+                                placeholder="Search by topic, keyword, or author..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full pl-10 pr-4 py-3 text-[14px] rounded-2xl border border-gray-200 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-[#0097b2]/30 focus:border-[#0097b2] transition-all"
+                                className="w-full bg-transparent pl-4 pr-4 outline-none text-[16px] text-[var(--text)] placeholder:text-[var(--text-3)]"
                             />
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div className="max-w-6xl mx-auto px-4 md:px-8 py-10">
+            <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-32 relative z-10">
 
-                {/* Category Pills */}
-                <div className="flex flex-wrap gap-2 mb-10">
+                {/* ── Category Pills ── */}
+                <div ref={categoriesRef} data-reveal className="flex flex-wrap items-center justify-center gap-3 mb-16">
                     {visibleCategories.map((cat) => (
                         <button
                             key={cat}
                             onClick={() => setSelectedCategory(cat)}
-                            className={`px-4 py-2 rounded-full text-[13px] font-semibold transition-all duration-200 ${
+                            className={`px-5 py-2.5 rounded-full text-[14px] font-medium transition-all duration-300 ${
                                 selectedCategory === cat
-                                    ? 'bg-[#0097b2] text-white shadow-sm'
-                                    : 'bg-white text-gray-600 border border-gray-200 hover:border-[#0097b2] hover:text-[#0097b2]'
+                                    ? 'bg-[var(--teal)] text-white shadow-md scale-105'
+                                    : 'bg-[var(--surface)] text-[var(--text-2)] border border-[var(--border)] hover:border-[var(--teal)] hover:text-[var(--teal)]'
                             }`}
                         >
                             {cat}
@@ -154,65 +174,83 @@ const ArticlesPage: React.FC = () => {
                     {categories.length > 7 && (
                         <button
                             onClick={() => setShowAllCategories(!showAllCategories)}
-                            className="px-4 py-2 rounded-full text-[13px] font-semibold bg-white text-gray-400 border border-gray-200 hover:border-gray-400 transition-all"
+                            className="px-5 py-2.5 rounded-full text-[14px] font-medium bg-[var(--surface)] text-[var(--text-3)] border border-[var(--border)] hover:border-[var(--text-2)] transition-all"
                         >
                             {showAllCategories ? 'Show less' : `+${categories.length - 7} more`}
                         </button>
                     )}
                 </div>
 
-                {/* Featured Article */}
+                {/* ── Featured Article Bento Card ── */}
                 {featuredArticle && selectedCategory === 'All' && !searchQuery && (
-                    <div className="mb-12">
-                        <div className="flex items-center gap-3 mb-5">
-                            <span className="text-[11px] font-bold uppercase tracking-widest text-[#0097b2]">Featured</span>
-                            <div className="flex-1 h-px bg-gray-100" />
+                    <div className="mb-20">
+                        <div className="flex items-center gap-4 mb-8">
+                            <span className="text-[12px] font-bold uppercase tracking-widest" style={{ color: 'var(--teal)', fontFamily: 'var(--font-mono)' }}>
+                                Featured Read
+                            </span>
+                            <div className="flex-1 h-px bg-[var(--border)]" />
                         </div>
+                        
                         <div
-                            className="group cursor-pointer bg-white rounded-[24px] overflow-hidden border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-300 flex flex-col md:flex-row"
+                            className="group cursor-pointer bg-white rounded-[40px] p-4 md:p-6 border border-[var(--border)] shadow-sm hover:shadow-2xl transition-all duration-500 flex flex-col lg:flex-row relative gap-6 md:gap-12"
                             onClick={() => navigate(`/resources/articles/${featuredArticle.slug}`)}
                         >
-                            <div className="w-full md:w-[48%] h-[280px] md:h-auto overflow-hidden flex-shrink-0">
+                            {/* ── Image Canvas Frame ── */}
+                            <div className="w-full lg:w-[55%] h-[300px] md:h-[480px] overflow-hidden relative rounded-[32px] bg-[#FDF6F3] flex items-center justify-center">
+                                {/* Subtle inner glow */}
+                                <div className="absolute inset-0 bg-gradient-to-br from-white/40 to-transparent z-10 pointer-events-none"></div>
+                                
                                 {featuredArticle.image ? (
                                     <img
                                         src={featuredArticle.image}
                                         alt={featuredArticle.title}
-                                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                        className="w-full h-full object-cover group-hover:scale-[1.03] transition-transform duration-700 ease-out mix-blend-multiply"
                                     />
                                 ) : (
-                                    <div className="w-full h-full bg-gradient-to-br from-[#E0F7FA] to-[#B2EBF2] flex items-center justify-center">
-                                        <span className="text-sm text-[#0097b2] font-semibold tracking-wider uppercase">Veraawell</span>
+                                    <div className="absolute inset-0 bg-gradient-to-br from-[#E0F7FA] to-[#B2EBF2] flex items-center justify-center group-hover:scale-105 transition-transform duration-700 ease-out">
+                                        <span className="text-lg text-[var(--teal)] font-bold tracking-widest uppercase">Veraawell</span>
                                     </div>
                                 )}
                             </div>
-                            <div className="flex-1 p-8 md:p-12 flex flex-col justify-center">
-                                <span
-                                    className="inline-block px-3 py-1 rounded-full text-[12px] font-semibold mb-4 w-fit"
-                                    style={{
-                                        backgroundColor: getCategoryStyle(featuredArticle.category).bg,
-                                        color: getCategoryStyle(featuredArticle.category).text,
-                                    }}
-                                >
-                                    {featuredArticle.category}
-                                </span>
-                                <h2 className="text-[24px] md:text-[30px] font-extrabold text-[#1A1A1A] leading-tight mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                    {featuredArticle.title}
-                                </h2>
-                                <p className="text-[14px] text-gray-500 leading-relaxed mb-6 line-clamp-3">
-                                    {featuredArticle.description}
-                                </p>
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-3 text-[13px] text-gray-400">
-                                        <div className="w-7 h-7 rounded-full bg-[#F3ECE5] flex items-center justify-center text-[#BE7959] font-bold text-[11px]">
-                                            {featuredArticle.author?.charAt(0) || 'A'}
+                            
+                            {/* ── Content Side ── */}
+                            <div className="w-full lg:w-[45%] py-4 md:py-8 pr-4 md:pr-10 flex flex-col justify-center relative">
+                                {/* Decorative floating element */}
+                                <div className="absolute top-0 right-0 w-48 h-48 bg-[var(--teal-muted)] rounded-full filter blur-[80px] opacity-20 group-hover:opacity-40 transition-opacity pointer-events-none"></div>
+                                
+                                <div className="relative z-10">
+                                    <span
+                                        className="inline-block px-4 py-1.5 rounded-full text-[12px] font-bold mb-6 w-fit tracking-wide"
+                                        style={{
+                                            backgroundColor: getCategoryStyle(featuredArticle.category).bg,
+                                            color: getCategoryStyle(featuredArticle.category).text,
+                                        }}
+                                    >
+                                        {featuredArticle.category}
+                                    </span>
+                                    <h2 className="text-[32px] md:text-[44px] font-bold text-[var(--text)] leading-[1.1] mb-6 group-hover:text-[var(--teal)] transition-colors" style={{ fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}>
+                                        {featuredArticle.title}
+                                    </h2>
+                                    <p className="text-[16px] md:text-[18px] text-[var(--text-2)] leading-relaxed mb-10 line-clamp-3">
+                                        {featuredArticle.description}
+                                    </p>
+                                    
+                                    <div className="flex items-center justify-between mt-auto">
+                                        <div className="flex items-center gap-4">
+                                            <div className="w-12 h-12 rounded-full bg-[#F3ECE5] flex items-center justify-center text-[var(--coral)] font-bold text-[15px] shadow-sm">
+                                                {featuredArticle.author?.charAt(0) || 'A'}
+                                            </div>
+                                            <div className="flex flex-col">
+                                                <span className="font-bold text-[15px] text-[var(--text)]">{featuredArticle.author}</span>
+                                                <div className="flex items-center gap-1.5 text-[13px] text-[var(--text-3)] font-medium mt-0.5">
+                                                    <Clock size={12} />
+                                                    <span>{featuredArticle.readTime}</span>
+                                                </div>
+                                            </div>
                                         </div>
-                                        <span className="font-medium text-gray-600">{featuredArticle.author}</span>
-                                        <span>·</span>
-                                        <Clock size={13} />
-                                        <span>{featuredArticle.readTime}</span>
-                                    </div>
-                                    <div className="w-9 h-9 rounded-full bg-[#0097b2] flex items-center justify-center group-hover:scale-110 transition-transform">
-                                        <ArrowUpRight size={16} className="text-white" />
+                                        <div className="w-14 h-14 rounded-full bg-white border border-[var(--border)] flex items-center justify-center group-hover:bg-[var(--teal)] group-hover:border-[var(--teal)] group-hover:text-white group-hover:shadow-lg transition-all duration-300">
+                                            <ArrowUpRight size={22} className="text-[var(--text-2)] group-hover:text-white transition-colors" />
+                                        </div>
                                     </div>
                                 </div>
                             </div>
@@ -220,69 +258,75 @@ const ArticlesPage: React.FC = () => {
                     </div>
                 )}
 
-                {/* Articles Grid */}
+                {/* ── Articles Grid ── */}
                 <div>
-                    <div className="flex items-center gap-3 mb-6">
-                        <span className="text-[11px] font-bold uppercase tracking-widest text-gray-400">
+                    <div className="flex items-center gap-4 mb-10">
+                        <span className="text-[12px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
                             {searchQuery ? `Results for "${searchQuery}"` : selectedCategory === 'All' ? 'All Articles' : selectedCategory}
                         </span>
-                        <div className="flex-1 h-px bg-gray-100" />
-                        <span className="text-[12px] text-gray-400">{allArticles.length} articles</span>
+                        <div className="flex-1 h-px bg-[var(--border)]" />
+                        <span className="text-[12px] font-medium text-[var(--text-3)] bg-[var(--surface)] px-3 py-1 rounded-full border border-[var(--border)]">
+                            {allArticles.length} {allArticles.length === 1 ? 'article' : 'articles'}
+                        </span>
                     </div>
 
                     {allArticles.length === 0 ? (
-                        <div className="text-center py-20">
-                            
-                            <h3 className="text-[18px] font-bold text-gray-700 mb-2">No articles found</h3>
-                            <p className="text-[14px] text-gray-400">Try a different search or category.</p>
+                        <div className="text-center py-32 bg-[var(--surface)] rounded-[32px] border border-[var(--border)]">
+                            <h3 className="text-[24px] font-bold text-[var(--text)] mb-3" style={{ fontFamily: 'var(--font-display)' }}>No articles found</h3>
+                            <p className="text-[16px] text-[var(--text-2)]">Try a different search or category.</p>
                         </div>
                     ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {allArticles.map((article) => {
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                            {allArticles.map((article, index) => {
                                 const catStyle = getCategoryStyle(article.category);
                                 return (
                                     <div
                                         key={article._id}
                                         onClick={() => navigate(`/resources/articles/${article.slug}`)}
-                                        className="group bg-white rounded-[20px] overflow-hidden border border-gray-100 shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-300 cursor-pointer flex flex-col"
+                                        className="group bg-[var(--surface)] rounded-[32px] overflow-hidden border border-[var(--border)] shadow-sm hover:shadow-xl hover:-translate-y-2 transition-all duration-500 cursor-pointer flex flex-col"
+                                        style={{ animationDelay: `${index * 100}ms` }}
                                     >
-                                        <div className="h-[190px] overflow-hidden bg-gray-50 flex-shrink-0">
+                                        <div className="h-[240px] overflow-hidden bg-[#FDF6F3] relative">
                                             {article.image ? (
                                                 <img
                                                     src={article.image}
                                                     alt={article.title}
-                                                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                                                    className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
                                                 />
                                             ) : (
-                                                <div className="w-full h-full bg-gradient-to-br from-[#E0F7FA] to-[#B2EBF2] flex items-center justify-center">
-                                                    <span className="text-sm text-[#0097b2] font-semibold tracking-wider uppercase">Veraawell</span>
+                                                <div className="absolute inset-0 bg-gradient-to-br from-[#E0F7FA] to-[#B2EBF2] flex items-center justify-center group-hover:scale-110 transition-transform duration-700 ease-out">
+                                                    <span className="text-sm text-[var(--teal)] font-bold tracking-wider uppercase">Veraawell</span>
                                                 </div>
                                             )}
-                                        </div>
-                                        <div className="p-5 flex flex-col flex-1">
-                                            <div className="flex items-center justify-between mb-3">
+                                            <div className="absolute top-4 left-4">
                                                 <span
-                                                    className="px-2.5 py-1 rounded-full text-[11px] font-semibold"
-                                                    style={{ backgroundColor: catStyle.bg, color: catStyle.text }}
+                                                    className="px-3 py-1.5 rounded-full text-[11px] font-bold shadow-sm backdrop-blur-md"
+                                                    style={{ backgroundColor: 'rgba(255,255,255,0.9)', color: catStyle.text }}
                                                 >
                                                     {article.category}
                                                 </span>
-                                                <div className="flex items-center gap-1 text-[12px] text-gray-400">
-                                                    <Clock size={11} />
-                                                    <span>{article.readTime}</span>
-                                                </div>
                                             </div>
-                                            <h3 className="text-[15px] font-bold text-[#1A1A1A] mb-2 leading-snug line-clamp-2 group-hover:text-[#0097b2] transition-colors">
+                                        </div>
+                                        
+                                        <div className="p-8 flex flex-col flex-1">
+                                            <h3 className="text-[20px] font-bold text-[var(--text)] mb-3 leading-snug line-clamp-2 group-hover:text-[var(--teal)] transition-colors" style={{ fontFamily: 'var(--font-display)', letterSpacing: '-0.01em' }}>
                                                 {article.title}
                                             </h3>
-                                            <p className="text-[13px] text-gray-400 leading-relaxed line-clamp-2 flex-1">
+                                            <p className="text-[14px] text-[var(--text-2)] leading-relaxed line-clamp-2 flex-1 mb-6">
                                                 {article.description}
                                             </p>
-                                            <div className="flex items-center gap-2 mt-4 pt-4 border-t border-gray-50">
-                                                <div className="w-6 h-6 rounded-full bg-[#F3ECE5] flex items-center justify-center text-[#BE7959] font-bold text-[10px]">
-                                                    {article.author?.charAt(0) || 'A'}
+                                            
+                                            <div className="flex items-center justify-between mt-auto pt-5 border-t border-[var(--border)]">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="w-8 h-8 rounded-full bg-[#F3ECE5] flex items-center justify-center text-[var(--coral)] font-bold text-[11px]">
+                                                        {article.author?.charAt(0) || 'A'}
+                                                    </div>
+                                                    <span className="text-[13px] text-[var(--text-2)] font-semibold">{article.author}</span>
                                                 </div>
-                                                <span className="text-[12px] text-gray-500 font-medium">{article.author}</span>
+                                                <div className="flex items-center gap-1.5 text-[12px] text-[var(--text-3)] font-medium">
+                                                    <Clock size={12} />
+                                                    <span>{article.readTime}</span>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
@@ -292,21 +336,25 @@ const ArticlesPage: React.FC = () => {
                     )}
                 </div>
 
-                {/* Bottom CTA Banner */}
-                <div className="mt-16 bg-gradient-to-r from-[#0097b2] to-[#38ABAE] rounded-[24px] p-8 md:p-12 flex flex-col md:flex-row items-center justify-between gap-6">
-                    <div>
-                        <h3 className="text-[24px] md:text-[28px] font-extrabold text-white mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
+                {/* ── Bottom CTA Banner ── */}
+                <div className="mt-24 relative overflow-hidden bg-[var(--surface)] border border-[var(--border)] rounded-[32px] p-10 md:p-16 flex flex-col md:flex-row items-center justify-between gap-10 shadow-sm">
+                    {/* Decorative Blob */}
+                    <div className="absolute -right-20 -bottom-20 w-80 h-80 bg-gradient-to-br from-[var(--teal-muted)] to-[var(--coral-muted)] rounded-full mix-blend-multiply filter blur-3xl opacity-30 pointer-events-none"></div>
+                    
+                    <div className="relative z-10">
+                        <h3 className="text-[32px] md:text-[40px] font-bold text-[var(--text)] mb-4" style={{ fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}>
                             Ready to Talk to Someone?
                         </h3>
-                        <p className="text-white/80 text-[14px] leading-relaxed max-w-md">
-                            Connect with licensed therapists and psychologists — at your pace, on your terms.
+                        <p className="text-[var(--text-2)] text-[16px] md:text-[18px] leading-relaxed max-w-xl" style={{ fontFamily: 'var(--font-body)' }}>
+                            Connect with licensed therapists and psychologists — at your pace, on your terms. Start your wellness journey today.
                         </p>
                     </div>
                     <button
                         onClick={() => navigate('/choose-professional')}
-                        className="flex-shrink-0 bg-white text-[#0097b2] font-bold text-[14px] px-8 py-3.5 rounded-full hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 flex items-center gap-2"
+                        className="relative z-10 flex-shrink-0 bg-[var(--teal)] text-white font-medium text-[16px] px-8 py-4 rounded-full shadow-md hover:shadow-xl hover:-translate-y-1 hover:bg-[var(--teal-dark)] transition-all duration-300 flex items-center gap-2 group"
                     >
-                        Find a Therapist <ArrowUpRight size={16} />
+                        Find a Therapist 
+                        <ArrowUpRight size={18} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
                     </button>
                 </div>
             </div>

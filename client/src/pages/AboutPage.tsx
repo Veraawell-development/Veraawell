@@ -66,11 +66,11 @@ const AboutPage: React.FC = () => {
 
         {/* Hero Image - Perfectly Sized & Uncropped */}
         <div className="relative mb-24">
-          <div ref={heroImageRef} data-reveal data-delay="1" className="relative w-full max-w-4xl mx-auto group rounded-[32px] overflow-hidden shadow-xl border border-[var(--border)]">
+          <div ref={heroImageRef} data-reveal data-delay="1" className="relative w-full max-w-5xl mx-auto group rounded-[32px] overflow-hidden shadow-md border border-[var(--border)]">
             <img
               src="/aboutpage.png"
               alt="About Veraawell"
-              className="w-full h-auto object-contain transform group-hover:scale-[1.03] transition-transform duration-1000 ease-out"
+              className="w-full h-auto transform group-hover:scale-[1.03] transition-transform duration-1000 ease-out"
             />
           </div>
           {/* Overlapping Coral Spark tying the poster to the page */}

@@ -2,9 +2,22 @@ import React, { useState } from 'react';
 import { API_BASE_URL } from '../config/api';
 import { Upload, X, FileText, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { useScrollReveal } from '../hooks/useScrollReveal';
+import LeafDecor from '../components/ui/LeafDecor';
+import SparkDecor from '../components/ui/SparkDecor';
 
 const CareerPage: React.FC = () => {
+
+  const headerRef = useScrollReveal<HTMLDivElement>();
+  const heroImageRef = useScrollReveal<HTMLDivElement>();
+  const bannerRef = useScrollReveal<HTMLDivElement>();
+  const card1Ref = useScrollReveal<HTMLDivElement>();
+  const card2Ref = useScrollReveal<HTMLDivElement>();
+  const card3Ref = useScrollReveal<HTMLDivElement>();
+  const formRef = useScrollReveal<HTMLDivElement>();
+
   const [activeTab, setActiveTab] = useState<'partner' | 'professional' | 'other'>('professional');
+  const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState({
     firstName: '',
     email: '',
@@ -279,471 +292,491 @@ const CareerPage: React.FC = () => {
   };
 
   return (
-    <>
-      <div className="min-h-screen bg-white">
-        {/* Hero Section */}
-        <div className="relative w-full h-[450px] md:h-[650px] lg:h-[750px] overflow-hidden">
-          <img
-            src="/carrer-bg.svg"
-            alt="Career Background"
-            className="absolute inset-0 w-full h-full object-cover object-center"
-          />
-          <div className="absolute inset-0 flex flex-col items-center justify-center px-4">
-            <h1 className="text-white font-extrabold text-[48px] md:text-[110px] mb-2 md:mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
-              Careers
-            </h1>
-            <div className="relative">
-              <div className="h-[3px] md:h-[6px] w-[200px] md:w-[522px] bg-white mb-1 md:mb-2"></div>
-              <p className="text-white text-[28px] md:text-[64px] font-normal text-center" style={{ fontFamily: 'Bree Serif, serif', textShadow: '0px 4px 4px rgba(0,0,0,0.25)' }}>
-                Making You Happier
-              </p>
-            </div>
+    <div className="bg-[var(--bg)] min-h-screen relative overflow-hidden font-sans">
+      
+      {/* ── Background Immersive Gradients & Decor ── */}
+      <div 
+        className="absolute top-[-10%] left-[-20%] w-[80vw] h-[80vw] rounded-full mix-blend-multiply filter blur-[120px] opacity-40 z-0 pointer-events-none"
+        style={{ background: 'radial-gradient(circle, rgba(0,151,178,0.12) 0%, transparent 70%)', animation: 'blob-drift 25s ease-in-out infinite alternate' }}
+      />
+      <div 
+        className="absolute bottom-[-10%] right-[-10%] w-[70vw] h-[70vw] rounded-full mix-blend-multiply filter blur-[100px] opacity-40 z-0 pointer-events-none"
+        style={{ background: 'radial-gradient(circle, rgba(107,168,136,0.12) 0%, transparent 70%)', animation: 'blob-drift-2 20s ease-in-out infinite alternate' }}
+      />
+
+      <div className="absolute top-0 right-0 pointer-events-none z-0 hidden lg:block">
+        <LeafDecor
+          style={{ position: 'absolute', top: '-60px', right: '-60px', width: '380px', height: '380px', transform: 'rotate(45deg)', opacity: 0.6, animation: 'float-card 10s ease-in-out infinite alternate' }}
+        />
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-32 pb-24 relative z-10">
+        
+        {/* ── Premium Hero Section ── */}
+        <div ref={headerRef} data-reveal className="text-center max-w-4xl mx-auto mb-10 relative">
+          <div className="absolute top-[10%] -left-8 md:-left-16 lg:-left-24 pointer-events-none z-0 hidden sm:block">
+            <SparkDecor color="var(--teal)" style={{ width: '120px', height: '120px', opacity: 0.5, animation: 'float-card 8s ease-in-out infinite alternate-reverse' }} />
+          </div>
+
+          <span className="text-xs font-medium tracking-widest uppercase block mb-4" style={{ color: 'var(--teal)', fontFamily: 'var(--font-mono)' }}>
+            — Join Our Team
+          </span>
+          <h1 className="leading-tight mb-2" style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(40px, 5vw, 64px)', color: 'var(--text)', letterSpacing: '-0.02em' }}>
+            Careers
+          </h1>
+          <p className="text-[20px] md:text-[24px] mt-4" style={{ color: 'var(--text-2)', fontFamily: 'var(--font-body)' }}>
+            Making You Happier.
+          </p>
+        </div>
+
+        {/* Hero Image - Perfectly Sized */}
+        <div className="relative mb-24">
+          <div ref={heroImageRef} data-reveal data-delay="1" className="relative w-full max-w-5xl mx-auto group rounded-[32px] overflow-hidden shadow-md border border-[var(--border)]">
+            <img
+              src="/carrer-page.png"
+              alt="Career Veraawell"
+              className="w-full h-auto transform group-hover:scale-[1.03] transition-transform duration-1000 ease-out"
+            />
           </div>
         </div>
 
-        {/* Scrolling Banner Section */}
-        <div className="py-3 sm:py-4 overflow-hidden" style={{ backgroundColor: '#A8D5BA' }}>
-          <div
-            className="whitespace-nowrap"
-            style={{
-              animation: 'scroll 20s linear infinite'
-            }}
-          >
-            {[...Array(6)].map((_, i) => (
-              <span key={i} className="text-white font-medium mx-4 sm:mx-6 md:mx-8"
-                style={{ fontSize: 'clamp(0.875rem, 2vw, 1.125rem)' }}>
-                Join us as a Mental Health Professional
-              </span>
-            ))}
-          </div>
+        {/* Premium Marquee */}
+        <div ref={bannerRef} data-reveal className="w-full max-w-7xl mx-auto overflow-hidden mb-24 border-y border-[var(--border)] py-6 relative bg-[var(--surface)]">
+           <div className="absolute left-0 top-0 bottom-0 w-24 bg-gradient-to-r from-[var(--surface)] to-transparent z-10"></div>
+           <div className="absolute right-0 top-0 bottom-0 w-24 bg-gradient-to-l from-[var(--surface)] to-transparent z-10"></div>
+           
+           <div className="whitespace-nowrap flex" style={{ animation: 'scroll 30s linear infinite' }}>
+             {[...Array(6)].map((_, i) => (
+               <React.Fragment key={i}>
+                 <span className="font-bold tracking-widest uppercase mx-6 text-[var(--teal)]"
+                   style={{ 
+                     fontSize: 'clamp(0.875rem, 1.5vw, 1.125rem)',
+                     fontFamily: 'var(--font-mono)'
+                   }}>
+                   Join Us As A Professional
+                 </span>
+                 <span className="mx-6 text-[var(--teal)] opacity-50" style={{ fontSize: '1.2rem' }}>✦</span>
+                 <span className="font-bold tracking-widest uppercase mx-6 text-[var(--text-3)]"
+                   style={{ 
+                     fontSize: 'clamp(0.875rem, 1.5vw, 1.125rem)',
+                     fontFamily: 'var(--font-mono)'
+                   }}>
+                   Transform Mental Healthcare
+                 </span>
+                 <span className="mx-6 text-[var(--teal)] opacity-50" style={{ fontSize: '1.2rem' }}>✦</span>
+               </React.Fragment>
+             ))}
+           </div>
         </div>
-
-        {/* Main Content Section */}
-        <div className="bg-white py-10 sm:py-14 md:py-20 px-4">
-          <div className="max-w-5xl mx-auto text-center">
-            <h2 className="font-normal mb-6 sm:mb-8 md:mb-12 leading-relaxed text-[24px] md:text-[40px]" style={{ color: '#E07A5F', fontFamily: 'Inter, sans-serif' }}>
-              Join us as a mental health professional to kickstart your practice online!
-            </h2>
-            <button
-              onClick={scrollToForm}
-              className="text-white font-semibold rounded-2xl transition-colors duration-200 shadow-lg hover:opacity-90 px-8 py-3 text-[18px] md:text-[24px]"
-              style={{ backgroundColor: '#E07A5F', fontFamily: 'Inter, sans-serif' }}
-            >
-              Join Now
-            </button>
-          </div>
-        </div>
-
-        {/* Add custom CSS for scrolling animation */}
+        
         <style dangerouslySetInnerHTML={{
           __html: `
-          html {
-            scroll-behavior: smooth;
-          }
           @keyframes scroll {
-            0% {
-              transform: translateX(100%);
-            }
-            100% {
-              transform: translateX(-100%);
-            }
+            0% { transform: translateX(0%); }
+            100% { transform: translateX(-50%); }
           }
         `
         }} />
 
-        {/* Why Choose Us Section */}
-      <div className="w-full max-w-7xl mx-auto bg-white px-4 md:px-[37px] py-4 md:py-8">
-        <div className="relative w-full lg:w-[95%] mr-auto h-auto min-h-[180px] md:min-h-[250px] bg-[#ABA5D1] border border-[rgba(0,0,0,0.16)] rounded-[20px] mb-8 flex flex-col md:flex-row overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-300">
-          <div className="w-full md:w-[30%] lg:w-[25%] h-[180px] md:h-auto overflow-hidden flex-shrink-0">
-            <img src="/carrer-01.svg" alt="Mental Health Professional" className="w-full h-full object-cover" />
-          </div>
-          <div className="flex-1 p-5 md:p-6 lg:p-8 flex flex-col justify-center">
-            <h2 className="text-white font-extrabold text-[24px] md:text-[28px] mb-2 md:mb-4 text-left" style={{ fontFamily: 'Inter, sans-serif' }}>
-              Why Choose Us?
-            </h2>
-            <div className="text-white text-[14px] md:text-[15px] leading-relaxed text-justify" style={{ fontFamily: 'Inter, sans-serif' }}>
-              <p>We provide a comprehensive mental wellness platform designed to make therapy accessible, transparent, and effective. With a flexible pricing model, individuals can choose plans that suit their needs without financial strain. Our progress-tracking dashboard and session-wise reports ensure complete clarity on personal growth and improvement. Offering on-demand therapy sessions and a strong network of highly qualified psychologists, we bring expert support right when it's needed the most.</p>
+        {/* ── Content Sections (Bento-style alternating layout) ── */}
+        <div className="flex flex-col gap-8 md:gap-12 mb-24">
+          
+          {/* Why Choose Us Card */}
+          <div ref={card1Ref} data-reveal className="flex flex-col md:flex-row bg-[var(--surface)] border border-[var(--border)] rounded-[32px] overflow-hidden shadow-sm hover:shadow-md transition-all duration-300 group">
+            <div className="flex-1 p-8 md:p-12 lg:p-16 flex flex-col justify-center">
+              <span className="text-xs font-bold tracking-[0.2em] mb-6" style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
+                01
+              </span>
+              <h2 className="text-[32px] md:text-[40px] font-bold mb-6" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}>
+                Why Choose Us?
+              </h2>
+              <div className="text-[16px] leading-relaxed space-y-4" style={{ color: 'var(--text-2)' }}>
+                <p>We provide a comprehensive mental wellness platform designed to make therapy accessible, transparent, and effective. With a flexible pricing model, individuals can choose plans that suit their needs without financial strain.</p>
+                <p>Our progress-tracking dashboard and session-wise reports ensure complete clarity on personal growth and improvement. Offering on-demand therapy sessions and a strong network of highly qualified psychologists, we bring expert support right when it's needed the most.</p>
+              </div>
+            </div>
+            <div className="w-full md:w-[45%] bg-[#EAF1F8] relative overflow-hidden min-h-[300px]">
+               <img src="/carrer-01.svg" alt="Why Choose Us illustration" className="absolute inset-0 w-full h-full object-cover mix-blend-multiply opacity-90 group-hover:scale-105 transition-transform duration-700" />
             </div>
           </div>
-        </div>
-      {/* Culture At Veraawell Section */}
-        <div className="relative w-full lg:w-[95%] ml-auto h-auto min-h-[180px] md:min-h-[250px] bg-[#6DBEDF] border border-[rgba(0,0,0,0.16)] rounded-[20px] mb-8 flex flex-col-reverse md:flex-row overflow-hidden shadow-sm hover:shadow-md transition-shadow duration-300">
-          <div className="flex-1 p-5 md:p-6 lg:p-8 flex flex-col justify-center">
-            <h2 className="text-white font-extrabold text-[24px] md:text-[28px] mb-2 md:mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
-              Culture At Veraawell
-            </h2>
-            <div className="text-white text-[14px] md:text-[15px] leading-relaxed text-justify space-y-2 md:space-y-4" style={{ fontFamily: 'Inter, sans-serif' }}>
-              <p>We provide a comprehensive mental wellness platform designed to make therapy accessible, transparent, and effective. With a flexible pricing model, individuals can choose plans that suit their needs without financial strain. Our progress-tracking dashboard and session-wise reports ensure complete clarity on personal growth and improvement. Offering on-demand therapy sessions and a strong network of highly qualified psychologists, we bring expert support right when it's needed the most.</p>
+
+          {/* Culture At Veraawell Card */}
+          <div ref={card2Ref} data-reveal data-delay="1" className="flex flex-col md:flex-row-reverse bg-[var(--surface)] border border-[var(--border)] rounded-[32px] overflow-hidden shadow-sm hover:shadow-md transition-all duration-300 group">
+            <div className="flex-1 p-8 md:p-12 lg:p-16 flex flex-col justify-center">
+              <span className="text-xs font-bold tracking-[0.2em] mb-6" style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
+                02
+              </span>
+              <h2 className="text-[32px] md:text-[40px] font-bold mb-6" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}>
+                Culture At Veraawell
+              </h2>
+              <div className="text-[16px] leading-relaxed space-y-4" style={{ color: 'var(--text-2)' }}>
+                <p>We foster a collaborative, empathetic, and innovative culture. We believe in providing our professionals with the autonomy they need to effectively treat their clients, while supporting them with top-tier technological tools.</p>
+                <p>Continuous learning and peer support are at the core of our daily operations. We want you to grow as a professional while you help your clients grow.</p>
+              </div>
+            </div>
+            <div className="w-full md:w-[45%] bg-[#FDECEE] relative overflow-hidden min-h-[300px]">
+               <img src="/carrer-02.svg" alt="Culture illustration" className="absolute inset-0 w-full h-full object-cover mix-blend-multiply opacity-90 group-hover:scale-105 transition-transform duration-700" />
             </div>
           </div>
-          <div className="w-full md:w-[30%] lg:w-[25%] h-[180px] md:h-auto overflow-hidden flex-shrink-0">
-            <img src="/carrer-02.svg" alt="Culture At Veraawell" className="w-full h-full object-cover" />
+
+          {/* Benefits of Joining Card */}
+          <div ref={card3Ref} data-reveal data-delay="2" className="flex flex-col md:flex-row bg-[var(--surface)] border border-[var(--border)] rounded-[32px] overflow-hidden shadow-sm hover:shadow-md transition-all duration-300 group">
+            <div className="flex-1 p-8 md:p-12 lg:p-16 flex flex-col justify-center">
+              <span className="text-xs font-bold tracking-[0.2em] mb-6" style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
+                03
+              </span>
+              <h2 className="text-[32px] md:text-[40px] font-bold mb-6" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}>
+                Benefits of Joining
+              </h2>
+              <div className="text-[16px] leading-relaxed space-y-4" style={{ color: 'var(--text-2)' }}>
+                <p>By joining Veraawell, you instantly gain access to a platform that handles your scheduling, billing, and technical support, so you can focus entirely on your clients.</p>
+                <p>Enjoy flexible hours, competitive compensation, and the ability to work from anywhere. Be a part of a movement that is de-stigmatizing mental health across India.</p>
+              </div>
+            </div>
           </div>
+
         </div>
-      {/* Benefits of Joining Section */}
-        <div className="relative w-full lg:w-[95%] mx-auto h-auto min-h-[180px] md:min-h-[250px] bg-[#38ABAE] border border-[rgba(0,0,0,0.16)] rounded-[20px] mb-8 p-5 md:p-6 lg:p-8 flex flex-col justify-center shadow-sm hover:shadow-md transition-shadow duration-300">
-          <h2 className="text-white font-extrabold text-[24px] md:text-[28px] text-center mb-2 md:mb-4" style={{ fontFamily: 'Inter, sans-serif' }}>
-            Benefits of Joining
-          </h2>
-          <div className="text-white text-[14px] md:text-[15px] leading-relaxed text-justify max-w-5xl mx-auto" style={{ fontFamily: 'Inter, sans-serif' }}>
-            <p>We provide a comprehensive mental wellness platform designed to make therapy accessible, transparent, and effective. With a flexible pricing model, individuals can choose plans that suit their needs without financial strain. Our progress-tracking dashboard and session-wise reports ensure complete clarity on personal growth and improvement. Offering on-demand therapy sessions and a strong network of highly qualified psychologists, we bring expert support right when it's needed the most.</p>
-          </div>
-        </div>
-      </div>
 
-      {/* Join Us Now Form - Centered */}
-      <div id="join-us-form" className="w-full max-w-6xl mx-auto bg-white px-4 md:px-[37px] py-4 md:py-8">
-        <div className="max-w-4xl mx-auto rounded-[10px] p-6 md:p-12" style={{ backgroundColor: 'rgba(248,219,185,0.49)', border: '1px solid rgba(0,0,0,0.16)' }}>
-          <h2 className="text-[#BE7959] font-extrabold text-[32px] md:text-[52px] text-center mb-6 md:mb-8" style={{ fontFamily: 'Inter, sans-serif' }}>
-            Join Us Now
-          </h2>
+        {/* ── Join Us Form Section ── */}
+        <div ref={formRef} data-reveal id="join-us-form" className="w-full max-w-3xl mx-auto bg-[var(--surface)] border border-[var(--border)] rounded-[32px] shadow-sm p-8 md:p-12 lg:p-16 relative overflow-hidden">
+          {/* Subtle background flair */}
+          <div className="absolute top-0 right-0 w-64 h-64 bg-[var(--teal-muted)] rounded-full filter blur-3xl opacity-50 z-0"></div>
+          
+          <div className="relative z-10">
+            <h2 className="text-[32px] md:text-[48px] font-bold text-center mb-8" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}>
+              Join Us Now
+            </h2>
 
-          {/* Tab Navigation */}
-          <div className="flex gap-2 md:gap-4 mb-6 md:mb-8 justify-center flex-wrap">
-            <button
-              onClick={() => setActiveTab('partner')}
-              className={`px-4 md:px-6 py-2 md:py-3 rounded-lg font-medium text-[14px] md:text-[16px] transition-all ${activeTab === 'partner'
-                ? 'bg-[#C17B5C] text-white shadow-md'
-                : 'bg-white text-[#C17B5C] border-2 border-[#C17B5C] hover:bg-[#C17B5C] hover:text-white'
-                }`}
-              style={{ fontFamily: 'Inter, sans-serif' }}
-            >
-              Partner with us
-            </button>
-            <button
-              onClick={() => setActiveTab('professional')}
-              className={`px-4 md:px-6 py-2 md:py-3 rounded-lg font-medium text-[14px] md:text-[16px] transition-all ${activeTab === 'professional'
-                ? 'bg-[#C17B5C] text-white shadow-md'
-                : 'bg-white text-[#C17B5C] border-2 border-[#C17B5C] hover:bg-[#C17B5C] hover:text-white'
-                }`}
-              style={{ fontFamily: 'Inter, sans-serif' }}
-            >
-              Join us as a professionals
-            </button>
-            <button
-              onClick={() => setActiveTab('other')}
-              className={`px-4 md:px-6 py-2 md:py-3 rounded-lg font-medium text-[14px] md:text-[16px] transition-all ${activeTab === 'other'
-                ? 'bg-[#C17B5C] text-white shadow-md'
-                : 'bg-white text-[#C17B5C] border-2 border-[#C17B5C] hover:bg-[#C17B5C] hover:text-white'
-                }`}
-              style={{ fontFamily: 'Inter, sans-serif' }}
-            >
-              Other queries
-            </button>
-          </div>
+            {/* Tab Navigation */}
+            <div className="flex gap-2 md:gap-4 mb-8 justify-center flex-wrap">
+              <button
+                onClick={() => { setActiveTab('partner'); setCurrentStep(1); }}
+                className={`px-6 py-3 rounded-full font-medium text-[15px] transition-all ${activeTab === 'partner'
+                  ? 'bg-[var(--teal)] text-white shadow-md'
+                  : 'bg-transparent text-[var(--text-2)] border border-[var(--border)] hover:border-[var(--teal)] hover:text-[var(--teal)]'
+                  }`}
+              >
+                Partner with us
+              </button>
+              <button
+                onClick={() => { setActiveTab('professional'); setCurrentStep(1); }}
+                className={`px-6 py-3 rounded-full font-medium text-[15px] transition-all ${activeTab === 'professional'
+                  ? 'bg-[var(--teal)] text-white shadow-md'
+                  : 'bg-transparent text-[var(--text-2)] border border-[var(--border)] hover:border-[var(--teal)] hover:text-[var(--teal)]'
+                  }`}
+              >
+                Join as Professional
+              </button>
+              <button
+                onClick={() => { setActiveTab('other'); setCurrentStep(1); }}
+                className={`px-6 py-3 rounded-full font-medium text-[15px] transition-all ${activeTab === 'other'
+                  ? 'bg-[var(--teal)] text-white shadow-md'
+                  : 'bg-transparent text-[var(--text-2)] border border-[var(--border)] hover:border-[var(--teal)] hover:text-[var(--teal)]'
+                  }`}
+              >
+                Other Queries
+              </button>
+            </div>
 
-          {activeTab === 'professional' && (
-            <>
-              <p className="text-center text-gray-700 mb-6" style={{ fontFamily: 'Inter, sans-serif' }}>
-                Register to become a mental health professional on our platform
-              </p>
+            {activeTab === 'professional' && (
+              <>
+                <p className="text-center text-[var(--text-2)] mb-8">
+                  Register to become a mental health professional on our platform
+                </p>
 
-              {/* Success/Error Messages */}
-              {success && (
-                <div className="mb-4 p-4 bg-green-50 border border-green-200 rounded-lg">
-                  <p className="text-green-700 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>{success}</p>
-                </div>
-              )}
-              {error && (
-                <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-                  <p className="text-red-700 text-sm" style={{ fontFamily: 'Inter, sans-serif' }}>{error}</p>
-                </div>
-              )}
-
-              {/* Form */}
-              <form onSubmit={handleSubmit} className="space-y-4 md:space-y-6">
-                {/* Full Name */}
-                <div>
-                  <label className="block font-medium mb-2 text-[14px] md:text-[18px]" style={{ color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-                    Full Name: <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.firstName}
-                    onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                    required
-                    className="w-full rounded-lg border px-4 py-3 text-[14px] md:text-[16px] focus:outline-none focus:border-[#C17B5C]"
-                    style={{ borderColor: '#E5E5E5', backgroundColor: 'white', fontFamily: 'Inter, sans-serif' }}
-                  />
+                {/* Progress Bar */}
+                <div className="flex items-center justify-between mb-8 relative">
+                   <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 bg-[var(--border)] -z-10 rounded-full"></div>
+                   <div className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-[var(--teal)] -z-10 rounded-full transition-all duration-500" style={{ width: `${((currentStep - 1) / 2) * 100}%` }}></div>
+                   
+                   {[1, 2, 3].map((step) => (
+                     <div key={step} className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all duration-300 ${currentStep >= step ? 'bg-[var(--teal)] text-white shadow-md scale-110' : 'bg-white text-[var(--text-3)] border border-[var(--border)]'}`}>
+                       {step}
+                     </div>
+                   ))}
                 </div>
 
-                {/* Email and Phone */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block font-medium mb-2 text-[14px] md:text-[18px]" style={{ color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-                      E-mail: <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="email"
-                      value={formData.email}
-                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      required
-                      className="w-full rounded-lg border px-4 py-3 text-[14px] md:text-[16px] focus:outline-none focus:border-[#C17B5C]"
-                      style={{ borderColor: '#E5E5E5', backgroundColor: 'white', fontFamily: 'Inter, sans-serif' }}
-                    />
+                {/* Success/Error Messages */}
+                {success && (
+                  <div className="mb-6 p-4 bg-green-50/50 border border-green-200/50 rounded-2xl">
+                    <p className="text-green-700 text-sm">{success}</p>
                   </div>
-                  <div>
-                    <label className="block font-medium mb-2 text-[14px] md:text-[18px]" style={{ color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-                      Phone no.: <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="tel"
-                      value={formData.phoneNo}
-                      onChange={(e) => setFormData({ ...formData, phoneNo: e.target.value })}
-                      required
-                      className="w-full rounded-lg border px-4 py-3 text-[14px] md:text-[16px] focus:outline-none focus:border-[#C17B5C]"
-                      style={{ borderColor: '#E5E5E5', backgroundColor: 'white', fontFamily: 'Inter, sans-serif' }}
-                    />
+                )}
+                {error && (
+                  <div className="mb-6 p-4 bg-red-50/50 border border-red-200/50 rounded-2xl">
+                    <p className="text-red-700 text-sm">{error}</p>
                   </div>
-                </div>
+                )}
 
-                {/* Job Role and Specialization */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block font-medium mb-2 text-[14px] md:text-[18px]" style={{ color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-                      Job role: <span className="text-red-500">*</span>
-                    </label>
-                    <select
-                      value={formData.jobRole}
-                      onChange={(e) => setFormData({ ...formData, jobRole: e.target.value })}
-                      required
-                      className="w-full rounded-lg border px-4 py-3 text-[14px] md:text-[16px] focus:outline-none focus:border-[#C17B5C]"
-                      style={{ borderColor: '#E5E5E5', backgroundColor: 'white', fontFamily: 'Inter, sans-serif' }}
-                    >
-                      <option value="">Select job role</option>
-                      {jobRoleOptions.map(role => (
-                        <option key={role} value={role}>{role}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block font-medium mb-2 text-[14px] md:text-[18px]" style={{ color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-                      Specialization: <span className="text-red-500">*</span>
-                    </label>
-                    <select
-                      value={formData.specialization}
-                      onChange={(e) => setFormData({ ...formData, specialization: e.target.value })}
-                      required
-                      className="w-full rounded-lg border px-4 py-3 text-[14px] md:text-[16px] focus:outline-none focus:border-[#C17B5C]"
-                      style={{ borderColor: '#E5E5E5', backgroundColor: 'white', fontFamily: 'Inter, sans-serif' }}
-                    >
-                      <option value="">Select specialization</option>
-                      {specializationOptions.map(spec => (
-                        <option key={spec} value={spec}>{spec}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                {/* Where did you hear about us */}
-                <div>
-                  <label className="block font-medium mb-2 text-[14px] md:text-[18px]" style={{ color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-                    Where did you hear about us?
-                  </label>
-                  <select
-                    value={formData.heardAboutUs}
-                    onChange={(e) => setFormData({ ...formData, heardAboutUs: e.target.value })}
-                    className="w-full rounded-lg border px-4 py-3 text-[14px] md:text-[16px] focus:outline-none focus:border-[#C17B5C]"
-                    style={{ borderColor: '#E5E5E5', backgroundColor: 'white', fontFamily: 'Inter, sans-serif' }}
-                  >
-                    <option value="">Select an option</option>
-                    {heardAboutUsOptions.map(option => (
-                      <option key={option} value={option}>{option}</option>
-                    ))}
-                  </select>
-                </div>
-
-                {/* Upload Documents */}
-                <div>
-                  <label className="block font-medium mb-2 text-[14px] md:text-[18px]" style={{ color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-                    Upload Documents:
-                  </label>
-                  <div className="border-2 border-dashed border-[#E5E5E5] rounded-lg p-4 md:p-6 text-center">
-                    <input
-                      type="file"
-                      id="document-upload"
-                      multiple
-                      accept=".pdf,.jpg,.jpeg,.png"
-                      onChange={handleFileSelect}
-                      className="hidden"
-                      disabled={uploading || loading}
-                    />
-                    <label
-                      htmlFor="document-upload"
-                      className="cursor-pointer inline-flex items-center gap-2 px-4 md:px-6 py-2 md:py-3 bg-[#C17B5C] text-white rounded-lg hover:opacity-90 transition-opacity text-[14px] md:text-[16px] font-medium"
-                      style={{ fontFamily: 'Inter, sans-serif' }}
-                    >
-                      <Upload className="w-4 h-4 md:w-5 md:h-5" />
-                      Choose file
-                    </label>
-                    <p className="text-xs md:text-sm text-gray-500 mt-2" style={{ fontFamily: 'Inter, sans-serif' }}>
-                      PDF, JPG, PNG (Max 5MB each, up to 5 files)
-                    </p>
-                  </div>
-
-                  {/* Document Preview */}
-                  {(documents.length > 0 || uploadedDocs.length > 0) && (
-                    <div className="mt-3 space-y-2">
-                      {uploadedDocs.map((doc, index) => (
-                        <div key={`uploaded-${index}`} className="flex items-center justify-between p-3 bg-green-50 border border-green-200 rounded-lg">
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            <FileText className="w-4 h-4 md:w-5 md:h-5 text-green-600 flex-shrink-0" />
-                            <span className="text-xs md:text-sm text-green-700 truncate" style={{ fontFamily: 'Inter, sans-serif' }}>
-                              {doc.fileName}
-                            </span>
-                            <span className="text-xs text-green-600"> Uploaded</span>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => removeUploadedDoc(index)}
-                            className="text-green-600 hover:text-green-800 flex-shrink-0"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
+                <form onSubmit={handleSubmit} className="space-y-6">
+                  
+                  {/* STEP 1 */}
+                  {currentStep === 1 && (
+                    <div className="animate-in fade-in slide-in-from-right-4 duration-500 space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <label className="block text-sm font-medium text-[var(--text-2)] mb-2">First Name *</label>
+                          <input
+                            type="text"
+                            required
+                            value={formData.firstName}
+                            onChange={(e) => setFormData(prev => ({ ...prev, firstName: e.target.value }))}
+                            className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)]"
+                            placeholder="John"
+                          />
                         </div>
-                      ))}
-                      {documents.map((doc, index) => (
-                        <div key={`pending-${index}`} className="flex flex-col gap-2 p-3 bg-gray-50 border border-gray-200 rounded-lg">
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 flex-1 min-w-0">
-                              <FileText className="w-4 h-4 md:w-5 md:h-5 text-gray-600 flex-shrink-0" />
-                              <span className="text-xs md:text-sm text-gray-700 truncate" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                {doc.file.name}
-                              </span>
-                              <span className="text-xs text-gray-500">({(doc.file.size / 1024).toFixed(1)} KB)</span>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => removeDocument(index)}
-                              className="text-gray-600 hover:text-gray-800 flex-shrink-0"
-                              disabled={doc.uploading}
-                            >
-                              <X className="w-4 h-4" />
-                            </button>
-                          </div>
-
-                          {doc.error && (
-                            <p className="text-[10px] text-red-500 font-medium">{doc.error}</p>
-                          )}
-
-                          <div className="flex justify-end">
-                            <button
-                              type="button"
-                              onClick={() => uploadSingleDocument(index)}
-                              disabled={doc.uploading}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-[#C17B5C] text-white rounded text-[12px] font-semibold hover:opacity-90 disabled:opacity-50 transition-all"
-                            >
-                              {doc.uploading ? (
-                                <>
-                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                                  Uploading...
-                                </>
-                              ) : (
-                                <>
-                                  <Upload className="w-3.5 h-3.5" />
-                                  Upload
-                                </>
-                              )}
-                            </button>
-                          </div>
+                        <div>
+                          <label className="block text-sm font-medium text-[var(--text-2)] mb-2">Email Address *</label>
+                          <input
+                            type="email"
+                            required
+                            value={formData.email}
+                            onChange={(e) => setFormData(prev => ({ ...prev, email: e.target.value }))}
+                            className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)]"
+                            placeholder="john@example.com"
+                          />
                         </div>
-                      ))}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <label className="block text-sm font-medium text-[var(--text-2)] mb-2">Phone Number *</label>
+                          <input
+                            type="tel"
+                            required
+                            value={formData.phoneNo}
+                            onChange={(e) => setFormData(prev => ({ ...prev, phoneNo: e.target.value }))}
+                            className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)]"
+                            placeholder="+91 98765 43210"
+                          />
+                        </div>
+                      </div>
                     </div>
                   )}
-                </div>
 
-                {/* Password Fields */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block font-medium mb-2 text-[14px] md:text-[18px]" style={{ color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-                      Password: <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="password"
-                      value={formData.password}
-                      onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                      required
-                      minLength={6}
-                      className="w-full rounded-lg border px-4 py-3 text-[14px] md:text-[16px] focus:outline-none focus:border-[#C17B5C]"
-                      style={{ borderColor: '#E5E5E5', backgroundColor: 'white', fontFamily: 'Inter, sans-serif' }}
-                      placeholder="Min. 6 characters"
-                    />
-                  </div>
-                  <div>
-                    <label className="block font-medium mb-2 text-[14px] md:text-[18px]" style={{ color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-                      Confirm Password: <span className="text-red-500">*</span>
-                    </label>
-                    <input
-                      type="password"
-                      value={formData.confirmPassword}
-                      onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                      required
-                      className="w-full rounded-lg border px-4 py-3 text-[14px] md:text-[16px] focus:outline-none focus:border-[#C17B5C]"
-                      style={{ borderColor: '#E5E5E5', backgroundColor: 'white', fontFamily: 'Inter, sans-serif' }}
-                    />
-                  </div>
-                </div>
+                  {/* STEP 2 */}
+                  {currentStep === 2 && (
+                    <div className="animate-in fade-in slide-in-from-right-4 duration-500 space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <label className="block text-sm font-medium text-[var(--text-2)] mb-2">Job Role *</label>
+                          <select
+                            required
+                            value={formData.jobRole}
+                            onChange={(e) => setFormData(prev => ({ ...prev, jobRole: e.target.value }))}
+                            className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)]"
+                          >
+                            <option value="">Select Role</option>
+                            {jobRoleOptions.map(option => (
+                              <option key={option} value={option}>{option}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-[var(--text-2)] mb-2">Specialization *</label>
+                          <select
+                            required
+                            value={formData.specialization}
+                            onChange={(e) => setFormData(prev => ({ ...prev, specialization: e.target.value }))}
+                            className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)]"
+                          >
+                            <option value="">Select Specialization</option>
+                            {specializationOptions.map(option => (
+                              <option key={option} value={option}>{option}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <label className="block text-sm font-medium text-[var(--text-2)] mb-2">License Number</label>
+                          <input
+                            type="text"
+                            value={formData.licenseNumber}
+                            onChange={(e) => setFormData(prev => ({ ...prev, licenseNumber: e.target.value }))}
+                            className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)]"
+                            placeholder="Optional"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-[var(--text-2)] mb-2">How did you hear about us?</label>
+                          <select
+                            value={formData.heardAboutUs}
+                            onChange={(e) => setFormData(prev => ({ ...prev, heardAboutUs: e.target.value }))}
+                            className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)]"
+                          >
+                            <option value="">Select an option (Optional)</option>
+                            {heardAboutUsOptions.map(option => (
+                              <option key={option} value={option}>{option}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
 
-                {/* How can we help you */}
-                <div>
-                  <label className="block font-medium mb-2 text-[14px] md:text-[18px]" style={{ color: '#C17B5C', fontFamily: 'Inter, sans-serif' }}>
-                    How can we help you?
-                  </label>
-                  <textarea
-                    value={formData.professionalMessage}
-                    onChange={(e) => setFormData({ ...formData, professionalMessage: e.target.value })}
-                    rows={4}
-                    placeholder="Tell us about your experience, qualifications, or any questions..."
-                    className="w-full rounded-lg border px-4 py-3 text-[14px] md:text-[16px] focus:outline-none focus:border-[#C17B5C] resize-none"
-                    style={{ borderColor: '#E5E5E5', backgroundColor: 'white', fontFamily: 'Inter, sans-serif' }}
-                  />
-                </div>
+                      <div>
+                        <label className="block text-sm font-medium text-[var(--text-2)] mb-2">Why do you want to join us?</label>
+                        <textarea
+                          value={formData.professionalMessage}
+                          onChange={(e) => setFormData(prev => ({ ...prev, professionalMessage: e.target.value }))}
+                          className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)] resize-none"
+                          rows={4}
+                          placeholder="Optional message about your professional background and why you want to join Veraawell..."
+                        />
+                      </div>
+                    </div>
+                  )}
 
-                {/* Submit Button */}
-                <div className="text-center pt-4">
-                  <button
-                    type="submit"
-                    disabled={loading || uploading}
-                    className="rounded-lg text-white font-bold shadow-lg hover:opacity-90 transition-opacity px-12 py-3 text-[18px] md:text-[24px] disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
-                    style={{ backgroundColor: '#C17B5C', fontFamily: 'Inter, sans-serif' }}
-                  >
-                    {loading || uploading ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        {uploading ? 'Uploading...' : 'Registering...'}
-                      </>
+                  {/* STEP 3 */}
+                  {currentStep === 3 && (
+                    <div className="animate-in fade-in slide-in-from-right-4 duration-500 space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                        <div>
+                          <label className="block text-sm font-medium text-[var(--text-2)] mb-2">Password *</label>
+                          <input
+                            type="password"
+                            required
+                            value={formData.password}
+                            onChange={(e) => setFormData(prev => ({ ...prev, password: e.target.value }))}
+                            className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)]"
+                            placeholder="Min 6 characters"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-[var(--text-2)] mb-2">Confirm Password *</label>
+                          <input
+                            type="password"
+                            required
+                            value={formData.confirmPassword}
+                            onChange={(e) => setFormData(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                            className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)]"
+                            placeholder="Re-enter password"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Documents Section */}
+                      <div className="pt-6 border-t border-[var(--border)]">
+                        <label className="block text-[18px] font-bold text-[var(--text)] mb-2">Documents</label>
+                        <p className="text-sm text-[var(--text-3)] mb-4">
+                          Upload your CV, License Certificate, Degree, or other relevant documents. (Max 5 documents, PDF/JPG/PNG only, max 5MB each)
+                        </p>
+                        
+                        <div className="space-y-3 mb-4">
+                          {uploadedDocs.map((doc, index) => (
+                            <div key={`uploaded-${index}`} className="flex items-center justify-between p-3 bg-green-50/50 border border-green-200/50 rounded-xl">
+                              <div className="flex items-center gap-3">
+                                <FileText className="w-5 h-5 text-green-600" />
+                                <span className="text-sm font-medium text-green-800">{doc.fileName}</span>
+                              </div>
+                              <button type="button" onClick={() => removeUploadedDoc(index)} className="p-1 hover:bg-green-100 rounded-full transition-colors">
+                                <X className="w-4 h-4 text-green-700" />
+                              </button>
+                            </div>
+                          ))}
+
+                          {documents.map((doc, index) => (
+                            <div key={`pending-${index}`} className="flex items-center justify-between p-3 bg-[var(--bg)] border border-[var(--border)] rounded-xl">
+                              <div className="flex items-center gap-3">
+                                <FileText className="w-5 h-5 text-[var(--text-2)]" />
+                                <span className="text-sm font-medium text-[var(--text-2)]">{doc.file.name}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                {doc.uploading && <Loader2 className="w-4 h-4 animate-spin text-[var(--teal)]" />}
+                                {doc.error && <span className="text-xs text-red-500 mr-2">{doc.error}</span>}
+                                {!doc.uploading && (
+                                  <button type="button" onClick={() => removeDocument(index)} className="p-1 hover:bg-[var(--border)] rounded-full transition-colors">
+                                    <X className="w-4 h-4 text-[var(--text-3)]" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {documents.length + uploadedDocs.length < 5 && (
+                          <div className="relative">
+                            <input
+                              type="file"
+                              multiple
+                              accept=".pdf,.jpg,.jpeg,.png"
+                              onChange={handleFileSelect}
+                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                            />
+                            <div className="w-full flex flex-col items-center justify-center p-8 border-2 border-dashed border-[var(--border)] rounded-2xl bg-[var(--bg)] hover:bg-[var(--surface)] transition-colors group">
+                              <Upload className="w-8 h-8 text-[var(--text-3)] mb-3 group-hover:text-[var(--teal)] transition-colors" />
+                              <p className="text-sm font-medium text-[var(--text-2)] group-hover:text-[var(--teal)] transition-colors">Click or drag files to upload</p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Navigation Buttons */}
+                  <div className="flex justify-between items-center pt-8 border-t border-[var(--border)] mt-8">
+                    {currentStep > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() => setCurrentStep(prev => prev - 1)}
+                        className="px-6 py-3 rounded-full font-medium text-[var(--text-2)] hover:text-[var(--text)] transition-colors"
+                      >
+                        ← Back
+                      </button>
+                    ) : <div></div>}
+                    
+                    {currentStep < 3 ? (
+                      <button
+                        type="button"
+                        onClick={() => setCurrentStep(prev => prev + 1)}
+                        className="px-8 py-3 rounded-full bg-[var(--teal)] text-white font-medium shadow-md hover:shadow-lg transition-all"
+                      >
+                        Next Step →
+                      </button>
                     ) : (
-                      'Submit'
+                      <button
+                        type="submit"
+                        disabled={loading || uploading}
+                        className="rounded-full text-white font-medium shadow-md hover:shadow-lg transition-all px-8 py-3 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2 bg-[var(--teal)] hover:bg-[var(--teal-muted)]"
+                      >
+                        {loading || uploading ? (
+                          <>
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            {uploading ? 'Uploading...' : 'Registering...'}
+                          </>
+                        ) : (
+                          'Submit Application'
+                        )}
+                      </button>
                     )}
-                  </button>
-                </div>
+                  </div>
 
-                <p className="text-center text-sm text-gray-600 mt-4" style={{ fontFamily: 'Inter, sans-serif' }}>
-                  Already have an account? <a href="/auth" className="text-[#C17B5C] hover:underline font-semibold">Sign in here</a>
+                  <p className="text-center text-sm text-[var(--text-3)] mt-6">
+                    Already have an account? <a href="/login" className="text-[var(--teal)] hover:underline font-medium">Sign in here</a>
+                  </p>
+                </form>
+              </>
+            )}
+
+            {activeTab === 'partner' && (
+              <div className="text-center py-16 animate-in fade-in">
+                <p className="text-[var(--text-2)] text-lg">
+                  Partnership opportunities coming soon! Please contact us at <a href="mailto:partnerships@veraawell.com" className="text-[var(--teal)] hover:underline">partnerships@veraawell.com</a>
                 </p>
-              </form>
-            </>
-          )}
+              </div>
+            )}
 
-          {activeTab === 'partner' && (
-            <div className="text-center py-12">
-              <p className="text-gray-600 text-lg" style={{ fontFamily: 'Inter, sans-serif' }}>
-                Partnership opportunities coming soon! Please contact us at <a href="mailto:partnerships@veraawell.com" className="text-[#C17B5C] hover:underline">partnerships@veraawell.com</a>
-              </p>
-            </div>
-          )}
-
-          {activeTab === 'other' && (
-            <div className="text-center py-12">
-              <p className="text-gray-600 text-lg" style={{ fontFamily: 'Inter, sans-serif' }}>
-                For other queries, please reach out to us at <a href="mailto:support@veraawell.com" className="text-[#C17B5C] hover:underline">support@veraawell.com</a>
-              </p>
-            </div>
-          )}
+            {activeTab === 'other' && (
+              <div className="text-center py-16 animate-in fade-in">
+                <p className="text-[var(--text-2)] text-lg">
+                  For other queries, please reach out to us at <a href="mailto:support@veraawell.com" className="text-[var(--teal)] hover:underline">support@veraawell.com</a>
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
-    </>
   );
 };
 
