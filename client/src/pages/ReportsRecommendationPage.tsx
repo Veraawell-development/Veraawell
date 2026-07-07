@@ -8,58 +8,51 @@ import { formatDate } from '../utils/dateUtils';
 import logger from '../utils/logger';
 import type { Report } from '../types';
 import BackToDashboard from '../components/BackToDashboard';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 const ReportsRecommendationPage: React.FC = () => {
-  const [reports, setReports] = useState<Report[]>([]);
-  const [loading, setLoading] = useState(true);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    fetchReports();
-  }, []);
-
-  const fetchReports = async () => {
-    try {
-      setLoading(true);
-      if (!user) return;
-
+  const { data: reports = [], isLoading: loading } = useQuery({
+    queryKey: ['patient', 'reports', user?.userId],
+    queryFn: async () => {
+      if (!user) return [];
       const response = await fetch(`${API_CONFIG.BASE_URL}/session-tools/reports/patient/${user.userId}`, {
         credentials: 'include'
       });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
-      const reportsArray = data.reports || [];
-      logger.info('Reports received:', reportsArray.length);
-      setReports(reportsArray);
-    } catch (error) {
-      logger.error('Error fetching reports:', error);
-      setReports([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+      return data.reports || [];
+    },
+    enabled: !!user
+  });
 
-  const markAsViewed = async (reportId: string) => {
-    try {
-      await fetch(`${API_CONFIG.BASE_URL}/session-tools/reports/${reportId}/view`, {
+  const markAsViewedMutation = useMutation({
+    mutationFn: async (reportId: string) => {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/session-tools/reports/${reportId}/view`, {
         method: 'PUT',
         credentials: 'include'
       });
-    } catch (error) {
+      if (!response.ok) throw new Error('Failed to mark as viewed');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['patient', 'reports', user?.userId] });
+    },
+    onError: (error) => {
       logger.error('Error marking report as viewed:', error);
     }
-  };
+  });
 
   const handleDownload = (report: Report) => {
-    markAsViewed(report._id);
+    if (!report.viewedByPatient) {
+      markAsViewedMutation.mutate(report._id);
+    }
 
     import('jspdf').then(({ jsPDF }) => {
       const doc = new jsPDF();
@@ -190,9 +183,11 @@ const ReportsRecommendationPage: React.FC = () => {
   };
 
   const handleView = (report: Report) => {
-    markAsViewed(report._id);
     setSelectedReport(report);
     setViewModalOpen(true);
+    if (!report.viewedByPatient) {
+      markAsViewedMutation.mutate(report._id);
+    }
   };
 
   const getInitials = (firstName: string, lastName: string) => {
@@ -245,16 +240,16 @@ const ReportsRecommendationPage: React.FC = () => {
               </svg>
             </div>
             <h3 className="text-[18px] font-bold text-gray-800 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
-              No reports available
+              No Reports Available
             </h3>
             <p className="text-gray-500 text-[14px] mb-8" style={{ fontFamily: 'Inter, sans-serif' }}>
-              Your consultation reports and recommendations will appear here.
+              Your doctor hasn't uploaded any reports for you yet.
             </p>
           </div>
         ) : (
           <div className="flex-1 overflow-y-auto pr-2 pb-10 min-h-0">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {reports.map((report) => (
+              {reports.map((report: Report) => (
                 <div
                   key={report._id}
                   className="group bg-white rounded-[16px] border border-gray-100 hover:border-teal-200 shadow-sm hover:shadow-md transition-all overflow-hidden p-6 flex flex-col"

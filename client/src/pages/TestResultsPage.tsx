@@ -3,52 +3,44 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { MENTAL_HEALTH_TESTS } from '../data/mentalHealthTests';
 import { API_CONFIG } from '../config/api';
 import { FiArrowLeft, FiRefreshCw, FiList, FiAlertCircle } from 'react-icons/fi';
+import { useQuery } from '@tanstack/react-query';
 
 const TestResultsPage: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
     const location = useLocation();
 
-    const [assessment, setAssessment] = useState<any>(null);
-    const [loading, setLoading] = useState(true);
-
-    useEffect(() => {
-        // Check if we have preview data from location state
-        if (id === 'preview' && location.state) {
-            const { testType, scores } = location.state;
-            setAssessment({
-                testType,
-                scores,
-                completedAt: new Date(),
-                isPreview: true
-            });
-            setLoading(false);
-        } else if (id) {
-            fetchAssessment();
-        }
-    }, [id, location.state]);
-
-    const fetchAssessment = async () => {
-        try {
-            setLoading(true);
+    const { data: fetchedAssessment = null, isLoading, isError } = useQuery({
+        queryKey: ['assessment', id],
+        queryFn: async () => {
             const response = await fetch(`${API_CONFIG.BASE_URL}/assessments/${id}`, {
                 credentials: 'include'
             });
-
-            if (response.ok) {
-                const data = await response.json();
-                setAssessment(data.assessment);
-            } else {
-                console.error('Failed to fetch assessment');
-                navigate('/patient-dashboard');
+            if (!response.ok) {
+                throw new Error('Failed to fetch assessment');
             }
-        } catch (error) {
-            console.error('Error fetching assessment:', error);
+            const data = await response.json();
+            return data.assessment;
+        },
+        enabled: !!id && id !== 'preview'
+    });
+
+    const previewAssessment = id === 'preview' && location.state ? {
+        testType: location.state.testType,
+        scores: location.state.scores,
+        completedAt: new Date(),
+        isPreview: true
+    } : null;
+
+    const assessment = previewAssessment || fetchedAssessment;
+
+    useEffect(() => {
+        if (isError) {
             navigate('/patient-dashboard');
-        } finally {
-            setLoading(false);
         }
-    };
+    }, [isError, navigate]);
+
+    const loading = id !== 'preview' ? isLoading : !assessment;
 
     if (loading) {
         return (

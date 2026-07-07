@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MENTAL_HEALTH_TESTS } from '../data/mentalHealthTests';
 import { API_CONFIG } from '../config/api';
@@ -8,6 +8,7 @@ import {
   FiTarget, FiSmile, FiArrowRight, FiArrowLeft, FiCheckCircle, FiList
 } from 'react-icons/fi';
 import { IoCheckmarkCircle } from 'react-icons/io5';
+import { useQuery } from '@tanstack/react-query';
 
 const iconMap: Record<string, { icon: React.ReactNode; color: string; bg: string }> = {
     'depression': { icon: <FiCloudRain size={20} />, color: 'text-gray-900', bg: 'bg-gray-100' },
@@ -24,52 +25,34 @@ const iconMap: Record<string, { icon: React.ReactNode; color: string; bg: string
 
 const MentalHealthDashboard: React.FC = () => {
     const navigate = useNavigate();
-    const [latestScores, setLatestScores] = useState<Record<string, any>>({});
 
-    useEffect(() => {
-        fetchLatestScores();
-        const handleFocus = () => fetchLatestScores();
-        const handleVisibilityChange = () => {
-            if (!document.hidden) fetchLatestScores();
-        };
-
-        window.addEventListener('focus', handleFocus);
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-
-        return () => {
-            window.removeEventListener('focus', handleFocus);
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-        };
-    }, []);
-
-    const fetchLatestScores = async () => {
-        try {
+    const { data: latestScores = {} } = useQuery({
+        queryKey: ['patient', 'assessments'],
+        queryFn: async () => {
             const response = await fetch(`${API_CONFIG.BASE_URL}/assessments`, {
                 credentials: 'include'
             });
 
-            if (response.ok) {
-                const data = await response.json();
-                const scoresMap: Record<string, any> = {};
-                
-                if (data.success && Array.isArray(data.assessments)) {
-                    data.assessments.forEach((assessment: any) => {
-                        if (!scoresMap[assessment.testType]) {
-                            scoresMap[assessment.testType] = {
-                                _id: assessment.testType,
-                                latestScore: assessment.scores?.total || 0,
-                                latestSeverity: assessment.scores?.severity || 'minimal',
-                                latestDate: assessment.completedAt
-                            };
-                        }
-                    });
-                }
-                setLatestScores(scoresMap);
+            if (!response.ok) throw new Error('Failed to fetch assessments');
+            
+            const data = await response.json();
+            const scoresMap: Record<string, any> = {};
+            
+            if (data.success && Array.isArray(data.assessments)) {
+                data.assessments.forEach((assessment: any) => {
+                    if (!scoresMap[assessment.testType]) {
+                        scoresMap[assessment.testType] = {
+                            _id: assessment.testType,
+                            latestScore: assessment.scores?.total || 0,
+                            latestSeverity: assessment.scores?.severity || 'minimal',
+                            latestDate: assessment.completedAt
+                        };
+                    }
+                });
             }
-        } catch (error) {
-            console.error('Error fetching scores:', error);
+            return scoresMap;
         }
-    };
+    });
 
     const getSeverityInfo = (score: number, testId: string) => {
         const test = MENTAL_HEALTH_TESTS[testId as keyof typeof MENTAL_HEALTH_TESTS];

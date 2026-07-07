@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { MENTAL_HEALTH_TESTS, calculateTestScore } from '../data/mentalHealthTests';
 import type { TestDefinition } from '../data/mentalHealthTests';
 import { API_CONFIG } from '../config/api';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 const MentalHealthTestPage: React.FC = () => {
     const { testType } = useParams<{ testType: string }>();
@@ -11,6 +12,30 @@ const MentalHealthTestPage: React.FC = () => {
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [responses, setResponses] = useState<Record<number, number>>({});
     const [test, setTest] = useState<TestDefinition | null>(null);
+    const queryClient = useQueryClient();
+
+    const saveAssessmentMutation = useMutation({
+        mutationFn: async (payload: any) => {
+            const response = await fetch(`${API_CONFIG.BASE_URL}/assessments`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) throw new Error('Failed to save assessment');
+            return response.json();
+        },
+        onSuccess: (data) => {
+            queryClient.invalidateQueries({ queryKey: ['patient', 'assessments'] });
+            navigate(`/test-results/${data.assessment._id}`);
+        },
+        onError: (error, variables) => {
+            console.error('Error saving assessment:', error);
+            navigate(`/test-results/preview`, {
+                state: { testType: variables.testType, responses: variables.responses, scores: variables.scores }
+            });
+        }
+    });
 
     useEffect(() => {
         if (!testType || !MENTAL_HEALTH_TESTS[testType]) {
@@ -47,46 +72,18 @@ const MentalHealthTestPage: React.FC = () => {
         }
     };
 
-    const saveResults = async (finalResponses: Record<number, number>) => {
-        try {
-            // Convert Record to Array for API
-            const formattedResponses = Object.entries(finalResponses).map(([id, val]) => ({
-                questionId: parseInt(id),
-                answer: val
-            }));
-
-            const scores = calculateTestScore(test.id, formattedResponses);
-
-            const response = await fetch(`${API_CONFIG.BASE_URL}/assessments`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    testType: test.id,
-                    responses: formattedResponses,
-                    scores
-                })
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                navigate(`/test-results/${data.assessment._id}`);
-            } else {
-                navigate(`/test-results/preview`, {
-                    state: { testType: test.id, responses: formattedResponses, scores }
-                });
-            }
-        } catch (error) {
-            console.error('Error saving assessment:', error);
-            const formattedResponses = Object.entries(finalResponses).map(([id, val]) => ({
-                questionId: parseInt(id),
-                answer: val
-            }));
-            const scores = calculateTestScore(test.id, formattedResponses);
-            navigate(`/test-results/preview`, {
-                state: { testType: test.id, responses: formattedResponses, scores }
-            });
-        }
+    const saveResults = (finalResponses: Record<number, number>) => {
+        const formattedResponses = Object.entries(finalResponses).map(([id, val]) => ({
+            questionId: parseInt(id),
+            answer: val
+        }));
+        const scores = calculateTestScore(test.id, formattedResponses);
+        
+        saveAssessmentMutation.mutate({
+            testType: test.id,
+            responses: formattedResponses,
+            scores
+        });
     };
 
     const progress = visibleQuestions.length > 0 ? ((currentQuestionIndex + 1) / visibleQuestions.length) * 100 : 0;

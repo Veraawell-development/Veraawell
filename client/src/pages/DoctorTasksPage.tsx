@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FiCheckSquare } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config/api';
+import { useQuery } from '@tanstack/react-query';
 
 interface PatientTask {
   _id: string;
@@ -14,20 +15,29 @@ interface PatientTask {
 }
 
 const DoctorTasksPage: React.FC = () => {
-  const [tasks, setTasks] = useState<PatientTask[]>([]);
-  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  useEffect(() => {
-    fetchTasks();
-  }, [user]);
+  const formatDateStr = (date: Date) => {
+    const day = date.getDate();
+    const month = date.toLocaleString('en-US', { month: 'long' });
+    const year = date.getFullYear();
+    const suffix = (d: number) => {
+      if (d > 3 && d < 21) return 'th';
+      switch (d % 10) {
+        case 1: return 'st';
+        case 2: return 'nd';
+        case 3: return 'rd';
+        default: return 'th';
+      }
+    };
+    return `${day}${suffix(day)} ${month} ${year}`;
+  };
 
-  const fetchTasks = async () => {
-    if (!user) return;
-
-    try {
-      setLoading(true);
+  const { data: tasks = [], isLoading: loading } = useQuery({
+    queryKey: ['doctor', 'tasks', 'patients', user?.userId],
+    queryFn: async () => {
+      if (!user) return [];
       const token = localStorage.getItem('token');
       const headers: HeadersInit = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -61,37 +71,18 @@ const DoctorTasksPage: React.FC = () => {
       const groupedTasks: PatientTask[] = Array.from(patientMap.values()).map(data => ({
         _id: data.patientId,
         patientName: data.patientName,
-        lastDate: formatDate(data.lastDate),
+        lastDate: formatDateStr(data.lastDate),
         rawDate: data.lastDate,
         tasks: data.latestTask,
         patientId: data.patientId
       }));
 
       groupedTasks.sort((a, b) => b.rawDate.getTime() - a.rawDate.getTime());
+      return groupedTasks;
+    },
+    enabled: !!user
+  });
 
-      setTasks(groupedTasks);
-    } catch (error) {
-      console.error('Error fetching tasks:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const formatDate = (date: Date) => {
-    const day = date.getDate();
-    const month = date.toLocaleString('en-US', { month: 'long' });
-    const year = date.getFullYear();
-    const suffix = (d: number) => {
-      if (d > 3 && d < 21) return 'th';
-      switch (d % 10) {
-        case 1: return 'st';
-        case 2: return 'nd';
-        case 3: return 'rd';
-        default: return 'th';
-      }
-    };
-    return `${day}${suffix(day)} ${month} ${year}`;
-  };
 
   const getInitials = (name: string) => {
     const parts = name.split(' ').filter(Boolean);

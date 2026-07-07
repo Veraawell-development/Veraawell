@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FiDownload } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config/api';
+import { useQuery } from '@tanstack/react-query';
 
 interface PatientReport {
   _id: string;
@@ -15,67 +16,10 @@ interface PatientReport {
 }
 
 const DoctorReportsPage: React.FC = () => {
-  const [reports, setReports] = useState<PatientReport[]>([]);
-  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  useEffect(() => {
-    fetchReports();
-  }, [user]);
-
-  const fetchReports = async () => {
-    if (!user) return;
-
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('token');
-      const headers: HeadersInit = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/session-tools/reports/doctor/${user.userId}`, {
-        credentials: 'include',
-        headers
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch reports');
-      }
-
-      const data = await response.json();
-      const allReports = data.reports || [];
-
-      // Flatten reports list (Do not group by patient)
-      const formattedReports = allReports.map((report: any) => {
-        const patientId = report.patientId?._id || report.patientId;
-        const patientName = `${report.patientId?.firstName || ''} ${report.patientId?.lastName || ''}`.trim();
-        const reportDate = new Date(report.createdAt);
-
-        return {
-          _id: report._id,
-          patientName: patientName || 'Unknown Patient',
-          lastDate: formatDate(reportDate),
-          rawDate: reportDate,
-          patientId,
-          title: report.title || 'Untitled Report',
-          reportType: report.reportType
-        };
-      });
-
-      // Sort by date (most recent first)
-      formattedReports.sort((a: any, b: any) => b.rawDate.getTime() - a.rawDate.getTime());
-
-      setReports(formattedReports);
-    } catch (error) {
-      console.error('Error fetching reports:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const formatDate = (date: Date) => {
+  const formatDateStr = (date: Date) => {
     const day = date.getDate();
     const month = date.toLocaleString('en-US', { month: 'long' });
     const year = date.getFullYear();
@@ -92,6 +36,45 @@ const DoctorReportsPage: React.FC = () => {
 
     return `${day}${suffix(day)} ${month} ${year}`;
   };
+
+  const { data: reports = [], isLoading: loading } = useQuery({
+    queryKey: ['doctor', 'reports', user?.userId],
+    queryFn: async () => {
+      if (!user) return [];
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const response = await fetch(`${API_BASE_URL}/session-tools/reports/doctor/${user.userId}`, {
+        credentials: 'include',
+        headers
+      });
+
+      if (!response.ok) throw new Error('Failed to fetch reports');
+      const data = await response.json();
+      const allReports = data.reports || [];
+
+      const formattedReports = allReports.map((report: any) => {
+        const patientId = report.patientId?._id || report.patientId;
+        const patientName = `${report.patientId?.firstName || ''} ${report.patientId?.lastName || ''}`.trim();
+        const reportDate = new Date(report.createdAt);
+
+        return {
+          _id: report._id,
+          patientName: patientName || 'Unknown Patient',
+          lastDate: formatDateStr(reportDate),
+          rawDate: reportDate,
+          patientId,
+          title: report.title || 'Untitled Report',
+          reportType: report.reportType
+        };
+      });
+
+      formattedReports.sort((a: any, b: any) => b.rawDate.getTime() - a.rawDate.getTime());
+      return formattedReports;
+    },
+    enabled: !!user
+  });
 
   const getInitials = (name: string) => {
     const parts = name.split(' ').filter(Boolean);
@@ -153,7 +136,7 @@ const DoctorReportsPage: React.FC = () => {
         ) : (
           <div className="flex-1 overflow-y-auto pr-2 pb-10 min-h-0">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {reports.map((report) => (
+              {reports.map((report: PatientReport) => (
                 <div
                   key={report._id}
                   className="group bg-white rounded-[16px] border border-gray-100 hover:border-teal-200 shadow-sm hover:shadow-md transition-all overflow-hidden p-6 flex flex-col"

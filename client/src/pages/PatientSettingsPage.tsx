@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
 import { API_CONFIG } from '../config/api';
 import { useAuth } from '../context/AuthContext';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 const ComingSoonBadge = () => {
   const [isAnimating, setIsAnimating] = useState(false);
@@ -38,68 +39,71 @@ const PatientSettingsPage: React.FC = () => {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
+  const queryClient = useQueryClient();
 
-  const handleUpdatePassword = async (e: React.FormEvent) => {
+  const updatePasswordMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      const res = await fetch(`${API_CONFIG.BASE_URL}/auth/update-password`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        credentials: 'include'
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to update password');
+      return data;
+    },
+    onSuccess: (data) => {
+      toast.success(data.message || 'Password updated successfully');
+      setShowPasswordForm(false);
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+    },
+    onError: (error: any) => {
+      console.error('Password update error:', error);
+      toast.error(error.message || 'An error occurred while updating password');
+    }
+  });
+
+  const deleteAccountMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`${API_CONFIG.BASE_URL}/auth/delete-account`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to delete account');
+      return data;
+    },
+    onSuccess: async () => {
+      toast.success('Account deleted successfully');
+      await logout(); // Clear frontend state and redirect
+      queryClient.clear(); // Clear all queries
+    },
+    onError: (error: any) => {
+      console.error('Account deletion error:', error);
+      toast.error(error.message || 'An error occurred while deleting account');
+    }
+  });
+
+  const handleUpdatePassword = (e: React.FormEvent) => {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
       toast.error('New passwords do not match');
       return;
     }
-    
-    setIsUpdatingPassword(true);
-    try {
-      const res = await fetch(`${API_CONFIG.BASE_URL}/auth/update-password`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ currentPassword, newPassword }),
-        credentials: 'include'
-      });
-      
-      const data = await res.json();
-      if (res.ok) {
-        toast.success(data.message || 'Password updated successfully');
-        setShowPasswordForm(false);
-        setCurrentPassword('');
-        setNewPassword('');
-        setConfirmPassword('');
-      } else {
-        toast.error(data.message || 'Failed to update password');
-      }
-    } catch (error) {
-      console.error('Password update error:', error);
-      toast.error('An error occurred while updating password');
-    } finally {
-      setIsUpdatingPassword(false);
-    }
+    updatePasswordMutation.mutate({ currentPassword, newPassword });
   };
 
-  const handleDeleteAccount = async () => {
+  const handleDeleteAccount = () => {
     const confirmDelete = window.confirm('Are you absolutely sure you want to permanently delete your account? This action cannot be undone.');
     if (!confirmDelete) return;
-
-    setIsDeleting(true);
-    try {
-      const res = await fetch(`${API_CONFIG.BASE_URL}/auth/delete-account`, {
-        method: 'DELETE',
-        credentials: 'include'
-      });
-      
-      const data = await res.json();
-      if (res.ok) {
-        toast.success('Account deleted successfully');
-        await logout(); // Clear frontend state and redirect
-      } else {
-        toast.error(data.message || 'Failed to delete account');
-        setIsDeleting(false);
-      }
-    } catch (error) {
-      console.error('Account deletion error:', error);
-      toast.error('An error occurred while deleting account');
-      setIsDeleting(false);
-    }
+    deleteAccountMutation.mutate();
   };
+
+  const isUpdatingPassword = updatePasswordMutation.isPending;
+  const isDeleting = deleteAccountMutation.isPending;
 
   return (
     <div className="bg-[#f8fafc] min-h-screen">

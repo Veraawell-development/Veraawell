@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { io, Socket } from 'socket.io-client';
 import { API_BASE_URL, SOCKET_URL } from '../config/api';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 interface Message {
   _id: string;
@@ -28,46 +29,47 @@ interface Conversation {
 const MessagesPage: React.FC = () => {
   const navigate = useNavigate();
   const { user, token } = useAuth();
-  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
-  const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const socketRef = useRef<Socket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const selectedConvRef = useRef<string | null>(null);
 
-  // Fetch conversations from API
-  const fetchConversations = async () => {
-    try {
-      // Use credentials: 'include' for cookie-based auth
-      console.log('Fetching conversations from:', `${API_BASE_URL}/chat/conversations`);
-      const response = await fetch(`${API_BASE_URL}/chat/conversations`, {
-        credentials: 'include'
-      });
+  const queryClient = useQueryClient();
 
-      console.log('Response status:', response.status);
+  const { data: conversations = [], isLoading: loading } = useQuery({
+    queryKey: ['chat', 'conversations'],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/chat/conversations`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch conversations');
+      return res.json();
+    },
+    // Auto-select most recent immediately to prevent empty state flashing
+  });
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Conversations received:', data.length, 'conversations');
-        setConversations(data);
-        
-        // Auto-select most recent immediately to prevent empty state flashing
-        if (data.length > 0 && !selectedConversation) {
-          setSelectedConversation(data[0]);
-          loadMessages(data[0]);
-        }
-      } else {
-        const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-        console.error('Failed to fetch conversations:', response.status, errorData);
-      }
-    } catch (error) {
-      console.error('Error fetching conversations:', error);
-    } finally {
-      setLoading(false);
+  const { data: messages = [] } = useQuery({
+    queryKey: ['chat', 'messages', selectedConversation?._id],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/chat/messages/${selectedConversation?._id}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch messages');
+      return res.json();
+    },
+    enabled: !!selectedConversation?._id
+  });
+
+  useEffect(() => {
+    if (conversations.length > 0 && !selectedConversation) {
+      setSelectedConversation(conversations[0]);
     }
-  };
+  }, [conversations, selectedConversation]);
+
+  useEffect(() => {
+    selectedConvRef.current = selectedConversation?._id || null;
+    if (selectedConversation && socketRef.current) {
+      socketRef.current.emit('conversation:join', selectedConversation._id);
+    }
+  }, [selectedConversation]);
 
   // Initialize Socket.IO connection
   useEffect(() => {
@@ -76,7 +78,6 @@ const MessagesPage: React.FC = () => {
     if (!token) {
       console.error('[MESSAGES]  No auth token available from context');
       // Set loading to false so user sees empty state or loading spinner isn't stuck
-      setLoading(false);
       return;
     }
 
@@ -126,16 +127,17 @@ const MessagesPage: React.FC = () => {
 
     // Listen for incoming messages
     socketRef.current.on('message:receive', (message: Message) => {
-      setMessages(prev => [...prev, message]);
-      // Update conversation list
-      fetchConversations();
+      const activeConvId = selectedConvRef.current;
+      if (activeConvId) {
+        queryClient.setQueryData(['chat', 'messages', activeConvId], (old: Message[] = []) => [...old, message]);
+      }
+      queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
     });
 
     // Listen for message notifications
     socketRef.current.on('message:notification', (data) => {
       console.log('New message notification:', data);
-      // Update conversation list
-      fetchConversations();
+      queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
     });
 
     // Cleanup on unmount or token change
@@ -146,49 +148,12 @@ const MessagesPage: React.FC = () => {
     };
   }, [SOCKET_URL, token]); // Add token as dependency
 
-  // Fetch conversations on mount
-  useEffect(() => {
-    fetchConversations();
-  }, []);
-
-  // Load messages for selected conversation
-  const loadMessages = async (conversation: Conversation) => {
-    try {
-      const token = localStorage.getItem('token');
-      const headers: HeadersInit = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/chat/messages/${conversation._id}`, {
-        credentials: 'include',
-        headers
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setMessages(data);
-
-        // Join conversation room via socket
-        if (socketRef.current) {
-          socketRef.current.emit('conversation:join', conversation._id);
-        }
-      } else {
-        console.error('Failed to fetch messages');
-      }
-    } catch (error) {
-      console.error('Error fetching messages:', error);
-    }
-  };
-
   const handleSelectConversation = (conversation: Conversation) => {
     // Leave previous conversation room
     if (selectedConversation && socketRef.current) {
       socketRef.current.emit('conversation:leave', selectedConversation._id);
     }
-
     setSelectedConversation(conversation);
-    loadMessages(conversation);
   };
 
   const handleSendMessage = () => {
@@ -213,6 +178,18 @@ const MessagesPage: React.FC = () => {
     console.log('[MESSAGES] Sending message:', newMessage.substring(0, 50) + '...');
 
     try {
+      // Optimistic UI Update
+      const optimisticMessage: Message = {
+        _id: `temp-${Date.now()}`,
+        text: newMessage.trim(),
+        timestamp: new Date().toISOString(),
+        senderId: user?.userId || '',
+        senderName: user?.firstName || user?.username || 'Me',
+        isSentByMe: true
+      };
+      
+      queryClient.setQueryData(['chat', 'messages', selectedConversation._id], (old: Message[] = []) => [...old, optimisticMessage]);
+
       // Send message via Socket.IO
       socketRef.current.emit('message:send', {
         conversationId: selectedConversation._id,
@@ -223,7 +200,7 @@ const MessagesPage: React.FC = () => {
       setNewMessage('');
 
       // Reset sending state after a short delay
-      setTimeout(() => setSending(false), 500);
+      setTimeout(() => setSending(false), 300);
     } catch (error) {
       console.error('[MESSAGES]  Error sending message:', error);
       alert('Failed to send message. Please try again.');
@@ -302,7 +279,7 @@ const MessagesPage: React.FC = () => {
                 <p className="text-gray-500 font-medium text-[15px]" style={{ fontFamily: 'Inter, sans-serif' }}>No conversations yet</p>
               </div>
             ) : (
-              conversations.map((conversation) => (
+              conversations.map((conversation: Conversation) => (
                 <div
                   key={conversation._id}
                   onClick={() => handleSelectConversation(conversation)}
@@ -394,7 +371,7 @@ const MessagesPage: React.FC = () => {
                   </div>
                 </div>
               ) : (
-                messages.map((message, index) => {
+                messages.map((message: Message, index: number) => {
                   const isLastMessage = index === messages.length - 1;
                   const isNextMessageSameSender = !isLastMessage && messages[index + 1].senderId === message.senderId;
                   

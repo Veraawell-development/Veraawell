@@ -3,13 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { API_CONFIG } from '../config/api';
 import { FiArrowLeft, FiEdit2 } from 'react-icons/fi';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 
 const PatientProfileSetupPage: React.FC = () => {
     const navigate = useNavigate();
     const { user } = useAuth();
-    const [isSaving, setIsSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isEditing, setIsEditing] = useState(true);
+    const queryClient = useQueryClient();
 
     const [formData, setFormData] = useState({
         fullName: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
@@ -20,36 +22,59 @@ const PatientProfileSetupPage: React.FC = () => {
         emergencyContactPhone: ''
     });
 
-    useEffect(() => {
-        fetchProfile();
-    }, []);
-
-    const fetchProfile = async () => {
-        try {
+    const { data: profileData } = useQuery({
+        queryKey: ['patient', 'profile', user?.userId],
+        queryFn: async () => {
             const response = await fetch(`${API_CONFIG.BASE_URL}/profile/setup`, {
                 credentials: 'include'
             });
-            if (response.ok) {
-                const data = await response.json();
-                if (data.success && data.profile) {
-                    const profile = data.profile;
-                    setFormData({
-                        fullName: profile.name || `${profile.firstName || ''} ${profile.lastName || ''}`.trim(),
-                        dateOfBirth: profile.dateOfBirth ? new Date(profile.dateOfBirth).toISOString().split('T')[0] : '',
-                        gender: profile.gender || '',
-                        phone: profile.phoneNumber || '',
-                        emergencyContactName: profile.emergencyContact?.name || '',
-                        emergencyContactPhone: profile.emergencyContact?.phone || ''
-                    });
-                    setIsEditing(false);
-                }
-            }
-        } catch (error) {
-            console.error('Error fetching profile:', error);
-        }
-    };
+            if (!response.ok) throw new Error('Failed to fetch profile');
+            return response.json();
+        },
+        enabled: !!user
+    });
 
-    const handleSubmit = async (e: React.FormEvent) => {
+    useEffect(() => {
+        if (profileData?.success && profileData?.profile) {
+            const profile = profileData.profile;
+            setFormData({
+                fullName: profile.name || `${profile.firstName || ''} ${profile.lastName || ''}`.trim(),
+                dateOfBirth: profile.dateOfBirth ? new Date(profile.dateOfBirth).toISOString().split('T')[0] : '',
+                gender: profile.gender || '',
+                phone: profile.phoneNumber || '',
+                emergencyContactName: profile.emergencyContact?.name || '',
+                emergencyContactPhone: profile.emergencyContact?.phone || ''
+            });
+            setIsEditing(false);
+        }
+    }, [profileData]);
+
+    const profileMutation = useMutation({
+        mutationFn: async (payload: any) => {
+            const response = await fetch(`${API_CONFIG.BASE_URL}/auth/patient-profile`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(payload)
+            });
+            if (!response.ok) {
+                const data = await response.json();
+                throw new Error(data.message || 'Failed to save profile');
+            }
+            return response.json();
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['patient', 'profile', user?.userId] });
+            toast.success('Profile saved successfully');
+            navigate('/patient-dashboard');
+        },
+        onError: (err: any) => {
+            setError(err.message || 'An error occurred. Please try again.');
+            console.error('Error saving profile:', err);
+        }
+    });
+
+    const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         setError(null);
 
@@ -58,40 +83,19 @@ const PatientProfileSetupPage: React.FC = () => {
             return;
         }
 
-        setIsSaving(true);
-
-        try {
-            const response = await fetch(`${API_CONFIG.BASE_URL}/auth/patient-profile`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                credentials: 'include',
-                body: JSON.stringify({
-                    fullName: formData.fullName,
-                    dateOfBirth: formData.dateOfBirth,
-                    gender: formData.gender,
-                    phoneNumber: formData.phone,
-                    emergencyContact: formData.emergencyContactName ? {
-                        name: formData.emergencyContactName,
-                        phone: formData.emergencyContactPhone
-                    } : undefined
-                })
-            });
-
-            if (response.ok) {
-                navigate('/patient-dashboard');
-            } else {
-                const data = await response.json();
-                setError(data.message || 'Failed to save profile');
-            }
-        } catch (error) {
-            setError('An error occurred. Please try again.');
-            console.error('Error saving profile:', error);
-        } finally {
-            setIsSaving(false);
-        }
+        profileMutation.mutate({
+            fullName: formData.fullName,
+            dateOfBirth: formData.dateOfBirth,
+            gender: formData.gender,
+            phoneNumber: formData.phone,
+            emergencyContact: formData.emergencyContactName ? {
+                name: formData.emergencyContactName,
+                phone: formData.emergencyContactPhone
+            } : undefined
+        });
     };
+
+    const isSaving = profileMutation.isPending;
 
     return (
         <div className="h-screen pt-[64px] md:pt-[80px] bg-[#FAFAFA] font-sans selection:bg-teal-100 flex items-center justify-center p-4 md:p-8 box-border">

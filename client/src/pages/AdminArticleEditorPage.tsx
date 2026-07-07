@@ -10,7 +10,7 @@ import {
 import { LuStethoscope } from 'react-icons/lu';
 import ImageUpload from '../components/ImageUpload';
 import toast from 'react-hot-toast';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_BASE_URL } from '../config/api';
 
 const AdminArticleEditorPage: React.FC = () => {
@@ -21,7 +21,6 @@ const AdminArticleEditorPage: React.FC = () => {
     const isEditMode = !!id && id !== 'new';
     const quillRef = useRef<ReactQuill>(null);
 
-    const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     // Sidebar States
@@ -123,18 +122,11 @@ const AdminArticleEditorPage: React.FC = () => {
         return data.imageUrl;
     };
 
-    const handleSubmit = async (publishNow = false) => {
-        if (!formData.title || !formData.description || !formData.content) {
-            toast.error('Please fill in title, description and content');
-            return;
-        }
-
-        setSaving(true);
-        try {
+    const saveArticleMutation = useMutation({
+        mutationFn: async (payload: { publishNow: boolean }) => {
             const url = isEditMode
                 ? `${API_BASE_URL}/articles/admin/${id}`
                 : `${API_BASE_URL}/articles/admin`;
-
             const method = isEditMode ? 'PUT' : 'POST';
             const token = localStorage.getItem('adminToken');
             const headers: HeadersInit = { 'Content-Type': 'application/json' };
@@ -146,28 +138,37 @@ const AdminArticleEditorPage: React.FC = () => {
                 credentials: 'include',
                 body: JSON.stringify({
                     ...formData,
-                    status: publishNow ? 'published' : formData.status
+                    status: payload.publishNow ? 'published' : formData.status
                 })
             });
-
-            if (response.ok) {
-                queryClient.invalidateQueries({ queryKey: ['admin', 'articles'] });
-                if (isEditMode) {
-                    queryClient.invalidateQueries({ queryKey: ['admin', 'article', id] });
-                }
-                toast.success(isEditMode ? 'Article updated successfully' : 'Article created successfully');
-                if (!isEditMode) navigate('/super-admin-dashboard', { state: { tab: 'articles' } });
-            } else {
+            if (!response.ok) {
                 const data = await response.json();
-                toast.error(data.message || 'Failed to save article');
+                throw new Error(data.message || 'Failed to save article');
             }
-        } catch (error) {
-            console.error('Error saving article:', error);
-            toast.error('Failed to save article');
-        } finally {
-            setSaving(false);
+            return response.json();
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['admin', 'articles'] });
+            if (isEditMode) {
+                queryClient.invalidateQueries({ queryKey: ['admin', 'article', id] });
+            }
+            toast.success(isEditMode ? 'Article updated successfully' : 'Article created successfully');
+            if (!isEditMode) navigate('/super-admin-dashboard', { state: { tab: 'articles' } });
+        },
+        onError: (err: any) => {
+            toast.error(err.message || 'Failed to save article');
         }
+    });
+
+    const handleSubmit = (publishNow = false) => {
+        if (!formData.title || !formData.description || !formData.content) {
+            toast.error('Please fill in title, description and content');
+            return;
+        }
+        saveArticleMutation.mutate({ publishNow });
     };
+
+    const saving = saveArticleMutation.isPending;
 
     const handleAddTag = () => {
         if (tagInput.trim() && !formData.tags.includes(tagInput.trim())) {

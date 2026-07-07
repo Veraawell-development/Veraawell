@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FiCheckSquare, FiArrowLeft, FiCalendar, FiFlag } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
+import { useQuery } from '@tanstack/react-query';
 import { API_BASE_URL } from '../config/api';
 
 interface Task {
@@ -18,45 +19,32 @@ interface Task {
 }
 
 const DoctorTasksDetailPage: React.FC = () => {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
   const [patientName, setPatientName] = useState('');
   const navigate = useNavigate();
   const { patientId } = useParams();
   const { user } = useAuth();
 
-  useEffect(() => {
-    fetchPatientTasks();
-  }, [patientId, user]);
-
-  const fetchPatientTasks = async () => {
-    if (!patientId || !user) return;
-
-    try {
-      setLoading(true);
+  const { data: tasks = [], isLoading: loading } = useQuery<Task[]>({
+    queryKey: ['doctor', 'tasks', 'patient', patientId],
+    queryFn: async () => {
       const token = localStorage.getItem('token');
-      const headers: HeadersInit = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
+      const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
       const response = await fetch(`${API_BASE_URL}/session-tools/tasks/patient/${patientId}`, {
         credentials: 'include',
         headers
       });
-
       if (!response.ok) throw new Error('Failed to fetch patient tasks');
       const data = await response.json();
-      const tasksArray = data.tasks || [];
+      return data.tasks || [];
+    },
+    enabled: !!patientId && !!user
+  });
 
-      setTasks(tasksArray);
-      if (tasksArray.length > 0 && tasksArray[0].patientId) {
-        setPatientName(`${tasksArray[0].patientId.firstName || ''} ${tasksArray[0].patientId.lastName || ''}`.trim());
-      }
-    } catch (error) {
-      console.error('Error fetching patient tasks:', error);
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (tasks.length > 0 && tasks[0].patientId) {
+      setPatientName(`${tasks[0].patientId.firstName || ''} ${tasks[0].patientId.lastName || ''}`.trim());
     }
-  };
+  }, [tasks]);
 
   const formatDate = (dateString: string) => {
     if (!dateString) return '-';

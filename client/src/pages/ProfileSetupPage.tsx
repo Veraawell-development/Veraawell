@@ -5,13 +5,15 @@ import ProfileImageUpload from '../components/ProfileImageUpload';
 import BannerImageUpload from '../components/BannerImageUpload';
 import BackToDashboard from '../components/BackToDashboard';
 import { API_BASE_URL } from '../config/api';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 
 const ProfileSetupPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [isSaving, setIsSaving] = useState(false);
   const [isEditing] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 4;
@@ -57,104 +59,92 @@ const ProfileSetupPage: React.FC = () => {
   };
 
   // Fetch existing profile data on component mount
+  const { data: profileData } = useQuery({
+    queryKey: ['doctor', 'profile', user?.userId],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE_URL}/profile/setup`, {
+        method: 'GET',
+        credentials: 'include',
+      });
+      if (!response.ok) throw new Error('Failed to fetch profile');
+      return response.json();
+    },
+    enabled: !!user && user.role === 'doctor'
+  });
+
   React.useEffect(() => {
-    const fetchProfile = async () => {
-      try {
-        const token = localStorage.getItem('token');
-        const headers: Record<string, string> = {};
-        if (token) {
-          headers['Authorization'] = `Bearer ${token}`;
-        }
-        console.log('[ProfileSetupPage] Fetching profile data...');
-        const response = await fetch(`${API_BASE_URL}/profile/setup`, {
-          method: 'GET',
-          credentials: 'include',
-          headers,
-        });
-
-        if (response.ok) {
-          const data = await response.json();
-          if (data.profile) {
-            setFormData({
-              name: data.profile.name || `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
-              profileImage: data.profile.profileImage || '',
-              bannerImage: data.profile.bannerImage || '',
-              qualification: data.profile.qualification || [],
-              languages: data.profile.languages || [],
-              type: data.profile.type || '',
-              experience: data.profile.experience || '',
-              specialization: data.profile.specialization || [],
-              price20: data.profile.price20 || '',
-              price40: data.profile.price40 || '',
-              price55: data.profile.price55 || '',
-              audioPrice20: data.profile.audioPrice20 || '',
-              audioPrice40: data.profile.audioPrice40 || '',
-              audioPrice55: data.profile.audioPrice55 || '',
-              // Ensure modeOfSession is always an array (handle legacy string data)
-              modeOfSession: Array.isArray(data.profile.modeOfSession)
-                ? data.profile.modeOfSession
-                : (data.profile.modeOfSession ? [data.profile.modeOfSession] : []),
-              quote: data.profile.quote || '',
-              quoteAuthor: data.profile.quoteAuthor || '',
-              introduction: data.profile.introduction || ''
-            });
-            // Keep isEditing true so users can always edit their profile
-          }
-        }
-      } catch (err) {
-        console.error('Failed to fetch profile:', err);
-        // Don't show error to user, just use empty form
-      }
-    };
-
-    if (user?.role === 'doctor') {
-      fetchProfile();
+    if (profileData?.profile) {
+      setFormData({
+        name: profileData.profile.name || `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
+        profileImage: profileData.profile.profileImage || '',
+        bannerImage: profileData.profile.bannerImage || '',
+        qualification: profileData.profile.qualification || [],
+        languages: profileData.profile.languages || [],
+        type: profileData.profile.type || '',
+        experience: profileData.profile.experience || '',
+        specialization: profileData.profile.specialization || [],
+        price20: profileData.profile.price20 || '',
+        price40: profileData.profile.price40 || '',
+        price55: profileData.profile.price55 || '',
+        audioPrice20: profileData.profile.audioPrice20 || '',
+        audioPrice40: profileData.profile.audioPrice40 || '',
+        audioPrice55: profileData.profile.audioPrice55 || '',
+        modeOfSession: Array.isArray(profileData.profile.modeOfSession)
+          ? profileData.profile.modeOfSession
+          : (profileData.profile.modeOfSession ? [profileData.profile.modeOfSession] : []),
+        quote: profileData.profile.quote || '',
+        quoteAuthor: profileData.profile.quoteAuthor || '',
+        introduction: profileData.profile.introduction || ''
+      });
     }
-  }, [user, API_BASE_URL]);
+  }, [profileData, user]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSaving(true);
-    setError(null);
-    console.log('[ProfileSetupPage] handleSubmit called - will navigate to dashboard after save');
-
-    try {
+  const profileMutation = useMutation({
+    mutationFn: async (payload: any) => {
       const response = await fetch(`${API_BASE_URL}/profile/setup`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({
-          ...formData,
-          experience: parseInt(formData.experience) || 0,
-          pricing: {
-            session20: parseFloat(formData.price20) || 0,
-            session40: parseFloat(formData.price40) || 0,
-            session55: parseFloat(formData.price55) || 0,
-            audio: {
-              session20: parseFloat(formData.audioPrice20) || 0,
-              session40: parseFloat(formData.audioPrice40) || 0,
-              session55: parseFloat(formData.audioPrice55) || 0
-            }
-          }
-        })
+        body: JSON.stringify(payload)
       });
-
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.message || 'Failed to save profile');
       }
-
-      // Redirect to dashboard after successful save
-      console.log('[ProfileSetupPage] Save successful - navigating to dashboard');
-      navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save profile');
-    } finally {
-      setIsSaving(false);
+      return response.json();
+    },
+    onSuccess: () => {
+      toast.success('Profile saved successfully!');
+      queryClient.invalidateQueries({ queryKey: ['doctor', 'profile', user?.userId] });
+      navigate('/doctor-dashboard');
+    },
+    onError: (err: any) => {
+      setError(err.message || 'Failed to save profile');
+      toast.error('Error saving profile');
     }
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    profileMutation.mutate({
+      ...formData,
+      experience: parseInt(formData.experience) || 0,
+      pricing: {
+        session20: parseFloat(formData.price20) || 0,
+        session40: parseFloat(formData.price40) || 0,
+        session55: parseFloat(formData.price55) || 0,
+        audio: {
+          session20: parseFloat(formData.audioPrice20) || 0,
+          session40: parseFloat(formData.audioPrice40) || 0,
+          session55: parseFloat(formData.audioPrice55) || 0
+        }
+      }
+    });
   };
+
+  const isSaving = profileMutation.isPending;
+
 
   const handleNext = () => {
     if (currentStep < totalSteps && canProceed()) {

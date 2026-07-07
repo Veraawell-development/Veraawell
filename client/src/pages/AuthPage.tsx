@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { FcGoogle } from 'react-icons/fc';
 import { FiUser, FiMail, FiPhone, FiLock, FiEye, FiEyeOff, FiArrowLeft, FiChevronRight } from 'react-icons/fi';
 import { LuStethoscope } from 'react-icons/lu';
+import { useQueryClient, useMutation } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config/api';
 import toast from 'react-hot-toast';
@@ -121,43 +122,96 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   const clearMsgs = () => { setError(''); setRegisterMsg(''); };
 
   // ── All original handlers — zero logic changes ────────────────────────────
-  const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault(); setError(''); setLoading(true);
-    try {
+  const loginMutation = useMutation({
+    mutationFn: async (payload: any) => {
       const res = await fetch(`${API_BASE_URL}/auth/login`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ username, password, role: isProfessional ? 'doctor' : 'patient' }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
-      if (res.ok) {
-        if (data.requiresVerification) {
-          setRegisteredEmail(data.email || username);
-          setStep('verify');
-          setLoading(false);
-          return;
-        }
-        if (data.token) setAuthToken(data.token);
-        if (onSuccess) onSuccess();
-        if (redirectFrom) navigate(redirectFrom, { state: { serviceType: redirectServiceType, bookingType: redirectBookingType } });
-      } else {
-        if (data.errors) {
-          const errorMsgs = Object.values(data.errors).join(', ');
-          setError(errorMsgs);
-        } else {
-          if (data.requiresVerification) {
-          setRegisteredEmail(data.email || username);
-          setStep('verify');
-          setLoading(false);
-          return;
-        }
-        setError(data.message || 'Login failed');
-        }
+      if (!res.ok) {
+        if (data.errors) throw new Error(Object.values(data.errors).join(', '));
+        if (data.requiresVerification) return { ...data, needsVerify: true };
+        throw new Error(data.message || 'Login failed');
       }
-    } catch { setError('Network error. Please try again.'); }
-    setLoading(false);
+      return data;
+    },
+    onSuccess: (data) => {
+      if (data.needsVerify) {
+        setRegisteredEmail(data.email || username);
+        setStep('verify');
+        return;
+      }
+      if (data.token) setAuthToken(data.token);
+      if (onSuccess) onSuccess();
+      if (redirectFrom) navigate(redirectFrom, { state: { serviceType: redirectServiceType, bookingType: redirectBookingType } });
+    },
+    onError: (err: any) => { setError(err.message || 'Network error. Please try again.'); }
+  });
+
+  const registerMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      const validateRes = await fetch(`${API_BASE_URL}/auth/validate-registration`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const validateData = await validateRes.json();
+      if (!validateRes.ok) {
+        if (validateData.errors) throw new Error(Object.values(validateData.errors).join(', '));
+        throw new Error(validateData.message || 'Validation failed');
+      }
+
+      const res = await fetch(`${API_BASE_URL}/auth/register`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        if (data.errors) throw new Error(Object.values(data.errors).join(', '));
+        throw new Error(data.message || 'Registration failed');
+      }
+      return data;
+    },
+    onSuccess: async (data, variables) => {
+      if (data.requiresVerification) {
+        setRegisteredEmail(data.email || variables.email);
+        setStep('verify');
+        return;
+      }
+      toast.success('Account created!');
+      if (data.token) setAuthToken(data.token);
+      await checkAuth();
+      setFirstName(''); setEmail(''); setPhoneNo(''); setRegisterPassword(''); setRegisterConfirm('');
+      navigate('/patient-dashboard');
+    },
+    onError: (err: any) => { setRegisterMsg(err.message || 'Network error. Please try again.'); }
+  });
+
+  const verifyOtpMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      const res = await fetch(`${API_BASE_URL}/auth/verify-signup`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Verification failed');
+      return data;
+    },
+    onSuccess: async (data) => {
+      toast.success('Email verified successfully!');
+      if (data.token) setAuthToken(data.token);
+      await checkAuth();
+      navigate(isProfessional ? '/doctor-dashboard' : '/patient-dashboard');
+    },
+    onError: (err: any) => { setError(err.message || 'Network error. Please try again.'); }
+  });
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault(); setError('');
+    loginMutation.mutate({ username, password, role: isProfessional ? 'doctor' : 'patient' });
   };
 
-  const handleRegister = async (e: React.FormEvent) => {
+  const handleRegister = (e: React.FormEvent) => {
     e.preventDefault(); setRegisterMsg(''); setError('');
     if (!firstName.trim()) return setRegisterMsg('Name is required');
     if (!email.trim()) return setRegisterMsg('Email is required');
@@ -165,86 +219,22 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
     if (!registerPassword.trim()) return setRegisterMsg('Password is required');
     if (!registerConfirm.trim()) return setRegisterMsg('Confirm your password');
     if (registerPassword !== registerConfirm) return setRegisterMsg('Passwords do not match');
-    setLoading(true);
-    try {
-      // Step 1: Validate registration data on server before sending OTP!
-      const validateRes = await fetch(`${API_BASE_URL}/auth/validate-registration`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ firstName, lastName: '', email, username: email, password: registerPassword, phoneNo, role: 'patient' }),
-      });
-      const validateData = await validateRes.json();
-      
-      if (!validateRes.ok) {
-        if (validateData.errors) {
-          const errorMsgs = Object.values(validateData.errors).join(', ');
-          setRegisterMsg(errorMsgs);
-        } else {
-          setRegisterMsg(validateData.message || 'Validation failed');
-        }
-        setLoading(false);
-        return; // Stop here!
-      }
-
-      // Step 2: If validation passes, register directly (Skip OTP)!
-      const res = await fetch(`${API_BASE_URL}/auth/register`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
-        body: JSON.stringify({ firstName, lastName: '', email, username: email, password: registerPassword, phoneNo, role: 'patient' }),
-      });
-      const data = await res.json();
-      
-      if (res.ok) {
-        if (data.requiresVerification) {
-          setRegisteredEmail(data.email || email);
-          setStep('verify');
-          setLoading(false);
-          return;
-        }
-        toast.success('Account created!');
-        if (data.token) setAuthToken(data.token);
-        await checkAuth();
-        setFirstName(''); setEmail(''); setPhoneNo(''); setRegisterPassword(''); setRegisterConfirm('');
-        setLoading(false); navigate('/patient-dashboard');
-      } else {
-        if (data.errors) {
-          const errorMsgs = Object.values(data.errors).join(', ');
-          setRegisterMsg(errorMsgs);
-        } else {
-          setRegisterMsg(data.message || 'Registration failed');
-        }
-        setLoading(false);
-      }
-    } catch { setRegisterMsg('Network error. Please try again.'); setLoading(false); }
+    
+    registerMutation.mutate({ firstName, lastName: '', email, username: email, password: registerPassword, phoneNo, role: 'patient' });
   };
 
   const handleGoogleAuth = () => {
     window.location.href = `${API_BASE_URL}/auth/google?role=${isProfessional ? 'doctor' : 'patient'}`;
   };
 
-  const handleVerifyOTP = async (e: React.FormEvent) => {
+  const handleVerifyOTP = (e: React.FormEvent) => {
     e.preventDefault();
     if (!otp || otp.length !== 6) return setError('Please enter a 6-digit verification code');
-    setLoading(true); setError('');
-    try {
-      const res = await fetch(`${API_BASE_URL}/auth/verify-signup`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: registeredEmail, otp })
-      });
-      const data = await res.json();
-      if (res.ok) {
-        toast.success('Email verified successfully!');
-        if (data.token) setAuthToken(data.token);
-        await checkAuth();
-        setLoading(false);
-        navigate(isProfessional ? '/doctor-dashboard' : '/patient-dashboard');
-      } else {
-        setError(data.message || 'Verification failed');
-        setLoading(false);
-      }
-    } catch {
-      setError('Network error. Please try again.');
-      setLoading(false);
-    }
+    setError('');
+    verifyOtpMutation.mutate({ email: registeredEmail, otp });
   };
+
+  const isMutationLoading = loginMutation.isPending || registerMutation.isPending || verifyOtpMutation.isPending;
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
@@ -425,16 +415,16 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
                 </p>
                 <div className="pt-2">
                   <input type="text" value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                    placeholder="------" disabled={loading}
+                    placeholder="------" disabled={isMutationLoading}
                     className="w-full text-center tracking-[0.5em] font-mono text-xl py-3 bg-white border rounded-xl transition-all disabled:opacity-40"
                     style={{ borderColor: 'var(--border)', color: 'var(--text)', outline: 'none' }}
                     onFocus={e => { e.target.style.borderColor = 'var(--teal)'; e.target.style.boxShadow = '0 0 0 3px var(--teal-muted)'; }}
                     onBlur={e => { e.target.style.borderColor = 'var(--border)'; e.target.style.boxShadow = 'none'; }} />
                 </div>
-                <motion.button variants={fadeUp} type="submit" disabled={loading || otp.length !== 6} whileTap={{ scale: 0.98 }}
+                <motion.button variants={fadeUp} type="submit" disabled={isMutationLoading || otp.length !== 6} whileTap={{ scale: 0.98 }}
                   className="w-full py-3 text-white text-[14px] font-semibold rounded-xl transition-all shadow-sm flex items-center justify-center gap-2 mt-2 disabled:opacity-50"
                   style={{ background: 'var(--teal)' }}>
-                  {loading ? <Spinner text="Verifying..." /> : 'Verify Account'}
+                  {isMutationLoading ? <Spinner text="Verifying..." /> : 'Verify Account'}
                 </motion.button>
                 <button type="button" onClick={() => setStep('auth')} className="text-[12px] text-neutral-400 hover:text-neutral-600 font-medium mt-2">
                   Back to login

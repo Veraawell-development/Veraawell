@@ -16,6 +16,7 @@ import type { Session, Report, Task, JournalEntry } from '../types';
 import { useDataSocket } from '../hooks/useDataSocket';
 import toast from 'react-hot-toast';
 import { MENTAL_HEALTH_TESTS } from '../data/mentalHealthTests';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 const PatientDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -24,183 +25,140 @@ const PatientDashboard: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
-  const [userName, setUserName] = useState<string>('User');
+
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
-  const [recentReports, setRecentReports] = useState<Report[]>([]);
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
-  const [recentJournal, setRecentJournal] = useState<JournalEntry[]>([]);
-  const [pendingTasks, setPendingTasks] = useState<Task[]>([]);
-  const [unreadCount, setUnreadCount] = useState<number>(0);
   const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState<number>(0);
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [isHotlineModalOpen, setIsHotlineModalOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [latestScores, setLatestScores] = useState<Record<string, any>>({});
+  const [loading, setLoading] = useState(false);
   const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [sessionToRate, setSessionToRate] = useState<Session | null>(null);
 
   //  REAL-TIME: Connect to data socket
   const { socket } = useDataSocket();
+  const queryClient = useQueryClient();
 
+  // Show welcome modal only once
   useEffect(() => {
-    if (!user) return;
-
-    const cacheKey = `patient_dash_data_${user.userId}`;
-    const cachedData = localStorage.getItem(cacheKey);
-    if (cachedData) {
-      try {
-        const parsed = JSON.parse(cachedData);
-        setUserName(parsed.userName || 'User');
-        setRecentReports(parsed.recentReports || []);
-        setPendingTasks(parsed.pendingTasks || []);
-        setRecentJournal(parsed.recentJournal || []);
-        setUnreadCount(parsed.unreadCount || 0);
-        setLoading(false);
-      } catch (e) {
-        console.error('Failed to parse cached dashboard data', e);
+    if (user && user.profileCompleted === false) {
+      const hasSeenWelcome = localStorage.getItem(`welcomeModal_${user.userId}`);
+      if (!hasSeenWelcome) {
+        setShowWelcomeModal(true);
       }
-    }
-
-    // Load all dashboard data in parallel
-    const loadDashboardData = async () => {
-      if (!cachedData) setLoading(true);
-      try {
-        // Parallel API calls for better performance
-        const [profileRes, reportsRes, tasksRes, journalRes, unreadRes] = await Promise.all([
-          fetch(`${API_CONFIG.BASE_URL}/auth/profile`, { credentials: 'include' }),
-          fetch(`${API_CONFIG.BASE_URL}/session-tools/reports/patient/${user.userId}`, { credentials: 'include' }),
-          fetch(`${API_CONFIG.BASE_URL}/session-tools/tasks/patient/${user.userId}?status=pending`, { credentials: 'include' }),
-          fetch(`${API_CONFIG.BASE_URL}/session-tools/journal/patient/${user.userId}`, { credentials: 'include' }),
-          fetch(`${API_CONFIG.BASE_URL}/chat/unread-count`, { credentials: 'include' })
-        ]);
-
-        let resolvedUserName = 'User';
-        let resolvedRecentReports: Report[] = [];
-        let resolvedPendingTasks: Task[] = [];
-        let resolvedRecentJournal: JournalEntry[] = [];
-        let resolvedUnreadCount = 0;
-
-        if (profileRes.ok) {
-          const userData = await profileRes.json();
-          resolvedUserName = userData.user?.firstName || userData.user?.username || 'User';
-          setUserName(resolvedUserName);
-        }
-
-        if (reportsRes.ok) {
-          const data = await reportsRes.json();
-          resolvedRecentReports = (data.reports || []).slice(0, 4);
-          setRecentReports(resolvedRecentReports);
-        }
-
-        if (tasksRes.ok) {
-          const data = await tasksRes.json();
-          resolvedPendingTasks = (data.tasks || []).slice(0, 4);
-          setPendingTasks(resolvedPendingTasks);
-        }
-
-        if (journalRes.ok) {
-          const data = await journalRes.json();
-          resolvedRecentJournal = (data.journals || []).slice(0, 4);
-          setRecentJournal(resolvedRecentJournal);
-        }
-
-        if (unreadRes.ok) {
-          const data = await unreadRes.json();
-          resolvedUnreadCount = data.unreadCount || 0;
-          setUnreadCount(resolvedUnreadCount);
-        }
-
-        // Cache the newly loaded data
-        const newData = {
-          userName: resolvedUserName,
-          recentReports: resolvedRecentReports,
-          pendingTasks: resolvedPendingTasks,
-          recentJournal: resolvedRecentJournal,
-          unreadCount: resolvedUnreadCount
-        };
-        localStorage.setItem(cacheKey, JSON.stringify(newData));
-
-      } catch (error) {
-        logger.error('Error loading dashboard data:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    loadDashboardData();
-    setCalendarRefreshTrigger(prev => prev + 1);
-    checkForPendingFeedback();
-
-    // Show welcome modal only once
-    const hasSeenWelcome = localStorage.getItem(`welcomeModal_${user.userId}`);
-    if (!hasSeenWelcome && user.profileCompleted === false) {
-      setShowWelcomeModal(true);
     }
   }, [user]);
 
-  // Separate useEffect for fetching test scores to isolate it from other fetches
-  useEffect(() => {
-    if (!user) return;
+  // Replace manual fetching with React Query
+  const { data: recentReports = [] } = useQuery({
+    queryKey: ['patient', 'reports', user?.userId],
+    queryFn: async () => {
+      const res = await fetch(`${API_CONFIG.BASE_URL}/session-tools/reports/patient/${user?.userId}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch reports');
+      const data = await res.json();
+      return (data.reports || []).slice(0, 4);
+    },
+    enabled: !!user?.userId,
+  });
 
-    const fetchScores = async () => {
-      try {
-        const response = await fetch(`${API_CONFIG.BASE_URL}/assessments`, { credentials: 'include' });
-        if (response.ok) {
-          const data = await response.json();
-          console.log('[DASHBOARD] Scores API Response (History):', data);
-          const scoresMap: Record<string, any> = {};
-          
-          if (data.success && Array.isArray(data.assessments)) {
-            data.assessments.forEach((assessment: any) => {
-              if (!scoresMap[assessment.testType]) {
-                scoresMap[assessment.testType] = {
-                  _id: assessment.testType,
-                  latestScore: assessment.scores?.total || 0,
-                  latestSeverity: assessment.scores?.severity || 'minimal',
-                  latestDate: assessment.completedAt
-                };
-              }
-            });
+  const { data: pendingTasks = [] } = useQuery({
+    queryKey: ['patient', 'tasks', user?.userId, 'pending'],
+    queryFn: async () => {
+      const res = await fetch(`${API_CONFIG.BASE_URL}/session-tools/tasks/patient/${user?.userId}?status=pending`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch tasks');
+      const data = await res.json();
+      return (data.tasks || []).slice(0, 4);
+    },
+    enabled: !!user?.userId,
+  });
+
+  const { data: recentJournal = [] } = useQuery({
+    queryKey: ['patient', 'journal', user?.userId],
+    queryFn: async () => {
+      const res = await fetch(`${API_CONFIG.BASE_URL}/session-tools/journal/patient/${user?.userId}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch journal');
+      const data = await res.json();
+      return (data.journals || []).slice(0, 4);
+    },
+    enabled: !!user?.userId,
+  });
+
+  const { data: unreadCount = 0 } = useQuery({
+    queryKey: ['chat', 'unreadCount'],
+    queryFn: async () => {
+      const res = await fetch(`${API_CONFIG.BASE_URL}/chat/unread-count`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch unread count');
+      const data = await res.json();
+      return data.unreadCount || 0;
+    },
+    enabled: !!user?.userId,
+    refetchInterval: 10000,
+  });
+
+  const { data: latestScores = {} } = useQuery({
+    queryKey: ['patient', 'assessments', user?.userId],
+    queryFn: async () => {
+      const res = await fetch(`${API_CONFIG.BASE_URL}/assessments`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch assessments');
+      const data = await res.json();
+      const scoresMap: Record<string, any> = {};
+      if (data.success && Array.isArray(data.assessments)) {
+        data.assessments.forEach((assessment: any) => {
+          if (!scoresMap[assessment.testType]) {
+            scoresMap[assessment.testType] = {
+              _id: assessment.testType,
+              latestScore: assessment.scores?.total || 0,
+              latestSeverity: assessment.scores?.severity || 'minimal',
+              latestDate: assessment.completedAt
+            };
           }
-          setLatestScores(scoresMap);
-        }
-      } catch (error) {
-        console.error('Error fetching scores in dashboard:', error);
+        });
       }
-    };
+      return scoresMap;
+    },
+    enabled: !!user?.userId,
+  });
 
-    fetchScores();
-  }, [user]);
+  const { data: pendingFeedbackSession } = useQuery({
+    queryKey: ['patient', 'pendingFeedback'],
+    queryFn: async () => {
+      const res = await fetch(`${API_CONFIG.BASE_URL}/sessions/pending-feedback`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch pending feedback');
+      const data = await res.json();
+      return data.session || null;
+    },
+    enabled: !!user?.userId,
+  });
+
+  useEffect(() => {
+    if (pendingFeedbackSession) {
+      setSessionToRate(pendingFeedbackSession);
+      setShowRatingModal(true);
+    }
+  }, [pendingFeedbackSession]);
 
   //  REAL-TIME: Listen for session events
   useEffect(() => {
     if (!socket) return;
 
     socket.on('session:booked', ({ session }) => {
-      console.log('[REAL-TIME] New session booked:', session);
       toast.success('New session booked!');
       setCalendarRefreshTrigger(prev => prev + 1);
     });
 
     socket.on('session:cancelled', ({ sessionId, cancelledBy }) => {
-      console.log('[REAL-TIME] Session cancelled:', { sessionId, cancelledBy });
       toast('A session was cancelled', { icon: 'ℹ️' });
       setCalendarRefreshTrigger(prev => prev + 1);
     });
 
     socket.on('session:status-change', ({ sessionId, status }) => {
-      console.log('[REAL-TIME] Session status changed:', { sessionId, status });
       setCalendarRefreshTrigger(prev => prev + 1);
     });
 
     socket.on('chat:new-message', ({ message, senderName }) => {
-      console.log('[REAL-TIME] New chat message received:', message);
-      // Play notification sound (removed missing function)
-      
-      // Show toast notification
       toast(`New message from ${senderName}`);
-      setUnreadCount(prev => prev + 1);
+      queryClient.invalidateQueries({ queryKey: ['chat', 'unreadCount'] });
     });
 
     return () => {
@@ -209,62 +167,31 @@ const PatientDashboard: React.FC = () => {
       socket.off('session:status-change');
       socket.off('chat:new-message');
     };
-  }, [socket]);
+  }, [socket, queryClient]);
 
   //  FALLBACK REFRESH: Detect navigation state and refresh dashboard
   useEffect(() => {
     const state = location.state as { refreshSessions?: boolean; showRating?: boolean; sessionId?: string };
 
     if (state?.refreshSessions) {
-      console.log('[PATIENT-DASHBOARD]  Refreshing after booking');
       toast.success('Session booked! Refreshing dashboard...');
       setCalendarRefreshTrigger(prev => prev + 1);
     }
 
-    // If navigated from VideoCallRoom with showRating, trigger the feedback check
     if (state?.showRating) {
-      console.log('[PATIENT-DASHBOARD] ⭐ Post-call: checking for pending feedback');
-      checkForPendingFeedback();
+      queryClient.invalidateQueries({ queryKey: ['patient', 'pendingFeedback'] });
     }
 
     // Clear state to prevent repeat triggers on refresh
     if (state?.refreshSessions || state?.showRating) {
       navigate(location.pathname, { replace: true, state: {} });
     }
-  }, [location.state, navigate, location.pathname]);
+  }, [location.state, navigate, location.pathname, queryClient]);
 
-  // Single source of truth: Ask the backend if there's a session needing feedback
-  const checkForPendingFeedback = async () => {
-    try {
-      console.log('[FEEDBACK] Checking backend for pending feedback...');
-      const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/pending-feedback`, {
-        credentials: 'include'
-      });
-
-      if (!response.ok) {
-        console.error('[FEEDBACK] API error:', response.status);
-        return;
-      }
-
-      const data = await response.json();
-      console.log('[FEEDBACK] Backend response:', data);
-
-      if (data.session) {
-        console.log('[FEEDBACK] Showing modal for session:', data.session._id);
-        setSessionToRate(data.session);
-        setShowRatingModal(true);
-      } else {
-        console.log('[FEEDBACK] No pending feedback');
-      }
-    } catch (error) {
-      console.error('[FEEDBACK] Error checking pending feedback:', error);
-    }
-  };
-
-  // Handle rating submission
   const handleRatingSubmit = async (ratingData: { score: number; review: string }) => {
     console.log('[PATIENT-DASHBOARD] Rating submitted:', ratingData);
     setCalendarRefreshTrigger(prev => prev + 1);
+    queryClient.invalidateQueries({ queryKey: ['patient', 'pendingFeedback'] });
     toast.success('Thank you for your feedback!');
   };
 
@@ -588,7 +515,7 @@ const PatientDashboard: React.FC = () => {
                   if (hour >= 17 && hour < 20) return 'Good evening';
                   if (hour >= 20 && hour < 24) return 'Good night';
                   return 'Night owl';
-                })()}, {userName}
+                })()}, {user?.firstName || user?.username || 'User'}
               </h1>
             </div>
 
@@ -653,7 +580,7 @@ const PatientDashboard: React.FC = () => {
               </div>
               <div className="p-5 sm:p-6 space-y-3 flex-1 overflow-y-auto custom-scrollbar min-h-0 flex flex-col">
                 {recentReports.length > 0 ? (
-                  recentReports.map((report) => {
+                  recentReports.map((report: Report) => {
                     let parsedContent: any = {};
                     try {
                       parsedContent = JSON.parse(report.content);
@@ -899,7 +826,7 @@ const PatientDashboard: React.FC = () => {
                     <span>Subject</span>
                   </div>
                   {recentJournal.length > 0 ? (
-                    recentJournal.map((entry) => (
+                    recentJournal.map((entry: JournalEntry) => (
                       <div key={entry._id} className="grid grid-cols-2 gap-2 text-sm text-white font-medium mb-3 bg-white/10 hover:bg-white/20 border border-white/10 hover:shadow-lg p-4 rounded-2xl transition-all cursor-pointer backdrop-blur-md" style={{ fontFamily: 'Inter, sans-serif' }}>
                         <span className="text-white drop-shadow-sm">{formatDate(entry.createdAt)}</span>
                         <span className="truncate drop-shadow-sm">{entry.title}</span>
@@ -934,7 +861,7 @@ const PatientDashboard: React.FC = () => {
                     <span>Tasks</span>
                   </div>
                   {pendingTasks.length > 0 ? (
-                    pendingTasks.map((task) => (
+                    pendingTasks.map((task: Task) => (
                       <div key={task._id} className="grid grid-cols-3 gap-2 text-sm text-white font-medium mb-3 bg-white/10 hover:bg-white/20 border border-white/10 hover:shadow-lg p-4 rounded-2xl transition-all cursor-pointer backdrop-blur-md" style={{ fontFamily: 'Inter, sans-serif' }}>
                         <span className="text-white drop-shadow-sm truncate">{formatDate(task.dueDate)}</span>
                         <span className="truncate drop-shadow-sm">Dr. {task.doctorId.firstName} {task.doctorId.lastName}</span>

@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../config/api';
 import { useAuth } from '../context/AuthContext';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 interface BookingState {
   mode: 'video' | 'voice';
@@ -59,9 +60,7 @@ const DoctorProfilePage: React.FC = () => {
   // Determine if this is an immediate booking (Available Now doctor)
   const isImmediate = bookingType === 'immediate';
 
-  const [doctorProfile, setDoctorProfile] = useState<DoctorProfile | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
 
   const [booking, setBooking] = useState<BookingState>({
     mode: 'video',
@@ -93,19 +92,54 @@ const DoctorProfilePage: React.FC = () => {
 
   const [availableDates, setAvailableDates] = useState<Array<{ date: string; day: string; dayNum: number; monthName: string }>>([]);
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
-  const [isBooking, setIsBooking] = useState(false);
-
-  // Reviews state
-  const [doctorReviews, setDoctorReviews] = useState<any[]>([]);
-  const [reviewsLoading, setReviewsLoading] = useState(false);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+
+  const { data: doctorProfile, isLoading: profileLoading, error: profileError } = useQuery<DoctorProfile>({
+    queryKey: ['doctor', doctorId],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE_URL}/sessions/doctors/${doctorId}`);
+      if (!response.ok) throw new Error('Doctor not found');
+      return response.json();
+    },
+    enabled: !!doctorId
+  });
+
+  const { data: doctorReviews = [], isLoading: reviewsLoading } = useQuery<any[]>({
+    queryKey: ['doctor', 'reviews', doctorId],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE_URL}/reviews/doctor/${doctorId}?limit=10&includeAll=true`);
+      if (!response.ok) throw new Error('Failed to fetch reviews');
+      const data = await response.json();
+      return data.reviews || [];
+    },
+    enabled: !!doctorId
+  });
+
+  const { data: fetchedAvailableSlots = [] } = useQuery<string[]>({
+    queryKey: ['doctor', 'slots', doctorId, booking.date],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE_URL}/sessions/doctors/${doctorId}/slots/${booking.date}`);
+      if (!response.ok) throw new Error('Failed to fetch slots');
+      const data = await response.json();
+      const now = new Date();
+      const [year, month, day] = booking.date.split('-').map(Number);
+      const isToday = now.getFullYear() === year && now.getMonth() + 1 === month && now.getDate() === day;
+
+      return (data.availableSlots as string[]).filter((slot: string) => {
+        if (!isToday) return true;
+        const [timeVal, period] = slot.split(' ');
+        let [h, m] = timeVal.split(':').map(Number);
+        if (period === 'PM' && h !== 12) h += 12;
+        if (period === 'AM' && h === 12) h = 0;
+        const slotDate = new Date(year, month - 1, day, h, m, 0, 0);
+        return slotDate > now;
+      });
+    },
+    enabled: !!doctorId && !!booking.date
+  });
 
   useEffect(() => {
     generateAvailableDates();
-    if (doctorId) {
-      fetchDoctorProfile();
-      fetchDoctorReviews();
-    }
   }, [doctorId]);
 
   // Update initial booking price once profile is loaded
@@ -119,95 +153,20 @@ const DoctorProfilePage: React.FC = () => {
   }, [doctorProfile]);
 
   useEffect(() => {
-    if (doctorId && booking.date) {
-      fetchAvailableSlots(booking.date);
-    }
-  }, [doctorId, booking.date]);
-
-  const fetchDoctorProfile = async () => {
-    try {
-      setLoading(true);
-      console.log(' Fetching doctor profile for ID:', doctorId);
-      console.log(' API URL:', `${API_BASE_URL}/sessions/doctors/${doctorId}`);
-
-      const response = await fetch(`${API_BASE_URL}/sessions/doctors/${doctorId}`);
-
-      console.log(' Response status:', response.status);
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-        console.error(' Error response:', errorData);
-        throw new Error(errorData.message || 'Doctor not found');
+    if (fetchedAvailableSlots.length > 0) {
+      setAvailableSlots(fetchedAvailableSlots);
+      if (booking.timeSlot && !fetchedAvailableSlots.includes(booking.timeSlot)) {
+        setBooking(prev => ({ ...prev, timeSlot: '' }));
       }
-
-      const data = await response.json();
-      console.log(' Doctor profile loaded:', data);
-      setDoctorProfile(data);
-      setError(null);
-    } catch (err: any) {
-      console.error(' Error fetching doctor profile:', err);
-      setError(err.message || 'Failed to load doctor profile');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchDoctorReviews = async () => {
-    if (!doctorId) return;
-
-    try {
-      setReviewsLoading(true);
-      const response = await fetch(`${API_BASE_URL}/reviews/doctor/${doctorId}?limit=10&includeAll=true`);
-
-      if (response.ok) {
-        const data = await response.json();
-        setDoctorReviews(data.reviews || []);
-      } else {
-        console.error('Failed to fetch reviews');
-        setDoctorReviews([]);
-      }
-    } catch (error) {
-      console.error('Error fetching doctor reviews:', error);
-      setDoctorReviews([]);
-    } finally {
-      setReviewsLoading(false);
-    }
-  };
-
-  const fetchAvailableSlots = async (date: string) => {
-    try {
-      console.log(`Fetching slots for doctor ${doctorId} on ${date}`);
-      const response = await fetch(`${API_BASE_URL}/sessions/doctors/${doctorId}/slots/${date}`);
-
-      if (response.ok) {
-        const data = await response.json();
-        const now = new Date();
-        const [year, month, day] = date.split('-').map(Number);
-        const isToday = now.getFullYear() === year && now.getMonth() + 1 === month && now.getDate() === day;
-
-        const filteredSlots = (data.availableSlots as string[]).filter((slot: string) => {
-          if (!isToday) return true;
-          const [timeVal, period] = slot.split(' ');
-          let [h, m] = timeVal.split(':').map(Number);
-          if (period === 'PM' && h !== 12) h += 12;
-          if (period === 'AM' && h === 12) h = 0;
-          const slotDate = new Date(year, month - 1, day, h, m, 0, 0);
-          return slotDate > now;
-        });
-
-        setAvailableSlots(filteredSlots);
-        if (booking.timeSlot && !filteredSlots.includes(booking.timeSlot)) {
-          setBooking(prev => ({ ...prev, timeSlot: '' }));
-        }
-      } else {
-        console.error('Failed to fetch slots');
-        setAvailableSlots([]);
-      }
-    } catch (error) {
-      console.error('Error fetching slots:', error);
+    } else {
       setAvailableSlots([]);
     }
-  };
+  }, [fetchedAvailableSlots, booking.timeSlot]);
+
+  const loading = profileLoading;
+  const error = profileError ? 'Failed to load doctor profile' : null;
+
+
 
   const generateAvailableDates = () => {
     const dates: Array<{ date: string; day: string; dayNum: number; monthName: string }> = [];
@@ -256,7 +215,44 @@ const DoctorProfilePage: React.FC = () => {
     setBooking(prev => ({ ...prev, timeSlot }));
   };
 
-  const handleBookNow = async () => {
+  const bookSessionMutation = useMutation({
+    mutationFn: async (requestBody: any) => {
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const endpoint = isImmediate
+        ? `${API_BASE_URL}/sessions/book-immediate`
+        : `${API_BASE_URL}/sessions/book`;
+
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify(requestBody)
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.message || 'Booking failed. Please try again.');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      const successMessage = isImmediate
+        ? 'Instant session booked! Join from your dashboard.'
+        : 'Session scheduled! Check your dashboard for details.';
+      toast.success(successMessage);
+      queryClient.invalidateQueries({ queryKey: ['patient', 'sessions'] });
+      setTimeout(() => { navigate('/patient-dashboard'); }, 500);
+    },
+    onError: (error: Error) => {
+      console.error('Booking error:', error);
+      toast.error(error.message || 'Failed to book session. Please try again.');
+    }
+  });
+
+  const handleBookNow = () => {
     if (!isLoggedIn) {
       toast.error('Please log in or sign up to book a session');
       navigate('/login', {
@@ -270,65 +266,28 @@ const DoctorProfilePage: React.FC = () => {
       return;
     }
 
-    // Scheduled bookings need date + timeSlot; immediate bookings don't
     if (!isImmediate && (!booking.date || !booking.timeSlot)) {
       toast.error('Please select both date and time slot');
       return;
     }
 
-    setIsBooking(true);
+    const requestBody = {
+      doctorId,
+      mode: booking.mode,
+      duration: booking.duration,
+      price: booking.price,
+      ...(!isImmediate && {
+        sessionDate: booking.date,
+        sessionTime: booking.timeSlot,
+        sessionType: 'scheduled',
+        serviceType: serviceType || 'General'
+      })
+    };
 
-    try {
-      const token = localStorage.getItem('token');
-      const headers: HeadersInit = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const endpoint = isImmediate
-        ? `${API_BASE_URL}/sessions/book-immediate`
-        : `${API_BASE_URL}/sessions/book`;
-
-      const requestBody = {
-        doctorId,
-        mode: booking.mode,
-        duration: booking.duration,
-        price: booking.price,
-        ...(!isImmediate && {
-          sessionDate: booking.date,
-          sessionTime: booking.timeSlot,
-          sessionType: 'scheduled',
-          serviceType: serviceType || 'General'
-        })
-      };
-
-      console.log(' Booking request:', { endpoint, isImmediate, payload: requestBody });
-
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers,
-        credentials: 'include',
-        body: JSON.stringify(requestBody)
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        console.log(' Booking successful:', data);
-        const successMessage = isImmediate
-          ? 'Instant session booked! Join from your dashboard.'
-          : 'Session scheduled! Check your dashboard for details.';
-        toast.success(successMessage);
-        setTimeout(() => { navigate('/patient-dashboard'); }, 500);
-      } else {
-        const error = await response.json();
-        console.error(' Booking failed:', error);
-        toast.error(error.message || 'Booking failed. Please try again.');
-      }
-    } catch (error) {
-      console.error('Booking error:', error);
-      toast.error('Failed to book session. Please try again.');
-    } finally {
-      setIsBooking(false);
-    }
+    bookSessionMutation.mutate(requestBody);
   };
+
+  const isBooking = bookSessionMutation.isPending;
 
 
 

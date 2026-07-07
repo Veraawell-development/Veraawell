@@ -3,6 +3,7 @@ import { API_CONFIG } from '../config/api';
 import { PDFDownloadLink } from '@react-pdf/renderer';
 import HospitalReportTemplate from './HospitalReportTemplate';
 import logger from '../utils/logger';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 interface PostSessionReportModalProps {
     isOpen: boolean;
@@ -35,9 +36,10 @@ const PostSessionReportModal: React.FC<PostSessionReportModalProps> = ({
         recommendations: '',
         diagnosis: ''
     });
-    const [submitting, setSubmitting] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isSubmitted, setIsSubmitted] = useState(false);
+    
+    const queryClient = useQueryClient();
 
     const reportTypes = [
         { value: 'assessment', label: 'Assessment' },
@@ -85,38 +87,45 @@ const PostSessionReportModal: React.FC<PostSessionReportModalProps> = ({
 
     const prevStep = () => setStep(prev => prev - 1);
 
-    const handleSubmit = async () => {
-        setSubmitting(true);
-        setError(null);
-
-        try {
-            const reportData = {
-                sessionId,
-                patientId,
-                title: `${reportTypes.find(t => t.value === formData.reportType)?.label} - ${patientName} - ${new Date().toLocaleDateString()}`,
-                reportType: formData.reportType,
-                content: JSON.stringify(formData), // Save structured data
-                isSharedWithPatient: true
-            };
-
+    const submitReportMutation = useMutation({
+        mutationFn: async (reportData: any) => {
             const response = await fetch(`${API_CONFIG.BASE_URL}/session-tools/reports`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
                 body: JSON.stringify(reportData)
             });
-
             if (!response.ok) throw new Error('Failed to create report');
-
+            return response.json();
+        },
+        onSuccess: () => {
             setIsSubmitted(true);
             logger.info('Post-session report created successfully');
-        } catch (err) {
+            queryClient.invalidateQueries({ queryKey: ['doctor', 'reports'] });
+            queryClient.invalidateQueries({ queryKey: ['doctor', 'stats'] });
+        },
+        onError: (err) => {
             logger.error('Error creating post-session report:', err);
             setError('Failed to submit report. Please try again.');
-        } finally {
-            setSubmitting(false);
         }
+    });
+
+    const handleSubmit = () => {
+        setError(null);
+
+        const reportData = {
+            sessionId,
+            patientId,
+            title: `${reportTypes.find(t => t.value === formData.reportType)?.label} - ${patientName} - ${new Date().toLocaleDateString()}`,
+            reportType: formData.reportType,
+            content: JSON.stringify(formData), // Save structured data
+            isSharedWithPatient: true
+        };
+
+        submitReportMutation.mutate(reportData);
     };
+
+    const submitting = submitReportMutation.isPending;
 
     if (!isOpen) return null;
 

@@ -3,56 +3,52 @@ import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/api';
 import LeafDecor from '../components/ui/LeafDecor';
 import { ArrowLeft, Mail } from 'lucide-react';
+import { useMutation } from '@tanstack/react-query';
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
-  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
-  const handleForgotPassword = async (e: React.FormEvent) => {
+  const forgotMutation = useMutation({
+    mutationFn: async (emailStr: string) => {
+      const res = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailStr }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.message || 'Failed to send reset email');
+      }
+      return data;
+    },
+    onSuccess: (data) => {
+      setMessage(data.resetUrl ? `${data.message} (For testing: ${data.resetUrl})` : data.message);
+    },
+    onError: (err: any) => {
+      let errorMsg = err.message || 'Failed to send reset email';
+      if (errorMsg.toLowerCase().includes('google login')) {
+        setError('This account uses Google login. Please use Google Sign-In.');
+      } else {
+        setError(errorMsg);
+      }
+    }
+  });
+
+  const handleForgotPassword = (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!email.trim()) {
       setError('Please enter your email address');
       return;
     }
-
-    setLoading(true);
     setError('');
     setMessage('');
-
-    try {
-      const res = await fetch(`${API_BASE_URL}/auth/forgot-password`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim() }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok) {
-        setMessage(data.message);
-        // In development, show the reset URL for testing
-        if (data.resetUrl) {
-          setMessage(`${data.message} (For testing: ${data.resetUrl})`);
-        }
-      } else {
-        let errorMsg = data.message || 'Failed to send reset email';
-        // Special handling for Google login accounts
-        if (errorMsg.toLowerCase().includes('google login')) {
-          setError('This account uses Google login. Please use Google Sign-In.');
-        } else {
-          setError(errorMsg);
-        }
-      }
-    } catch (err) {
-      setError('Network error. Please try again.');
-    }
-
-    setLoading(false);
+    forgotMutation.mutate(email.trim());
   };
+
+  const loading = forgotMutation.isPending;
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[var(--bg-2)] relative overflow-hidden px-4">

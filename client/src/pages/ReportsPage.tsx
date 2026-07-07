@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { API_CONFIG } from '../config/api';
 import { generateReportPDF } from '../utils/pdfGenerator';
 import logger from '../utils/logger';
+import { useQuery } from '@tanstack/react-query';
 import type { Report } from '../types';
 import BackToDashboard from '../components/BackToDashboard';
 
@@ -11,36 +12,20 @@ const ReportsPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [reports, setReports] = useState<Report[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchReports();
-  }, []);
-
-  const fetchReports = async () => {
-    try {
-      setLoading(true);
-      if (!user) return;
-
+  const { data: reports = [], isLoading: loading } = useQuery<Report[]>({
+    queryKey: ['patient', 'reports', user?.userId],
+    queryFn: async () => {
       const response = await fetch(
-        `${API_CONFIG.BASE_URL}/session-tools/reports/patient/${user.userId}`,
+        `${API_CONFIG.BASE_URL}/session-tools/reports/patient/${user?.userId}`,
         { credentials: 'include' }
       );
-
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-
-      const data = await response.json();
-      setReports(data);
-    } catch (error) {
-      logger.error('Error fetching reports:', error);
-      setReports([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+      return response.json();
+    },
+    enabled: !!user?.userId
+  });
 
   const handleDownload = (report: Report) => {
     generateReportPDF(report);

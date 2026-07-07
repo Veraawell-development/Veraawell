@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiArrowLeft, FiEdit2, FiCheck, FiX, FiClock, FiCalendar, FiUser, FiSun, FiMoon } from 'react-icons/fi';
 import { Toaster, toast } from 'react-hot-toast';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config/api';
 
 interface TimeSlot { time: string; isBooked: boolean; sessionId?: string; }
@@ -28,8 +30,6 @@ const ManageCalendar: React.FC = () => {
   const [customAvailability, setCustomAvailability] = useState<DayAvailability[]>([]);
   const [currentViewDate, setCurrentViewDate] = useState<string>('');
   const [upcomingSessions, setUpcomingSessions] = useState<UpcomingSession[]>([]);
-  const [loading, setLoading] = useState(false);
-
   const getNextDays = (count: number) => {
     const today = new Date();
     return Array.from({ length: count }, (_, i) => {
@@ -54,31 +54,47 @@ const ManageCalendar: React.FC = () => {
     if (nextDays.length > 0 && !currentViewDate) setCurrentViewDate(nextDays[0].dateStr);
   }, []);
 
-  useEffect(() => { fetchAvailability(); fetchUpcomingSessions(); }, []);
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
 
-  const fetchAvailability = async () => {
-    try {
+  const { data: serverAvailability, isLoading: isAvailabilityLoading } = useQuery({
+    queryKey: ['doctor', 'availability', user?.userId],
+    queryFn: async () => {
       const token = localStorage.getItem('token');
       const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
       const res = await fetch(`${API_BASE_URL}/availability/doctor/current`, { headers, credentials: 'include' });
-      if (res.ok) {
-        const data = await res.json();
-        setAvailabilityType(data.availabilityType || 'same_slots');
-        setDefaultSlots(data.defaultSlots || []);
-        setActiveDates(data.activeDates || []);
-        setCustomAvailability(data.customAvailability || []);
-      }
-    } catch { toast.error('Failed to load availability'); }
-  };
+      if (!res.ok) throw new Error('Failed to load availability');
+      return await res.json();
+    },
+    enabled: !!user
+  });
 
-  const fetchUpcomingSessions = async () => {
-    try {
+  const { data: fetchedUpcomingSessions = [], isLoading: isSessionsLoading } = useQuery({
+    queryKey: ['doctor', 'upcomingSessions', user?.userId],
+    queryFn: async () => {
       const token = localStorage.getItem('token');
       const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
       const res = await fetch(`${API_BASE_URL}/availability/upcoming-sessions`, { headers, credentials: 'include' });
-      if (res.ok) setUpcomingSessions(await res.json());
-    } catch { /* silent */ }
-  };
+      if (!res.ok) throw new Error('Failed to load sessions');
+      return await res.json();
+    },
+    enabled: !!user
+  });
+
+  useEffect(() => {
+    if (serverAvailability) {
+      setAvailabilityType(serverAvailability.availabilityType || 'same_slots');
+      setDefaultSlots(serverAvailability.defaultSlots || []);
+      setActiveDates(serverAvailability.activeDates || []);
+      setCustomAvailability(serverAvailability.customAvailability || []);
+    }
+  }, [serverAvailability]);
+
+  useEffect(() => {
+    if (fetchedUpcomingSessions) {
+      setUpcomingSessions(fetchedUpcomingSessions);
+    }
+  }, [fetchedUpcomingSessions]);
 
   const handleDateClick = (dateStr: string) => {
     setCurrentViewDate(dateStr);
@@ -129,20 +145,42 @@ const ManageCalendar: React.FC = () => {
     return availabilityType === 'same_slots' ? activeDates.includes(dateStr) : hasOverride;
   };
 
-  const handleSave = async () => {
-    setLoading(true);
-    try {
+  const saveMutation = useMutation({
+    mutationFn: async (payload: any) => {
       const token = localStorage.getItem('token');
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
       const res = await fetch(`${API_BASE_URL}/availability/save`, {
         method: 'POST', headers, credentials: 'include',
-        body: JSON.stringify({ availabilityType, defaultSlots, activeDates, customAvailability }),
+        body: JSON.stringify(payload),
       });
-      if (res.ok) { toast.success('Schedule saved!'); setIsEditing(false); }
-      else toast.error('Failed to save');
-    } catch { toast.error('Error saving schedule'); }
-    finally { setLoading(false); }
+      if (!res.ok) throw new Error('Failed to save');
+      return res.json();
+    },
+    onSuccess: () => {
+      toast.success('Schedule saved!');
+      setIsEditing(false);
+      queryClient.invalidateQueries({ queryKey: ['doctor', 'availability', user?.userId] });
+    },
+    onError: () => {
+      toast.error('Error saving schedule');
+    }
+  });
+
+  const handleDiscard = () => {
+    if (serverAvailability) {
+      setAvailabilityType(serverAvailability.availabilityType || 'same_slots');
+      setDefaultSlots(serverAvailability.defaultSlots || []);
+      setActiveDates(serverAvailability.activeDates || []);
+      setCustomAvailability(serverAvailability.customAvailability || []);
+    }
+    setIsEditing(false);
+  };
+
+  const loading = saveMutation.isPending;
+
+  const handleSave = () => {
+    saveMutation.mutate({ availabilityType, defaultSlots, activeDates, customAvailability });
   };
 
   const getSlotInfo = (slot: string) => {
@@ -257,7 +295,7 @@ const ManageCalendar: React.FC = () => {
             </button>
           ) : (
             <>
-              <button onClick={() => { fetchAvailability(); setIsEditing(false); }} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'transparent', color: C.text2, border: `1px solid ${C.border}`, borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              <button onClick={handleDiscard} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'transparent', color: C.text2, border: `1px solid ${C.border}`, borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
                 <FiX size={13} strokeWidth={2.5} />
                 Discard
               </button>

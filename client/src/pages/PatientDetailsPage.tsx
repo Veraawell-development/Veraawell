@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiUser } from 'react-icons/fi';
+import { useQuery } from '@tanstack/react-query';
 import { API_BASE_URL } from '../config/api';
 
 interface Patient {
@@ -13,35 +14,17 @@ interface Patient {
 }
 
 const PatientDetailsPage: React.FC = () => {
-  const [patients, setPatients] = useState<Patient[]>([]);
-  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
-
-  useEffect(() => {
-    fetchPatients();
-  }, []);
-
-  const fetchPatients = async () => {
-    try {
-      setLoading(true);
-
+  const { data: patients = [], isLoading: loading } = useQuery({
+    queryKey: ['doctor', 'patients'],
+    queryFn: async () => {
       const response = await fetch(`${API_BASE_URL}/patients/doctor-patients`, {
         credentials: 'include'
       });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      setPatients(data);
-    } catch (error) {
-      console.error('Error fetching patients:', error);
-      setPatients([]);
-    } finally {
-      setLoading(false);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      return response.json();
     }
-  };
+  });
 
   const getInitials = (name: string) => {
     const parts = name.split(' ').filter(Boolean);
@@ -105,7 +88,7 @@ const PatientDetailsPage: React.FC = () => {
         ) : (
           <div className="flex-1 overflow-y-auto pr-2 pb-10 min-h-0">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {patients.map((patient) => (
+              {patients.map((patient: Patient) => (
                 <div
                   key={patient._id}
                   className="group bg-white rounded-[16px] border border-gray-100 hover:border-teal-200 shadow-sm hover:shadow-md transition-all overflow-hidden p-6 flex flex-col cursor-pointer"

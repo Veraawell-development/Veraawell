@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { API_BASE_URL } from '../config/api';
+import { useMutation } from '@tanstack/react-query';
 
 interface RatingModalProps {
     isOpen: boolean;
@@ -31,6 +32,22 @@ const RatingModal: React.FC<RatingModalProps> = ({
 
     if (!isOpen) return null;
 
+    const submitReviewMutation = useMutation({
+        mutationFn: async (payload: any) => {
+            const res = await fetch(`${API_BASE_URL}/reviews/submit`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(payload)
+            });
+            if (!res.ok) {
+                const data = await res.json();
+                throw new Error(data.message || 'Failed to submit review');
+            }
+            return res.json();
+        }
+    });
+
     const handleSubmit = async () => {
         if (!sessionId) {
             setError('Invalid session. Please refresh and try again.');
@@ -54,17 +71,7 @@ const RatingModal: React.FC<RatingModalProps> = ({
                 reviewType: 'doctor'
             };
 
-            const doctorRes = await fetch(`${API_BASE_URL}/reviews/submit`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify(doctorPayload)
-            });
-
-            if (!doctorRes.ok) {
-                const data = await doctorRes.json();
-                throw new Error(data.message || 'Failed to submit doctor review');
-            }
+            await submitReviewMutation.mutateAsync(doctorPayload);
 
             // 2. Submit Platform Review (Optional)
             if (platformScore > 0) {
@@ -75,12 +82,7 @@ const RatingModal: React.FC<RatingModalProps> = ({
                     reviewType: 'platform'
                 };
 
-                await fetch(`${API_BASE_URL}/reviews/submit`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'include',
-                    body: JSON.stringify(platformPayload)
-                });
+                await submitReviewMutation.mutateAsync(platformPayload);
             }
 
             if (onSubmit) {
@@ -90,6 +92,7 @@ const RatingModal: React.FC<RatingModalProps> = ({
             onClose();
         } catch (err: any) {
             setError(err.message || 'Failed to submit feedback');
+        } finally {
             setIsSubmitting(false);
         }
     };

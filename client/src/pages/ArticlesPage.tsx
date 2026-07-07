@@ -7,6 +7,7 @@ import { API_BASE_URL } from '../config/api';
 import { useScrollReveal } from '../hooks/useScrollReveal';
 import SparkDecor from '../components/ui/SparkDecor';
 import LeafDecor from '../components/ui/LeafDecor';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 interface Article {
     _id: string;
@@ -57,7 +58,7 @@ const ArticlesPage: React.FC = () => {
     const navigate = useNavigate();
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('All');
-    const [articles, setArticles] = useState<Article[]>([]);
+    const queryClient = useQueryClient();
     const [showAllCategories, setShowAllCategories] = useState(false);
 
     const { socket } = useDataSocket();
@@ -68,39 +69,32 @@ const ArticlesPage: React.FC = () => {
     const gridRef = useScrollReveal<HTMLDivElement>();
     const ctaRef = useScrollReveal<HTMLDivElement>();
 
-
-    useEffect(() => {
-        fetchArticles();
-    }, [searchQuery, selectedCategory]);
+    const { data: articles = [] } = useQuery<Article[]>({
+        queryKey: ['articles', { search: searchQuery, category: selectedCategory }],
+        queryFn: async () => {
+            const params = new URLSearchParams({ search: searchQuery, category: selectedCategory, limit: '100' });
+            const response = await fetch(`${API_BASE_URL}/articles?${params}`);
+            if (!response.ok) throw new Error('Failed to fetch articles');
+            const data = await response.json();
+            return data.articles;
+        }
+    });
 
     useEffect(() => {
         if (!socket) return;
         socket.on('article:new', ({ article }) => {
             toast.success(`New article: ${article.title}`);
-            fetchArticles();
+            queryClient.invalidateQueries({ queryKey: ['articles'] });
         });
         socket.on('article:deleted', ({ articleId }) => {
             toast('An article was removed', { icon: 'info' });
-            setArticles(prev => prev.filter(a => a._id !== articleId));
+            queryClient.invalidateQueries({ queryKey: ['articles'] });
         });
         return () => {
             socket.off('article:new');
             socket.off('article:deleted');
         };
-    }, [socket]);
-
-    const fetchArticles = async () => {
-        try {
-            const params = new URLSearchParams({ search: searchQuery, category: selectedCategory, limit: '100' });
-            const response = await fetch(`${API_BASE_URL}/articles?${params}`);
-            if (response.ok) {
-                const data = await response.json();
-                setArticles(data.articles);
-            }
-        } catch (error) {
-            console.error('Error fetching articles:', error);
-        }
-    };
+    }, [socket, queryClient]);
 
     const featuredArticle = articles.find(a => a.featured);
     const allArticles = articles;

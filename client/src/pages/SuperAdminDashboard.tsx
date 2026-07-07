@@ -6,7 +6,7 @@ import { LuStethoscope } from 'react-icons/lu';
 import { Plus, Search, Filter, Eye, CheckCircle, Clock, Edit, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_BASE_URL } from '../config/api';
 
 interface PendingUser {
@@ -235,198 +235,129 @@ const SuperAdminDashboard: React.FC = () => {
 
 
 
-  const confirmDelete = async () => {
+  const deleteArticleMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`${API_BASE_URL}/articles/admin/${id}`, { method: 'DELETE', credentials: 'include', headers });
+      if (!response.ok) throw new Error('Failed to delete article');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'articles'] });
+      toast.success('Article deleted successfully');
+    },
+    onError: () => toast.error('Failed to delete article'),
+    onSettled: () => { setActionLoading(null); setArticleToDelete(null); }
+  });
+  const confirmDelete = () => {
     if (!articleToDelete) return;
-    const { id } = articleToDelete;
-    setActionLoading(id);
-
-    try {
-      const token = localStorage.getItem('adminToken');
-      const headers: HeadersInit = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const response = await fetch(`${API_BASE_URL}/articles/admin/${id}`, {
-        method: 'DELETE',
-        credentials: 'include',
-        headers
-      });
-
-      if (response.ok) {
-        queryClient.invalidateQueries({ queryKey: ['admin', 'articles'] });
-        toast.success('Article deleted successfully');
-      } else {
-        toast.error('Failed to delete article');
-      }
-    } catch (error) {
-      console.error('Error deleting article:', error);
-      toast.error('Failed to delete article');
-    } finally {
-      setActionLoading(null);
-      setArticleToDelete(null);
-    }
+    setActionLoading(articleToDelete.id);
+    deleteArticleMutation.mutate(articleToDelete.id);
   };
 
-  const handleToggleFeatured = async (id: string) => {
+  const toggleFeatureMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`${API_BASE_URL}/articles/admin/${id}/feature`, { method: 'POST', credentials: 'include', headers });
+      if (!response.ok) throw new Error('Failed to feature article');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'articles'] });
+      toast.success('Featured status updated');
+    },
+    onError: () => toast.error('An error occurred'),
+    onSettled: () => setActionLoading(null)
+  });
+  const handleToggleFeatured = (id: string) => {
     setActionLoading(id + '-feature');
-    try {
-      const token = localStorage.getItem('adminToken');
-      const headers: HeadersInit = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const response = await fetch(`${API_BASE_URL}/articles/admin/${id}/feature`, {
-        method: 'POST',
-        credentials: 'include',
-        headers
-      });
-
-      if (response.ok) {
-        queryClient.invalidateQueries({ queryKey: ['admin', 'articles'] });
-        toast.success('Featured status updated');
-      }
-    } catch (error) {
-      console.error('Error toggling featured:', error);
-      toast.error('An error occurred');
-    } finally {
-      setActionLoading(null);
-    }
+    toggleFeatureMutation.mutate(id);
   };
 
-  const handleApproveDoctor = async (doctorId: string) => {
-    try {
-      const token = localStorage.getItem('adminToken');
-      const headers: HeadersInit = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+  const approveDoctorMutation = useMutation({
+    mutationFn: async (doctorId: string) => {
+      const response = await fetch(`${API_BASE_URL}/admin/approvals/doctors/${doctorId}/approve`, { method: 'POST', credentials: 'include', headers });
+      if (!response.ok) throw new Error('Failed to approve');
+      return response.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin'] })
+  });
+  const handleApproveDoctor = (doctorId: string) => approveDoctorMutation.mutate(doctorId);
 
-      const response = await fetch(`${API_BASE_URL}/admin/approvals/doctors/${doctorId}/approve`, {
-        method: 'POST',
-        credentials: 'include',
-        headers
-      });
-
-      if (response.ok) {
-        queryClient.invalidateQueries({ queryKey: ['admin'] });
-      }
-    } catch (error) {
-      console.error('Error approving doctor:', error);
-    }
-  };
-
-  const handleRejectDoctor = async (doctorId: string) => {
-    const reason = prompt('Enter rejection reason:');
-    if (reason === null) return;
-
-    try {
-      const token = localStorage.getItem('adminToken');
-      const headers: HeadersInit = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
+  const rejectDoctorMutation = useMutation({
+    mutationFn: async ({ doctorId, reason }: { doctorId: string; reason: string }) => {
+      const hdrs = { ...headers, 'Content-Type': 'application/json' };
       const response = await fetch(`${API_BASE_URL}/admin/approvals/doctors/${doctorId}/reject`, {
-        method: 'POST',
-        headers,
-        credentials: 'include',
-        body: JSON.stringify({ reason: reason || 'No reason provided' })
+        method: 'POST', credentials: 'include', headers: hdrs, body: JSON.stringify({ reason })
       });
-
-      if (response.ok) {
-        queryClient.invalidateQueries({ queryKey: ['admin'] });
-      }
-    } catch (error) {
-      console.error('Error rejecting doctor:', error);
-    }
-  };
-
-  const handleApproveAdmin = async (adminId: string) => {
-    try {
-      const token = localStorage.getItem('adminToken');
-      const headers: HeadersInit = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const response = await fetch(`${API_BASE_URL}/admin/approvals/admins/${adminId}/approve`, {
-        method: 'POST',
-        credentials: 'include',
-        headers
-      });
-
-      if (response.ok) {
-        queryClient.invalidateQueries({ queryKey: ['admin'] });
-      }
-    } catch (error) {
-      console.error('Error approving admin:', error);
-    }
-  };
-
-  const handleRejectAdmin = async (adminId: string) => {
+      if (!response.ok) throw new Error('Failed to reject');
+      return response.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin'] })
+  });
+  const handleRejectDoctor = (doctorId: string) => {
     const reason = prompt('Enter rejection reason:');
     if (reason === null) return;
+    rejectDoctorMutation.mutate({ doctorId, reason: reason || 'No reason provided' });
+  };
 
-    try {
-      const token = localStorage.getItem('adminToken');
-      const headers: HeadersInit = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
+  const approveAdminMutation = useMutation({
+    mutationFn: async (adminId: string) => {
+      const response = await fetch(`${API_BASE_URL}/admin/approvals/admins/${adminId}/approve`, { method: 'POST', credentials: 'include', headers });
+      if (!response.ok) throw new Error('Failed to approve admin');
+      return response.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin'] })
+  });
+  const handleApproveAdmin = (adminId: string) => approveAdminMutation.mutate(adminId);
 
+  const rejectAdminMutation = useMutation({
+    mutationFn: async ({ adminId, reason }: { adminId: string; reason: string }) => {
+      const hdrs = { ...headers, 'Content-Type': 'application/json' };
       const response = await fetch(`${API_BASE_URL}/admin/approvals/admins/${adminId}/reject`, {
-        method: 'POST',
-        headers,
-        credentials: 'include',
-        body: JSON.stringify({ reason: reason || 'No reason provided' })
+        method: 'POST', credentials: 'include', headers: hdrs, body: JSON.stringify({ reason })
       });
-
-      if (response.ok) {
-        queryClient.invalidateQueries({ queryKey: ['admin'] });
-      }
-    } catch (error) {
-      console.error('Error rejecting admin:', error);
-    }
+      if (!response.ok) throw new Error('Failed to reject admin');
+      return response.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin'] })
+  });
+  const handleRejectAdmin = (adminId: string) => {
+    const reason = prompt('Enter rejection reason:');
+    if (reason === null) return;
+    rejectAdminMutation.mutate({ adminId, reason: reason || 'No reason provided' });
   };
 
-  const handleDeleteDoctor = async (doctorId: string) => {
+  const deleteDoctorMutation = useMutation({
+    mutationFn: async (doctorId: string) => {
+      const response = await fetch(`${API_BASE_URL}/admin/approvals/doctors/${doctorId}`, { method: 'DELETE', credentials: 'include', headers });
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.message || 'Failed to delete doctor');
+      }
+      return response.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin'] }),
+    onError: (err: any) => alert(err.message || 'Failed to delete doctor')
+  });
+  const handleDeleteDoctor = (doctorId: string) => {
     if (!window.confirm('Are you sure you want to remove this doctor? This action cannot be undone.')) return;
-
-    try {
-      const token = localStorage.getItem('adminToken');
-      const headers: HeadersInit = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const response = await fetch(`${API_BASE_URL}/admin/approvals/doctors/${doctorId}`, {
-        method: 'DELETE',
-        credentials: 'include',
-        headers
-      });
-
-      if (response.ok) {
-        queryClient.invalidateQueries({ queryKey: ['admin'] });
-      } else {
-        const data = await response.json();
-        alert(data.message || 'Failed to delete doctor');
-      }
-    } catch (error) {
-      console.error('Error deleting doctor:', error);
-    }
+    deleteDoctorMutation.mutate(doctorId);
   };
 
-  const handleDeleteAdmin = async (adminId: string) => {
-    if (!window.confirm('Are you sure you want to remove this admin? This action cannot be undone.')) return;
-
-    try {
-      const token = localStorage.getItem('adminToken');
-      const headers: HeadersInit = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const response = await fetch(`${API_BASE_URL}/admin/approvals/admins/${adminId}`, {
-        method: 'DELETE',
-        credentials: 'include',
-        headers
-      });
-
-      if (response.ok) {
-        queryClient.invalidateQueries({ queryKey: ['admin'] });
-      } else {
+  const deleteAdminMutation = useMutation({
+    mutationFn: async (adminId: string) => {
+      const response = await fetch(`${API_BASE_URL}/admin/approvals/admins/${adminId}`, { method: 'DELETE', credentials: 'include', headers });
+      if (!response.ok) {
         const data = await response.json();
-        alert(data.message || 'Failed to delete admin');
+        throw new Error(data.message || 'Failed to delete admin');
       }
-    } catch (error) {
-      console.error('Error deleting admin:', error);
-    }
+      return response.json();
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin'] }),
+    onError: (err: any) => alert(err.message || 'Failed to delete admin')
+  });
+  const handleDeleteAdmin = (adminId: string) => {
+    if (!window.confirm('Are you sure you want to remove this admin? This action cannot be undone.')) return;
+    deleteAdminMutation.mutate(adminId);
   };
 
   const handleLogout = async () => {

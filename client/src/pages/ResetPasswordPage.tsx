@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
 import { API_BASE_URL } from '../config/api';
 import LeafDecor from '../components/ui/LeafDecor';
+import { useMutation } from '@tanstack/react-query';
 
 export default function ResetPasswordPage() {
   const [searchParams] = useSearchParams();
@@ -11,7 +12,6 @@ export default function ResetPasswordPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const token = searchParams.get('token');
@@ -23,57 +23,56 @@ export default function ResetPasswordPage() {
     }
   }, [token]);
 
-  const handleResetPassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!token) {
-      setError('Invalid reset link. Please request a new password reset.');
-      return;
-    }
-
-    if (newPassword !== confirmPassword) {
-      setError('Passwords do not match');
-      return;
-    }
-
-    if (newPassword.length < 6) {
-      setError('Password must be at least 6 characters long');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-    setMessage('');
-
-    try {
+  const resetMutation = useMutation({
+    mutationFn: async (payload: { token: string; newPassword: string }) => {
       const res = await fetch(`${API_BASE_URL}/auth/reset-password`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, newPassword }),
+        body: JSON.stringify(payload),
       });
-
-      if (res.ok) {
-        setMessage('Password reset successful! Redirecting to login...');
-        setTimeout(() => {
-          navigate('/login');
-        }, 2000);
-      } else {
+      if (!res.ok) {
         let errorMsg = 'Password reset failed';
         try {
           const errorData = await res.json();
           errorMsg = errorData.message || errorMsg;
-          if (errorMsg.toLowerCase().includes('google')) {
-            setIsGoogleUser(true);
-          }
         } catch {}
-        setError(errorMsg);
+        throw new Error(errorMsg);
       }
-    } catch (err) {
-      setError('Network error. Please try again.');
+      return res.json();
+    },
+    onSuccess: () => {
+      setMessage('Password reset successful! Redirecting to login...');
+      setTimeout(() => { navigate('/login'); }, 2000);
+    },
+    onError: (err: any) => {
+      const errorMsg = err.message;
+      if (errorMsg.toLowerCase().includes('google')) {
+        setIsGoogleUser(true);
+      }
+      setError(errorMsg || 'Network error. Please try again.');
     }
+  });
 
-    setLoading(false);
+  const handleResetPassword = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!token) {
+      setError('Invalid reset link. Please request a new password reset.');
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
+    if (newPassword.length < 6) {
+      setError('Password must be at least 6 characters long');
+      return;
+    }
+    setError('');
+    setMessage('');
+    resetMutation.mutate({ token, newPassword });
   };
+
+  const loading = resetMutation.isPending;
 
     if (!token) {
     return (

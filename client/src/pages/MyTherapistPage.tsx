@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { API_CONFIG } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { FiPhone, FiArrowLeft } from 'react-icons/fi';
+import { useQuery } from '@tanstack/react-query';
 
 interface Therapist {
     doctor: {
@@ -36,10 +37,18 @@ interface Therapist {
 const MyTherapistPage: React.FC = () => {
     const navigate = useNavigate();
     const { user } = useAuth();
-    const [therapists, setTherapists] = useState<Therapist[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
     const [filter, setFilter] = useState<'all' | 'active' | 'past'>('all');
+
+    const { data: therapists = [], isLoading: loading, error } = useQuery<Therapist[]>({
+        queryKey: ['patient', 'my-therapists'],
+        queryFn: async () => {
+            const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/my-therapists`, {
+                credentials: 'include'
+            });
+            if (!response.ok) throw new Error('Failed to fetch therapists');
+            return response.json();
+        }
+    });
 
     const getDoctorBgColor = (id: string) => {
         const colors = ['#ABA5D1', '#7DA9A8', '#6DBEDF', '#A8D5BA'];
@@ -49,28 +58,6 @@ const MyTherapistPage: React.FC = () => {
         }
         const index = Math.abs(hash) % colors.length;
         return colors[index];
-    };
-
-    useEffect(() => {
-        fetchTherapists();
-    }, []);
-
-    const fetchTherapists = async () => {
-        try {
-            setLoading(true);
-            const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/my-therapists`, {
-                credentials: 'include'
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                setTherapists(data);
-            }
-        } catch (error) {
-            console.error('Error fetching therapists:', error);
-        } finally {
-            setLoading(false);
-        }
     };
 
     const filteredTherapists = therapists.filter(therapist => {

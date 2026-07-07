@@ -12,8 +12,8 @@ import { test as setup, expect } from '@playwright/test';
 import path from 'path';
 import { TEST_PATIENT, TEST_DOCTOR } from './helpers';
 
-const PATIENT_AUTH_FILE = path.join(__dirname, '.auth/patient.json');
-const DOCTOR_AUTH_FILE  = path.join(__dirname, '.auth/doctor.json');
+const PATIENT_AUTH_FILE = path.join(process.cwd(), 'e2e/.auth/patient.json');
+const DOCTOR_AUTH_FILE  = path.join(process.cwd(), 'e2e/.auth/doctor.json');
 
 setup('Authenticate as Patient', async ({ page }) => {
   await page.goto('/login');

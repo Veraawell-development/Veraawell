@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FiEye } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config/api';
+import { useQuery } from '@tanstack/react-query';
 
 interface PatientNote {
   _id: string;
@@ -12,76 +13,10 @@ interface PatientNote {
 }
 
 const DoctorSessionNotesPage: React.FC = () => {
-  const [notes, setNotes] = useState<PatientNote[]>([]);
-  const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
   const { user } = useAuth();
 
-  useEffect(() => {
-    fetchNotes();
-  }, []);
-
-  const fetchNotes = async () => {
-    if (!user) return;
-
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('token');
-      const headers: HeadersInit = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/session-tools/notes/doctor/${user.userId}`, {
-        credentials: 'include',
-        headers
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to fetch notes');
-      }
-
-      const data = await response.json();
-      const allNotes = data.notes || [];
-
-      // Group notes by patient
-      const patientMap = new Map<string, { patientName: string; lastDate: Date; patientId: string }>();
-
-      allNotes.forEach((note: any) => {
-        const patientId = note.patientId?._id || note.patientId;
-        const patientName = `${note.patientId?.firstName || ''} ${note.patientId?.lastName || ''}`.trim();
-        const noteDate = new Date(note.createdAt);
-
-        if (!patientMap.has(patientId) || noteDate > patientMap.get(patientId)!.lastDate) {
-          patientMap.set(patientId, {
-            patientName: patientName || 'Unknown Patient',
-            lastDate: noteDate,
-            patientId
-          });
-        }
-      });
-
-      // Convert to array and format dates
-      const groupedNotes = Array.from(patientMap.entries()).map(([id, data]) => ({
-        _id: id,
-        patientName: data.patientName,
-        lastDate: formatDate(data.lastDate),
-        rawDate: data.lastDate,
-        patientId: data.patientId
-      }));
-
-      // Sort by last date (most recent first)
-      groupedNotes.sort((a: any, b: any) => b.rawDate.getTime() - a.rawDate.getTime());
-
-      setNotes(groupedNotes);
-    } catch (error) {
-      console.error('Error fetching notes:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const formatDate = (date: Date) => {
+  const formatDateStr = (date: Date) => {
     const day = date.getDate();
     const month = date.toLocaleString('en-US', { month: 'long' });
     const year = date.getFullYear();
@@ -98,6 +33,57 @@ const DoctorSessionNotesPage: React.FC = () => {
 
     return `${day}${suffix(day)} ${month} ${year}`;
   };
+
+  const { data: notes = [], isLoading: loading } = useQuery({
+    queryKey: ['doctor', 'notes', 'patients', user?.userId],
+    queryFn: async () => {
+      if (!user) return [];
+      const token = localStorage.getItem('token');
+      const headers: HeadersInit = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_BASE_URL}/session-tools/notes/doctor/${user.userId}`, {
+        credentials: 'include',
+        headers
+      });
+
+      if (!response.ok) throw new Error('Failed to fetch notes');
+      const data = await response.json();
+      const allNotes = data.notes || [];
+
+      const patientMap = new Map<string, { patientName: string; lastDate: Date; patientId: string }>();
+
+      allNotes.forEach((note: any) => {
+        const patientId = note.patientId?._id || note.patientId;
+        const patientName = `${note.patientId?.firstName || ''} ${note.patientId?.lastName || ''}`.trim();
+        const noteDate = new Date(note.createdAt);
+
+        if (!patientMap.has(patientId) || noteDate > patientMap.get(patientId)!.lastDate) {
+          patientMap.set(patientId, {
+            patientName: patientName || 'Unknown Patient',
+            lastDate: noteDate,
+            patientId
+          });
+        }
+      });
+
+      const groupedNotes = Array.from(patientMap.entries()).map(([id, data]) => ({
+        _id: id,
+        patientName: data.patientName,
+        lastDate: formatDateStr(data.lastDate),
+        rawDate: data.lastDate,
+        patientId: data.patientId
+      }));
+
+      groupedNotes.sort((a: any, b: any) => b.rawDate.getTime() - a.rawDate.getTime());
+      return groupedNotes;
+    },
+    enabled: !!user
+  });
+
+
 
   const getInitials = (name: string) => {
     const parts = name.split(' ').filter(Boolean);

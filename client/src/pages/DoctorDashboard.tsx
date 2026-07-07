@@ -12,6 +12,7 @@ import InstantRequestModal from '../components/InstantRequestModal';
 import PostSessionReportModal from '../components/PostSessionReportModal';
 import DoctorSidebar from '../components/DoctorSidebar';
 import { API_BASE_URL } from '../config/api';
+import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 
 const playNotificationSound = () => {
   try {
@@ -45,33 +46,113 @@ const DoctorDashboard: React.FC = () => {
   const { user } = useAuth();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
-  const [isActive, setIsActive] = useState(true);
-  const [isStatusLoading, setIsStatusLoading] = useState(false);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
-  const [recentNotes, setRecentNotes] = useState<any[]>([]);
-  const [assignedTasks, setAssignedTasks] = useState<any[]>([]);
-  const [recentReports, setRecentReports] = useState<any[]>([]);
-  const [unreadCount, setUnreadCount] = useState<number>(0);
-  const [userName, setUserName] = useState<string>('Doctor');
   const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState<number>(0);
-  const [stats, setStats] = useState({
-    revenue: 0,
-    sessions: 0,
-    hours: 0
-  });
   const [incomingRequest, setIncomingRequest] = useState<Session | null>(null);
   const [showPostSessionReport, setShowPostSessionReport] = useState(false);
   const [pendingReportData, setPendingReportData] = useState<any>(null);
 
   //  REAL-TIME: Connect to data socket
   const { socket } = useDataSocket();
+  const queryClient = useQueryClient();
+
+  const { data: recentNotes = [] } = useQuery({
+    queryKey: ['doctor', 'notes', user?.userId],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/session-tools/notes/doctor/${user?.userId}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch notes');
+      const data = await res.json();
+      return (data.notes || []).slice(0, 4);
+    },
+    enabled: !!user?.userId,
+  });
+
+  const { data: assignedTasks = [] } = useQuery({
+    queryKey: ['doctor', 'tasks', user?.userId],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/session-tools/tasks/doctor/${user?.userId}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch tasks');
+      const data = await res.json();
+      return (data.tasks || []).slice(0, 4);
+    },
+    enabled: !!user?.userId,
+  });
+
+  const { data: recentReports = [] } = useQuery({
+    queryKey: ['doctor', 'reports', user?.userId],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/session-tools/reports/doctor/${user?.userId}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch reports');
+      const data = await res.json();
+      return (data.reports || []).slice(0, 4);
+    },
+    enabled: !!user?.userId,
+  });
+
+  const { data: stats = { revenue: 0, sessions: 0, hours: 0 } } = useQuery({
+    queryKey: ['doctor', 'stats', user?.userId],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/sessions/stats`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch stats');
+      const data = await res.json();
+      return {
+        revenue: data.totalRevenue || 0,
+        sessions: data.totalSessions || 0,
+        hours: data.totalHours || 0
+      };
+    },
+    enabled: !!user?.userId,
+  });
+
+  const { data: unreadCount = 0 } = useQuery({
+    queryKey: ['chat', 'unreadCount'],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/chat/unread-count`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch unread count');
+      const data = await res.json();
+      return data.unreadCount || 0;
+    },
+    enabled: !!user?.userId,
+    refetchInterval: 10000,
+  });
+
+  const { data: isActive = false } = useQuery({
+    queryKey: ['doctor', 'status', user?.userId],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/doctor-status/status`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch status');
+      const data = await res.json();
+      return data.isOnline || false;
+    },
+    enabled: !!user?.userId,
+  });
+
+  const toggleStatusMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/doctor-status/toggle-online`, { method: 'POST', credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to toggle status');
+      return res.json();
+    },
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: ['doctor', 'status', user?.userId] });
+      const previousStatus = queryClient.getQueryData(['doctor', 'status', user?.userId]);
+      queryClient.setQueryData(['doctor', 'status', user?.userId], (old: any) => !old);
+      return { previousStatus };
+    },
+    onError: (err, newTodo, context) => {
+      queryClient.setQueryData(['doctor', 'status', user?.userId], context?.previousStatus);
+      toast.error('Failed to change status');
+    },
+    onSuccess: (data) => {
+      toast.success(`You are now ${data.isOnline ? 'Online' : 'Offline'}`);
+      queryClient.invalidateQueries({ queryKey: ['doctor', 'status', user?.userId] });
+    }
+  });
+
+  const isStatusLoading = toggleStatusMutation.isPending;
 
   useEffect(() => {
-    fetchUserProfile();
-    fetchDashboardData();
-    fetchUnreadCount();
-    fetchOnlineStatus();
     // Refresh calendar when returning to dashboard
     setCalendarRefreshTrigger(prev => prev + 1);
 
@@ -99,20 +180,20 @@ const DoctorDashboard: React.FC = () => {
       }
 
       setCalendarRefreshTrigger(prev => prev + 1);
-      fetchDashboardData(); // Refresh stats
+      queryClient.invalidateQueries({ queryKey: ['doctor', 'stats', user?.userId] });
     });
 
     socket.on('session:cancelled', ({ sessionId }) => {
       console.log('[REAL-TIME] Session cancelled:', sessionId);
       toast('A session was cancelled', { icon: 'ℹ️' });
       setCalendarRefreshTrigger(prev => prev + 1);
-      fetchDashboardData(); // Refresh stats
+      queryClient.invalidateQueries({ queryKey: ['doctor', 'stats', user?.userId] });
     });
 
     socket.on('session:status-change', ({ sessionId, status }) => {
       console.log('[REAL-TIME] Session status changed:', { sessionId, status });
       setCalendarRefreshTrigger(prev => prev + 1);
-      fetchDashboardData(); // Refresh stats
+      queryClient.invalidateQueries({ queryKey: ['doctor', 'stats', user?.userId] });
     });
 
     socket.on('doctor:approval-status', ({ status, reason }) => {
@@ -122,15 +203,14 @@ const DoctorDashboard: React.FC = () => {
       } else if (status === 'rejected') {
         toast.error(`Account rejected: ${reason || 'No reason provided'}`);
       }
-      // Refresh user profile to get updated status
-      fetchUserProfile();
+      queryClient.invalidateQueries({ queryKey: ['session'] });
     });
 
     //  NEW: Listen for real-time online status changes
     socket.on('doctor:status-change', (data: any) => {
       if (data.doctorId === user?.userId) {
         console.log('[REAL-TIME] Online status changed:', data.isOnline);
-        setIsActive(data.isOnline);
+        queryClient.setQueryData(['doctor', 'status', user?.userId], data.isOnline);
       }
     });
 
@@ -141,7 +221,7 @@ const DoctorDashboard: React.FC = () => {
       
       // Show toast notification
       toast(`New message from ${senderName}`);
-      setUnreadCount(prev => prev + 1);
+      queryClient.invalidateQueries({ queryKey: ['chat', 'unreadCount'] });
     });
 
     return () => {
@@ -152,7 +232,7 @@ const DoctorDashboard: React.FC = () => {
       socket.off('doctor:status-change');
       socket.off('chat:new-message');
     };
-  }, [socket, user]);
+  }, [socket, user, queryClient]);
 
   //  FALLBACK REFRESH & MANDATORY REPORT: Detect navigation state
   useEffect(() => {
@@ -168,184 +248,13 @@ const DoctorDashboard: React.FC = () => {
     } else if (state?.refreshSessions) {
       console.log('[DOCTOR-DASHBOARD]  Refreshing after booking');
       setCalendarRefreshTrigger(prev => prev + 1);
-      fetchDashboardData();
+      queryClient.invalidateQueries({ queryKey: ['doctor'] });
       navigate(location.pathname, { replace: true, state: {} });
     }
-  }, [location.state, navigate, location.pathname]);
+  }, [location.state, navigate, location.pathname, queryClient]);
 
-  const fetchUserProfile = async () => {
-    try {
-      // Get token from localStorage
-      const token = localStorage.getItem('token');
-      const headers: HeadersInit = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/auth/profile`, {
-        credentials: 'include',
-        headers
-      });
-
-      if (response.ok) {
-        const userData = await response.json();
-        setUserName(userData.user?.firstName || userData.firstName || userData.user?.username || userData.username || 'Doctor');
-      }
-    } catch (error) {
-      console.error('Error fetching user profile:', error);
-    }
-  };
-
-  const fetchDashboardData = async () => {
-    if (!user) return;
-
-    const cacheKey = `doc_dash_data_${user.userId}`;
-    const cachedData = localStorage.getItem(cacheKey);
-    if (cachedData) {
-      try {
-        const parsed = JSON.parse(cachedData);
-        setRecentNotes(parsed.recentNotes || []);
-        setAssignedTasks(parsed.assignedTasks || []);
-        setRecentReports(parsed.recentReports || []);
-        setStats(parsed.stats || { revenue: 0, sessions: 0, hours: 0 });
-      } catch (e) {
-        console.error('Failed to parse cached dashboard data', e);
-      }
-    }
-
-    // Get token for all requests
-    const token = localStorage.getItem('token');
-    const headers: HeadersInit = {};
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    try {
-      const [notesResponse, tasksResponse, reportsResponse, statsResponse] = await Promise.all([
-        fetch(`${API_BASE_URL}/session-tools/notes/doctor/${user.userId}`, { credentials: 'include', headers }),
-        fetch(`${API_BASE_URL}/session-tools/tasks/doctor/${user.userId}`, { credentials: 'include', headers }),
-        fetch(`${API_BASE_URL}/session-tools/reports/doctor/${user.userId}`, { credentials: 'include', headers }),
-        fetch(`${API_BASE_URL}/sessions/stats`, { credentials: 'include', headers })
-      ]);
-
-      const newData = {
-        recentNotes: [],
-        assignedTasks: [],
-        recentReports: [],
-        stats: { revenue: 0, sessions: 0, hours: 0 }
-      };
-
-      if (notesResponse.ok) {
-        const data = await notesResponse.json();
-        newData.recentNotes = (data.notes || []).slice(0, 4);
-        setRecentNotes(newData.recentNotes);
-      }
-
-      if (tasksResponse.ok) {
-        const data = await tasksResponse.json();
-        newData.assignedTasks = (data.tasks || []).slice(0, 4);
-        setAssignedTasks(newData.assignedTasks);
-      }
-
-      if (reportsResponse.ok) {
-        const data = await reportsResponse.json();
-        newData.recentReports = (data.reports || []).slice(0, 4);
-        setRecentReports(newData.recentReports);
-      }
-
-      if (statsResponse.ok) {
-        const data = await statsResponse.json();
-        newData.stats = {
-          revenue: data.totalRevenue || 0,
-          sessions: data.totalSessions || 0,
-          hours: data.totalHours || 0
-        };
-        setStats(newData.stats);
-      }
-
-      // Update Cache
-      localStorage.setItem(cacheKey, JSON.stringify(newData));
-
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-    }
-  };
-
-  const fetchUnreadCount = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const headers: HeadersInit = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/chat/unread-count`, {
-        credentials: 'include',
-        headers
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setUnreadCount(data.unreadCount || 0);
-      }
-    } catch (error) {
-      setUnreadCount(0);
-    }
-  };
-
-  const fetchOnlineStatus = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const headers: HeadersInit = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/doctor-status/status`, {
-        credentials: 'include',
-        headers
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setIsActive(data.isOnline || false);
-      }
-    } catch (error) {
-      console.error('Error fetching online status:', error);
-    }
-  };
-
-  const toggleOnlineStatus = async () => {
-    if (isStatusLoading) return;
-
-    setIsStatusLoading(true);
-    try {
-      const token = localStorage.getItem('token');
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json'
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/doctor-status/toggle-online`, {
-        method: 'POST',
-        credentials: 'include',
-        headers
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setIsActive(data.isOnline);
-        toast.success(`You are now ${data.isOnline ? 'Online' : 'Offline'}`);
-      } else {
-        toast.error('Failed to change status');
-      }
-    } catch (error) {
-      console.error('Error toggling online status:', error);
-      toast.error('Failed to change status');
-    } finally {
-      setIsStatusLoading(false);
-    }
+  const toggleOnlineStatus = () => {
+    toggleStatusMutation.mutate();
   };
 
   const formatDate = (dateString: string) => {
@@ -489,7 +398,7 @@ const DoctorDashboard: React.FC = () => {
                   if (hour >= 17 && hour < 20) return 'Good evening';
                   if (hour >= 20 && hour < 24) return 'Good night';
                   return 'Night owl';
-                })()}, Dr. {userName}
+                })()}, Dr. {user?.firstName || user?.username || 'Doctor'}
               </h1>
             </div>
 
@@ -742,7 +651,7 @@ const DoctorDashboard: React.FC = () => {
           onSubmit={() => {
             setShowPostSessionReport(false);
             setPendingReportData(null);
-            fetchDashboardData(); // Refresh to show new report in list
+            queryClient.invalidateQueries({ queryKey: ['doctor'] }); // Refresh to show new report in list
             toast.success('Report submitted successfully!');
           }}
           onCancel={() => {

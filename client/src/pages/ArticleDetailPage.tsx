@@ -4,6 +4,7 @@ import {
     Loader2, ArrowRight, Clock, Home, Link2, MessageCircle, Twitter, Linkedin,
     ThumbsUp, ThumbsDown, ChevronRight, ArrowLeft
 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { API_BASE_URL } from '../config/api';
 import SparkDecor from '../components/ui/SparkDecor';
 import LeafDecor from '../components/ui/LeafDecor';
@@ -42,9 +43,6 @@ const getCategoryStyle = (cat: string) =>
 const ArticleDetailPage: React.FC = () => {
     const { slug } = useParams<{ slug: string }>();
     const navigate = useNavigate();
-    const [article, setArticle] = useState<Article | null>(null);
-    const [relatedArticles, setRelatedArticles] = useState<Article[]>([]);
-    const [loading, setLoading] = useState(true);
     const [scrollProgress, setScrollProgress] = useState(0);
     const [copied, setCopied] = useState(false);
     const [feedback, setFeedback] = useState<'yes' | 'no' | null>(null);
@@ -59,28 +57,32 @@ const ArticleDetailPage: React.FC = () => {
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
+    const { data: article = null, isLoading: loading } = useQuery({
+        queryKey: ['article', slug],
+        queryFn: async () => {
+            const response = await fetch(`${API_BASE_URL}/articles/${slug}`);
+            if (!response.ok) throw new Error('Article not found');
+            return response.json();
+        },
+        enabled: !!slug
+    });
+
+    const { data: relatedArticles = [] } = useQuery({
+        queryKey: ['articles', 'related', article?.category],
+        queryFn: async () => {
+            const relatedResponse = await fetch(`${API_BASE_URL}/articles?category=${encodeURIComponent(article.category)}&limit=4`);
+            if (!relatedResponse.ok) throw new Error('Failed to fetch related articles');
+            const relatedData = await relatedResponse.json();
+            return relatedData.articles.filter((a: Article) => a._id !== article._id).slice(0, 3);
+        },
+        enabled: !!article?.category
+    });
+
     useEffect(() => {
-        const fetchArticle = async () => {
-            try {
-                setLoading(true);
-                const response = await fetch(`${API_BASE_URL}/articles/${slug}`);
-                if (!response.ok) throw new Error('Article not found');
-                const articleData = await response.json();
-                setArticle(articleData);
-                fetch(`${API_BASE_URL}/articles/${articleData._id}/view`, { method: 'POST' }).catch(() => {});
-                const relatedResponse = await fetch(`${API_BASE_URL}/articles?category=${encodeURIComponent(articleData.category)}&limit=4`);
-                if (relatedResponse.ok) {
-                    const relatedData = await relatedResponse.json();
-                    setRelatedArticles(relatedData.articles.filter((a: Article) => a._id !== articleData._id).slice(0, 3));
-                }
-            } catch {
-                setArticle(null);
-            } finally {
-                setLoading(false);
-            }
-        };
-        if (slug) fetchArticle();
-    }, [slug]);
+        if (article) {
+            fetch(`${API_BASE_URL}/articles/${article._id}/view`, { method: 'POST' }).catch(() => {});
+        }
+    }, [article?._id]);
 
     const handleCopy = () => {
         navigator.clipboard.writeText(window.location.href);

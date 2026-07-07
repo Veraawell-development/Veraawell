@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FiPlus, FiEdit2, FiTrash2, FiBook, FiArrowLeft, FiArrowRight, FiClock } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import { API_CONFIG } from '../config/api';
 import { formatDate } from '../utils/dateUtils';
@@ -9,110 +10,110 @@ import { useToast } from '../hooks/useToast';
 import type { JournalEntry } from '../types';
 
 const MyJournalPage: React.FC = () => {
-  const [entries, setEntries] = useState<JournalEntry[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingEntry, setEditingEntry] = useState<JournalEntry | null>(null);
   const [viewingEntry, setViewingEntry] = useState<JournalEntry | null>(null);
   const [formData, setFormData] = useState({ title: '', content: '', mood: '' });
+  
   const navigate = useNavigate();
   const { user } = useAuth();
   const { showSuccess, showError, showConfirm } = useToast();
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    fetchJournalEntries();
-  }, []);
-
-  const fetchJournalEntries = async () => {
-    if (!user) return;
-
-    try {
-      setLoading(true);
+  const { data: entries = [], isLoading: loading } = useQuery({
+    queryKey: ['journal', user?.userId],
+    queryFn: async () => {
+      if (!user) return [];
       const response = await fetch(`${API_CONFIG.BASE_URL}/session-tools/journal/patient/${user.userId}`, {
         credentials: 'include'
       });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
-      const journalsArray = data.journals || [];
-      logger.info('Journal entries received:', journalsArray.length);
-      setEntries(journalsArray);
-    } catch (error) {
-      logger.error('Error fetching journal entries:', error);
-      showError('Failed to load journal entries');
-      setEntries([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+      return data.journals || [];
+    },
+    enabled: !!user
+  });
 
-  const handleAddEntry = async () => {
-    try {
+  const createMutation = useMutation({
+    mutationFn: async (newEntry: any) => {
       const response = await fetch(`${API_CONFIG.BASE_URL}/session-tools/journal`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(formData)
+        body: JSON.stringify(newEntry)
       });
-
       if (!response.ok) throw new Error('Failed to create entry');
-
+      return response.json();
+    },
+    onSuccess: () => {
       showSuccess('Journal entry created successfully!');
       setShowAddModal(false);
       setFormData({ title: '', content: '', mood: '' });
-      fetchJournalEntries();
-    } catch (error) {
+      queryClient.invalidateQueries({ queryKey: ['journal', user?.userId] });
+    },
+    onError: (error) => {
       logger.error('Error creating entry:', error);
       showError('Failed to create entry');
     }
-  };
+  });
 
-  const handleUpdateEntry = async () => {
-    if (!editingEntry) return;
-
-    try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/session-tools/journal/${editingEntry._id}`, {
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) => {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/session-tools/journal/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify(formData)
+        body: JSON.stringify(data)
       });
-
       if (!response.ok) throw new Error('Failed to update entry');
-
+      return response.json();
+    },
+    onSuccess: () => {
       showSuccess('Journal entry updated successfully!');
       setEditingEntry(null);
       setFormData({ title: '', content: '', mood: '' });
-      fetchJournalEntries();
-    } catch (error) {
+      queryClient.invalidateQueries({ queryKey: ['journal', user?.userId] });
+    },
+    onError: (error) => {
       logger.error('Error updating entry:', error);
       showError('Failed to update entry');
     }
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/session-tools/journal/${id}`, {
+        method: 'DELETE',
+        credentials: 'include'
+      });
+      if (!response.ok) throw new Error('Failed to delete entry');
+      return response.json();
+    },
+    onSuccess: () => {
+      showSuccess('Journal entry deleted successfully!');
+      if (viewingEntry) setViewingEntry(null);
+      queryClient.invalidateQueries({ queryKey: ['journal', user?.userId] });
+    },
+    onError: (error) => {
+      logger.error('Error deleting entry:', error);
+      showError('Failed to delete entry');
+    }
+  });
+
+  const handleAddEntry = () => {
+    createMutation.mutate(formData);
+  };
+
+  const handleUpdateEntry = () => {
+    if (!editingEntry) return;
+    updateMutation.mutate({ id: editingEntry._id, data: formData });
   };
 
   const handleDeleteEntry = async (entryId: string, e: React.MouseEvent) => {
     e.stopPropagation();
     const confirmed = await showConfirm('Are you sure you want to delete this entry?');
     if (!confirmed) return;
-
-    try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/session-tools/journal/${entryId}`, {
-        method: 'DELETE',
-        credentials: 'include'
-      });
-
-      if (!response.ok) throw new Error('Failed to delete entry');
-
-      showSuccess('Journal entry deleted successfully!');
-      if (viewingEntry?._id === entryId) setViewingEntry(null);
-      fetchJournalEntries();
-    } catch (error) {
-      logger.error('Error deleting entry:', error);
-      showError('Failed to delete entry');
-    }
+    deleteMutation.mutate(entryId);
   };
 
   const openEditModal = (entry: JournalEntry, e?: React.MouseEvent) => {
@@ -196,7 +197,7 @@ const MyJournalPage: React.FC = () => {
         {/* Journal Grid matching Patient Dashboard */}
         {!loading && entries.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-                {entries.map((entry) => (
+                {entries.map((entry: JournalEntry) => (
                     <div
                         key={entry._id}
                         className="bg-white rounded-[16px] border border-gray-200 shadow-sm hover:border-[#00B4D8] hover:shadow-md transition-all duration-200 flex flex-col group cursor-pointer"

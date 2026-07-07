@@ -3,21 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { MENTAL_HEALTH_TESTS } from '../data/mentalHealthTests';
 import { API_CONFIG } from '../config/api';
 import { FiArrowLeft, FiChevronRight, FiList } from 'react-icons/fi';
+import { useQuery } from '@tanstack/react-query';
 
 const MyTestsPage: React.FC = () => {
     const navigate = useNavigate();
 
-    const [assessments, setAssessments] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
     const [filterType, setFilterType] = useState<string>('all');
 
-    useEffect(() => {
-        fetchAssessments();
-    }, [filterType]);
-
-    const fetchAssessments = async () => {
-        try {
-            setLoading(true);
+    const { data: assessments = [], isLoading: loading } = useQuery<any[]>({
+        queryKey: ['patient', 'assessments', filterType],
+        queryFn: async () => {
             const url = filterType === 'all'
                 ? `${API_CONFIG.BASE_URL}/assessments`
                 : `${API_CONFIG.BASE_URL}/assessments?testType=${filterType}`;
@@ -26,16 +21,11 @@ const MyTestsPage: React.FC = () => {
                 credentials: 'include'
             });
 
-            if (response.ok) {
-                const data = await response.json();
-                setAssessments(data.assessments || []);
-            }
-        } catch (error) {
-            console.error('Error fetching assessments:', error);
-        } finally {
-            setLoading(false);
+            if (!response.ok) throw new Error('Failed to fetch assessments');
+            const data = await response.json();
+            return data.assessments || [];
         }
-    };
+    });
 
     const getSeverityStyle = (severity: string) => {
         switch (severity) {

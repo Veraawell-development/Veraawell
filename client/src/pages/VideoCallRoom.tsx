@@ -7,7 +7,7 @@ import { toast } from 'react-hot-toast';
 import SessionToolsModal from '../components/SessionToolsModal';
 import SessionChat from '../components/SessionChat';
 import { API_BASE_URL, SOCKET_URL } from '../config/api';
-// RatingModal removed - feedback is handled by PatientDashboard
+import { useQuery } from '@tanstack/react-query';
 
 const VideoCallRoom: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -34,8 +34,6 @@ const VideoCallRoom: React.FC = () => {
   const [showDoctorPanel, setShowDoctorPanel] = useState(false);
   const [showChat, setShowChat] = useState(false);
   const [sessionData, setSessionData] = useState<any>(null);
-  const [_loadingSession, setLoadingSession] = useState(true);
-  // RatingModal removed - PatientDashboard owns the only feedback modal
   const [acceptanceStatus, setAcceptanceStatus] = useState<'pending' | 'accepted' | 'delayed'>('pending');
   const [delayMinutes, setDelayMinutes] = useState(0);
   const [doctorNote, setDoctorNote] = useState('');
@@ -79,12 +77,10 @@ const VideoCallRoom: React.FC = () => {
     };
   }, [dataSocket, sessionId]);
 
-  const fetchSessionData = async () => {
-    try {
-      setLoadingSession(true);
+  const { data: fetchResult, isLoading: loadingSession, isError } = useQuery({
+    queryKey: ['video-call', sessionId],
+    queryFn: async () => {
       console.log(' Fetching session data for:', sessionId);
-
-      // Fetch session details and TURN credentials in parallel
       const [sessionResponse, turnResponse] = await Promise.all([
         fetch(`${API_BASE_URL}/sessions/${sessionId}`, { credentials: 'include' }),
         fetch(`${API_BASE_URL}/sessions/turn-credentials`, { credentials: 'include' }).catch(() => null)
@@ -94,30 +90,42 @@ const VideoCallRoom: React.FC = () => {
         throw new Error('Failed to fetch session data');
       }
 
-      const data = await sessionResponse.json();
-      console.log(' Session data received:', data);
-      setSessionData(data);
+      const sessionData = await sessionResponse.json();
+      console.log(' Session data received:', sessionData);
 
-      // Initialize states from fetched data
-      if (data.acceptanceStatus) setAcceptanceStatus(data.acceptanceStatus);
-      if (data.delayMinutes) setDelayMinutes(data.delayMinutes);
-      if (data.doctorNote) setDoctorNote(data.doctorNote);
-
-      // Handle TURN credentials
+      let iceServers = null;
       if (turnResponse && turnResponse.ok) {
         const turnData = await turnResponse.json();
         if (turnData.success && turnData.iceServers) {
-          iceServersRef.current = { iceServers: turnData.iceServers };
-          console.log('[VIDEO-CALL]  Loaded secure TURN credentials');
+          iceServers = turnData.iceServers;
         }
       }
-    } catch (error) {
-      console.error('Error fetching session data:', error);
-      setError('Failed to load session details');
-    } finally {
-      setLoadingSession(false);
+
+      return { sessionData, iceServers };
+    },
+    enabled: !!sessionId && !!user
+  });
+
+  useEffect(() => {
+    if (fetchResult?.sessionData) {
+      const data = fetchResult.sessionData;
+      setSessionData(data);
+      if (data.acceptanceStatus) setAcceptanceStatus(data.acceptanceStatus);
+      if (data.delayMinutes) setDelayMinutes(data.delayMinutes);
+      if (data.doctorNote) setDoctorNote(data.doctorNote);
     }
-  };
+    
+    if (fetchResult?.iceServers) {
+      iceServersRef.current = { iceServers: fetchResult.iceServers };
+      console.log('[VIDEO-CALL]  Loaded secure TURN credentials');
+    }
+  }, [fetchResult]);
+
+  useEffect(() => {
+    if (isError) {
+      setError('Failed to load session details');
+    }
+  }, [isError]);
 
   const saveEmergencyContact = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -173,7 +181,7 @@ const VideoCallRoom: React.FC = () => {
       }
     }
 
-    fetchSessionData();
+
 
     return () => {
       cleanup();

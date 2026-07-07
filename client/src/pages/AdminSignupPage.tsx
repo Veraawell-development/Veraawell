@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { FiMail, FiLock, FiArrowLeft, FiUser, FiUserCheck, FiShield } from 'react-icons/fi';
+import { useMutation } from '@tanstack/react-query';
 import { API_BASE_URL } from '../config/api';
 
 const AdminSignupPage: React.FC = () => {
@@ -14,11 +15,36 @@ const AdminSignupPage: React.FC = () => {
     confirmPassword: ''
   });
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const navigate = useNavigate();
+  const signupMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      const response = await fetch(`${API_BASE_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) {
+        const data = await response.json();
+        if (data.errors) {
+          const errorList = Object.values(data.errors);
+          throw new Error(errorList.join('. ') + '.');
+        }
+        throw new Error(data.message || 'Signup failed');
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      setSuccess(true);
+      setTimeout(() => navigate('/admin-login'), 3000);
+    },
+    onError: (err: any) => {
+      setError(err.message || 'Signup failed');
+    }
+  });
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -32,41 +58,17 @@ const AdminSignupPage: React.FC = () => {
       return;
     }
 
-    setLoading(true);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          firstName: formData.firstName,
-          lastName: formData.lastName,
-          email: formData.email,
-          username: formData.username,
-          password: formData.password,
-          role: 'admin'
-        })
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        // If there are specific validation errors, join them into a readable message
-        if (data.errors) {
-          const errorList = Object.values(data.errors);
-          throw new Error(errorList.join('. ') + '.');
-        }
-        throw new Error(data.message || 'Signup failed');
-      }
-
-      setSuccess(true);
-      setTimeout(() => navigate('/admin-login'), 3000);
-    } catch (err: any) {
-      setError(err.message || 'Signup failed');
-    } finally {
-      setLoading(false);
-    }
+    signupMutation.mutate({
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      email: formData.email,
+      username: formData.username,
+      password: formData.password,
+      role: 'admin'
+    });
   };
+
+  const loading = signupMutation.isPending;
 
   if (success) {
     return (

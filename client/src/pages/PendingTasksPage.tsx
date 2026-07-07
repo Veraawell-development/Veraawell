@@ -10,6 +10,7 @@ import { useToast } from '../hooks/useToast';
 import type { Task } from '../types';
 import { generateTaskPDF } from '../utils/pdfGenerator';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
 interface PersonalTask {
   id: string;
@@ -21,9 +22,6 @@ interface PersonalTask {
 type DragItem = { type: 'clinical' | 'personal'; id: string };
 
 const PendingTasksPage: React.FC = () => {
-  const [pendingTasks, setPendingTasks] = useState<Task[]>([]);
-  const [completedTasks, setCompletedTasks] = useState<Task[]>([]);
-  
   // Personal Tasks State
   const [personalTasks, setPersonalTasks] = useState<PersonalTask[]>([]);
   const [newPersonalTask, setNewPersonalTask] = useState('');
@@ -32,15 +30,86 @@ const PendingTasksPage: React.FC = () => {
   const [draggedItem, setDraggedItem] = useState<DragItem | null>(null);
   const [dragOverCol, setDragOverCol] = useState<'pending' | 'personal' | 'done' | null>(null);
 
-  const [loading, setLoading] = useState(true);
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
   const { showSuccess, showError } = useToast();
+  const queryClient = useQueryClient();
+
+  const { data: clinicalTasks = { pending: [], completed: [] }, isLoading: loading } = useQuery({
+    queryKey: ['patient', 'tasks', user?.userId],
+    queryFn: async () => {
+      if (!user) return { pending: [], completed: [] };
+      const [pendingRes, completedRes] = await Promise.all([
+        fetch(`${API_CONFIG.BASE_URL}/session-tools/tasks/patient/${user.userId}?status=pending`, { credentials: 'include' }),
+        fetch(`${API_CONFIG.BASE_URL}/session-tools/tasks/patient/${user.userId}?status=completed`, { credentials: 'include' })
+      ]);
+
+      if (!pendingRes.ok || !completedRes.ok) throw new Error('Failed to fetch tasks');
+
+      const pendingData = await pendingRes.json();
+      const completedData = await completedRes.json();
+
+      const sortTasks = (tasks: any[]) => Array.isArray(tasks)
+        ? tasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+        : [];
+
+      return {
+        pending: sortTasks(pendingData.tasks || []),
+        completed: sortTasks(completedData.tasks || [])
+      };
+    },
+    enabled: !!user
+  });
+
+  const pendingTasks = clinicalTasks.pending;
+  const completedTasks = clinicalTasks.completed;
+
+  const updateTaskStatusMutation = useMutation({
+    mutationFn: async ({ taskId, newStatus }: { taskId: string; newStatus: 'pending' | 'completed' }) => {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/session-tools/tasks/${taskId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ status: newStatus })
+      });
+      if (!response.ok) throw new Error('Failed to update task');
+      return response.json();
+    },
+    onMutate: async ({ taskId, newStatus }) => {
+      await queryClient.cancelQueries({ queryKey: ['patient', 'tasks', user?.userId] });
+      const previousTasks = queryClient.getQueryData(['patient', 'tasks', user?.userId]);
+      queryClient.setQueryData(['patient', 'tasks', user?.userId], (old: any) => {
+        if (!old) return old;
+        const allTasks = [...old.pending, ...old.completed];
+        const task = allTasks.find(t => t._id === taskId);
+        if (!task) return old;
+        const updatedTask = { ...task, status: newStatus };
+        return {
+          pending: newStatus === 'pending'
+            ? [updatedTask, ...old.pending.filter((t: any) => t._id !== taskId)]
+            : old.pending.filter((t: any) => t._id !== taskId),
+          completed: newStatus === 'completed'
+            ? [updatedTask, ...old.completed.filter((t: any) => t._id !== taskId)]
+            : old.completed.filter((t: any) => t._id !== taskId),
+        };
+      });
+      return { previousTasks };
+    },
+    onError: (err, variables, context) => {
+      queryClient.setQueryData(['patient', 'tasks', user?.userId], context?.previousTasks);
+      showError('Failed to update task status');
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['patient', 'tasks', user?.userId] });
+    },
+    onSuccess: (data, variables) => {
+      showSuccess(`Task marked as ${variables.newStatus}!`);
+    }
+  });
 
   useEffect(() => {
-    fetchTasks();
     if (user) {
       const stored = localStorage.getItem(`personalTasks_${user.userId}`);
       if (stored) {
@@ -83,72 +152,8 @@ const PendingTasksPage: React.FC = () => {
     savePersonalTasks(updated);
   };
 
-  const fetchTasks = async () => {
-    try {
-      setLoading(true);
-      if (!user) return;
-
-      const [pendingRes, completedRes] = await Promise.all([
-        fetch(`${API_CONFIG.BASE_URL}/session-tools/tasks/patient/${user.userId}?status=pending`, { credentials: 'include' }),
-        fetch(`${API_CONFIG.BASE_URL}/session-tools/tasks/patient/${user.userId}?status=completed`, { credentials: 'include' })
-      ]);
-
-      if (!pendingRes.ok || !completedRes.ok) {
-        throw new Error('Failed to fetch tasks');
-      }
-
-      const pendingData = await pendingRes.json();
-      const completedData = await completedRes.json();
-
-      const sortTasks = (tasks: any[]) => Array.isArray(tasks)
-        ? tasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-        : [];
-
-      setPendingTasks(sortTasks(pendingData.tasks || []));
-      setCompletedTasks(sortTasks(completedData.tasks || []));
-    } catch (error) {
-      logger.error('Error fetching tasks:', error);
-      showError('Failed to load tasks');
-      setPendingTasks([]);
-      setCompletedTasks([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleUpdateStatus = async (taskId: string, newStatus: 'pending' | 'completed') => {
-    try {
-      // Optimistic update
-      if (newStatus === 'completed') {
-        const task = pendingTasks.find(t => t._id === taskId);
-        if (task) {
-          setPendingTasks(prev => prev.filter(t => t._id !== taskId));
-          setCompletedTasks(prev => [task, ...prev]);
-        }
-      } else {
-        const task = completedTasks.find(t => t._id === taskId);
-        if (task) {
-          setCompletedTasks(prev => prev.filter(t => t._id !== taskId));
-          setPendingTasks(prev => [task, ...prev]);
-        }
-      }
-
-      const response = await fetch(`${API_CONFIG.BASE_URL}/session-tools/tasks/${taskId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ status: newStatus })
-      });
-
-      if (!response.ok) throw new Error('Failed to update task');
-      showSuccess(`Task marked as ${newStatus}!`);
-      // Refetch to ensure sync
-      fetchTasks();
-    } catch (error) {
-      logger.error('Error updating task:', error);
-      showError('Failed to update task');
-      fetchTasks(); // Revert optimistic update on failure
-    }
+  const handleUpdateStatus = (taskId: string, newStatus: 'pending' | 'completed') => {
+    updateTaskStatusMutation.mutate({ taskId, newStatus });
   };
 
   const handleDownload = (task: Task) => generateTaskPDF(task);

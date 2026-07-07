@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { API_BASE_URL } from '../config/api';
 import { Upload, X, FileText, Loader2 } from 'lucide-react';
 import { toast } from 'react-hot-toast';
+import { useMutation } from '@tanstack/react-query';
 import { useScrollReveal } from '../hooks/useScrollReveal';
 import LeafDecor from '../components/ui/LeafDecor';
 import SparkDecor from '../components/ui/SparkDecor';
@@ -36,6 +37,8 @@ const CareerPage: React.FC = () => {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [otp, setOtp] = useState('');
+  const [otpError, setOtpError] = useState('');
 
   const specializationOptions = [
     'Clinical Psychologist',
@@ -109,7 +112,33 @@ const CareerPage: React.FC = () => {
     setError('');
   };
 
-  const uploadSingleDocument = async (index: number) => {
+  const uploadSingleMutation = useMutation({
+    mutationFn: async (payload: { index: number, formDataObj: FormData }) => {
+      const response = await fetch(`${API_BASE_URL}/upload/doctor-document`, {
+        method: 'POST',
+        body: payload.formDataObj
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Failed to upload document');
+      return { index: payload.index, data };
+    },
+    onSuccess: ({ index, data }) => {
+      setUploadedDocs(prev => [...prev, data.document]);
+      setDocuments(prev => prev.filter((_, i) => i !== index));
+      toast.success(`Document uploaded`);
+    },
+    onError: (err: any, { index }) => {
+      const message = err.message || 'Upload failed';
+      setDocuments(prev => {
+        const copy = [...prev];
+        if (copy[index]) copy[index] = { ...copy[index], uploading: false, error: message };
+        return copy;
+      });
+      toast.error(`Failed to upload: ${message}`);
+    }
+  });
+
+  const uploadSingleDocument = (index: number) => {
     const doc = documents[index];
     if (doc.uploaded || doc.uploading) return;
 
@@ -122,30 +151,7 @@ const CareerPage: React.FC = () => {
     const formDataObj = new FormData();
     formDataObj.append('document', doc.file);
 
-    try {
-      const response = await fetch(`${API_BASE_URL}/upload/doctor-document`, {
-        method: 'POST',
-        body: formDataObj
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setUploadedDocs(prev => [...prev, data.document]);
-        setDocuments(prev => prev.filter((_, i) => i !== index));
-        toast.success(`Uploaded ${doc.file.name}`);
-      } else {
-        throw new Error(data.message || 'Failed to upload document');
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Upload failed';
-      setDocuments(prev => {
-        const copy = [...prev];
-        copy[index] = { ...copy[index], uploading: false, error: message };
-        return copy;
-      });
-      toast.error(`Failed to upload ${doc.file.name}: ${message}`);
-    }
+    uploadSingleMutation.mutate({ index, formDataObj });
   };
 
   const removeDocument = (index: number) => {
@@ -156,9 +162,24 @@ const CareerPage: React.FC = () => {
     setUploadedDocs(prev => prev.filter((_, i) => i !== index));
   };
 
+  const uploadDocumentsMutation = useMutation({
+    mutationFn: async (formDataObj: FormData) => {
+      const response = await fetch(`${API_BASE_URL}/upload/doctor-documents`, {
+        method: 'POST',
+        body: formDataObj
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'Failed to upload documents');
+      return data;
+    },
+    onSuccess: (data) => {
+      setUploadedDocs(prev => [...prev, ...data.documents]);
+      setDocuments([]);
+    }
+  });
+
   const uploadDocuments = async (): Promise<typeof uploadedDocs> => {
     if (documents.length === 0) return uploadedDocs;
-
     setUploading(true);
     const formDataObj = new FormData();
     documents.forEach(doc => {
@@ -166,27 +187,86 @@ const CareerPage: React.FC = () => {
     });
 
     try {
-      const response = await fetch(`${API_BASE_URL}/upload/doctor-documents`, {
-        method: 'POST',
-        body: formDataObj
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        const newDocs = [...uploadedDocs, ...data.documents];
-        setUploadedDocs(newDocs);
-        setDocuments([]);
-        return newDocs;
-      } else {
-        throw new Error(data.message || 'Failed to upload documents');
-      }
-    } catch (err) {
-      throw new Error(err instanceof Error ? err.message : 'Document upload failed');
+      const data = await uploadDocumentsMutation.mutateAsync(formDataObj);
+      return [...uploadedDocs, ...data.documents];
+    } catch (err: any) {
+      throw new Error(err.message || 'Document upload failed');
     } finally {
       setUploading(false);
     }
   };
+
+  const verifyOtpMutation = useMutation({
+    mutationFn: async (payload: { email: string; otp: string }) => {
+      const response = await fetch(`${API_BASE_URL}/auth/verify-signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.message || 'OTP verification failed');
+      return data;
+    },
+    onSuccess: () => {
+      setSuccess('Application submitted successfully! Please wait for admin approval. Once approved, you will be able to log in using the email and password you just provided.');
+      toast.success(
+        'Application submitted! IMPORTANT: Please remember the email and password you just used to register. You will need them to log in once your account is approved by the admin.',
+        {
+          duration: 8000,
+          icon: '🛡️',
+          style: {
+            background: '#F0FDF4',
+            border: '1px solid #22c55e',
+            padding: '16px',
+            color: '#166534',
+            maxWidth: '500px'
+          },
+        }
+      );
+      setFormData({
+        firstName: '',
+        email: '',
+        phoneNo: '',
+        password: '',
+        confirmPassword: '',
+        specialization: '',
+        licenseNumber: '',
+        jobRole: '',
+        professionalMessage: '',
+        heardAboutUs: ''
+      });
+      setUploadedDocs([]);
+      setDocuments([]);
+      setOtp('');
+      setCurrentStep(1); // Reset back to step 1
+    },
+    onError: (err: any) => {
+      setOtpError(err.message || 'Verification failed. Please try again.');
+    }
+  });
+
+  const registerDoctorMutation = useMutation({
+    mutationFn: async (payload: any) => {
+      const response = await fetch(`${API_BASE_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.message || 'Registration failed');
+      }
+      return data;
+    },
+    onSuccess: () => {
+      toast.success('Registration successful! Please check your email for the verification code.');
+      setCurrentStep(4);
+    },
+    onError: (err: any) => {
+      setError(err.message || 'Registration failed');
+    }
+  });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -198,22 +278,18 @@ const CareerPage: React.FC = () => {
       setError('Please fill in all required fields');
       return;
     }
-
     if (formData.password !== formData.confirmPassword) {
       setError('Passwords do not match');
       return;
     }
-
     if (formData.password.length < 6) {
       setError('Password must be at least 6 characters');
       return;
     }
-
     if (!formData.specialization) {
       setError('Please select your specialization');
       return;
     }
-
     if (!formData.jobRole) {
       setError('Please select your job role');
       return;
@@ -225,67 +301,22 @@ const CareerPage: React.FC = () => {
       // STEP 1: Upload documents first
       const allDocs = await uploadDocuments();
       // STEP 2: Submit registration directly (No OTP)
-      const response = await fetch(`${API_BASE_URL}/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          firstName: formData.firstName,
-          email: formData.email,
-          username: formData.email,
-          phoneNo: formData.phoneNo,
-          password: formData.password,
-          role: 'doctor',
-          specialization: formData.specialization,
-          licenseNumber: formData.licenseNumber,
-          jobRole: formData.jobRole,
-          professionalMessage: formData.professionalMessage,
-          heardAboutUs: formData.heardAboutUs,
-          documents: allDocs // Use allDocs directly
-        })
+      await registerDoctorMutation.mutateAsync({
+        firstName: formData.firstName,
+        email: formData.email,
+        username: formData.email,
+        phoneNo: formData.phoneNo,
+        password: formData.password,
+        role: 'doctor',
+        specialization: formData.specialization,
+        licenseNumber: formData.licenseNumber,
+        jobRole: formData.jobRole,
+        professionalMessage: formData.professionalMessage,
+        heardAboutUs: formData.heardAboutUs,
+        documents: allDocs // Use allDocs directly
       });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setSuccess('Application submitted successfully! Please wait for admin approval. Once approved, you will be able to log in using the email and password you just provided.');
-
-        // Show important password reminder toast
-        toast.success(
-          'Application submitted! IMPORTANT: Please remember the email and password you just used to register. You will need them to log in once your account is approved by the admin.',
-          {
-            duration: 8000,
-            icon: '',
-            style: {
-              background: '#F0FDF4',
-              border: '1px solid #22c55e',
-              padding: '16px',
-              color: '#166534',
-              maxWidth: '500px'
-            },
-          }
-        );
-
-        // Clear form
-        setFormData({
-          firstName: '',
-          email: '',
-          phoneNo: '',
-          password: '',
-          confirmPassword: '',
-          specialization: '',
-          licenseNumber: '',
-          jobRole: '',
-          professionalMessage: '',
-          heardAboutUs: ''
-        });
-        setDocuments([]);
-        setUploadedDocs([]);
-      } else {
-        setError(data.message || 'Registration failed');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred. Please try again.');
+    } catch (err: any) {
+      setError(err.message || 'Registration failed');
     } finally {
       setLoading(false);
     }
@@ -713,43 +744,83 @@ const CareerPage: React.FC = () => {
                     </div>
                   )}
 
+                  {/* STEP 4: OTP Verification */}
+                  {currentStep === 4 && (
+                    <div className="animate-in fade-in slide-in-from-right-4 duration-500 space-y-6 text-center py-6">
+                      <div className="max-w-md mx-auto">
+                        <div className="bg-green-50 text-green-800 p-4 rounded-xl mb-6 text-sm">
+                          We've sent a 6-digit verification code to <span className="font-semibold">{formData.email}</span>. Please enter it below.
+                        </div>
+                        <label className="block text-sm font-medium text-[var(--text-2)] mb-2 text-left">Verification Code</label>
+                        <input
+                          type="text"
+                          required
+                          value={otp}
+                          onChange={(e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          className="w-full px-4 py-4 text-center text-3xl tracking-[0.5em] font-mono rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)] mb-2"
+                          placeholder="000000"
+                          maxLength={6}
+                        />
+                        {otpError && <p className="text-red-500 text-sm text-left mb-4">{otpError}</p>}
+                        
+                        <button
+                          type="button"
+                          disabled={otp.length !== 6 || verifyOtpMutation.isPending}
+                          onClick={() => verifyOtpMutation.mutate({ email: formData.email, otp })}
+                          className="w-full rounded-full bg-[var(--teal)] text-white font-medium shadow-md hover:shadow-lg transition-all px-8 py-4 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2 mt-4"
+                        >
+                          {verifyOtpMutation.isPending ? (
+                            <>
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                              Verifying...
+                            </>
+                          ) : (
+                            'Verify & Complete Application'
+                          )}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Navigation Buttons */}
-                  <div className="flex justify-between items-center pt-8 border-t border-[var(--border)] mt-8">
-                    {currentStep > 1 ? (
-                      <button
-                        type="button"
-                        onClick={() => setCurrentStep(prev => prev - 1)}
-                        className="px-6 py-3 rounded-full font-medium text-[var(--text-2)] hover:text-[var(--text)] transition-colors"
-                      >
-                        ← Back
-                      </button>
-                    ) : <div></div>}
-                    
-                    {currentStep < 3 ? (
-                      <button
-                        type="button"
-                        onClick={() => setCurrentStep(prev => prev + 1)}
-                        className="px-8 py-3 rounded-full bg-[var(--teal)] text-white font-medium shadow-md hover:shadow-lg transition-all"
-                      >
-                        Next Step →
-                      </button>
-                    ) : (
-                      <button
-                        type="submit"
-                        disabled={loading || uploading}
-                        className="rounded-full text-white font-medium shadow-md hover:shadow-lg transition-all px-8 py-3 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2 bg-[var(--teal)] hover:bg-[var(--teal-muted)]"
-                      >
-                        {loading || uploading ? (
-                          <>
-                            <Loader2 className="w-5 h-5 animate-spin" />
-                            {uploading ? 'Uploading...' : 'Registering...'}
-                          </>
-                        ) : (
-                          'Submit Application'
-                        )}
-                      </button>
-                    )}
-                  </div>
+                  {currentStep < 4 && (
+                    <div className="flex justify-between items-center pt-8 border-t border-[var(--border)] mt-8">
+                      {currentStep > 1 ? (
+                        <button
+                          type="button"
+                          onClick={() => setCurrentStep(prev => prev - 1)}
+                          className="px-6 py-3 rounded-full font-medium text-[var(--text-2)] hover:text-[var(--text)] transition-colors"
+                        >
+                          ← Back
+                        </button>
+                      ) : <div></div>}
+                      
+                      {currentStep < 3 ? (
+                        <button
+                          type="button"
+                          onClick={() => setCurrentStep(prev => prev + 1)}
+                          className="px-8 py-3 rounded-full bg-[var(--teal)] text-white font-medium shadow-md hover:shadow-lg transition-all"
+                        >
+                          Next Step →
+                        </button>
+                      ) : (
+                        <button
+                          type="submit"
+                          disabled={loading || uploading || registerDoctorMutation.isPending}
+                          className="rounded-full text-white font-medium shadow-md hover:shadow-lg transition-all px-8 py-3 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2 bg-[var(--teal)] hover:bg-[var(--teal-muted)]"
+                        >
+                          {loading || uploading || registerDoctorMutation.isPending ? (
+                            <>
+                              <Loader2 className="w-5 h-5 animate-spin" />
+                              {uploading ? 'Uploading...' : 'Registering...'}
+                            </>
+                          ) : (
+                            'Submit Application'
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  )}
 
                   <p className="text-center text-sm text-[var(--text-3)] mt-6">
                     Already have an account? <a href="/login" className="text-[var(--teal)] hover:underline font-medium">Sign in here</a>

@@ -4,6 +4,7 @@ import DoctorCard from '../components/DoctorCard';
 import { API_CONFIG, API_BASE_URL } from '../config/api';
 import { useDataSocket } from '../hooks/useDataSocket';
 import LeafDecor from '../components/ui/LeafDecor';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 
 interface Doctor {
   _id: string;
@@ -36,31 +37,48 @@ interface Doctor {
 const ChooseProfessionalPage: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [doctors, setDoctors] = useState<Doctor[]>([]);
-  const [onlineDoctors, setOnlineDoctors] = useState<any[]>([]);
-  const [previousDoctorIds, setPreviousDoctorIds] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
   const initialViewMode = (location.state as any)?.bookingType === 'later' ? 'all' : 'online';
   const [viewMode, setViewMode] = useState<'online' | 'all'>(initialViewMode);
-
   const serviceType = (location.state as any)?.serviceType || 'General';
 
   //  REAL-TIME: Connect to data socket
   const { socket } = useDataSocket();
 
-  useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
-      await Promise.all([
-        fetchDoctors(),
-        fetchOnlineDoctors(),
-        fetchPreviousDoctors()
-      ]);
-      setLoading(false);
-    };
-    loadData();
-  }, []);
+  const { data: doctors = [], isLoading: doctorsLoading, error: doctorsError } = useQuery<Doctor[]>({
+    queryKey: ['doctors', 'all'],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE_URL}/sessions/doctors`);
+      if (!response.ok) throw new Error('Failed to fetch doctors');
+      return response.json();
+    }
+  });
+
+  const { data: onlineDoctors = [], isLoading: onlineDoctorsLoading } = useQuery<any[]>({
+    queryKey: ['doctors', 'online'],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE_URL}/doctor-status/online-doctors`);
+      if (!response.ok) throw new Error('Failed to fetch online doctors');
+      const data = await response.json();
+      return data.doctors || [];
+    }
+  });
+
+  const { data: previousDoctorIds = new Set<string>() } = useQuery({
+    queryKey: ['doctors', 'previous'],
+    queryFn: async () => {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/my-doctors`, {
+        credentials: 'include'
+      });
+      if (!response.ok) return new Set<string>();
+      const data = await response.json();
+      return new Set<string>(data.map((d: any) => d._id));
+    }
+  });
+
+  const loading = doctorsLoading || onlineDoctorsLoading;
+  const error = doctorsError ? 'Failed to load doctors. Please try again.' : null;
 
   //  REAL-TIME: Listen for doctor status changes
   useEffect(() => {
@@ -68,69 +86,13 @@ const ChooseProfessionalPage: React.FC = () => {
 
     socket.on('doctor:status-change', ({ doctorId, isOnline }) => {
       console.log('[REAL-TIME] Doctor status changed:', { doctorId: doctorId.substring(0, 8), isOnline });
-
-      // Update online doctors list
-      if (isOnline) {
-        // Doctor came online - fetch updated list
-        fetchOnlineDoctors();
-      } else {
-        // Doctor went offline - remove from list
-        setOnlineDoctors(prev => prev.filter(d => d._id !== doctorId));
-      }
+      queryClient.invalidateQueries({ queryKey: ['doctors', 'online'] });
     });
 
     return () => {
       socket.off('doctor:status-change');
     };
-  }, [socket]);
-
-  const fetchDoctors = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch(`${API_BASE_URL}/sessions/doctors`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch doctors');
-      }
-      const doctorsData = await response.json();
-      setDoctors(doctorsData);
-      setError(null);
-    } catch (error) {
-      console.error('Error fetching doctors:', error);
-      setError('Failed to load doctors. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const fetchOnlineDoctors = async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/doctor-status/online-doctors`);
-      if (response.ok) {
-        const data = await response.json();
-        setOnlineDoctors(data.doctors || []);
-        console.log('[ONLINE DOCTORS] Found:', data.count, 'online doctors');
-      }
-    } catch (error) {
-      console.error('[ONLINE DOCTORS] Error fetching online doctors:', error);
-      setOnlineDoctors([]);
-    }
-  };
-
-  const fetchPreviousDoctors = async () => {
-    try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/my-doctors`, {
-        credentials: 'include'
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        // Store IDs of previous doctors (using DoctorProfile _id)
-        setPreviousDoctorIds(new Set(data.map((d: any) => d._id)));
-      }
-    } catch (error) {
-      console.error('Error fetching previous doctors:', error);
-    }
-  };
+  }, [socket, queryClient]);
 
   const handleBookSession = (doctorId: string, isImmediate: boolean = false) => {
     navigate(`/doctor/${doctorId}`, {
@@ -190,7 +152,7 @@ const ChooseProfessionalPage: React.FC = () => {
   };
 
   // Get current doctors based on view mode and sort them by service preference
-  const currentDoctors = (viewMode === 'online' ? onlineDoctors : doctors).sort((a, b) => {
+  const currentDoctors = (viewMode === 'online' ? onlineDoctors : doctors).sort((a: any, b: any) => {
     if (serviceType === 'General') return 0;
 
     const aTreats = (a.treatsFor || []).map((s: string) => s.toLowerCase());
@@ -342,7 +304,7 @@ const ChooseProfessionalPage: React.FC = () => {
           <div className="text-center py-16 rounded-3xl" style={{ background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(255,255,255,0.9)' }}>
             <p className="text-red-600 mb-4 text-sm font-medium">{error}</p>
             <button
-              onClick={fetchDoctors}
+              onClick={() => queryClient.invalidateQueries({ queryKey: ['doctors'] })}
               className="px-6 py-2.5 text-white text-sm font-semibold rounded-full transition-colors shadow-sm"
               style={{ background: 'var(--teal)' }}
             >
@@ -353,8 +315,8 @@ const ChooseProfessionalPage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {viewMode === 'online' ? (
               // Online doctors view
-              onlineDoctors.map((doctor) => {
-                const fullDoctorData = doctors.find(d => d.userId._id === doctor._id);
+              onlineDoctors.map((doctor: any) => {
+                const fullDoctorData = doctors.find((d: Doctor) => d.userId._id === doctor._id);
 
                 if (fullDoctorData) {
                   const pricingText = fullDoctorData.pricing.min === 0 && fullDoctorData.pricing.max === 0
@@ -451,7 +413,7 @@ const ChooseProfessionalPage: React.FC = () => {
               })
             ) : (
               // All doctors view
-              doctors.map((doctor) => {
+              currentDoctors.map((doctor: Doctor) => {
                 return (
                   <DoctorCard
                     key={doctor._id}

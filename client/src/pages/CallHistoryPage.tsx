@@ -3,6 +3,7 @@ import { FiPhone } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import BackToDashboard from '../components/BackToDashboard';
 import { API_BASE_URL } from '../config/api';
+import { useQuery } from '@tanstack/react-query';
 
 interface CallRecord {
   _id: string;
@@ -17,48 +18,30 @@ interface CallRecord {
 }
 
 const CallHistoryPage: React.FC = () => {
-  const [callHistory, setCallHistory] = useState<CallRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
-
-  useEffect(() => {
-    fetchCallHistory();
-  }, []);
-
-  const fetchCallHistory = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+  const { data: callHistory = [], isLoading: loading, error: queryError } = useQuery({
+    queryKey: ['patient', 'call-history'],
+    queryFn: async () => {
       const response = await fetch(`${API_BASE_URL}/sessions/call-history`, {
         method: 'GET',
         credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        }
+        headers: { 'Content-Type': 'application/json' }
       });
 
       if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Please log in to view call history');
-        }
+        if (response.status === 401) throw new Error('Please log in to view call history');
         const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
         throw new Error(errorData.message || `HTTP ${response.status}: Failed to fetch call history`);
       }
-
-      const data = await response.json();
-      setCallHistory(data);
-    } catch (error: any) {
-      console.error('Error fetching call history:', error);
-      if (error.message.includes('Failed to fetch') || error.message.includes('ERR_CONNECTION_REFUSED')) {
-        setError('Cannot connect to server. Please make sure the backend is running on port 5001.');
-      } else {
-        setError(error.message || 'Failed to load call history');
-      }
-    } finally {
-      setLoading(false);
+      return await response.json();
     }
-  };
+  });
+
+  const error = queryError ? (
+    queryError.message.includes('Failed to fetch') || queryError.message.includes('ERR_CONNECTION_REFUSED')
+      ? 'Cannot connect to server. Please make sure the backend is running on port 5001.'
+      : queryError.message || 'Failed to load call history'
+  ) : null;
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -151,7 +134,7 @@ const CallHistoryPage: React.FC = () => {
         ) : (
           <div className="flex-1 overflow-y-auto pr-2 pb-10 min-h-0">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {callHistory.map((call) => (
+              {callHistory.map((call: CallRecord) => (
                 <div
                   key={call._id}
                   className="group bg-white rounded-[16px] border border-gray-100 hover:border-teal-200 shadow-sm hover:shadow-md transition-all cursor-default overflow-hidden p-6 flex flex-col"

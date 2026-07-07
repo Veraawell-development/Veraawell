@@ -9,6 +9,7 @@ import {
 import { LuStethoscope } from 'react-icons/lu';
 import toast from 'react-hot-toast';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_BASE_URL } from '../config/api';
 
 interface Article {
@@ -34,8 +35,7 @@ interface PaginationData {
 const AdminArticlesPage: React.FC = () => {
     const navigate = useNavigate();
     const { admin, logout } = useAdmin();
-    const [articles, setArticles] = useState<Article[]>([]);
-    const [loading, setLoading] = useState(true);
+    const queryClient = useQueryClient();
 
     // Sidebar States
     const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -47,7 +47,6 @@ const AdminArticlesPage: React.FC = () => {
     const [selectedCategory, setSelectedCategory] = useState('All');
     const [selectedStatus, setSelectedStatus] = useState('All');
     const [page, setPage] = useState(1);
-    const [pagination, setPagination] = useState<PaginationData | null>(null);
 
     // UX States
     const [articleToDelete, setArticleToDelete] = useState<{ id: string, title: string } | null>(null);
@@ -76,21 +75,11 @@ const AdminArticlesPage: React.FC = () => {
         setPage(1);
     }, [selectedCategory, selectedStatus]);
 
-    useEffect(() => {
-        if (!admin) {
-            navigate('/admin-login');
-            return;
-        }
-        fetchArticles();
-    }, [admin, debouncedSearch, selectedCategory, selectedStatus, page]);
-
-    const fetchArticles = async () => {
-        try {
-            setLoading(true);
+    const { data: articlesData, isLoading: loading } = useQuery({
+        queryKey: ['admin', 'articles_page', page, debouncedSearch, selectedCategory, selectedStatus],
+        queryFn: async () => {
             const token = localStorage.getItem('adminToken');
-            const headers: HeadersInit = {};
-            if (token) headers['Authorization'] = `Bearer ${token}`;
-
+            const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
             const params = new URLSearchParams({
                 page: page.toString(),
                 limit: '10',
@@ -98,84 +87,68 @@ const AdminArticlesPage: React.FC = () => {
                 category: selectedCategory,
                 status: selectedStatus
             });
-
             const response = await fetch(`${API_BASE_URL}/articles/admin/all?${params}`, {
                 credentials: 'include',
                 headers
             });
+            if (!response.ok) throw new Error('Failed to load articles');
+            return response.json();
+        },
+        enabled: !!admin
+    });
 
-            if (response.ok) {
-                const data = await response.json();
-                if (Array.isArray(data)) {
-                    setArticles(data);
-                    setPagination(null);
-                } else {
-                    setArticles(data.articles);
-                    setPagination(data.pagination);
-                }
-            }
-        } catch (error) {
-            console.error('Error fetching articles:', error);
-            toast.error('Failed to load articles');
-        } finally {
-            setLoading(false);
-        }
-    };
+    const articles: Article[] = Array.isArray(articlesData) ? articlesData : (articlesData?.articles || []);
+    const pagination: PaginationData | null = Array.isArray(articlesData) ? null : (articlesData?.pagination || null);
 
-    const confirmDelete = async () => {
-        if (!articleToDelete) return;
-        const { id } = articleToDelete;
-        setActionLoading(id);
-
-        try {
+    const deleteArticleMutation = useMutation({
+        mutationFn: async (id: string) => {
             const token = localStorage.getItem('adminToken');
-            const headers: HeadersInit = {};
-            if (token) headers['Authorization'] = `Bearer ${token}`;
-
+            const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
             const response = await fetch(`${API_BASE_URL}/articles/admin/${id}`, {
                 method: 'DELETE',
                 credentials: 'include',
                 headers
             });
+            if (!response.ok) throw new Error('Failed to delete article');
+            return response.json();
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['admin', 'articles_page'] });
+            toast.success('Article deleted successfully');
+        },
+        onError: () => toast.error('Failed to delete article'),
+        onSettled: () => { setActionLoading(null); setArticleToDelete(null); }
+    });
 
-            if (response.ok) {
-                setArticles(articles.filter(a => a._id !== id));
-                toast.success('Article deleted successfully');
-            } else {
-                toast.error('Failed to delete article');
-            }
-        } catch (error) {
-            console.error('Error deleting article:', error);
-            toast.error('Failed to delete article');
-        } finally {
-            setActionLoading(null);
-            setArticleToDelete(null);
-        }
+    const confirmDelete = () => {
+        if (!articleToDelete) return;
+        setActionLoading(articleToDelete.id);
+        deleteArticleMutation.mutate(articleToDelete.id);
     };
 
-    const handleToggleFeatured = async (id: string) => {
-        setActionLoading(id + '-feature');
-        try {
+    const toggleFeatureMutation = useMutation({
+        mutationFn: async (id: string) => {
             const token = localStorage.getItem('adminToken');
-            const headers: HeadersInit = {};
-            if (token) headers['Authorization'] = `Bearer ${token}`;
-
+            const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
             const response = await fetch(`${API_BASE_URL}/articles/admin/${id}/feature`, {
                 method: 'POST',
                 credentials: 'include',
                 headers
             });
+            if (!response.ok) throw new Error('Failed to feature article');
+            return response.json();
+        },
+        onSuccess: () => {
+            queryClient.invalidateQueries({ queryKey: ['admin', 'articles_page'] });
+            toast.success('Featured status updated');
+        },
+        onError: () => toast.error('An error occurred'),
+        onSettled: () => setActionLoading(null)
+    });
 
-            if (response.ok) {
-                fetchArticles();
-                toast.success('Featured status updated');
-            }
-        } catch (error) {
-            console.error('Error toggling featured:', error);
-            toast.error('An error occurred');
-        } finally {
-            setActionLoading(null);
-        }
+    const handleToggleFeatured = (id: string) => {
+        setActionLoading(id + '-feature');
+        toggleFeatureMutation.mutate(id);
     };
 
     const handleLogout = async () => {

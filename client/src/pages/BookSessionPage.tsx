@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import EmergencyContactModal from '../components/EmergencyContactModal';
 import { API_CONFIG } from '../config/api';
 import logger from '../utils/logger';
@@ -9,86 +10,51 @@ import type { Doctor } from '../types';
 const BookSessionPage: React.FC = () => {
   const { doctorId } = useParams<{ doctorId: string }>();
   const navigate = useNavigate();
-  const [doctor, setDoctor] = useState<Doctor | null>(null);
   const [selectedDate, setSelectedDate] = useState('');
   const [selectedTime, setSelectedTime] = useState('');
-  const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const sessionType = 'regular';
   const [mode, setMode] = useState<'video' | 'voice'>('video');
-  const [bookingLoading, setBookingLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
-  const [hasEmergencyContact, setHasEmergencyContact] = useState(false);
   const { showSuccess, showError: showErrorToast } = useToast();
+  const queryClient = useQueryClient();
 
-  useEffect(() => {
-    if (doctorId) {
-      fetchDoctorDetails();
-      checkEmergencyContact();
+  const { data: hasEmergencyContact = false } = useQuery({
+    queryKey: ['patient', 'emergency-contact'],
+    queryFn: async () => {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/patients/emergency-contact`, { credentials: 'include' });
+      if (!response.ok) return false;
+      const data = await response.json();
+      return !!(data.emergencyContact?.name && data.emergencyContact?.phone);
     }
-  }, [doctorId]);
+  });
 
-  useEffect(() => {
-    if (selectedDate && doctorId) {
-      fetchAvailableSlots();
-    }
-  }, [selectedDate, doctorId]);
-
-  const checkEmergencyContact = async () => {
-    try {
-      const response = await fetch(`${API_CONFIG.BASE_URL}/patients/emergency-contact`, {
-        credentials: 'include'
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setHasEmergencyContact(!!(data.emergencyContact?.name && data.emergencyContact?.phone));
-      }
-    } catch (error) {
-      logger.error('Error checking emergency contact:', error);
-    }
-  };
-
-  const fetchDoctorDetails = async () => {
-    try {
+  const { data: doctor = null, error: doctorError } = useQuery({
+    queryKey: ['doctor', doctorId],
+    queryFn: async () => {
       const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/doctors`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch doctor details');
-      }
+      if (!response.ok) throw new Error('Failed to fetch doctor details');
       const doctors = await response.json();
       const foundDoctor = doctors.find((d: Doctor) => d.userId._id === doctorId);
-      if (foundDoctor) {
-        setDoctor(foundDoctor);
-      } else {
-        setError('Doctor not found');
-        showErrorToast('Doctor not found');
-      }
-    } catch (error) {
-      logger.error('Error fetching doctor details:', error);
-      setError('Failed to load doctor details');
-      showErrorToast('Failed to load doctor details');
-    }
-  };
+      if (!foundDoctor) throw new Error('Doctor not found');
+      return foundDoctor;
+    },
+    enabled: !!doctorId,
+    retry: false
+  });
 
-  const fetchAvailableSlots = async () => {
-    try {
+  const { data: availableSlots = [] } = useQuery({
+    queryKey: ['doctor', 'slots', doctorId, selectedDate],
+    queryFn: async () => {
       const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/doctors/${doctorId}/slots/${selectedDate}`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch available slots');
-      }
+      if (!response.ok) throw new Error('Failed to fetch available slots');
       const data = await response.json();
 
-      // Filter out slots that have already passed on today's date
       const now = new Date();
       const [year, month, day] = selectedDate.split('-').map(Number);
-      const isToday = (
-        now.getFullYear() === year &&
-        now.getMonth() + 1 === month &&
-        now.getDate() === day
-      );
+      const isToday = now.getFullYear() === year && now.getMonth() + 1 === month && now.getDate() === day;
 
-      const filteredSlots = (data.availableSlots as string[]).filter((slot: string) => {
-        if (!isToday) return true; // future dates — show everything
+      return (data.availableSlots as string[]).filter((slot: string) => {
+        if (!isToday) return true;
         const [timeVal, period] = slot.split(' ');
         let [h, m] = timeVal.split(':').map(Number);
         if (period === 'PM' && h !== 12) h += 12;
@@ -96,13 +62,9 @@ const BookSessionPage: React.FC = () => {
         const slotDate = new Date(year, month - 1, day, h, m, 0, 0);
         return slotDate > now;
       });
-
-      setAvailableSlots(filteredSlots);
-    } catch (error) {
-      logger.error('Error fetching available slots:', error);
-      setAvailableSlots([]);
-    }
-  };
+    },
+    enabled: !!selectedDate && !!doctorId
+  });
 
   // Generate next 14 days using LOCAL date parts (avoids UTC timezone shift for IST etc.)
   const getNextDays = () => {
@@ -146,51 +108,49 @@ const BookSessionPage: React.FC = () => {
     }
   };
 
-  const handleBookSession = async () => {
+  const handleBookSession = () => {
     if (!selectedDate || !selectedTime || !doctor) {
-      setError('Please select date and time');
+      showErrorToast('Please select date and time');
       return;
     }
 
-    // Check if emergency contact is set, if not show modal
     if (!hasEmergencyContact) {
       setShowEmergencyModal(true);
       return;
     }
 
-    // Proceed with booking
-    await proceedWithBooking();
+    bookMutation.mutate();
   };
 
-  const handleEmergencyContactSubmit = async (contactName: string, contactPhone: string, contactRelationship: string) => {
-    try {
+  const emergencyContactMutation = useMutation({
+    mutationFn: async (payload: { contactName: string; contactPhone: string; contactRelationship: string }) => {
       const response = await fetch(`${API_CONFIG.BASE_URL}/patients/emergency-contact`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ contactName, contactPhone, contactRelationship })
+        body: JSON.stringify(payload)
       });
-
-      if (response.ok) {
-        setHasEmergencyContact(true);
-        setShowEmergencyModal(false);
-        // Now proceed with booking
-        await proceedWithBooking();
-      }
-    } catch (error) {
-      logger.error('Error saving emergency contact:', error);
-      setError('Failed to save emergency contact');
+      if (!response.ok) throw new Error('Failed to save emergency contact');
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['patient', 'emergency-contact'] });
+      setShowEmergencyModal(false);
+      bookMutation.mutate();
+    },
+    onError: (err: any) => {
+      logger.error('Error saving emergency contact:', err);
       showErrorToast('Failed to save emergency contact');
     }
+  });
+
+  const handleEmergencyContactSubmit = (contactName: string, contactPhone: string, contactRelationship: string) => {
+    emergencyContactMutation.mutate({ contactName, contactPhone, contactRelationship });
   };
 
-  const proceedWithBooking = async () => {
-    try {
-      setBookingLoading(true);
-      setError(null);
-
+  const bookMutation = useMutation({
+    mutationFn: async () => {
       const price = getPriceForDuration(duration);
-
       const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/book`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -205,38 +165,33 @@ const BookSessionPage: React.FC = () => {
           duration: duration
         })
       });
-
       if (!response.ok) {
         const errorData = await response.json();
         throw new Error(errorData.message || 'Failed to book session');
       }
-
-      const data = await response.json();
+      return response.json();
+    },
+    onSuccess: (data) => {
       logger.info('Booking successful:', data);
-
       showSuccess('Session booked successfully! Redirecting to your dashboard...');
-
-      setTimeout(() => {
-        navigate('/patient-dashboard', {
-          state: { refreshSessions: true }
-        });
-      }, 1500);
-    } catch (error: any) {
-      logger.error('Error booking session:', error);
-      setError(error.message || 'Failed to book session');
-    } finally {
-      setBookingLoading(false);
+      setTimeout(() => navigate('/patient-dashboard', { state: { refreshSessions: true } }), 1500);
+    },
+    onError: (err: any) => {
+      logger.error('Error booking session:', err);
+      showErrorToast(err.message || 'Failed to book session');
     }
-  };
+  });
+
+  const bookingLoading = bookMutation.isPending || emergencyContactMutation.isPending;
 
 
   // Remove loading screen for faster page load
 
-  if (error && !doctor) {
+  if (doctorError && !doctor) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-red-600 mb-4">{error}</p>
+          <p className="text-red-600 mb-4">{doctorError.message || 'Doctor not found'}</p>
           <button
             onClick={() => navigate('/choose-professional')}
             className="px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700"
@@ -333,9 +288,9 @@ const BookSessionPage: React.FC = () => {
           <div className="bg-white rounded-[1.25rem] shadow-[0_8px_30px_rgb(0,0,0,0.04)] ring-1 ring-gray-100 p-8 lg:col-span-7">
             <h3 className="text-2xl font-bold text-gray-900 mb-8" style={{ fontFamily: 'Bree Serif, serif' }}>Schedule Your Session</h3>
 
-            {error && (
+            {bookMutation.error && (
               <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
-                {error}
+                {bookMutation.error.message}
               </div>
             )}
 
