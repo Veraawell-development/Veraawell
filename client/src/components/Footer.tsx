@@ -120,15 +120,15 @@ const Footer: React.FC = () => {
             </h4>
             <ul className="space-y-3">
               {[
-                { label: 'Help Center', href: '#' },
-                { label: 'Contact Us', href: '/contact' },
-                { label: 'Privacy Policy', href: '/privacy' },
-                { label: 'Terms of Service', href: '/terms' },
-                { label: 'Refund Policy', href: '/refund-policy' },
-              ].map(({ label, href }) => (
+                { label: 'Help Center', to: '#' },
+                { label: 'Contact Us', to: '/contact' },
+                { label: 'Privacy Policy', to: '/privacy' },
+                { label: 'Terms of Service', to: '/terms' },
+                { label: 'Refund Policy', to: '/refund-policy' },
+              ].map(({ label, to }) => (
                 <li key={label}>
-                  <a
-                    href={href}
+                  <Link
+                    to={to}
                     className="text-sm transition-colors duration-200"
                     style={{ color: 'var(--dark-text-2)', textDecoration: 'none' }}
                     onMouseEnter={e =>
@@ -139,7 +139,7 @@ const Footer: React.FC = () => {
                     }
                   >
                     {label}
-                  </a>
+                  </Link>
                 </li>
               ))}
             </ul>

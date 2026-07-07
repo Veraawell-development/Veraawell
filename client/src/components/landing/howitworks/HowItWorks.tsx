@@ -1,4 +1,5 @@
 import React, { useRef, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useScrollReveal } from '../../../hooks/useScrollReveal';
 
 const steps = [
@@ -198,8 +199,8 @@ const HowItWorks: React.FC = () => {
           >
             Ready to take the first step?
           </p>
-          <a
-            href="/choose-professional"
+          <Link
+            to="/choose-professional"
             className="btn-shimmer inline-flex items-center gap-2 px-8 py-3.5 rounded-full text-sm font-semibold text-white"
             style={{
               background: 'var(--teal)',
@@ -217,7 +218,7 @@ const HowItWorks: React.FC = () => {
             }}
           >
             Get Started Today →
-          </a>
+          </Link>
         </div>
 
       </div>

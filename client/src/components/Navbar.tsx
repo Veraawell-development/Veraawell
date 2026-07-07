@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useAdmin } from '../context/AdminContext';
 import { Menu, X, ChevronDown, User } from 'lucide-react';
 
 export default function Navbar() {
-  const { isLoggedIn, user, logout } = useAuth();
+  const { isLoggedIn, user, logout, loading } = useAuth();
   const { admin } = useAdmin();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -61,6 +61,15 @@ export default function Navbar() {
   /* ── Auth Buttons ── */
   const AuthButtons: React.FC<{ mobile?: boolean }> = ({ mobile }) => {
     const [profileOpen, setProfileOpen] = useState(false);
+
+    if (loading) {
+      return (
+        <div className={`flex ${mobile ? 'flex-col' : 'flex-row'} gap-2 relative opacity-50`}>
+          <div className="w-20 h-9 rounded-full bg-gray-200 animate-pulse"></div>
+          <div className="w-24 h-9 rounded-full bg-gray-200 animate-pulse"></div>
+        </div>
+      );
+    }
 
     if (isLoggedIn) {
       const handleLogout = async () => {
@@ -257,9 +266,9 @@ export default function Navbar() {
                           }}
                         >
                           {link.dropdown.map((item) => (
-                            <a
+                            <Link
                               key={item.name}
-                              href={item.path}
+                              to={item.path}
                               className="block px-4 py-2.5 text-sm font-medium transition-colors duration-150"
                               style={{ color: 'var(--text-2)', textDecoration: 'none' }}
                               onMouseEnter={e =>
@@ -270,14 +279,14 @@ export default function Navbar() {
                               }
                             >
                               {item.name}
-                            </a>
+                            </Link>
                           ))}
                         </div>
                       )}
                     </>
                   ) : (
-                    <a
-                      href={link.path}
+                    <Link
+                      to={link.path}
                       className="text-sm font-medium transition-colors duration-200"
                       style={{ color: 'var(--text-2)', textDecoration: 'none' }}
                       onMouseEnter={e =>
@@ -288,7 +297,7 @@ export default function Navbar() {
                       }
                     >
                       {link.name}
-                    </a>
+                    </Link>
                   )}
                 </div>
               ))}
@@ -343,28 +352,28 @@ export default function Navbar() {
                       {resourcesOpen && (
                         <div className="pl-4 mt-1 space-y-1">
                           {link.dropdown.map((item) => (
-                            <a
+                            <Link
                               key={item.name}
-                              href={item.path}
+                              to={item.path}
                               className="block text-sm py-2"
                               style={{ color: 'var(--text-2)', textDecoration: 'none' }}
                               onClick={() => setIsMobileMenuOpen(false)}
                             >
                               {item.name}
-                            </a>
+                            </Link>
                           ))}
                         </div>
                       )}
                     </div>
                   ) : (
-                    <a
-                      href={link.path}
+                    <Link
+                      to={link.path}
                       className="block text-sm font-medium py-2.5"
                       style={{ color: 'var(--text)', textDecoration: 'none' }}
                       onClick={() => setIsMobileMenuOpen(false)}
                     >
                       {link.name}
-                    </a>
+                    </Link>
                   )}
                 </div>
               ))}
