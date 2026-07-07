@@ -374,21 +374,21 @@ const AdminArticleEditorPage: React.FC = () => {
                             </span>
                         </h1>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-3">
                         <button
                             onClick={() => handleSubmit(false)}
                             disabled={saving}
-                            className="px-3 py-1.5 text-xs font-semibold text-neutral-700 bg-white border border-neutral-200 rounded-lg hover:bg-neutral-50 transition-colors disabled:opacity-50 flex items-center gap-1.5"
+                            className="px-4 py-2 text-xs font-bold text-neutral-600 bg-white border-2 border-neutral-200 rounded-xl hover:bg-neutral-50 hover:border-neutral-300 transition-all disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
                         >
-                            {saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
                             Save Draft
                         </button>
                         <button
                             onClick={() => handleSubmit(true)}
                             disabled={saving}
-                            className="px-4 py-1.5 bg-[#0097b2] text-white rounded-lg hover:bg-[#007c93] text-xs font-semibold transition-colors disabled:opacity-50 flex items-center gap-1.5 shadow-sm"
+                            className="px-5 py-2 bg-gradient-to-r from-[#0097b2] to-[#007c93] hover:from-[#007c93] hover:to-[#005f73] text-white rounded-xl text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-1.5 shadow-md shadow-[#0097b2]/20 hover:scale-[1.02]"
                         >
-                            {saving ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+                            {saving ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
                             Publish
                         </button>
                     </div>
@@ -412,7 +412,7 @@ const AdminArticleEditorPage: React.FC = () => {
                                             value={formData.title}
                                             onChange={(e) => setFormData({ ...formData, title: e.target.value })}
                                             placeholder="Enter a catchy title..."
-                                            className="w-full px-4 py-2.5 text-sm font-medium bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-[#0097b2]"
+                                            className="w-full px-4 py-3 text-sm font-medium bg-white rounded-xl border border-neutral-200 focus:outline-none focus:ring-2 focus:ring-[#0097b2]/20 focus:border-[#0097b2] transition-all shadow-sm"
                                             maxLength={200}
                                         />
                                     </div>
@@ -425,7 +425,7 @@ const AdminArticleEditorPage: React.FC = () => {
                                             onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                                             placeholder="Write a brief summary for previews..."
                                             rows={3}
-                                            className="w-full px-4 py-2.5 text-xs bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-[#0097b2] resize-none"
+                                            className="w-full px-4 py-3 text-xs bg-white rounded-xl border border-neutral-200 focus:outline-none focus:ring-2 focus:ring-[#0097b2]/20 focus:border-[#0097b2] resize-none transition-all shadow-sm"
                                             maxLength={500}
                                         />
                                         <div className="text-right mt-1 text-[10px] text-neutral-400 font-medium">
@@ -518,7 +518,7 @@ const AdminArticleEditorPage: React.FC = () => {
                                         <select
                                             value={formData.category}
                                             onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                                            className="w-full px-3 py-2 text-xs bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-[#0097b2] appearance-none"
+                                            className="w-full px-4 py-2.5 text-xs bg-white rounded-xl border border-neutral-200 focus:outline-none focus:ring-2 focus:ring-[#0097b2]/20 focus:border-[#0097b2] appearance-none transition-all shadow-sm"
                                         >
                                             {categories.map(cat => (
                                                 <option key={cat} value={cat}>{cat}</option>
@@ -534,13 +534,13 @@ const AdminArticleEditorPage: React.FC = () => {
                                             {formData.tags.map(tag => (
                                                 <span
                                                     key={tag}
-                                                    className="inline-flex items-center gap-1 px-2 py-0.5 bg-neutral-50 text-neutral-700 rounded-lg text-[10px] font-semibold border border-neutral-100"
+                                                    className="inline-flex items-center gap-1 px-2.5 py-1 bg-[#0097b2]/10 text-[#0097b2] rounded-lg text-[10px] font-bold border border-[#0097b2]/20 shadow-sm"
                                                 >
                                                     {tag}
                                                     <button
                                                         type="button"
                                                         onClick={() => handleRemoveTag(tag)}
-                                                        className="text-neutral-400 hover:text-red-500 transition-colors text-xs"
+                                                        className="text-[#0097b2]/60 hover:text-red-500 transition-colors text-xs ml-1"
                                                     >
                                                         ×
                                                     </button>
@@ -554,12 +554,12 @@ const AdminArticleEditorPage: React.FC = () => {
                                                 onChange={(e) => setTagInput(e.target.value)}
                                                 onKeyPress={(e) => e.key === 'Enter' && (e.preventDefault(), handleAddTag())}
                                                 placeholder="Add tag..."
-                                                className="flex-1 px-3 py-1.5 text-xs bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-[#0097b2]"
+                                                className="flex-1 px-4 py-2 text-xs bg-white rounded-xl border border-neutral-200 focus:outline-none focus:ring-2 focus:ring-[#0097b2]/20 focus:border-[#0097b2] transition-all shadow-sm"
                                             />
                                             <button
                                                 type="button"
                                                 onClick={handleAddTag}
-                                                className="px-3 py-1.5 bg-neutral-50 text-neutral-600 rounded-lg hover:bg-neutral-100 text-xs font-semibold border border-neutral-200 transition-colors"
+                                                className="px-4 py-2 bg-neutral-100 text-neutral-700 rounded-xl hover:bg-neutral-200 text-xs font-bold transition-colors shadow-sm"
                                             >
                                                 Add
                                             </button>
@@ -579,7 +579,7 @@ const AdminArticleEditorPage: React.FC = () => {
                                     value={formData.author}
                                     onChange={(e) => setFormData({ ...formData, author: e.target.value })}
                                     placeholder="Author Name"
-                                    className="w-full px-3 py-2 text-xs bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-[#0097b2]"
+                                    className="w-full px-4 py-2.5 text-xs bg-white rounded-xl border border-neutral-200 focus:outline-none focus:ring-2 focus:ring-[#0097b2]/20 focus:border-[#0097b2] transition-all shadow-sm"
                                 />
                             </div>
                         </div>

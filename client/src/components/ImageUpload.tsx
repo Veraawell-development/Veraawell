@@ -84,57 +84,68 @@ const ImageUpload: React.FC<ImageUploadProps> = ({ value, onChange, onUpload }) 
             />
 
             {value ? (
-                <div className="relative group rounded-xl overflow-hidden border border-gray-200 aspect-video bg-gray-50">
+                <div className="relative group rounded-xl overflow-hidden border border-gray-200 aspect-video bg-gray-50 shadow-sm">
                     <img
                         src={value}
                         alt="Article preview"
-                        className="w-full h-full object-cover"
+                        className={`w-full h-full object-cover transition-opacity duration-300 ${uploading ? 'opacity-30 blur-sm' : ''}`}
                     />
-                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                        <button
-                            onClick={() => fileInputRef.current?.click()}
-                            className="p-2 bg-white/10 hover:bg-white/20 text-white rounded-lg backdrop-blur-sm transition-colors"
-                            title="Change Image"
-                        >
-                            <Upload className="w-5 h-5" />
-                        </button>
-                        <button
-                            onClick={clearImage}
-                            className="p-2 bg-red-500/80 hover:bg-red-500 text-white rounded-lg backdrop-blur-sm transition-colors"
-                            title="Remove Image"
-                        >
-                            <X className="w-5 h-5" />
-                        </button>
-                    </div>
+                    
+                    {uploading && (
+                        <div className="absolute inset-0 flex flex-col items-center justify-center z-10">
+                            <Loader2 className="w-10 h-10 text-[#0097b2] animate-spin mb-2 drop-shadow-md" />
+                            <p className="text-sm font-semibold text-neutral-800 drop-shadow-md">Uploading...</p>
+                        </div>
+                    )}
+
+                    {!uploading && (
+                        <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center gap-3">
+                            <button
+                                onClick={(e) => { e.preventDefault(); fileInputRef.current?.click(); }}
+                                className="p-2.5 bg-white/20 hover:bg-white/40 text-white rounded-xl backdrop-blur-md transition-all hover:scale-105 shadow-sm"
+                                title="Change Image"
+                            >
+                                <Upload className="w-5 h-5" />
+                            </button>
+                            <button
+                                onClick={(e) => { e.preventDefault(); clearImage(); }}
+                                className="p-2.5 bg-red-500/80 hover:bg-red-600 text-white rounded-xl backdrop-blur-md transition-all hover:scale-105 shadow-sm"
+                                title="Remove Image"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                    )}
                 </div>
             ) : (
                 <div
-                    onClick={() => fileInputRef.current?.click()}
+                    onClick={() => !uploading && fileInputRef.current?.click()}
                     onDragOver={handleDragOver}
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
                     className={`
-                        relative flex flex-col items-center justify-center aspect-video rounded-xl border-2 border-dashed transition-all cursor-pointer
+                        relative flex flex-col items-center justify-center aspect-video rounded-xl border-2 border-dashed transition-all duration-300 cursor-pointer shadow-sm
                         ${isDragging
-                            ? 'border-teal-500 bg-teal-50'
-                            : 'border-gray-300 hover:border-teal-400 hover:bg-gray-50'
+                            ? 'border-[#0097b2] bg-[#0097b2]/5 scale-[0.98]'
+                            : 'border-neutral-300 hover:border-[#0097b2] hover:bg-neutral-50'
                         }
+                        ${uploading ? 'pointer-events-none opacity-80' : ''}
                     `}
                 >
                     {uploading ? (
                         <div className="text-center">
-                            <Loader2 className="w-10 h-10 text-teal-600 animate-spin mx-auto mb-2" />
-                            <p className="text-sm text-gray-500">Uploading...</p>
+                            <Loader2 className="w-10 h-10 text-[#0097b2] animate-spin mx-auto mb-2" />
+                            <p className="text-sm font-medium text-neutral-500">Uploading...</p>
                         </div>
                     ) : (
-                        <div className="text-center p-6">
-                            <div className="w-12 h-12 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                                <ImageIcon className="w-6 h-6 text-gray-400" />
+                        <div className="text-center p-6 transition-transform group-hover:scale-105">
+                            <div className="w-14 h-14 bg-[#0097b2]/10 rounded-full flex items-center justify-center mx-auto mb-4 transition-colors group-hover:bg-[#0097b2]/20">
+                                <ImageIcon className="w-7 h-7 text-[#0097b2]" />
                             </div>
-                            <p className="text-sm font-medium text-gray-700 mb-1">
+                            <p className="text-sm font-semibold text-neutral-800 mb-1">
                                 Click or drag image here
                             </p>
-                            <p className="text-xs text-gray-500">
+                            <p className="text-xs text-neutral-500 font-medium">
                                 JPG, PNG, WEBP up to 5MB
                             </p>
                         </div>

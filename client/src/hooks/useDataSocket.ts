@@ -61,6 +61,13 @@ export const useDataSocket = (): UseDataSocketReturn => {
             console.error('[DATA-SOCKET] Connection error:', err.message);
             setError(err.message);
             setIsConnected(false);
+
+            if (err.message.includes('Authentication error') || err.message.includes('No token')) {
+                console.log('[DATA-SOCKET] Auth failed, stopping reconnections');
+                newSocket.disconnect();
+                return;
+            }
+
             reconnectAttempts.current++;
 
             if (reconnectAttempts.current >= maxReconnectAttempts) {

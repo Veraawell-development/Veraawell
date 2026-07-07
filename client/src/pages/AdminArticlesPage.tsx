@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import { LuStethoscope } from 'react-icons/lu';
 import toast from 'react-hot-toast';
-import { AnimatePresence } from 'framer-motion';
+import { AnimatePresence, motion } from 'framer-motion';
 import { API_BASE_URL } from '../config/api';
 
 interface Article {
@@ -63,11 +63,13 @@ const AdminArticlesPage: React.FC = () => {
     // Debounce search
     useEffect(() => {
         const timer = setTimeout(() => {
-            setDebouncedSearch(searchQuery);
-            setPage(1);
+            if (debouncedSearch !== searchQuery) {
+                setDebouncedSearch(searchQuery);
+                setPage(1);
+            }
         }, 500);
         return () => clearTimeout(timer);
-    }, [searchQuery]);
+    }, [searchQuery, debouncedSearch]);
 
     // Reset page when filters change
     useEffect(() => {
@@ -185,22 +187,22 @@ const AdminArticlesPage: React.FC = () => {
         switch (status) {
             case 'published':
                 return (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-medium border border-emerald-200">
-                        <CheckCircle className="w-3 h-3" />
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-500/10 text-emerald-600 rounded-lg text-[11px] font-bold tracking-wide border border-emerald-500/20 shadow-[0_0_10px_rgba(16,185,129,0.1)]">
+                        <CheckCircle className="w-3.5 h-3.5" />
                         Published
                     </span>
                 );
             case 'draft':
                 return (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-amber-50 text-amber-700 rounded-full text-xs font-medium border border-amber-200">
-                        <Clock className="w-3 h-3" />
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-500/10 text-amber-600 rounded-lg text-[11px] font-bold tracking-wide border border-amber-500/20 shadow-[0_0_10px_rgba(245,158,11,0.1)]">
+                        <Clock className="w-3.5 h-3.5" />
                         Draft
                     </span>
                 );
             case 'archived':
                 return (
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-neutral-100 text-neutral-700 rounded-full text-xs font-medium border border-neutral-200">
-                        <AlertCircle className="w-3 h-3" />
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-neutral-500/10 text-neutral-600 rounded-lg text-[11px] font-bold tracking-wide border border-neutral-500/20">
+                        <AlertCircle className="w-3.5 h-3.5" />
                         Archived
                     </span>
                 );
@@ -313,13 +315,15 @@ const AdminArticlesPage: React.FC = () => {
                         </button>
                         <h1 className="text-sm font-semibold text-neutral-900">Manage Articles</h1>
                     </div>
-                    <button
+                    <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
                         onClick={() => navigate('/admin/articles/new')}
-                        className="inline-flex items-center gap-2 px-4 py-1.5 bg-[#0097b2] text-white rounded-lg hover:bg-[#007c93] text-xs font-semibold transition-colors shadow-sm"
+                        className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-[#0097b2] to-[#007c93] hover:from-[#007c93] hover:to-[#005f73] text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-[#0097b2]/20"
                     >
-                        <Plus className="w-3.5 h-3.5" />
+                        <Plus className="w-4 h-4" />
                         New Article
-                    </button>
+                    </motion.button>
                 </header>
 
                 {/* Content */}
@@ -329,24 +333,24 @@ const AdminArticlesPage: React.FC = () => {
                     <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm p-4">
                         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                             {/* Search */}
-                            <div className="md:col-span-2 relative">
-                                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-neutral-400" />
+                            <div className="md:col-span-2 relative group">
+                                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-neutral-400 group-focus-within:text-[#0097b2] transition-colors" />
                                 <input
                                     type="text"
                                     placeholder="Search by title..."
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
-                                    className="w-full pl-9 pr-4 py-2 text-xs bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-[#0097b2]"
+                                    className="w-full pl-9 pr-4 py-2.5 text-xs bg-white rounded-xl border border-neutral-200 focus:outline-none focus:ring-2 focus:ring-[#0097b2]/20 focus:border-[#0097b2] transition-all shadow-sm"
                                 />
                             </div>
 
                             {/* Category Filter */}
-                            <div className="relative">
-                                <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-neutral-400" />
+                            <div className="relative group">
+                                <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-neutral-400 group-focus-within:text-[#0097b2] transition-colors" />
                                 <select
                                     value={selectedCategory}
                                     onChange={(e) => setSelectedCategory(e.target.value)}
-                                    className="w-full pl-9 pr-8 py-2 text-xs bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-[#0097b2] appearance-none"
+                                    className="w-full pl-9 pr-8 py-2.5 text-xs bg-white rounded-xl border border-neutral-200 focus:outline-none focus:ring-2 focus:ring-[#0097b2]/20 focus:border-[#0097b2] appearance-none transition-all shadow-sm"
                                 >
                                     {categories.map(cat => (
                                         <option key={cat} value={cat}>{cat}</option>
@@ -355,11 +359,11 @@ const AdminArticlesPage: React.FC = () => {
                             </div>
 
                             {/* Status Filter */}
-                            <div className="relative">
+                            <div className="relative group">
                                 <select
                                     value={selectedStatus}
                                     onChange={(e) => setSelectedStatus(e.target.value)}
-                                    className="w-full px-4 py-2 text-xs bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-[#0097b2] appearance-none"
+                                    className="w-full px-4 py-2.5 text-xs bg-white rounded-xl border border-neutral-200 focus:outline-none focus:ring-2 focus:ring-[#0097b2]/20 focus:border-[#0097b2] appearance-none transition-all shadow-sm"
                                 >
                                     <option value="All">All Status</option>
                                     <option value="published">Published</option>
@@ -411,8 +415,17 @@ const AdminArticlesPage: React.FC = () => {
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-neutral-100">
-                                            {articles.map((article) => (
-                                                <tr key={article._id} className="hover:bg-neutral-50/50 transition-colors group">
+                                            <AnimatePresence>
+                                            {articles.map((article, index) => (
+                                                <motion.tr 
+                                                    initial={{ opacity: 0, y: 10 }}
+                                                    animate={{ opacity: 1, y: 0 }}
+                                                    exit={{ opacity: 0, scale: 0.95 }}
+                                                    transition={{ delay: index * 0.05 }}
+                                                    key={article._id} 
+                                                    onClick={() => navigate(`/admin/articles/edit/${article._id}`)}
+                                                    className="hover:bg-[#0097b2]/5 transition-colors group cursor-pointer"
+                                                >
                                                     <td className="px-6 py-4">
                                                         <div className="flex flex-col">
                                                             <span className="text-sm font-semibold text-neutral-800 mb-1 line-clamp-1 group-hover:text-[#0097b2] transition-colors">
@@ -446,14 +459,14 @@ const AdminArticlesPage: React.FC = () => {
                                                                     handleToggleFeatured(article._id);
                                                                 }}
                                                                 disabled={actionLoading !== null}
-                                                                className={`p-1.5 rounded-lg hover:bg-neutral-50 transition-colors ${article.featured ? 'text-amber-500' : 'text-neutral-400 hover:text-amber-500'} disabled:opacity-50`}
+                                                                className={`p-2 rounded-xl transition-all ${article.featured ? 'bg-amber-50 text-amber-500 hover:bg-amber-100' : 'text-neutral-400 hover:text-amber-500 hover:bg-amber-50'} disabled:opacity-50`}
                                                                 title={article.featured ? "Unfeature" : "Feature"}
                                                             >
                                                                 {actionLoading === article._id + '-feature' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Star className={`w-4 h-4 ${article.featured ? 'fill-current' : ''}`} />}
                                                             </button>
                                                             <button
                                                                 onClick={() => navigate(`/admin/articles/edit/${article._id}`)}
-                                                                className="p-1.5 text-blue-600 hover:bg-neutral-50 rounded-lg transition-colors disabled:opacity-50"
+                                                                className="p-2 text-blue-500 hover:text-blue-600 hover:bg-blue-50 rounded-xl transition-all disabled:opacity-50"
                                                                 title="Edit"
                                                                 disabled={actionLoading !== null}
                                                             >
@@ -461,7 +474,7 @@ const AdminArticlesPage: React.FC = () => {
                                                             </button>
                                                             <button
                                                                 onClick={() => setArticleToDelete({ id: article._id, title: article.title })}
-                                                                className="p-1.5 text-red-600 hover:bg-neutral-50 rounded-lg transition-colors disabled:opacity-50"
+                                                                className="p-2 text-red-500 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all disabled:opacity-50"
                                                                 title="Delete"
                                                                 disabled={actionLoading !== null}
                                                             >
@@ -469,8 +482,9 @@ const AdminArticlesPage: React.FC = () => {
                                                             </button>
                                                         </div>
                                                     </td>
-                                                </tr>
+                                                </motion.tr>
                                             ))}
+                                            </AnimatePresence>
                                         </tbody>
                                     </table>
                                 </div>
