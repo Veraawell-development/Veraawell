@@ -599,7 +599,7 @@ const PatientDashboard: React.FC = () => {
                       >
                         <div className="flex items-center justify-between">
                           <p className="text-sm text-white font-bold" style={{ fontFamily: 'Inter, sans-serif' }}>
-                            {formatDate(report.createdAt)} <span className="text-white/60 mx-1">•</span> Dr. {report.doctorId.firstName} {report.doctorId.lastName}
+                            {formatDate(report.createdAt)} <span className="text-white/60 mx-1">•</span> Dr. {report.doctorId?.firstName || 'Unknown'} {report.doctorId?.lastName || ''}
                           </p>
                           <svg 
                             className={`w-4 h-4 text-white/70 transition-transform duration-200 ${isExpanded ? 'rotate-180' : ''}`} 
@@ -864,7 +864,7 @@ const PatientDashboard: React.FC = () => {
                     pendingTasks.map((task: Task) => (
                       <div key={task._id} className="grid grid-cols-3 gap-2 text-sm text-white font-medium mb-3 bg-white/10 hover:bg-white/20 border border-white/10 hover:shadow-lg p-4 rounded-2xl transition-all cursor-pointer backdrop-blur-md" style={{ fontFamily: 'Inter, sans-serif' }}>
                         <span className="text-white drop-shadow-sm truncate">{formatDate(task.dueDate)}</span>
-                        <span className="truncate drop-shadow-sm">Dr. {task.doctorId.firstName} {task.doctorId.lastName}</span>
+                        <span className="truncate drop-shadow-sm">Dr. {task.doctorId?.firstName || 'Unknown'} {task.doctorId?.lastName || ''}</span>
                         <span className="truncate drop-shadow-sm">{task.title}</span>
                       </div>
                     ))
