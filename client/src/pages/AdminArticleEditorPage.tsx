@@ -10,6 +10,7 @@ import {
 import { LuStethoscope } from 'react-icons/lu';
 import ImageUpload from '../components/ImageUpload';
 import toast from 'react-hot-toast';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { API_BASE_URL } from '../config/api';
 
 const AdminArticleEditorPage: React.FC = () => {
@@ -20,7 +21,6 @@ const AdminArticleEditorPage: React.FC = () => {
     const isEditMode = !!id && id !== 'new';
     const quillRef = useRef<ReactQuill>(null);
 
-    const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
@@ -66,49 +66,45 @@ const AdminArticleEditorPage: React.FC = () => {
                 author: `${admin.firstName} ${admin.lastName}`.trim()
             }));
         }
+    }, [admin, adminLoading, id, isEditMode, formData.author, navigate]);
 
-        if (isEditMode) {
-            fetchArticle();
-        } else {
-            setLoading(false);
-        }
-    }, [admin, adminLoading, id, isEditMode]);
+    const queryClient = useQueryClient();
 
-    const fetchArticle = async () => {
-        try {
-            setLoading(true);
+    const { data: articleData, isLoading: isFetchingArticle, isError } = useQuery({
+        queryKey: ['admin', 'article', id],
+        queryFn: async () => {
             const token = localStorage.getItem('adminToken');
-            const headers: HeadersInit = {};
-            if (token) headers['Authorization'] = `Bearer ${token}`;
-
+            const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
             const response = await fetch(`${API_BASE_URL}/articles/admin/${id}`, {
                 credentials: 'include',
                 headers
             });
+            if (!response.ok) throw new Error('Failed to fetch article');
+            return response.json();
+        },
+        enabled: !!admin && admin.role === 'super_admin' && isEditMode,
+    });
 
-            if (response.ok) {
-                const article = await response.json();
-                setFormData({
-                    title: article.title,
-                    description: article.description,
-                    content: article.content,
-                    category: article.category,
-                    tags: article.tags || [],
-                    author: article.author,
-                    image: article.image || '',
-                    featured: article.featured,
-                    status: article.status
-                });
-            } else {
-                setError('Failed to fetch article details.');
-            }
-        } catch (error) {
-            console.error('Error fetching article:', error);
-            setError('An error occurred while loading the article.');
-        } finally {
-            setLoading(false);
+    useEffect(() => {
+        if (articleData) {
+            setFormData({
+                title: articleData.title,
+                description: articleData.description,
+                content: articleData.content,
+                category: articleData.category,
+                tags: articleData.tags || [],
+                author: articleData.author,
+                image: articleData.image || '',
+                featured: articleData.featured,
+                status: articleData.status
+            });
         }
-    };
+        if (isError) {
+            setError('Failed to load article details.');
+        }
+    }, [articleData, isError]);
+
+    const loading = adminLoading || isFetchingArticle;
 
     const handleImageUpload = async (file: File): Promise<string> => {
         const uploadFormData = new FormData();
@@ -155,6 +151,10 @@ const AdminArticleEditorPage: React.FC = () => {
             });
 
             if (response.ok) {
+                queryClient.invalidateQueries({ queryKey: ['admin', 'articles'] });
+                if (isEditMode) {
+                    queryClient.invalidateQueries({ queryKey: ['admin', 'article', id] });
+                }
                 toast.success(isEditMode ? 'Article updated successfully' : 'Article created successfully');
                 if (!isEditMode) navigate('/super-admin-dashboard', { state: { tab: 'articles' } });
             } else {

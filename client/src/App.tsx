@@ -118,6 +118,22 @@ function AppRoutes() {
       wakeUpBackend().catch(() => {
         console.log('Backend wakeup failed, continuing anyway');
       });
+
+      // Preload heavy/frequently-used images to prevent flicker
+      const imagesToPreload = [
+        '/aboutpage.png',
+        '/about-01.svg',
+        '/about-02.svg',
+        '/about-03.svg',
+        '/about-04.svg',
+        '/carrer-page.png',
+        '/carrer-01.svg',
+        '/carrer-02.svg'
+      ];
+      imagesToPreload.forEach((src) => {
+        const img = new window.Image();
+        img.src = src;
+      });
     }
 
     // Check auth silently in background (don't block UI)

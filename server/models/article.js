@@ -25,21 +25,7 @@ const articleSchema = new mongoose.Schema({
     },
     category: {
         type: String,
-        required: [true, 'Category is required'],
-        enum: [
-            'Addiction',
-            'Adult ADHD',
-            'Anger management',
-            'Anger & Frustration',
-            'Anxiety disorders',
-            'Bipolar disorder',
-            'Confusion about identity',
-            'Depression',
-            'Depressive disorders',
-            'Lack of Motivation',
-            'Negative thinking',
-            'Relationship Struggles'
-        ]
+        required: [true, 'Category is required']
     },
     tags: [{
         type: String,
@@ -82,14 +68,16 @@ const articleSchema = new mongoose.Schema({
     likes: {
         type: Number,
         default: 0
-    }
+    },
+    likedBy: [{
+        type: String
+    }]
 }, {
     timestamps: true
 });
 
-// Auto-generate slug from title before saving with collision handling
 articleSchema.pre('save', async function (next) {
-    if (!this.isModified('title')) {
+    if (!this.isNew || !this.isModified('title')) {
         return next();
     }
 
@@ -153,6 +141,10 @@ articleSchema.index({ status: 1, publishedDate: -1 });
 articleSchema.index({ category: 1 });
 articleSchema.index({ featured: 1 });
 articleSchema.index({ authorId: 1 });
+articleSchema.index(
+    { title: 'text', description: 'text', content: 'text' },
+    { weights: { title: 10, description: 5, content: 1 } }
+);
 
 const Article = mongoose.model('Article', articleSchema);
 

@@ -4,6 +4,7 @@ const logger = createLogger('ARTICLE-CONTROLLER');
 const { asyncHandler } = require('../middleware/error.middleware');
 const DOMPurify = require('isomorphic-dompurify');
 const validator = require('validator');
+const cache = require('../services/cache.service');
 
 // Escape special regex characters to prevent NoSQL injection
 function escapeRegex(str) {
@@ -24,6 +25,12 @@ exports.getPublishedArticles = asyncHandler(async (req, res) => {
             featured
         } = req.query;
 
+        const cacheKey = `articles_list_${JSON.stringify(req.query)}`;
+        const cachedData = cache.get(cacheKey);
+        if (cachedData) {
+            return res.json(cachedData);
+        }
+
         // Build filter
         const filter = { status: 'published' };
 
@@ -36,26 +43,21 @@ exports.getPublishedArticles = asyncHandler(async (req, res) => {
         }
 
         if (search) {
-            const escapedSearch = escapeRegex(search.trim());
-            filter.$or = [
-                { title: { $regex: escapedSearch, $options: 'i' } },
-                { description: { $regex: escapedSearch, $options: 'i' } },
-                { tags: { $in: [new RegExp(escapedSearch, 'i')] } }
-            ];
+            filter.$text = { $search: search.trim() };
         }
 
         const skip = (parseInt(page) - 1) * parseInt(limit);
 
         const [articles, total] = await Promise.all([
             Article.find(filter)
-                .sort({ publishedDate: -1 })
+                .sort(search ? { score: { $meta: 'textScore' } } : { publishedDate: -1 })
                 .skip(skip)
                 .limit(parseInt(limit))
                 .select('-content'), // Exclude content for list view
             Article.countDocuments(filter)
         ]);
 
-        res.json({
+        const responseData = {
             articles,
             pagination: {
                 page: parseInt(page),
@@ -63,7 +65,10 @@ exports.getPublishedArticles = asyncHandler(async (req, res) => {
                 total,
                 pages: Math.ceil(total / parseInt(limit))
             }
-        });
+        };
+
+        cache.set(cacheKey, responseData);
+        res.json(responseData);
     } catch (error) {
         logger.error('Error fetching published articles:', error);
         res.status(500).json({ message: 'Failed to fetch articles', error: error.message });
@@ -77,12 +82,19 @@ exports.getArticleBySlug = asyncHandler(async (req, res) => {
     try {
         const { slug } = req.params;
 
+        const cacheKey = `article_slug_${slug}`;
+        const cachedData = cache.get(cacheKey);
+        if (cachedData) {
+            return res.json(cachedData);
+        }
+
         const article = await Article.findOne({ slug, status: 'published' });
 
         if (!article) {
             return res.status(404).json({ message: 'Article not found' });
         }
 
+        cache.set(cacheKey, article);
         res.json(article);
     } catch (error) {
         logger.error('Error fetching article:', error);
@@ -120,18 +132,27 @@ exports.incrementViews = asyncHandler(async (req, res) => {
 exports.incrementLikes = asyncHandler(async (req, res) => {
     try {
         const { id } = req.params;
+        const clientId = req.user?._id?.toString() || req.ip;
 
-        const article = await Article.findByIdAndUpdate(
-            id,
-            { $inc: { likes: 1 } },
-            { new: true }
-        );
+        const article = await Article.findById(id);
 
         if (!article) {
             return res.status(404).json({ message: 'Article not found' });
         }
 
-        res.json({ likes: article.likes });
+        const hasLiked = article.likedBy.includes(clientId);
+
+        if (hasLiked) {
+            article.likedBy = article.likedBy.filter(uid => uid !== clientId);
+            article.likes = Math.max(0, article.likes - 1);
+        } else {
+            article.likedBy.push(clientId);
+            article.likes += 1;
+        }
+
+        await article.save();
+
+        res.json({ likes: article.likes, hasLiked: !hasLiked });
     } catch (error) {
         logger.error('Error incrementing likes:', error);
         res.status(500).json({ message: 'Failed to increment likes', error: error.message });
@@ -254,9 +275,13 @@ exports.createArticle = asyncHandler(async (req, res) => {
         });
 
         // Sanitize tags array
-        const sanitizedTags = (tags || []).map(tag =>
-            DOMPurify.sanitize(tag, { ALLOWED_TAGS: [] }).trim()
-        ).filter(tag => tag.length > 0);
+        let sanitizedTags = [];
+        if (tags) {
+            const tagsArray = Array.isArray(tags) ? tags : [tags];
+            sanitizedTags = tagsArray.map(tag =>
+                DOMPurify.sanitize(tag, { ALLOWED_TAGS: [] }).trim()
+            ).filter(tag => tag.length > 0);
+        }
 
         // Validate image URL if provided
         if (image && !validator.isURL(image, { require_protocol: true })) {
@@ -279,9 +304,9 @@ exports.createArticle = asyncHandler(async (req, res) => {
             status: status || 'draft'
         });
 
-        // Calculate and update read time
         article.readTime = article.calculateReadTime();
         await article.save();
+        cache.clearPrefix('articles_list');
 
         logger.info(`Article created: ${article.title} by ${req.admin._id}`);
 
@@ -322,7 +347,8 @@ exports.updateArticle = asyncHandler(async (req, res) => {
         if (updateData.description) updateData.description = DOMPurify.sanitize(updateData.description, { ALLOWED_TAGS: [] }).trim();
         if (updateData.author) updateData.author = DOMPurify.sanitize(updateData.author, { ALLOWED_TAGS: [] }).trim();
         if (updateData.tags) {
-            updateData.tags = updateData.tags.map(tag =>
+            const tagsArray = Array.isArray(updateData.tags) ? updateData.tags : [updateData.tags];
+            updateData.tags = tagsArray.map(tag =>
                 DOMPurify.sanitize(tag, { ALLOWED_TAGS: [] }).trim()
             ).filter(tag => tag.length > 0);
         }
@@ -346,6 +372,8 @@ exports.updateArticle = asyncHandler(async (req, res) => {
         }
 
         await article.save();
+        cache.clearPrefix('articles_list');
+        cache.del(`article_slug_${article.slug}`);
 
         logger.info(`Article updated: ${article.title} by ${req.admin?._id || 'unknown'}`);
 
@@ -374,13 +402,16 @@ exports.deleteArticle = asyncHandler(async (req, res) => {
     try {
         const { id } = req.params;
 
-        const article = await Article.findByIdAndDelete(id);
+        const article = await Article.findByIdAndUpdate(id, { status: 'archived' }, { new: false });
 
         if (!article) {
             return res.status(404).json({ message: 'Article not found' });
         }
 
-        logger.info(`Article deleted: ${article.title} by ${req.admin._id}`);
+        cache.clearPrefix('articles_list');
+        cache.del(`article_slug_${article.slug}`);
+
+        logger.info(`Article archived (soft delete): ${article.title} by ${req.admin._id}`);
 
         // REAL-TIME UPDATE: Broadcast article deletion to all patients
         const io = req.app.get('io');
@@ -423,6 +454,8 @@ exports.publishArticle = asyncHandler(async (req, res) => {
             article.publishedDate = new Date();
         }
         await article.save();
+        cache.clearPrefix('articles_list');
+        cache.del(`article_slug_${article.slug}`);
 
         logger.info(`Article published: ${article.title} by ${req.admin._id}`);
 

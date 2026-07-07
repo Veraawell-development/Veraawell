@@ -6,6 +6,7 @@ import { LuStethoscope } from 'react-icons/lu';
 import { Plus, Search, Filter, Eye, CheckCircle, Clock, Edit, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { API_BASE_URL } from '../config/api';
 
 interface PendingUser {
@@ -103,40 +104,107 @@ interface PaginationData {
 const SuperAdminDashboard: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false); // Mobile drawer
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // Desktop collapse
-  const [analytics, setAnalytics] = useState<Analytics | null>(null);
-  const [pendingDoctors, setPendingDoctors] = useState<PendingUser[]>([]);
-  const [pendingAdmins, setPendingAdmins] = useState<PendingUser[]>([]);
-  const [allDoctors, setAllDoctors] = useState<PendingUser[]>([]);
-  const [allAdmins, setAllAdmins] = useState<PendingUser[]>([]);
   const [doctorViewMode, setDoctorViewMode] = useState<'pending' | 'all'>('pending');
   const [adminViewMode, setAdminViewMode] = useState<'pending' | 'all'>('pending');
-  const [statistics, setStatistics] = useState<Statistics | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'analytics' | 'doctors' | 'admins' | 'articles'>('analytics');
+  const location = useLocation();
+  const [activeTab, setActiveTab] = useState<'analytics' | 'doctors' | 'admins' | 'articles'>(() => {
+    const locState = location.state as { tab?: string } | null;
+    return (locState?.tab as any) || 'analytics';
+  });
   const [viewingDocument, setViewingDocument] = useState<{ url: string, fileName: string, fileType: string } | null>(null);
   
   // Articles State
-  const [articles, setArticles] = useState<Article[]>([]);
-  const [articlesLoading, setArticlesLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [selectedStatus, setSelectedStatus] = useState('All');
   const [page, setPage] = useState(1);
-  const [pagination, setPagination] = useState<PaginationData | null>(null);
   const [articleToDelete, setArticleToDelete] = useState<{ id: string, title: string } | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const navigate = useNavigate();
-  const location = useLocation();
   const { admin, logout, loading: adminLoading } = useAdmin();
+  const queryClient = useQueryClient();
+
+  const token = localStorage.getItem('adminToken');
+  const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
+
+  const fetchAndParse = async (url: string) => {
+    const res = await fetch(url, { credentials: 'include', headers });
+    if (!res.ok) throw new Error('Request failed');
+    return res.json();
+  };
+
+  const { data: statistics, isLoading: statsLoading } = useQuery<Statistics>({
+    queryKey: ['admin', 'statistics'],
+    queryFn: () => fetchAndParse(`${API_BASE_URL}/admin/approvals/statistics`),
+    enabled: !!admin && activeTab !== 'articles',
+  });
+
+  const { data: analytics, isLoading: analyticsLoading } = useQuery<Analytics>({
+    queryKey: ['admin', 'analytics'],
+    queryFn: () => fetchAndParse(`${API_BASE_URL}/admin/approvals/analytics`),
+    enabled: !!admin && activeTab !== 'articles',
+  });
+
+  const { data: pendingDoctors = [], isLoading: pendingDoctorsLoading } = useQuery<PendingUser[]>({
+    queryKey: ['admin', 'doctors', 'pending'],
+    queryFn: () => fetchAndParse(`${API_BASE_URL}/admin/approvals/doctors/pending`),
+    enabled: !!admin && activeTab !== 'articles',
+  });
+
+  const { data: allDoctors = [], isLoading: allDoctorsLoading } = useQuery<PendingUser[]>({
+    queryKey: ['admin', 'doctors', 'all'],
+    queryFn: () => fetchAndParse(`${API_BASE_URL}/admin/approvals/doctors/all`),
+    enabled: !!admin && activeTab !== 'articles',
+  });
+
+  const { data: pendingAdmins = [], isLoading: pendingAdminsLoading } = useQuery<PendingUser[]>({
+    queryKey: ['admin', 'admins', 'pending'],
+    queryFn: () => fetchAndParse(`${API_BASE_URL}/admin/approvals/admins/pending`),
+    enabled: !!admin && admin.role === 'super_admin' && activeTab !== 'articles',
+  });
+
+  const { data: allAdmins = [], isLoading: allAdminsLoading } = useQuery<PendingUser[]>({
+    queryKey: ['admin', 'admins', 'all'],
+    queryFn: () => fetchAndParse(`${API_BASE_URL}/admin/approvals/admins/all`),
+    enabled: !!admin && admin.role === 'super_admin' && activeTab !== 'articles',
+  });
+
+  const { data: articlesData, isLoading: articlesLoading } = useQuery({
+    queryKey: ['admin', 'articles', page, debouncedSearch, selectedCategory, selectedStatus],
+    queryFn: async () => {
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: '10',
+        search: debouncedSearch,
+        category: selectedCategory,
+        status: selectedStatus
+      });
+      const response = await fetch(`${API_BASE_URL}/articles/admin/all?${params}`, {
+        credentials: 'include',
+        headers
+      });
+      if (!response.ok) throw new Error('Failed to load articles');
+      return response.json();
+    },
+    enabled: !!admin && activeTab === 'articles',
+  });
+
+  const articles: Article[] = Array.isArray(articlesData) ? articlesData : (articlesData?.articles || []);
+  const pagination: PaginationData | null = Array.isArray(articlesData) ? null : (articlesData?.pagination || null);
+
+  const loading = activeTab !== 'articles' && (
+    statsLoading || analyticsLoading || pendingDoctorsLoading || allDoctorsLoading || 
+    (admin?.role === 'super_admin' && (pendingAdminsLoading || allAdminsLoading))
+  );
 
   useEffect(() => {
     const locState = location.state as { tab?: string } | null;
-    if (locState?.tab === 'articles') {
-      setActiveTab('articles');
+    if (locState?.tab && locState.tab !== activeTab) {
+      setActiveTab(locState.tab as any);
     }
-  }, [location]);
+  }, [location.state]);
 
   useEffect(() => {
     if (adminLoading) return;
@@ -149,7 +217,6 @@ const SuperAdminDashboard: React.FC = () => {
       navigate('/admin-login');
       return;
     }
-    fetchData();
   }, [admin, adminLoading]);
 
   // Debounce search
@@ -166,49 +233,7 @@ const SuperAdminDashboard: React.FC = () => {
     setPage(1);
   }, [selectedCategory, selectedStatus]);
 
-  useEffect(() => {
-    if (activeTab === 'articles') {
-      fetchArticles();
-    }
-  }, [activeTab, debouncedSearch, selectedCategory, selectedStatus, page]);
 
-  const fetchArticles = async () => {
-    try {
-      setArticlesLoading(true);
-      const token = localStorage.getItem('adminToken');
-      const headers: HeadersInit = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: '10',
-        search: debouncedSearch,
-        category: selectedCategory,
-        status: selectedStatus
-      });
-
-      const response = await fetch(`${API_BASE_URL}/articles/admin/all?${params}`, {
-        credentials: 'include',
-        headers
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (Array.isArray(data)) {
-          setArticles(data);
-          setPagination(null);
-        } else {
-          setArticles(data.articles);
-          setPagination(data.pagination);
-        }
-      }
-    } catch (error) {
-      console.error('Error fetching articles:', error);
-      toast.error('Failed to load articles');
-    } finally {
-      setArticlesLoading(false);
-    }
-  };
 
   const confirmDelete = async () => {
     if (!articleToDelete) return;
@@ -227,7 +252,7 @@ const SuperAdminDashboard: React.FC = () => {
       });
 
       if (response.ok) {
-        setArticles(articles.filter(a => a._id !== id));
+        queryClient.invalidateQueries({ queryKey: ['admin', 'articles'] });
         toast.success('Article deleted successfully');
       } else {
         toast.error('Failed to delete article');
@@ -255,7 +280,7 @@ const SuperAdminDashboard: React.FC = () => {
       });
 
       if (response.ok) {
-        fetchArticles();
+        queryClient.invalidateQueries({ queryKey: ['admin', 'articles'] });
         toast.success('Featured status updated');
       }
     } catch (error) {
@@ -263,78 +288,6 @@ const SuperAdminDashboard: React.FC = () => {
       toast.error('An error occurred');
     } finally {
       setActionLoading(null);
-    }
-  };
-
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('adminToken');
-      const headers: HeadersInit = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      // Fetch statistics
-      const statsRes = await fetch(`${API_BASE_URL}/admin/approvals/statistics`, {
-        credentials: 'include',
-        headers
-      });
-      if (statsRes.ok) {
-        setStatistics(await statsRes.json());
-      }
-
-      // Fetch analytics
-      const analyticsRes = await fetch(`${API_BASE_URL}/admin/approvals/analytics`, {
-        credentials: 'include',
-        headers
-      });
-      if (analyticsRes.ok) {
-        setAnalytics(await analyticsRes.json());
-      }
-
-      // Fetch pending doctors
-      const doctorsRes = await fetch(`${API_BASE_URL}/admin/approvals/doctors/pending`, {
-        credentials: 'include',
-        headers
-      });
-      if (doctorsRes.ok) {
-        setPendingDoctors(await doctorsRes.json());
-      }
-
-      // Fetch all doctors
-      const allDoctorsRes = await fetch(`${API_BASE_URL}/admin/approvals/doctors/all`, {
-        credentials: 'include',
-        headers
-      });
-      if (allDoctorsRes.ok) {
-        setAllDoctors(await allDoctorsRes.json());
-      }
-
-      // Fetch pending admins (Super Admin only)
-      if (admin?.role === 'super_admin') {
-        const adminsRes = await fetch(`${API_BASE_URL}/admin/approvals/admins/pending`, {
-          credentials: 'include',
-          headers
-        });
-        if (adminsRes.ok) {
-          setPendingAdmins(await adminsRes.json());
-        }
-
-        // Fetch all admins
-        const allAdminsRes = await fetch(`${API_BASE_URL}/admin/approvals/admins/all`, {
-          credentials: 'include',
-          headers
-        });
-        if (allAdminsRes.ok) {
-          setAllAdmins(await allAdminsRes.json());
-        }
-      }
-
-    } catch (error) {
-      console.error('Error fetching dashboard data:', error);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -351,7 +304,7 @@ const SuperAdminDashboard: React.FC = () => {
       });
 
       if (response.ok) {
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ['admin'] });
       }
     } catch (error) {
       console.error('Error approving doctor:', error);
@@ -375,7 +328,7 @@ const SuperAdminDashboard: React.FC = () => {
       });
 
       if (response.ok) {
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ['admin'] });
       }
     } catch (error) {
       console.error('Error rejecting doctor:', error);
@@ -395,7 +348,7 @@ const SuperAdminDashboard: React.FC = () => {
       });
 
       if (response.ok) {
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ['admin'] });
       }
     } catch (error) {
       console.error('Error approving admin:', error);
@@ -419,7 +372,7 @@ const SuperAdminDashboard: React.FC = () => {
       });
 
       if (response.ok) {
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ['admin'] });
       }
     } catch (error) {
       console.error('Error rejecting admin:', error);
@@ -441,7 +394,7 @@ const SuperAdminDashboard: React.FC = () => {
       });
 
       if (response.ok) {
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ['admin'] });
       } else {
         const data = await response.json();
         alert(data.message || 'Failed to delete doctor');
@@ -466,7 +419,7 @@ const SuperAdminDashboard: React.FC = () => {
       });
 
       if (response.ok) {
-        fetchData();
+        queryClient.invalidateQueries({ queryKey: ['admin'] });
       } else {
         const data = await response.json();
         alert(data.message || 'Failed to delete admin');

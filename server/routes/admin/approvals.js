@@ -151,16 +151,15 @@ router.get('/doctors/pending', verifyAdminToken, async (req, res) => {
       });
     }
 
-    // Also get their doctor profiles if they exist
-    const doctorsWithProfiles = await Promise.all(
-      pendingDoctors.map(async (doctor) => {
-        const profile = await DoctorProfile.findOne({ userId: doctor._id });
-        return {
-          ...doctor.toObject(),
-          profile: profile || null
-        };
-      })
-    );
+    // Also get their doctor profiles if they exist in a single query
+    const doctorIds = pendingDoctors.map(d => d._id);
+    const profiles = await DoctorProfile.find({ userId: { $in: doctorIds } });
+    const profileMap = new Map(profiles.map(p => [p.userId.toString(), p]));
+
+    const doctorsWithProfiles = pendingDoctors.map(doctor => ({
+      ...doctor.toObject(),
+      profile: profileMap.get(doctor._id.toString()) || null
+    }));
 
     console.log('[ADMIN] Returning doctors with profiles');
     res.json(doctorsWithProfiles);
@@ -180,16 +179,15 @@ router.get('/doctors/all', verifyAdminToken, async (req, res) => {
       .populate('approvedBy', 'firstName lastName email')
       .sort({ createdAt: -1 });
 
-    // Also get their doctor profiles
-    const doctorsWithProfiles = await Promise.all(
-      doctors.map(async (doctor) => {
-        const profile = await DoctorProfile.findOne({ userId: doctor._id });
-        return {
-          ...doctor.toObject(),
-          profile: profile || null
-        };
-      })
-    );
+    // Also get their doctor profiles in a single query
+    const doctorIds = doctors.map(d => d._id);
+    const profiles = await DoctorProfile.find({ userId: { $in: doctorIds } });
+    const profileMap = new Map(profiles.map(p => [p.userId.toString(), p]));
+
+    const doctorsWithProfiles = doctors.map(doctor => ({
+      ...doctor.toObject(),
+      profile: profileMap.get(doctor._id.toString()) || null
+    }));
 
     res.json(doctorsWithProfiles);
   } catch (error) {
@@ -332,25 +330,43 @@ router.get('/statistics', verifyAdminToken, async (req, res) => {
   try {
     const userRole = req.admin.role;
 
+    const [
+      pendingDoctors, approvedDoctors, rejectedDoctors, totalDoctors,
+      totalPatients
+    ] = await Promise.all([
+      User.countDocuments({ role: 'doctor', approvalStatus: 'pending' }),
+      User.countDocuments({ role: 'doctor', approvalStatus: 'approved' }),
+      User.countDocuments({ role: 'doctor', approvalStatus: 'rejected' }),
+      User.countDocuments({ role: 'doctor' }),
+      User.countDocuments({ role: 'patient' })
+    ]);
+
     const stats = {
       doctors: {
-        pending: await User.countDocuments({ role: 'doctor', approvalStatus: 'pending' }),
-        approved: await User.countDocuments({ role: 'doctor', approvalStatus: 'approved' }),
-        rejected: await User.countDocuments({ role: 'doctor', approvalStatus: 'rejected' }),
-        total: await User.countDocuments({ role: 'doctor' })
+        pending: pendingDoctors,
+        approved: approvedDoctors,
+        rejected: rejectedDoctors,
+        total: totalDoctors
       },
       patients: {
-        total: await User.countDocuments({ role: 'patient' })
+        total: totalPatients
       }
     };
 
     // Only super admin can see admin stats
     if (userRole === 'super_admin') {
+      const [pendingAdmins, approvedAdmins, rejectedAdmins, totalAdmins] = await Promise.all([
+        User.countDocuments({ role: 'admin', approvalStatus: 'pending' }),
+        User.countDocuments({ role: 'admin', approvalStatus: 'approved' }),
+        User.countDocuments({ role: 'admin', approvalStatus: 'rejected' }),
+        User.countDocuments({ role: 'admin' })
+      ]);
+
       stats.admins = {
-        pending: await User.countDocuments({ role: 'admin', approvalStatus: 'pending' }),
-        approved: await User.countDocuments({ role: 'admin', approvalStatus: 'approved' }),
-        rejected: await User.countDocuments({ role: 'admin', approvalStatus: 'rejected' }),
-        total: await User.countDocuments({ role: 'admin' })
+        pending: pendingAdmins,
+        approved: approvedAdmins,
+        rejected: rejectedAdmins,
+        total: totalAdmins
       };
     }
 
@@ -373,77 +389,68 @@ router.get('/analytics', verifyAdminToken, async (req, res) => {
     const last30Days = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const last7Days = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    // Session analytics
-    const totalSessions = await Session.countDocuments();
-    const completedSessions = await Session.countDocuments({ status: 'completed' });
-    const cancelledSessions = await Session.countDocuments({ status: 'cancelled' });
-    const upcomingSessions = await Session.countDocuments({
-      status: 'scheduled',
-      scheduledDate: { $gte: now }
-    });
-    const sessionsLast30Days = await Session.countDocuments({
-      createdAt: { $gte: last30Days }
-    });
-    const sessionsLast7Days = await Session.countDocuments({
-      createdAt: { $gte: last7Days }
-    });
+    // Execute all queries concurrently
+    const [
+      totalSessions, completedSessions, cancelledSessions, upcomingSessions,
+      sessionsLast30Days, sessionsLast7Days,
+      revenueData, revenueLast30DaysData,
+      totalReports, totalTasks, completedTasks,
+      newPatientsLast30Days, newDoctorsLast30Days,
+      topDoctors
+    ] = await Promise.all([
+      // Session counts
+      Session.countDocuments(),
+      Session.countDocuments({ status: 'completed' }),
+      Session.countDocuments({ status: 'cancelled' }),
+      Session.countDocuments({ status: 'scheduled', scheduledDate: { $gte: now } }),
+      Session.countDocuments({ createdAt: { $gte: last30Days } }),
+      Session.countDocuments({ createdAt: { $gte: last7Days } }),
+      
+      // Revenue aggregations
+      Session.aggregate([
+        { $match: { status: 'completed', price: { $exists: true } } },
+        { $group: { _id: null, total: { $sum: '$price' } } }
+      ]),
+      Session.aggregate([
+        { $match: { status: 'completed', price: { $exists: true }, createdAt: { $gte: last30Days } } },
+        { $group: { _id: null, total: { $sum: '$price' } } }
+      ]),
 
-    // Revenue analytics (from completed sessions)
-    const revenueData = await Session.aggregate([
-      { $match: { status: 'completed', price: { $exists: true } } },
-      { $group: { _id: null, total: { $sum: '$price' } } }
+      // Reports and tasks
+      Report.countDocuments(),
+      Task.countDocuments(),
+      Task.countDocuments({ status: 'completed' }),
+
+      // User growth
+      User.countDocuments({ role: 'patient', createdAt: { $gte: last30Days } }),
+      User.countDocuments({ role: 'doctor', createdAt: { $gte: last30Days } }),
+
+      // Top doctors
+      Session.aggregate([
+        { $match: { status: 'completed' } },
+        { $group: { _id: '$doctorId', sessionCount: { $sum: 1 } } },
+        { $sort: { sessionCount: -1 } },
+        { $limit: 5 },
+        {
+          $lookup: {
+            from: 'users',
+            localField: '_id',
+            foreignField: '_id',
+            as: 'doctor'
+          }
+        },
+        { $unwind: '$doctor' },
+        {
+          $project: {
+            name: { $concat: ['$doctor.firstName', ' ', '$doctor.lastName'] },
+            sessionCount: 1
+          }
+        }
+      ])
     ]);
+
     const totalRevenue = revenueData.length > 0 ? revenueData[0].total : 0;
-
-    const revenueLast30Days = await Session.aggregate([
-      {
-        $match: {
-          status: 'completed',
-          price: { $exists: true },
-          createdAt: { $gte: last30Days }
-        }
-      },
-      { $group: { _id: null, total: { $sum: '$price' } } }
-    ]);
-    const revenue30Days = revenueLast30Days.length > 0 ? revenueLast30Days[0].total : 0;
-
-    // Reports and tasks
-    const totalReports = await Report.countDocuments();
-    const totalTasks = await Task.countDocuments();
-    const completedTasks = await Task.countDocuments({ status: 'completed' });
-
-    // User growth
-    const newPatientsLast30Days = await User.countDocuments({
-      role: 'patient',
-      createdAt: { $gte: last30Days }
-    });
-    const newDoctorsLast30Days = await User.countDocuments({
-      role: 'doctor',
-      createdAt: { $gte: last30Days }
-    });
-
-    // Top doctors by sessions
-    const topDoctors = await Session.aggregate([
-      { $match: { status: 'completed' } },
-      { $group: { _id: '$doctorId', sessionCount: { $sum: 1 } } },
-      { $sort: { sessionCount: -1 } },
-      { $limit: 5 },
-      {
-        $lookup: {
-          from: 'users',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'doctor'
-        }
-      },
-      { $unwind: '$doctor' },
-      {
-        $project: {
-          name: { $concat: ['$doctor.firstName', ' ', '$doctor.lastName'] },
-          sessionCount: 1
-        }
-      }
-    ]);
+    const revenue30Days = revenueLast30DaysData.length > 0 ? revenueLast30DaysData[0].total : 0;
 
     const analytics = {
       sessions: {
