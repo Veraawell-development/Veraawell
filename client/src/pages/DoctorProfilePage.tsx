@@ -238,13 +238,19 @@ const DoctorProfilePage: React.FC = () => {
       }
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       const successMessage = isImmediate
-        ? 'Instant session booked! Join from your dashboard.'
+        ? 'Requesting session... Waiting for doctor to join.'
         : 'Session scheduled! Check your dashboard for details.';
       toast.success(successMessage);
       queryClient.invalidateQueries({ queryKey: ['patient', 'sessions'] });
-      setTimeout(() => { navigate('/patient-dashboard'); }, 500);
+      setTimeout(() => { 
+        if (isImmediate && data.session?._id) {
+          navigate(`/video-call/${data.session._id}`);
+        } else {
+          navigate('/patient-dashboard'); 
+        }
+      }, 500);
     },
     onError: (error: Error) => {
       console.error('Booking error:', error);

@@ -74,7 +74,7 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
     const fetchSessions = async () => {
         setLoading(true);
         try {
-            const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/my-sessions`, {
+            const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/my-sessions?t=${Date.now()}`, {
                 credentials: 'include'
             });
             if (response.ok) {
@@ -110,7 +110,6 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
     };
 
     const isSessionJoinable = (session: Session) => {
-        if (session.sessionType === 'immediate' && session.status === 'scheduled') return true;
         if (session.status === 'cancelled' || session.status === 'completed' || session.status === 'no-show') return false;
 
         const now = new Date();

@@ -93,10 +93,10 @@ const getUpcomingSessions = asyncHandler(async (req, res) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
-  const upcomingSessions = await Session.find({ doctorId: userId, status: 'scheduled', sessionDate: { $gte: today.toISOString().split('T')[0] } })
-    .populate('patientId', 'firstName lastName')
+  const upcomingSessions = await Session.find({ doctorId: userId, sessionDate: { $gte: today.toISOString().split('T')[0] } })
+    .populate('patientId', 'firstName lastName email')
     .sort({ sessionDate: 1, sessionTime: 1 })
-    .limit(20);
+    .limit(50);
 
   res.json(upcomingSessions);
 });

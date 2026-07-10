@@ -456,13 +456,55 @@ const delaySession = asyncHandler(async (req, res) => {
   if (session.doctorId._id.toString() !== userId) throw new AuthorizationError('You are not assigned to this session');
   session.acceptanceStatus = 'delayed';
   session.delayMinutes = delayMinutes || 5;
+  session.delayedUntil = new Date(Date.now() + session.delayMinutes * 60000);
   session.doctorNote = doctorNote || '';
   await session.save();
-  const updateData = { sessionId, acceptanceStatus: 'delayed', delayMinutes: session.delayMinutes, doctorNote: session.doctorNote, message: `Doctor will join in ${session.delayMinutes} minutes.` };
+  const updateData = { sessionId, acceptanceStatus: 'delayed', delayMinutes: session.delayMinutes, delayedUntil: session.delayedUntil, doctorNote: session.doctorNote, message: `Doctor will join in ${session.delayMinutes} minutes.` };
   _emitToUsers(req, 'session:status-update', updateData, [session.patientId._id.toString(), userId]);
   const io = req.app.get('io');
   if (io) io.to(sessionId).emit('session:status-update', updateData);
   res.json({ success: true, message: 'Session delayed successfully', session });
+});
+
+/** POST /api/sessions/:sessionId/missed — Handle when doctor misses the ring or delay timeout */
+const missedSession = asyncHandler(async (req, res) => {
+  const { sessionId } = req.params;
+  const session = await Session.findById(sessionId).populate('patientId', 'firstName lastName').populate('doctorId', 'firstName lastName');
+  if (!session) throw new NotFoundError('Session');
+  
+  if (session.acceptanceStatus === 'accepted') {
+    return res.json({ success: false, message: 'Session already accepted' });
+  }
+
+  session.status = 'cancelled';
+  session.acceptanceStatus = 'pending'; // or 'missed' if we add it to schema, but 'cancelled' covers it.
+  session.paymentStatus = 'refunded';
+  await session.save();
+
+  const updateData = { sessionId, status: 'cancelled', cancelledBy: 'system', message: 'Doctor is unavailable. Session cancelled and refunded.' };
+  _emitToUsers(req, 'session:cancelled', updateData, [session.patientId._id.toString(), session.doctorId._id.toString()]);
+  const io = req.app.get('io');
+  if (io) io.to(sessionId).emit('session:cancelled', updateData);
+  
+  res.json({ success: true, message: 'Session marked as missed', session });
+});
+
+/** GET /api/sessions/delayed — Get all active delayed sessions for a doctor */
+const getDelayedSessions = asyncHandler(async (req, res) => {
+  if (req.user.role !== 'doctor') return res.json({ sessions: [] });
+  const userId = req.user._id.toString();
+  
+  // Find sessions that are delayed and the delayedUntil time hasn't passed by more than 15 minutes
+  const fifteenMinsAgo = new Date(Date.now() - 15 * 60000);
+  
+  const sessions = await Session.find({
+    doctorId: userId,
+    acceptanceStatus: 'delayed',
+    delayedUntil: { $gte: fifteenMinsAgo },
+    status: { $nin: ['cancelled', 'completed'] }
+  }).populate('patientId', 'firstName lastName profileImage');
+  
+  res.json({ success: true, sessions });
 });
 /** GET /api/sessions/turn-credentials */
 const getTurnCredentials = asyncHandler(async (req, res) => {
@@ -493,4 +535,4 @@ const getTurnCredentials = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { getStats, getMyDoctors, getPendingFeedback, getCallHistory, getDoctorSlots, bookImmediate, bookSession, getMySessions, getUpcoming, getAllDoctors, getDoctorById, getSessionById, joinSession, completeSession, cancelSession, getCalendar, getPatientEmergencyContact, getMyTherapists, acceptSession, delaySession, getTurnCredentials };
+module.exports = { getStats, getMyDoctors, getPendingFeedback, getCallHistory, getDoctorSlots, bookImmediate, bookSession, getMySessions, getUpcoming, getAllDoctors, getDoctorById, getSessionById, joinSession, completeSession, cancelSession, getCalendar, getPatientEmergencyContact, getMyTherapists, acceptSession, delaySession, getTurnCredentials, missedSession, getDelayedSessions };

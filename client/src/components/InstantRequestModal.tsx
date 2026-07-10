@@ -7,17 +7,32 @@ interface InstantRequestModalProps {
     isOpen: boolean;
     onAccept: (sessionId: string) => void;
     onDelay: (sessionId: string, minutes: number, note: string) => void;
+    onMissed: (sessionId: string) => void;
     onClose: () => void;
 }
 
-const InstantRequestModal: React.FC<InstantRequestModalProps> = ({ session, isOpen, onAccept, onDelay }) => {
+const InstantRequestModal: React.FC<InstantRequestModalProps> = ({ session, isOpen, onAccept, onDelay, onMissed }) => {
     const [showDelayOptions, setShowDelayOptions] = useState(false);
     const [delayMinutes, setDelayMinutes] = useState(5);
+    const [isCustomDelay, setIsCustomDelay] = useState(false);
     const [note, setNote] = useState('');
+    const [timeLeft, setTimeLeft] = useState(60);
     const audioRef = useRef<HTMLAudioElement | null>(null);
 
     useEffect(() => {
+        let timer: ReturnType<typeof setInterval>;
         if (isOpen) {
+            setTimeLeft(60);
+            timer = setInterval(() => {
+                setTimeLeft((prev) => {
+                    if (prev <= 1) {
+                        clearInterval(timer);
+                        onMissed(session._id);
+                        return 0;
+                    }
+                    return prev - 1;
+                });
+            }, 1000);
             try {
                 const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/1359/1359-preview.mp3');
                 audio.loop = true;
@@ -38,11 +53,16 @@ const InstantRequestModal: React.FC<InstantRequestModalProps> = ({ session, isOp
                 audioRef.current.pause();
                 audioRef.current = null;
             }
-            setShowDelayOptions(false);
-            setDelayMinutes(5);
-            setNote('');
+            if (showDelayOptions) {
+                setShowDelayOptions(false);
+                setDelayMinutes(5);
+                setIsCustomDelay(false);
+                setNote('');
+                return;
+            }
         }
         return () => {
+            if (timer) clearInterval(timer);
             if (audioRef.current) {
                 audioRef.current.pause();
             }
@@ -64,6 +84,17 @@ const InstantRequestModal: React.FC<InstantRequestModalProps> = ({ session, isOp
                         <div className="relative w-12 h-12 bg-teal-100 rounded-full flex items-center justify-center border-4 border-white shadow-sm">
                             <FiVideo className="w-5 h-5 text-teal-600" />
                         </div>
+                    </div>
+
+                    {/* Progress Bar */}
+                    <div className="w-full bg-gray-100 rounded-full h-1.5 mb-4 overflow-hidden">
+                        <div 
+                            className="bg-teal-500 h-1.5 rounded-full transition-all duration-1000 ease-linear"
+                            style={{ width: `${(timeLeft / 60) * 100}%` }}
+                        ></div>
+                    </div>
+                    <div className="text-center text-[11px] text-gray-400 font-medium mb-4 uppercase tracking-widest" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        Time remaining: {timeLeft}s
                     </div>
 
                     <div className="text-center mb-6">
@@ -100,19 +131,40 @@ const InstantRequestModal: React.FC<InstantRequestModalProps> = ({ session, isOp
                                 <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1.5 text-left" style={{ fontFamily: 'Inter, sans-serif' }}>
                                     Delay by
                                 </label>
-                                <div className="grid grid-cols-3 gap-2">
-                                    {[5, 10, 15].map(mins => (
-                                        <button
-                                            key={mins}
-                                            onClick={() => setDelayMinutes(mins)}
-                                            className={`py-1.5 rounded-lg text-[13px] font-semibold transition-colors ${delayMinutes === mins ? 'bg-teal-50 text-teal-700 border border-teal-100' : 'bg-gray-50 text-gray-500 hover:bg-gray-100 border border-transparent'
-                                                }`}
-                                            style={{ fontFamily: 'Inter, sans-serif' }}
-                                        >
-                                            {mins}m
-                                        </button>
-                                    ))}
+                                <div className="grid grid-cols-4 gap-2">
+                                    {[5, 10, 15, 'Custom'].map(option => {
+                                        const isActive = option === 'Custom' ? isCustomDelay : (!isCustomDelay && delayMinutes === option);
+                                        return (
+                                            <button
+                                                key={option}
+                                                onClick={() => {
+                                                    if (option === 'Custom') {
+                                                        setIsCustomDelay(true);
+                                                    } else {
+                                                        setIsCustomDelay(false);
+                                                        setDelayMinutes(option as number);
+                                                    }
+                                                }}
+                                                className={`py-1.5 rounded-lg text-[13px] font-semibold transition-colors ${isActive ? 'bg-teal-50 text-teal-700 border border-teal-100' : 'bg-gray-50 text-gray-500 hover:bg-gray-100 border border-transparent'
+                                                    }`}
+                                                style={{ fontFamily: 'Inter, sans-serif' }}
+                                            >
+                                                {option === 'Custom' ? 'Custom' : `${option}m`}
+                                            </button>
+                                        );
+                                    })}
                                 </div>
+                                {isCustomDelay && (
+                                    <input
+                                        type="number"
+                                        min="1"
+                                        max="60"
+                                        value={delayMinutes}
+                                        onChange={(e) => setDelayMinutes(parseInt(e.target.value) || 1)}
+                                        placeholder="Minutes"
+                                        className="mt-2 w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5 text-[13px] text-gray-700 focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-500/20 transition-all"
+                                    />
+                                )}
                             </div>
 
                             <div>

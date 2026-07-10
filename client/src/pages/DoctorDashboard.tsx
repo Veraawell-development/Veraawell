@@ -14,27 +14,45 @@ import DoctorSidebar from '../components/DoctorSidebar';
 import { API_BASE_URL } from '../config/api';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 
+let sharedAudioCtx: any = null;
+
 const playNotificationSound = () => {
   try {
     const AudioContext = window.AudioContext || (window as any).webkitAudioContext;
     if (!AudioContext) return;
-    const ctx = new AudioContext();
-    const osc = ctx.createOscillator();
-    const gainNode = ctx.createGain();
     
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(800, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(1200, ctx.currentTime + 0.1);
+    if (!sharedAudioCtx) {
+      sharedAudioCtx = new AudioContext();
+    }
     
-    gainNode.gain.setValueAtTime(0, ctx.currentTime);
-    gainNode.gain.linearRampToValueAtTime(0.3, ctx.currentTime + 0.02);
-    gainNode.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+    if (sharedAudioCtx.state === 'suspended') {
+      sharedAudioCtx.resume();
+    }
     
-    osc.connect(gainNode);
-    gainNode.connect(ctx.destination);
+    // Play a sequence of beeps for a "ring" effect
+    const playBeep = (startTime: number, freq: number) => {
+      const osc = sharedAudioCtx.createOscillator();
+      const gainNode = sharedAudioCtx.createGain();
+      
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, startTime);
+      
+      gainNode.gain.setValueAtTime(0, startTime);
+      gainNode.gain.linearRampToValueAtTime(0.5, startTime + 0.05);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, startTime + 0.4);
+      
+      osc.connect(gainNode);
+      gainNode.connect(sharedAudioCtx.destination);
+      
+      osc.start(startTime);
+      osc.stop(startTime + 0.5);
+    };
+
+    const now = sharedAudioCtx.currentTime;
+    playBeep(now, 880); // A5
+    playBeep(now + 0.15, 880); // A5
+    playBeep(now + 0.4, 1046.50); // C6
     
-    osc.start();
-    osc.stop(ctx.currentTime + 0.1);
   } catch (e) {
     console.log('Audio synthesis failed', e);
   }
@@ -50,12 +68,35 @@ const DoctorDashboard: React.FC = () => {
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
   const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState<number>(0);
   const [incomingRequest, setIncomingRequest] = useState<Session | null>(null);
+  const [delayedSessions, setDelayedSessions] = useState<(Session & { delayedUntil: Date })[]>([]);
   const [showPostSessionReport, setShowPostSessionReport] = useState(false);
   const [pendingReportData, setPendingReportData] = useState<any>(null);
 
   //  REAL-TIME: Connect to data socket
   const { socket } = useDataSocket();
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    const fetchDelayed = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/sessions/delayed`, { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.sessions && data.sessions.length > 0) {
+            setDelayedSessions(data.sessions.map((s: any) => ({
+              ...s,
+              delayedUntil: new Date(s.delayedUntil)
+            })));
+          }
+        }
+      } catch (err) {
+        console.error('Failed to fetch delayed sessions', err);
+      }
+    };
+    if (user?.role === 'doctor') {
+      fetchDelayed();
+    }
+  }, [user]);
 
   const { data: recentNotes = [] } = useQuery({
     queryKey: ['doctor', 'notes', user?.userId],
@@ -185,7 +226,7 @@ const DoctorDashboard: React.FC = () => {
 
     socket.on('session:cancelled', ({ sessionId }) => {
       console.log('[REAL-TIME] Session cancelled:', sessionId);
-      toast('A session was cancelled', { icon: 'ℹ️' });
+      toast('A session was cancelled');
       setCalendarRefreshTrigger(prev => prev + 1);
       queryClient.invalidateQueries({ queryKey: ['doctor', 'stats', user?.userId] });
     });
@@ -328,6 +369,10 @@ const DoctorDashboard: React.FC = () => {
         credentials: 'include'
       });
       if (response.ok) {
+        setDelayedSessions(prev => [
+          ...prev, 
+          { ...incomingRequest!, delayedUntil: new Date(Date.now() + minutes * 60000) }
+        ]);
         setIncomingRequest(null);
         toast.success(`Patient notified of ${minutes}m delay`);
       } else {
@@ -341,8 +386,122 @@ const DoctorDashboard: React.FC = () => {
     }
   };
 
+  const handleMissedRequest = async (sessionId: string) => {
+    const token = localStorage.getItem('token');
+    const headers: HeadersInit = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    console.log('[DoctorDashboard] Request missed for session:', sessionId);
+    setIncomingRequest(null);
+
+    try {
+      await fetch(`${API_BASE_URL}/sessions/${sessionId}/missed`, {
+        method: 'POST',
+        headers,
+        credentials: 'include'
+      });
+      toast.error('Session request timed out and was cancelled.');
+    } catch (error) {
+      console.error('Error handling missed request:', error);
+    }
+  };
+
+  // Timer for delayed sessions
+  const [currentTime, setCurrentTime] = useState(Date.now());
+  useEffect(() => {
+    if (delayedSessions.length === 0) return;
+    const interval = setInterval(() => {
+      const now = Date.now();
+      setCurrentTime(now);
+      delayedSessions.forEach(session => {
+        const diff = session.delayedUntil.getTime() - now;
+        
+        // Reminder logic based on diff
+        // 3 mins: 180000 ms, 1 min: 60000 ms, 30 sec: 30000 ms
+        if (diff > 179000 && diff <= 180000) playNotificationSound();
+        else if (diff > 59000 && diff <= 60000) playNotificationSound();
+        else if (diff > 29000 && diff <= 30000) playNotificationSound();
+        else if (diff <= 0) {
+          const elapsedSecs = Math.floor(-diff / 1000);
+          if (elapsedSecs % 5 === 0) playNotificationSound(); // continuous ringing every 5s
+        }
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [delayedSessions]);
+
   return (
-    <div className="h-screen pt-16 md:pt-[80px] overflow-hidden bg-[#F0F2F5] box-border">
+    <div className="h-screen pt-16 md:pt-[80px] overflow-hidden bg-[#F0F2F5] box-border relative">
+      {/* Delayed Sessions Banner */}
+      {delayedSessions.length > 0 && (
+        <div className="fixed top-24 right-6 z-50 flex flex-col gap-3 w-80">
+          {delayedSessions.map(session => {
+            const diff = Math.max(0, session.delayedUntil.getTime() - currentTime);
+            const m = Math.floor(diff / 60000);
+            const s = Math.floor((diff % 60000) / 1000);
+            const isDue = diff === 0;
+
+            return (
+              <div key={session._id} className={`p-5 rounded-2xl shadow-2xl backdrop-blur-xl border ${isDue ? 'bg-red-500/10 border-red-500/30 animate-[pulse_1s_ease-in-out_infinite]' : 'bg-white/80 border-white/40'} transition-all duration-300 relative overflow-hidden group hover:scale-[1.02]`}>
+                {isDue && <div className="absolute inset-0 bg-red-500/5 z-0" />}
+                <div className="relative z-10">
+                  <div className="flex justify-between items-center mb-3">
+                    <div className="flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${isDue ? 'bg-red-500 animate-ping' : 'bg-amber-500'}`} />
+                      <h4 className={`text-sm font-bold ${isDue ? 'text-red-700' : 'text-slate-700'}`}>Patient Waiting</h4>
+                    </div>
+                    <div className={`px-2 py-1 rounded-md bg-white shadow-sm border ${isDue ? 'border-red-200 text-red-600' : 'border-amber-100 text-amber-600'}`}>
+                      <span className="text-sm font-mono font-bold tracking-widest">
+                        {m.toString().padStart(2, '0')}:{s.toString().padStart(2, '0')}
+                      </span>
+                    </div>
+                  </div>
+                  
+                  <div className="flex items-center gap-3 mb-4">
+                    {(session.patientId as any)?.profileImage ? (
+                      <img src={(session.patientId as any).profileImage} alt="Patient" className="w-10 h-10 rounded-full border border-slate-200 object-cover shadow-sm" />
+                    ) : (
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 flex items-center justify-center text-slate-500 font-bold border border-slate-300 shadow-sm">
+                        {session.patientId?.firstName?.charAt(0) || 'P'}
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-sm font-bold text-slate-800">{session.patientId?.firstName} {session.patientId?.lastName}</p>
+                      <p className="text-xs text-slate-500 font-medium">Immediate Session</p>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={async () => {
+                        const token = localStorage.getItem('token');
+                        await fetch(`${API_BASE_URL}/sessions/${session._id}/missed`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+                        setDelayedSessions(prev => prev.filter(s => s._id !== session._id));
+                      }}
+                      className="w-1/3 py-2.5 rounded-xl text-sm font-bold text-slate-500 bg-white border border-slate-200 shadow-sm hover:bg-slate-50 transition-all flex items-center justify-center"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => {
+                        navigate(`/video-call/${session._id}`);
+                        setDelayedSessions(prev => prev.filter(s => s._id !== session._id));
+                      }}
+                      className={`w-2/3 py-2.5 rounded-xl text-sm font-bold text-white shadow-md transition-all ${isDue ? 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 shadow-red-500/20' : 'bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-600 hover:to-emerald-600 shadow-teal-500/20'} flex items-center justify-center gap-1`}
+                    >
+                      <span>Join Now</span>
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                      </svg>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Connection Status Indicator */}
       <ConnectionStatus />
 
@@ -624,6 +783,7 @@ const DoctorDashboard: React.FC = () => {
           isOpen={!!incomingRequest}
           onAccept={handleAcceptRequest}
           onDelay={handleDelayRequest}
+          onMissed={handleMissedRequest}
           onClose={() => setIncomingRequest(null)}
         />
       )}

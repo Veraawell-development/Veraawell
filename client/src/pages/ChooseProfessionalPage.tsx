@@ -104,7 +104,7 @@ const ChooseProfessionalPage: React.FC = () => {
   };
 
   const getDoctorBgColor = (id: string) => {
-    const colors = ['#C8E6C9', '#B2DFDB', '#D1C4E9', '#FFCCBC'];
+    const colors = ['#43A047', '#00897B', '#7E57C2', '#F4511E'];
     let hash = 0;
     for (let i = 0; i < id.length; i++) {
       hash = id.charCodeAt(i) + ((hash << 5) - hash);

@@ -336,6 +336,25 @@ module.exports = (io) => {
       socket.to(sessionId).emit('confirm-end-session', { agree, confirmedByRole });
     });
 
+    socket.on('call-ended', async ({ sessionId, endedBy, userName }) => {
+      log.info('Call ended by user', { sessionId, endedBy, userName });
+      // Broadcast to other users in the room
+      socket.to(sessionId).emit('call-ended', { endedBy, userName });
+      
+      // Mark session as completed in DB if it hasn't been already
+      try {
+        const session = await Session.findById(sessionId);
+        if (session && !['completed', 'cancelled', 'missed'].includes(session.status)) {
+          session.status = 'completed';
+          session.callEndTime = new Date();
+          await session.save();
+          log.info('Session marked as completed from call-ended event', { sessionId });
+        }
+      } catch (err) {
+        log.error('Error updating session on call-ended', { error: err.message, sessionId });
+      }
+    });
+
     socket.on('leave-room', ({ sessionId }) => {
       log.info('User leaving room manually', { userId, role, sessionId });
       if (activeRooms.has(sessionId)) {
@@ -363,6 +382,11 @@ module.exports = (io) => {
     socket.on('patient-ready', ({ sessionId }) => {
       log.info('Patient ready signal received', { sessionId: sessionId.substring(0, 8) });
       socket.to(sessionId).emit('patient-ready');
+    });
+
+    socket.on('patient-prep-data', ({ sessionId, tags }) => {
+      log.info('Patient prep data received', { sessionId: sessionId.substring(0, 8), tags });
+      socket.to(sessionId).emit('patient-prep-data', { tags });
     });
 
     socket.on('offer', ({ sessionId, offer, targetUserId }) => {

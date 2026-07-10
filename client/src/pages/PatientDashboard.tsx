@@ -148,7 +148,7 @@ const PatientDashboard: React.FC = () => {
     });
 
     socket.on('session:cancelled', ({ sessionId, cancelledBy }) => {
-      toast('A session was cancelled', { icon: 'ℹ️' });
+      toast('A session was cancelled');
       setCalendarRefreshTrigger(prev => prev + 1);
     });
 

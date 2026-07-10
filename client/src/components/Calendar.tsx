@@ -29,7 +29,7 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
       const year = currentDate.getFullYear();
       const month = currentDate.getMonth() + 1;
 
-      const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/calendar/${year}/${month}`, {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/calendar/${year}/${month}?t=${Date.now()}`, {
         credentials: 'include'
       });
 
@@ -70,8 +70,6 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
 
   // Helper to check if a session is currently joinable (15 mins before to duration end)
   const isSessionJoinable = (session: Session) => {
-    if (session.sessionType === 'immediate' && session.status === 'scheduled') return true;
-
     // If status is cancelled or explicitly completed/no-show, not joinable
     if (session.status === 'cancelled' || session.status === 'completed' || session.status === 'no-show') return false;
 
@@ -110,6 +108,18 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
 
     // Check if Joinable (highest priority for active sessions)
     if (isSessionJoinable(session)) return 'joinable';
+
+    // If it's not joinable, and it's in the past (duration has elapsed), it shouldn't say "upcoming".
+    // This acts as a robust visual fallback against stale caching.
+    const now = new Date();
+    const sessionDateTime = new Date(session.sessionDate);
+    const [hours, minutes] = session.sessionTime.split(':').map(Number);
+    sessionDateTime.setHours(hours, minutes, 0, 0);
+    const durationInMs = (session.duration || 60) * 60 * 1000;
+    
+    if (now.getTime() > sessionDateTime.getTime() + durationInMs) {
+      return 'cancelled';
+    }
 
     return 'upcoming';
   };

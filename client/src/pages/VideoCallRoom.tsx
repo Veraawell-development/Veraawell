@@ -36,6 +36,9 @@ const VideoCallRoom: React.FC = () => {
   const [sessionData, setSessionData] = useState<any>(null);
   const [acceptanceStatus, setAcceptanceStatus] = useState<'pending' | 'accepted' | 'delayed'>('pending');
   const [delayMinutes, setDelayMinutes] = useState(0);
+  const [delayedUntil, setDelayedUntil] = useState<Date | null>(null);
+  const [countdown, setCountdown] = useState<string>('');
+  const [isGracePeriod, setIsGracePeriod] = useState(false);
   const [doctorNote, setDoctorNote] = useState('');
 
   //  Mandatory Emergency Contact State
@@ -49,6 +52,14 @@ const VideoCallRoom: React.FC = () => {
 
   // Chat Notification State
   const [hasUnreadMessages, setHasUnreadMessages] = useState(false);
+
+  // Interactive Waiting Lounge State
+  const [waitingTab, setWaitingTab] = useState<'status' | 'prep' | 'breathe'>('status');
+  const [prepStatus, setPrepStatus] = useState<'not_started' | 'in_progress' | 'completed'>('not_started');
+  const prepStatusRef = useRef(prepStatus);
+  useEffect(() => { prepStatusRef.current = prepStatus; }, [prepStatus]);
+  const [selectedPrepTags, setSelectedPrepTags] = useState<string[]>([]);
+  const [patientPrepData, setPatientPrepData] = useState<string[]>([]);
 
   useEffect(() => {
     if (showChat || showDoctorPanel) {
@@ -67,6 +78,11 @@ const VideoCallRoom: React.FC = () => {
       if (data.sessionId === sessionId) {
         if (data.acceptanceStatus) setAcceptanceStatus(data.acceptanceStatus);
         if (data.delayMinutes) setDelayMinutes(data.delayMinutes);
+        if (data.delayedUntil) setDelayedUntil(new Date(data.delayedUntil));
+        if (data.status === 'missed' || data.status === 'cancelled') {
+          setError('Doctor is unavailable. Session cancelled and refunded.');
+          setTimeout(() => navigate('/patient-dashboard'), 3000);
+        }
         if (data.doctorNote) setDoctorNote(data.doctorNote);
       }
     };
@@ -112,6 +128,11 @@ const VideoCallRoom: React.FC = () => {
       setSessionData(data);
       if (data.acceptanceStatus) setAcceptanceStatus(data.acceptanceStatus);
       if (data.delayMinutes) setDelayMinutes(data.delayMinutes);
+      if (data.delayedUntil) setDelayedUntil(new Date(data.delayedUntil));
+      if (data.status === 'missed' || data.status === 'cancelled') {
+        setError('Doctor is unavailable. Session cancelled and refunded.');
+        setTimeout(() => navigate('/patient-dashboard'), 3000);
+      }
       if (data.doctorNote) setDoctorNote(data.doctorNote);
     }
     
@@ -126,6 +147,50 @@ const VideoCallRoom: React.FC = () => {
       setError('Failed to load session details');
     }
   }, [isError]);
+
+  const autoCancelled = useRef(false);
+
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval>;
+
+    if (!remoteUserJoined) {
+      interval = setInterval(() => {
+        const now = new Date().getTime();
+
+        if (acceptanceStatus === 'delayed' && delayedUntil) {
+          const diff = delayedUntil.getTime() - now;
+          if (diff <= -180000) { // 3 minutes past delay
+            setIsGracePeriod(true);
+            setCountdown('00:00');
+            if (user?.role === 'patient' && !autoCancelled.current) {
+              autoCancelled.current = true;
+              const token = localStorage.getItem('token');
+              fetch(`${API_BASE_URL}/sessions/${sessionId}/missed`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } })
+                .then(() => toast.error('Session auto-cancelled as doctor is unreachable.'));
+            }
+          } else if (diff <= 0) {
+            setCountdown('00:00');
+          } else {
+            const m = Math.floor(diff / 60000);
+            const s = Math.floor((diff % 60000) / 1000);
+            setCountdown(`${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
+          }
+        } else if (acceptanceStatus === 'pending') {
+          const startTime = sessionData?.createdAt ? new Date(sessionData.createdAt).getTime() : now;
+          if (now - startTime > 10 * 60 * 1000) { // 10 minutes timeout for immediate sessions
+            if (user?.role === 'patient' && !autoCancelled.current) {
+              autoCancelled.current = true;
+              const token = localStorage.getItem('token');
+              fetch(`${API_BASE_URL}/sessions/${sessionId}/missed`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } })
+                .then(() => toast.error('Session auto-cancelled as doctor is unreachable.'));
+            }
+          }
+        }
+      }, 1000);
+    }
+    
+    return () => clearInterval(interval);
+  }, [acceptanceStatus, delayedUntil, remoteUserJoined, sessionData, user, sessionId]);
 
   const saveEmergencyContact = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -321,8 +386,12 @@ const VideoCallRoom: React.FC = () => {
             
             //  FIX: Patient sends ready signal if doctor is already there
             if (user?.role === 'patient') {
-              console.log('[VIDEO-CALL]  Patient joined and ready, notifying doctor');
-              socket.emit('patient-ready', { sessionId });
+              if (prepStatusRef.current !== 'in_progress') {
+                console.log('[VIDEO-CALL]  Patient joined and ready, notifying doctor');
+                socket.emit('patient-ready', { sessionId });
+              } else {
+                console.log('[VIDEO-CALL]  Patient joined but prep is in progress. Holding ready signal.');
+              }
             }
           } else {
             console.log('[VIDEO-CALL] ℹ️ Only same-role participants found. Staying in Waiting Room.');
@@ -354,8 +423,12 @@ const VideoCallRoom: React.FC = () => {
           //  FIX: Doctor does NOT create offer immediately on user-joined.
           // Doctor waits for 'patient-ready' signal!
           if (user?.role === 'patient') {
-            console.log('[VIDEO-CALL]  Patient ready, notifying doctor');
-            socket.emit('patient-ready', { sessionId });
+            if (prepStatusRef.current !== 'in_progress') {
+              console.log('[VIDEO-CALL]  Patient ready, notifying doctor');
+              socket.emit('patient-ready', { sessionId });
+            } else {
+              console.log('[VIDEO-CALL]  Doctor joined, but patient prep in progress. Holding ready signal.');
+            }
           }
         } else {
           console.log('[VIDEO-CALL] Same role user joined (probably a reconnection). Keeping Waiting Room.');
@@ -431,6 +504,14 @@ const VideoCallRoom: React.FC = () => {
         });
       });
 
+      socket.on('patient-prep-data', (data) => {
+        console.log('[VIDEO-CALL] Patient prep data received:', data);
+        setPatientPrepData(data.tags);
+        if (user?.role === 'doctor') {
+          toast(`Patient wants to discuss: ${data.tags.join(', ')}`, { duration: 6000, icon: '📝' });
+        }
+      });
+
       socket.on('error', (data) => {
         console.error('[VIDEO-CALL]  Socket error:', data.message);
         setError(data.message);
@@ -474,11 +555,22 @@ const VideoCallRoom: React.FC = () => {
         console.log('[VIDEO-CALL] Received session status update:', data);
         if (data.acceptanceStatus) setAcceptanceStatus(data.acceptanceStatus);
         if (data.delayMinutes) setDelayMinutes(data.delayMinutes);
+        if (data.delayedUntil) setDelayedUntil(new Date(data.delayedUntil));
+        if (data.status === 'missed' || data.status === 'cancelled') {
+          setError('Doctor is unavailable. Session cancelled and refunded.');
+          setTimeout(() => navigate('/patient-dashboard'), 3000);
+        }
         if (data.doctorNote) setDoctorNote(data.doctorNote);
 
         if (data.acceptanceStatus === 'accepted') {
           showQualityMessage('Doctor has accepted and is joining!');
         }
+      });
+
+      socket.on('session:cancelled', (data) => {
+        console.log('[VIDEO-CALL] Received session cancelled:', data);
+        setError(data.message || 'Session was cancelled.');
+        setTimeout(() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard'), 3000);
       });
 
 
@@ -880,16 +972,20 @@ const VideoCallRoom: React.FC = () => {
 
     // For patients: Mark session as completed (background) and navigate to dashboard
     if (user?.role === 'patient') {
-      try {
-        fetch(`${API_BASE_URL}/sessions/${sessionId}/complete`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'include'
-        });
-      } catch (e) {
-        console.error('Error marking completion:', e);
+      if (remoteUserJoined) {
+        try {
+          fetch(`${API_BASE_URL}/sessions/${sessionId}/complete`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include'
+          });
+        } catch (e) {
+          console.error('Error marking completion:', e);
+        }
+        navigate('/patient-dashboard', { state: { showRating: true, sessionId } });
+      } else {
+        navigate('/patient-dashboard');
       }
-      navigate('/patient-dashboard', { state: { showRating: true, sessionId } });
     }
   };
 
@@ -962,12 +1058,28 @@ const VideoCallRoom: React.FC = () => {
             ? (remoteAudioEnabled ? 'Speaking...' : 'Microphone Muted')
             : 'Connecting...'}
         </p>
+        {!remoteUserJoined && user?.role === 'patient' && (
+          <div className="mt-4 flex items-center justify-center gap-2 bg-amber-500/10 border border-amber-500/20 px-4 py-1.5 rounded-full shadow-[0_0_15px_rgba(245,158,11,0.05)]">
+            <svg className="w-4 h-4 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span className="text-amber-400/90 text-[11px] uppercase tracking-[0.15em] font-semibold">Please do not leave this page</span>
+          </div>
+        )}
         
         {/* Delay Message */}
-        {sessionData?.delayMinutes > 0 && (
-          <div className="mt-12 px-6 py-4 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl text-slate-300 text-sm w-full max-w-sm text-center shadow-2xl">
-            <span className="font-semibold text-white">Delayed {sessionData.delayMinutes} mins</span>
-            {sessionData.doctorNote && <p className="mt-2 text-slate-400 font-light italic">"{sessionData.doctorNote}"</p>}
+        {acceptanceStatus === 'delayed' && (
+          <div className="mt-12 px-6 py-4 bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl text-slate-300 text-sm w-full max-w-sm text-center shadow-2xl flex flex-col items-center">
+            <span className="font-semibold text-white">Delayed: {countdown}</span>
+            {doctorNote && <p className="mt-2 text-slate-400 font-light italic">"{doctorNote}"</p>}
+            {isGracePeriod && (
+              <button onClick={() => {
+                const token = localStorage.getItem('token');
+                fetch(`${API_BASE_URL}/sessions/${sessionId}/missed`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+              }} className="mt-4 px-4 py-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-full font-medium transition-colors text-xs">
+                Doctor is unreachable. Cancel & Refund
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1126,54 +1238,254 @@ const VideoCallRoom: React.FC = () => {
             </div>
 
             {/* Waiting Overlay / Waiting Room (Patient Only) */}
-            {user?.role === 'patient' && !remoteUserJoined && (
-              <div className="absolute inset-0 flex items-center justify-center bg-[#0F1115] z-[100] font-sans">
-                <div className="text-center text-white relative z-10 p-8 max-w-lg mx-auto flex flex-col items-center justify-center min-h-screen w-full">
+            {user?.role === 'patient' && (!remoteUserJoined || prepStatus === 'in_progress') && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black z-[100] font-sans overflow-hidden">
+                
+                {/* Pre-fetched YouTube Video Background */}
+                <div className="absolute inset-0 z-0 bg-[#0F1115] overflow-hidden">
+                  <link rel="preconnect" href="https://www.youtube-nocookie.com" />
+                  <iframe
+                    className="absolute top-1/2 left-1/2 w-[100vw] h-[56.25vw] min-h-[100vh] min-w-[177.77vh] -translate-x-1/2 -translate-y-1/2 opacity-40 pointer-events-none mix-blend-screen"
+                    src="https://www.youtube-nocookie.com/embed/Y7dGdrP3p5k?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=Y7dGdrP3p5k&playsinline=1"
+                    frameBorder="0"
+                    allow="autoplay; encrypted-media"
+                    title="Ambient Background"
+                  ></iframe>
+                  {/* Subtle vignette/gradient over the video */}
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#0F1115] via-transparent to-[#0F1115]/60"></div>
+                  <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,#0F1115_100%)] opacity-70"></div>
+                </div>
+
+                <div className="text-center text-white relative z-10 p-10 max-w-lg w-[90%] mx-auto flex flex-col items-center rounded-3xl"
+                     style={{
+                       background: 'rgba(255, 255, 255, 0.03)',
+                       backdropFilter: 'blur(20px)',
+                       border: '1px solid rgba(255, 255, 255, 0.08)',
+                       boxShadow: '0 24px 60px rgba(0,0,0,0.4)'
+                     }}>
                   
-                  <div className="flex flex-col items-center">
-                    {/* Minimal Inline Spinner & Text */}
-                    <div className="flex flex-col items-center gap-6">
-                      {/* Explicit Waiting Room Label */}
-                      <div className="text-white/40 uppercase tracking-[0.2em] text-[10px] font-bold mb-2">
-                        Waiting Room
-                      </div>
-
-                      <div className="w-10 h-10 border-2 border-white/20 border-t-white/90 rounded-full animate-spin"></div>
-                      
-                      <div className="space-y-2 text-center mt-2">
-                        <h2 className="text-2xl font-medium tracking-wide text-white/90">
-                          {acceptanceStatus === 'pending' ? 'Calling Doctor...' : 
-                           acceptanceStatus === 'accepted' ? 'Doctor has joined' : 'Waiting...'}
-                        </h2>
-                        
-                        {acceptanceStatus === 'pending' && (
-                          <p className="text-white/50 text-sm">Connecting you with {sessionData?.doctorId ? `Dr. ${sessionData.doctorId.lastName}` : 'your therapist'}</p>
-                        )}
-
-                        {acceptanceStatus === 'accepted' && (
-                          <div className="animate-in fade-in duration-300">
-                            <p className="text-teal-400 font-medium text-sm">Doctor has joined. Starting session...</p>
-                          </div>
-                        )}
-
-                        {acceptanceStatus === 'delayed' && (
-                          <div className="animate-in fade-in duration-300 mt-4">
-                            <p className="text-amber-400/90 font-medium text-sm">Doctor will join in {delayMinutes}m</p>
-                            {doctorNote && <p className="text-white/50 text-xs italic mt-1">"{doctorNote}"</p>}
-                          </div>
-                        )}
-                      </div>
-                    </div>
+                  <div className="flex flex-col items-center w-full">
                     
-                    {/* Leave Button directly below the text */}
-                    <div className="mt-10">
-                      <button
-                        onClick={() => endCall('user_clicked_end')}
-                        className="px-5 py-2 rounded-full bg-red-500/10 text-red-400 hover:bg-red-500/20 text-sm font-medium transition-colors"
-                      >
-                        Leave call
-                      </button>
+                    {/* Tab Navigation */}
+                    <div className="flex bg-black/40 rounded-full p-1 mb-8 w-full border border-white/10">
+                      <button onClick={() => setWaitingTab('status')} className={`flex-1 py-2 rounded-full text-xs font-semibold transition-all ${waitingTab === 'status' ? 'bg-white/10 text-white shadow-sm' : 'text-white/40 hover:text-white/70'}`}>Status</button>
+                      <button onClick={() => { setWaitingTab('prep'); if(prepStatus === 'not_started') setPrepStatus('in_progress'); }} className={`flex-1 py-2 rounded-full text-xs font-semibold transition-all ${waitingTab === 'prep' ? 'bg-white/10 text-white shadow-sm' : 'text-white/40 hover:text-white/70'}`}>Quick Check-in</button>
+                      <button onClick={() => setWaitingTab('breathe')} className={`flex-1 py-2 rounded-full text-xs font-semibold transition-all ${waitingTab === 'breathe' ? 'bg-white/10 text-white shadow-sm' : 'text-white/40 hover:text-white/70'}`}>Breathe</button>
                     </div>
+
+                    {waitingTab === 'status' && (
+                      <div className="flex flex-col items-center gap-6 w-full animate-in fade-in duration-300">
+                        <div className="flex items-center justify-center w-16 h-16 rounded-full bg-white/10 mb-2">
+                          {acceptanceStatus === 'pending' || acceptanceStatus === 'delayed' ? (
+                            <div className="w-8 h-8 border-2 border-white/20 border-t-[var(--teal)] rounded-full animate-spin"></div>
+                          ) : (
+                            <svg className="w-8 h-8 text-[var(--teal)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </div>
+                        
+                        <div className="space-y-3 text-center">
+                          <h2 className="text-2xl font-bold tracking-tight text-white">
+                            {acceptanceStatus === 'pending' ? 'Calling Doctor...' : 
+                             acceptanceStatus === 'accepted' ? 'Doctor has joined' : 'Doctor Delayed'}
+                          </h2>
+                          
+                          {acceptanceStatus === 'pending' && (
+                            <p className="text-white/70 text-sm max-w-[280px] mx-auto leading-relaxed">
+                              We're connecting you with {sessionData?.doctorId ? `Dr. ${sessionData.doctorId.lastName}` : 'your therapist'}. Try the "Breathe" tab while you wait!
+                            </p>
+                          )}
+                          
+                          {acceptanceStatus === 'accepted' && remoteUserJoined && prepStatus === 'in_progress' && (
+                            <div className="animate-in fade-in duration-300 bg-[var(--teal)]/20 border border-[var(--teal)]/50 p-3 rounded-xl mt-2">
+                              <p className="text-[var(--teal)] font-bold text-sm">Doctor is waiting for you!</p>
+                              <p className="text-white/70 text-xs mt-1">Please finish your Check-in to enter the session.</p>
+                            </div>
+                          )}
+
+                          {acceptanceStatus === 'accepted' && (!remoteUserJoined || prepStatus !== 'in_progress') && (
+                            <div className="animate-in fade-in duration-300">
+                              <p className="text-[var(--teal)] font-medium text-sm">Session starting momentarily...</p>
+                            </div>
+                          )}
+
+                          {acceptanceStatus === 'delayed' && (
+                            <div className="animate-in fade-in duration-300 mt-2 flex flex-col items-center bg-black/20 p-4 rounded-xl border border-white/5 w-full">
+                              <p className="text-amber-400 font-medium text-sm mb-1">Doctor will join in {countdown}</p>
+                              {doctorNote && <p className="text-white/70 text-xs italic">"{doctorNote}"</p>}
+                              {isGracePeriod && (
+                                <button onClick={() => {
+                                  const token = localStorage.getItem('token');
+                                  fetch(`${API_BASE_URL}/sessions/${sessionId}/missed`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+                                }} className="mt-4 px-4 py-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-full font-medium transition-colors text-xs w-full">
+                                  Doctor is unreachable. Cancel & Refund
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Minimal Warning */}
+                        {acceptanceStatus !== 'accepted' && (
+                          <div className="mt-4 flex items-center justify-center gap-2">
+                            <svg className="w-4 h-4 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span className="text-white/40 text-[11px] uppercase tracking-widest font-semibold">Please keep this tab open</span>
+                          </div>
+                        )}
+
+                        <div className="mt-6 w-full">
+                          <button
+                            onClick={() => endCall('user_clicked_end')}
+                            className="w-full py-3 rounded-xl bg-white/5 text-white/60 hover:text-white hover:bg-white/10 text-sm font-bold transition-colors border border-white/10"
+                          >
+                            Leave Waiting Room
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {waitingTab === 'prep' && (
+                      <div className="w-full flex flex-col items-center animate-in fade-in duration-300">
+                        <h3 className="text-xl font-bold text-white mb-2">Check-in</h3>
+                        <p className="text-white/60 text-sm mb-6 text-center">We'll share this with your doctor.</p>
+                        
+                        <div className="w-full text-left mb-2">
+                          <span className="text-[10px] text-white/40 uppercase tracking-widest font-bold">I'm feeling...</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2 justify-start mb-6 w-full">
+                          {['Anxious', 'Overwhelmed', 'Calm', 'Tired'].map(tag => (
+                            <button
+                              key={tag}
+                              onClick={() => {
+                                if (selectedPrepTags.includes(tag)) {
+                                  setSelectedPrepTags(selectedPrepTags.filter(t => t !== tag));
+                                } else {
+                                  setSelectedPrepTags([...selectedPrepTags, tag]);
+                                }
+                                if (prepStatus === 'not_started') setPrepStatus('in_progress');
+                              }}
+                              className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-all border ${
+                                selectedPrepTags.includes(tag) 
+                                  ? 'bg-[var(--teal)] text-white border-[var(--teal)] shadow-[0_0_15px_rgba(0,151,178,0.3)]' 
+                                  : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10'
+                              }`}
+                            >
+                              {tag}
+                            </button>
+                          ))}
+                        </div>
+
+                        <div className="w-full text-left mb-2">
+                          <span className="text-[10px] text-white/40 uppercase tracking-widest font-bold">I want to focus on...</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2 justify-start mb-8 w-full">
+                          {['Stress', 'Relationships', 'Sleep', 'Venting', 'Growth'].map(tag => (
+                            <button
+                              key={tag}
+                              onClick={() => {
+                                if (selectedPrepTags.includes(tag)) {
+                                  setSelectedPrepTags(selectedPrepTags.filter(t => t !== tag));
+                                } else {
+                                  setSelectedPrepTags([...selectedPrepTags, tag]);
+                                }
+                                if (prepStatus === 'not_started') setPrepStatus('in_progress');
+                              }}
+                              className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-all border ${
+                                selectedPrepTags.includes(tag) 
+                                  ? 'bg-[var(--teal)] text-white border-[var(--teal)] shadow-[0_0_15px_rgba(0,151,178,0.3)]' 
+                                  : 'bg-white/5 text-white/70 border-white/10 hover:bg-white/10'
+                              }`}
+                            >
+                              {tag}
+                            </button>
+                          ))}
+                        </div>
+
+                        {remoteUserJoined ? (
+                           <div className="w-full">
+                             <div className="mb-4 text-[var(--teal)] text-sm font-semibold animate-pulse text-center">Doctor is waiting for you!</div>
+                             <button
+                               onClick={() => {
+                                 setPrepStatus('completed');
+                                 if (socketRef.current) {
+                                   socketRef.current.emit('patient-prep-data', { sessionId, tags: selectedPrepTags });
+                                   socketRef.current.emit('patient-ready', { sessionId });
+                                 }
+                               }}
+                               className="w-full py-3 rounded-xl bg-[var(--teal)] text-white text-sm font-bold transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
+                             >
+                               I'm Ready, Join Session
+                             </button>
+                           </div>
+                        ) : (
+                           <button
+                             onClick={() => {
+                               setPrepStatus('completed');
+                               setWaitingTab('status');
+                               if (socketRef.current) {
+                                 socketRef.current.emit('patient-prep-data', { sessionId, tags: selectedPrepTags });
+                                 socketRef.current.emit('patient-ready', { sessionId });
+                               }
+                             }}
+                             disabled={selectedPrepTags.length === 0}
+                             className={`w-full py-3 rounded-xl text-sm font-bold transition-all border ${
+                               selectedPrepTags.length > 0 
+                                 ? 'bg-[var(--teal)] text-white border-[var(--teal)] shadow-[0_0_15px_rgba(0,151,178,0.3)] hover:brightness-110'
+                                 : 'bg-white/5 text-white/30 border-white/5 cursor-not-allowed'
+                             }`}
+                           >
+                             Done
+                           </button>
+                        )}
+                      </div>
+                    )}
+
+                    {waitingTab === 'breathe' && (
+                      <div className="w-full flex flex-col items-center justify-center min-h-[300px] animate-in fade-in duration-300">
+                         <style>{`
+                           @keyframes breatheInAndOut {
+                             0%, 100% { transform: scale(0.5); opacity: 0.1; }
+                             50% { transform: scale(1.3); opacity: 0.7; }
+                           }
+                           @keyframes rotatePetals {
+                             0% { transform: rotate(0deg); }
+                             100% { transform: rotate(360deg); }
+                           }
+                           .breathe-container {
+                             animation: rotatePetals 20s linear infinite;
+                           }
+                           .petal {
+                             position: absolute;
+                             width: 100%;
+                             height: 100%;
+                             border-radius: 40% 60% 60% 40% / 40% 40% 60% 60%;
+                             background: radial-gradient(circle, rgba(0,151,178,0.6) 0%, rgba(0,151,178,0) 70%);
+                             mix-blend-mode: screen;
+                             animation: breatheInAndOut 8s ease-in-out infinite;
+                           }
+                           .petal:nth-child(1) { transform-origin: 45% 55%; animation-delay: 0s; }
+                           .petal:nth-child(2) { transform-origin: 55% 45%; animation-delay: -2.6s; rotate: 60deg; }
+                           .petal:nth-child(3) { transform-origin: 50% 50%; animation-delay: -5.3s; rotate: 120deg; }
+                         `}</style>
+                         <div className="relative flex items-center justify-center w-40 h-40 my-8">
+                           <div className="absolute inset-0 breathe-container">
+                             <div className="petal"></div>
+                             <div className="petal"></div>
+                             <div className="petal"></div>
+                           </div>
+                           <div className="absolute w-16 h-16 rounded-full bg-white/5 backdrop-blur-sm flex items-center justify-center z-10 shadow-lg border border-white/10">
+                              <span className="text-white/80 font-bold tracking-widest text-[9px] uppercase">Breathe</span>
+                           </div>
+                         </div>
+                         <p className="mt-8 text-white/70 text-sm font-medium text-center max-w-[250px] leading-relaxed">
+                           Inhale as it expands,<br/>exhale as it shrinks.
+                         </p>
+                      </div>
+                    )}
+
                   </div>
                 </div>
               </div>

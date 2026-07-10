@@ -15,6 +15,8 @@ router.get('/my-doctors', verifyToken, s.getMyDoctors);
 router.get('/pending-feedback', verifyToken, s.getPendingFeedback);
 router.get('/call-history', verifyToken, s.getCallHistory);
 router.get('/my-sessions', verifyToken, s.getMySessions);
+router.get('/calendar', verifyToken, s.getCalendar);
+router.get('/delayed', verifyToken, s.getDelayedSessions);
 router.get('/upcoming', verifyToken, s.getUpcoming);
 router.get('/my-therapists', verifyToken, s.getMyTherapists);
 router.get('/doctors', s.getAllDoctors);
@@ -34,6 +36,7 @@ router.post('/:sessionId/complete', verifyToken, s.completeSession);
 router.post('/:sessionId/cancel', verifyToken, s.cancelSession);
 router.post('/:sessionId/accept', verifyToken, s.acceptSession);
 router.post('/:sessionId/delay', verifyToken, s.delaySession);
+router.post('/:sessionId/missed', verifyToken, s.missedSession);
 router.get('/:sessionId', verifyToken, s.getSessionById);
 
 module.exports = router;

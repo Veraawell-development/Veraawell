@@ -43,6 +43,10 @@ const sessionSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  delayedUntil: {
+    type: Date,
+    default: null
+  },
   doctorNote: {
     type: String,
     default: ''

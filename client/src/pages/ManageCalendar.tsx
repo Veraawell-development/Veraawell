@@ -10,10 +10,13 @@ interface TimeSlot { time: string; isBooked: boolean; sessionId?: string; }
 interface DayAvailability { date: string; slots: TimeSlot[]; }
 interface UpcomingSession {
   _id: string;
-  patientId: { firstName: string; lastName: string; };
+  patientId: { firstName: string; lastName: string; email: string };
   sessionDate: string;
   sessionTime: string;
   status: string;
+  paymentStatus: string;
+  paymentId?: string;
+  price: number;
   sessionType: string;
 }
 
@@ -30,6 +33,7 @@ const ManageCalendar: React.FC = () => {
   const [customAvailability, setCustomAvailability] = useState<DayAvailability[]>([]);
   const [currentViewDate, setCurrentViewDate] = useState<string>('');
   const [upcomingSessions, setUpcomingSessions] = useState<UpcomingSession[]>([]);
+  const [selectedSession, setSelectedSession] = useState<UpcomingSession | null>(null);
   const getNextDays = (count: number) => {
     const today = new Date();
     return Array.from({ length: count }, (_, i) => {
@@ -413,7 +417,7 @@ const ManageCalendar: React.FC = () => {
           {/* Upcoming sessions */}
           <div style={{ background: C.surface, borderRadius: 16, border: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
             <div style={{ padding: '14px 16px 10px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-              <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: C.text1 }}>Upcoming Sessions</p>
+              <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: C.text1 }}>Recent & Upcoming</p>
               {upcomingSessions.length > 0 && (
                 <span style={{ fontSize: 10, fontWeight: 800, color: C.purple, background: C.purpleLight, padding: '2px 8px', borderRadius: 20 }}>{upcomingSessions.length}</span>
               )}
@@ -424,12 +428,15 @@ const ManageCalendar: React.FC = () => {
                 const colors = ['#E0E7FF|#4F46E5', '#D1FAE5|#059669', '#FEE2E2|#DC2626', '#FEF3C7|#D97706'];
                 const [bg, fg] = colors[i % colors.length].split('|');
                 return (
-                  <div key={s._id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 0', borderBottom: i < upcomingSessions.length - 1 ? `1px solid ${C.border}` : 'none' }}>
+                  <div key={s._id} onClick={() => setSelectedSession(s)} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 0', borderBottom: i < upcomingSessions.length - 1 ? `1px solid ${C.border}` : 'none', cursor: 'pointer' }} className="hover:bg-gray-50 transition-colors rounded-lg px-2 -mx-2">
                     <div style={{ width: 34, height: 34, borderRadius: 10, background: bg, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                       <span style={{ fontSize: 11, fontWeight: 800, color: fg }}>{s.patientId.firstName[0]}{s.patientId.lastName[0]}</span>
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: C.text1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.patientId.firstName} {s.patientId.lastName}</p>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <p style={{ margin: 0, fontSize: 13, fontWeight: 700, color: C.text1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{s.patientId.firstName} {s.patientId.lastName}</p>
+                        {s.status === 'cancelled' && <span style={{ fontSize: 10, fontWeight: 700, color: '#DC2626', background: '#FEE2E2', padding: '2px 6px', borderRadius: 12 }}>Cancelled</span>}
+                      </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.text3, fontWeight: 500 }}>
                           <FiCalendar size={10} strokeWidth={2} />
@@ -462,6 +469,77 @@ const ManageCalendar: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Session Details Modal */}
+      {selectedSession && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-scaleIn">
+            <div className="bg-teal-600 p-5 text-white flex justify-between items-start">
+              <div>
+                <h3 className="font-bold text-lg mb-1">Session Details</h3>
+                <p className="text-teal-100 text-sm">Order & Status Information</p>
+              </div>
+              <button onClick={() => setSelectedSession(null)} className="p-1 hover:bg-white/20 rounded-lg transition-colors">
+                <FiX size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-5">
+              
+              <div className="flex items-center gap-4 border-b border-gray-100 pb-5">
+                <div className="w-12 h-12 rounded-full bg-teal-100 text-teal-700 flex items-center justify-center font-bold text-lg">
+                  {selectedSession.patientId.firstName[0]}{selectedSession.patientId.lastName[0]}
+                </div>
+                <div>
+                  <h4 className="font-bold text-gray-800">{selectedSession.patientId.firstName} {selectedSession.patientId.lastName}</h4>
+                  <p className="text-sm text-gray-500">{selectedSession.patientId.email}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                  <p className="text-xs text-gray-500 font-semibold mb-1 uppercase tracking-wider">Date & Time</p>
+                  <p className="text-sm font-bold text-gray-800">{new Date(selectedSession.sessionDate).toLocaleDateString()}</p>
+                  <p className="text-xs text-gray-600">{selectedSession.sessionTime}</p>
+                </div>
+                <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                  <p className="text-xs text-gray-500 font-semibold mb-1 uppercase tracking-wider">Session Type</p>
+                  <p className="text-sm font-bold text-gray-800 capitalize">{selectedSession.sessionType}</p>
+                </div>
+                <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                  <p className="text-xs text-gray-500 font-semibold mb-1 uppercase tracking-wider">Status</p>
+                  <span className={`inline-block px-2 py-1 rounded text-xs font-bold capitalize ${
+                    selectedSession.status === 'cancelled' || selectedSession.status === 'missed' ? 'bg-red-100 text-red-700' : 
+                    selectedSession.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
+                  }`}>
+                    {selectedSession.status}
+                  </span>
+                </div>
+                <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                  <p className="text-xs text-gray-500 font-semibold mb-1 uppercase tracking-wider">Payment</p>
+                  <span className={`inline-block px-2 py-1 rounded text-xs font-bold capitalize ${
+                    selectedSession.paymentStatus === 'refunded' ? 'bg-orange-100 text-orange-700' :
+                    selectedSession.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-700'
+                  }`}>
+                    {selectedSession.paymentStatus}
+                  </span>
+                </div>
+              </div>
+
+              <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Order Amount</span>
+                  <span className="font-bold text-gray-800">₹{selectedSession.price}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-gray-500">Payment ID</span>
+                  <span className="font-mono text-xs text-gray-600">{selectedSession.paymentId || 'N/A'}</span>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      )}
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
