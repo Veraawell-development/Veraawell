@@ -16,6 +16,27 @@ export default function LandingPage() {
         <meta name="description" content="Connect with India's top therapists and psychologists. Progress tracking, on-demand sessions, and flexible pricing. Start your mental health journey today." />
         <meta property="og:title" content="Veraawell — Professional Mental Health Care in India" />
         <meta property="og:description" content="Connect with India's top therapists. Sessions on your schedule, progress tracked." />
+        <link rel="canonical" href="https://veraawell.com/" />
+        <script type="application/ld+json">
+          {JSON.stringify({
+            "@context": "https://schema.org",
+            "@graph": [
+              {
+                "@type": "MedicalOrganization",
+                "name": "Veraawell",
+                "alternateName": "Veraawell Mental Health",
+                "url": "https://veraawell.com",
+                "logo": "https://veraawell.com/logo/1.png",
+                "description": "Professional Mental Health Care and Virtual Therapy in India."
+              },
+              {
+                "@type": "WebSite",
+                "name": "Veraawell",
+                "url": "https://veraawell.com"
+              }
+            ]
+          })}
+        </script>
       </Helmet>
       {/* 1. Hero — cream bg, typographic headline, floating app card */}
       <HeroSection />

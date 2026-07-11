@@ -135,6 +135,29 @@ const ArticleDetailPage: React.FC = () => {
                 <meta property="og:title" content={`${article.title} | Veraawell`} />
                 <meta property="og:description" content={article.description} />
                 {article.image && <meta property="og:image" content={article.image} />}
+                <link rel="canonical" href={`https://veraawell.com/resources/articles/${article.slug}`} />
+                <script type="application/ld+json">
+                    {JSON.stringify({
+                        "@context": "https://schema.org",
+                        "@type": "Article",
+                        "headline": article.title,
+                        "description": article.description,
+                        "image": article.image ? [article.image] : [],
+                        "datePublished": article.publishedDate ? new Date(article.publishedDate).toISOString() : new Date().toISOString(),
+                        "author": [{
+                            "@type": "Person",
+                            "name": article.author || "Veraawell Professional"
+                        }],
+                        "publisher": {
+                            "@type": "Organization",
+                            "name": "Veraawell",
+                            "logo": {
+                                "@type": "ImageObject",
+                                "url": "https://veraawell.com/logo/1.png"
+                            }
+                        }
+                    })}
+                </script>
             </Helmet>
             {/* Reading Progress Bar */}
             <div

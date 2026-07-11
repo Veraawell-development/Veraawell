@@ -365,6 +365,56 @@ const DoctorProfilePage: React.FC = () => {
         <meta property="og:title" content={`Dr. ${doctorName} | Veraawell`} />
         <meta property="og:description" content={`Book a session with Dr. ${doctorName}.`} />
         {doctorProfile.profileImage && <meta property="og:image" content={doctorProfile.profileImage} />}
+        <link rel="canonical" href={`https://veraawell.com/doctor/${doctorProfile._id}`} />
+        <script type="application/ld+json">
+          {JSON.stringify({
+            "@context": "https://schema.org",
+            "@graph": [
+              {
+                "@type": "Physician",
+                "name": `Dr. ${doctorName}`,
+                "image": doctorProfile.profileImage,
+                "description": doctorProfile.bio || `Specializes in ${specializationText}`,
+                "medicalSpecialty": doctorProfile.specialization.length > 0 ? doctorProfile.specialization[0] : "General Practice",
+                "aggregateRating": {
+                  "@type": "AggregateRating",
+                  "ratingValue": rating || 5,
+                  "reviewCount": doctorProfile.rating.totalReviews || 1
+                },
+                "priceRange": `Rs. ${doctorProfile.pricing.min}+`
+              },
+              {
+                "@type": "FAQPage",
+                "mainEntity": [
+                  {
+                    "@type": "Question",
+                    "name": "What should I expect in my first session?",
+                    "acceptedAnswer": {
+                      "@type": "Answer",
+                      "text": "Your first session is primarily about getting to know each other. It's a safe space to discuss your background, the challenges you're currently facing, and what you hope to achieve through therapy. It's also an opportunity to see if you're a good fit for working together."
+                    }
+                  },
+                  {
+                    "@type": "Question",
+                    "name": "How do I join the video or voice call?",
+                    "acceptedAnswer": {
+                      "@type": "Answer",
+                      "text": "Once you book an appointment, you'll receive a confirmation email. At the time of your appointment, simply log in to your Veerawell dashboard and click 'Join Session' to enter the secure, encrypted call environment."
+                    }
+                  },
+                  {
+                    "@type": "Question",
+                    "name": "What is the cancellation policy?",
+                    "acceptedAnswer": {
+                      "@type": "Answer",
+                      "text": "We understand that plans change. You can reschedule or cancel your session up to 24 hours in advance without any penalty directly from your bookings dashboard. Late cancellations or missed appointments may be subject to a fee."
+                    }
+                  }
+                ]
+              }
+            ]
+          })}
+        </script>
       </Helmet>
       {/* Hero Section with Background */}
       <div className="relative h-48 sm:h-56 md:h-64 lg:h-72 xl:h-80 overflow-hidden">
