@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     Loader2, ArrowRight, Clock, Home, Link2, MessageCircle, Twitter, Linkedin,
@@ -128,6 +129,13 @@ const ArticleDetailPage: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-[var(--bg)] relative overflow-hidden font-sans">
+            <Helmet>
+                <title>{article.title} | Veraawell Articles</title>
+                <meta name="description" content={article.description} />
+                <meta property="og:title" content={`${article.title} | Veraawell`} />
+                <meta property="og:description" content={article.description} />
+                {article.image && <meta property="og:image" content={article.image} />}
+            </Helmet>
             {/* Reading Progress Bar */}
             <div
                 className="fixed top-0 left-0 h-[4px] bg-gradient-to-r from-[var(--teal-muted)] to-[var(--teal)] z-[100] transition-all duration-100"

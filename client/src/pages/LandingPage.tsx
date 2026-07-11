@@ -6,10 +6,17 @@ import MissionStats from '../components/landing/statistics/MissionStats';
 import TherapistPreview from '../components/landing/therapists/TherapistPreview';
 import Reviews from '../components/landing/testimonials/Reviews';
 import CTABanner from '../components/landing/cta/CTABanner';
+import { Helmet } from 'react-helmet-async';
 
 export default function LandingPage() {
   return (
     <div style={{ overflowX: 'hidden' }}>
+      <Helmet>
+        <title>Veraawell - Professional Mental Health Care in India</title>
+        <meta name="description" content="Connect with India's top therapists and psychologists. Progress tracking, on-demand sessions, and flexible pricing. Start your mental health journey today." />
+        <meta property="og:title" content="Veraawell — Professional Mental Health Care in India" />
+        <meta property="og:description" content="Connect with India's top therapists. Sessions on your schedule, progress tracked." />
+      </Helmet>
       {/* 1. Hero — cream bg, typographic headline, floating app card */}
       <HeroSection />
 

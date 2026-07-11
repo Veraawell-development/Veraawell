@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { useLocation, useNavigate, useParams, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../config/api';
@@ -358,6 +359,13 @@ const DoctorProfilePage: React.FC = () => {
 
   return (
     <div className="bg-white min-h-screen pt-16 md:pt-[80px]">
+      <Helmet>
+        <title>Dr. {doctorName} - {specializationText} | Veraawell</title>
+        <meta name="description" content={`Book a session with Dr. ${doctorName}. ${experienceText} of experience in ${specializationText}.`} />
+        <meta property="og:title" content={`Dr. ${doctorName} | Veraawell`} />
+        <meta property="og:description" content={`Book a session with Dr. ${doctorName}.`} />
+        {doctorProfile.profileImage && <meta property="og:image" content={doctorProfile.profileImage} />}
+      </Helmet>
       {/* Hero Section with Background */}
       <div className="relative h-48 sm:h-56 md:h-64 lg:h-72 xl:h-80 overflow-hidden">
         <img

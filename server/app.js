@@ -54,6 +54,12 @@ const sessionReportsRoutes = require('./routes/sessionReports');
 
 const app = express();
 
+// SEO Prerendering (Intercept bots before other middleware)
+const prerender = require('prerender-node');
+// In production, set your prerender token here or via ENV
+// prerender.set('prerenderToken', process.env.PRERENDER_TOKEN);
+app.use(prerender);
+
 // Custom branding headers (The "Hacker" signature)
 app.disable('x-powered-by'); // Remove default Express header for security
 app.use((req, res, next) => {
@@ -377,6 +383,10 @@ app.use('/api/session-reports', sessionReportsRoutes);
 // Article routes
 const articleRoutes = require('./routes/articles');
 app.use('/api/articles', articleRoutes);
+
+// SEO Routes (Sitemap and Robots.txt)
+const seoRoutes = require('./routes/seo');
+app.use('/', seoRoutes);
 
 // OTP routes (for email verification during signup)
 const otpRoutes = require('./routes/otp');

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Helmet } from 'react-helmet-async';
 import { useNavigate } from 'react-router-dom';
 import { useDataSocket } from '../hooks/useDataSocket';
 import toast from 'react-hot-toast';
@@ -102,6 +103,12 @@ const ArticlesPage: React.FC = () => {
 
     return (
         <div className="min-h-screen bg-[var(--bg)] relative overflow-hidden font-sans">
+            <Helmet>
+                <title>Mental Health Articles & Resources | Veraawell</title>
+                <meta name="description" content="Read clinically vetted insights on mental health, written by professionals who care. Learn about anxiety, depression, adult ADHD, and more." />
+                <meta property="og:title" content="Mental Health Articles & Resources | Veraawell" />
+                <meta property="og:description" content="Read clinically vetted insights on mental health, written by professionals who care." />
+            </Helmet>
 
             {/* ── Background Immersive Gradients & Decor ── */}
             <div 
