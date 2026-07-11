@@ -28,6 +28,11 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName,
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const [error, setError] = useState<string | null>(null);
 
+    const onNewMessageRef = useRef(onNewMessage);
+    useEffect(() => {
+        onNewMessageRef.current = onNewMessage;
+    }, [onNewMessage]);
+
     // Initialize Chat
     useEffect(() => {
         initializeChat();
@@ -102,8 +107,8 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName,
                         return prev;
                     }
                     // Trigger notification callback if message is from the other person
-                    if (onNewMessage && message.senderId !== user?.userId) {
-                        onNewMessage();
+                    if (onNewMessageRef.current && message.senderId !== user?.userId) {
+                        onNewMessageRef.current();
                     }
                     return [...prev, message];
                 });
