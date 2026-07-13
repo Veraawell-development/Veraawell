@@ -5,6 +5,7 @@ import EmergencyContactModal from '../components/EmergencyContactModal';
 import { API_CONFIG } from '../config/api';
 import logger from '../utils/logger';
 import { useToast } from '../hooks/useToast';
+import { useAuth } from '../context/AuthContext';
 import type { Doctor } from '../types';
 
 const BookSessionPage: React.FC = () => {
@@ -16,6 +17,7 @@ const BookSessionPage: React.FC = () => {
   const [mode, setMode] = useState<'video' | 'voice'>('video');
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
   const { showSuccess, showError: showErrorToast } = useToast();
+  const { user } = useAuth();
   const queryClient = useQueryClient();
 
   const { data: hasEmergencyContact = false } = useQuery({
@@ -173,8 +175,44 @@ const BookSessionPage: React.FC = () => {
     },
     onSuccess: (data) => {
       logger.info('Booking successful:', data);
-      showSuccess('Session booked successfully! Redirecting to your dashboard...');
-      setTimeout(() => navigate('/patient-dashboard', { state: { refreshSessions: true } }), 1500);
+      
+      const sessionData = data.session;
+      if (sessionData && sessionData.razorpayOrderId) {
+        const options = {
+          key: import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_TCJDiOL4WcPBxR',
+          amount: sessionData.price * 100,
+          currency: 'INR',
+          name: 'Veraawell',
+          description: `Session with Dr. ${doctor!.userId.firstName}`,
+          order_id: sessionData.razorpayOrderId,
+          handler: function (response: any) {
+            showSuccess('Payment successful! Redirecting to your dashboard...');
+            setTimeout(() => navigate('/patient-dashboard', { state: { refreshSessions: true } }), 1500);
+          },
+          prefill: {
+            name: `${user?.firstName} ${user?.lastName}`,
+            email: user?.email,
+          },
+          theme: {
+            color: '#0d9488'
+          },
+          modal: {
+            ondismiss: function() {
+              showErrorToast('Payment cancelled. Unpaid sessions may be removed.');
+              setTimeout(() => navigate('/patient-dashboard', { state: { refreshSessions: true } }), 1500);
+            }
+          }
+        };
+
+        const rzp = new (window as any).Razorpay(options);
+        rzp.on('payment.failed', function (response: any) {
+          showErrorToast('Payment failed: ' + response.error.description);
+        });
+        rzp.open();
+      } else {
+        showSuccess('Session booked successfully! Redirecting to your dashboard...');
+        setTimeout(() => navigate('/patient-dashboard', { state: { refreshSessions: true } }), 1500);
+      }
     },
     onError: (err: any) => {
       logger.error('Error booking session:', err);
@@ -270,9 +308,16 @@ const BookSessionPage: React.FC = () => {
                 <p className="text-sm text-gray-600 leading-relaxed" style={{ fontFamily: 'Inter, sans-serif' }}>{doctor.treatsFor.join(', ')}</p>
               </div>
 
-              <div className="bg-gray-50/50 -mx-4 px-4 py-3 rounded-xl">
+              <div className="bg-gray-50/50 -mx-4 px-4 py-4 rounded-xl">
                 <h3 className="text-sm font-bold text-gray-900 mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>Pricing</h3>
-                <p className="text-sm text-gray-600" style={{ fontFamily: 'Inter, sans-serif' }}>₹{doctor.pricing.min} - ₹{doctor.pricing.max} <span className="text-gray-400">per session</span></p>
+                <p className="text-sm text-gray-600 mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>₹{doctor.pricing.min} - ₹{doctor.pricing.max} <span className="text-gray-400">per session</span></p>
+                
+                <div className="text-[11px] text-gray-500 space-y-1.5 leading-relaxed" style={{ fontFamily: 'Inter, sans-serif' }}>
+                  <p>• Discovery sessions may be free, depending on the therapist.</p>
+                  <p>• Each therapist sets their own consultation fee.</p>
+                  <p>• The consultation fee is displayed on the therapist's profile and booking page before payment.</p>
+                  <p>• No hidden charges are applied.</p>
+                </div>
               </div>
 
               {doctor.bio && (

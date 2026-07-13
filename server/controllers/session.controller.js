@@ -11,7 +11,14 @@ const User = require('../models/user');
 const DoctorProfile = require('../models/doctorProfile');
 const DoctorAvailability = require('../models/doctorAvailability');
 const Review = require('../models/review');
+const PlatformSettings = require('../models/platformSettings');
+const Razorpay = require('razorpay');
 const SocketEmitter = require('../utils/socketEmitter');
+
+const razorpay = new Razorpay({
+  key_id: process.env.RAZORPAY_KEY_ID,
+  key_secret: process.env.RAZORPAY_KEY_SECRET,
+});
 const { calculateSessionPrice, getOrCreateAvailability, getGenderBasedImage } = require('../services/session.service');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { NotFoundError, AuthorizationError } = require('../utils/errors');
@@ -110,7 +117,59 @@ const bookImmediate = asyncHandler(async (req, res) => {
   const sessionTime = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
   const finalPrice = await calculateSessionPrice(doctorId, mode, duration, price);
 
-  const session = new Session({ patientId, doctorId, sessionDate: now, sessionTime, sessionType: 'immediate', duration: duration || 20, price: finalPrice, paymentStatus: 'paid', paymentId: `immediate_${Date.now()}`, callMode: CALL_MODE_MAP[mode] || 'Video Calling' });
+  let razorpayOrderId = null;
+  let platformFee = 0;
+  let doctorEarnings = 0;
+  
+  if (doctorId !== patientId) {
+    const doctorProfile = await DoctorProfile.findOne({ userId: doctorId });
+    if (doctorProfile) {
+      const platformSettings = await PlatformSettings.getSettings();
+      const feePercentage = doctorProfile.customFeePercentage !== null ? doctorProfile.customFeePercentage : platformSettings.defaultPlatformFeePercentage;
+      platformFee = Math.round((finalPrice * feePercentage) / 100);
+      doctorEarnings = finalPrice - platformFee;
+      
+      if (doctorProfile.razorpayAccountId) {
+        try {
+          const orderPayload = {
+            amount: finalPrice * 100,
+            currency: 'INR',
+            receipt: `rcpt_imm_${Date.now()}`
+          };
+
+          if (!doctorProfile.razorpayAccountId.startsWith('acc_mock')) {
+            orderPayload.transfers = [{
+              account: doctorProfile.razorpayAccountId,
+              amount: doctorEarnings * 100,
+              currency: 'INR',
+              notes: { branch: "Veerawell Immediate" }
+            }];
+          }
+
+          const order = await razorpay.orders.create(orderPayload);
+          razorpayOrderId = order.id;
+        } catch (err) {
+          logger.warn('Razorpay immediate order creation failed', { error: err });
+        }
+      }
+    }
+  }
+
+  const session = new Session({ 
+    patientId, 
+    doctorId, 
+    sessionDate: now, 
+    sessionTime, 
+    sessionType: 'immediate', 
+    duration: duration || 20, 
+    price: finalPrice,
+    platformFee,
+    doctorEarnings, 
+    paymentStatus: razorpayOrderId ? 'pending' : 'paid', 
+    paymentId: razorpayOrderId ? null : `immediate_${Date.now()}`,
+    razorpayOrderId, 
+    callMode: CALL_MODE_MAP[mode] || 'Video Calling' 
+  });
   const saved = await session.save();
   saved.meetingLink = `/video-call/${saved._id}`;
   await saved.save();
@@ -167,11 +226,47 @@ const bookSession = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: "This time slot is not available in doctor's calendar" });
   }
 
+  const platformSettings = await PlatformSettings.getSettings();
+  const feePercentage = doctorProfile.customFeePercentage !== null ? doctorProfile.customFeePercentage : platformSettings.defaultPlatformFeePercentage;
+  const platformFee = Math.round((finalPrice * feePercentage) / 100);
+  const doctorEarnings = finalPrice - platformFee;
+
+  let razorpayOrderId = null;
+  if (doctorProfile.razorpayAccountId) {
+    try {
+      const orderPayload = {
+        amount: finalPrice * 100,
+        currency: 'INR',
+        receipt: `rcpt_${Date.now()}`
+      };
+
+      // Only add transfers if it's a real Razorpay account, otherwise it will fail in test mode
+      if (!doctorProfile.razorpayAccountId.startsWith('acc_mock')) {
+        orderPayload.transfers = [{
+          account: doctorProfile.razorpayAccountId,
+          amount: doctorEarnings * 100,
+          currency: 'INR',
+          notes: {
+            branch: "Veerawell Session"
+          }
+        }];
+      }
+
+      const order = await razorpay.orders.create(orderPayload);
+      razorpayOrderId = order.id;
+    } catch (err) {
+      logger.warn('Razorpay order creation failed', { error: err });
+    }
+  }
+
   const meetingLink = `/video-call/${crypto.randomBytes(16).toString('hex')}`;
   const session = new Session({
     patientId, doctorId, sessionDate: new Date(sessionDate), sessionTime,
     sessionType: SESSION_TYPE_MAP[sessionType] || 'regular', duration: duration || 60,
-    price: finalPrice, paymentStatus: 'paid', paymentId: `mock_payment_${Date.now()}`,
+    price: finalPrice, platformFee, doctorEarnings,
+    paymentStatus: razorpayOrderId ? 'pending' : 'paid', 
+    paymentId: razorpayOrderId ? null : `mock_payment_${Date.now()}`,
+    razorpayOrderId,
     meetingLink, sessionNotes: `Service Type: ${serviceType || 'General'}`,
     callMode: CALL_MODE_MAP[mode] || 'Video Calling'
   });
@@ -360,7 +455,21 @@ const cancelSession = asyncHandler(async (req, res) => {
   }
 
   session.status = 'cancelled';
-  session.paymentStatus = 'refunded';
+
+  if (session.paymentStatus === 'paid' && session.paymentId && !session.paymentId.startsWith('mock_') && !session.paymentId.startsWith('immediate_')) {
+    try {
+      await razorpay.payments.refund(session.paymentId, {
+        reverse_all: 1
+      });
+      session.paymentStatus = 'refunded';
+    } catch (err) {
+      logger.error('Razorpay refund failed in cancelSession', { error: err.message, paymentId: session.paymentId });
+      session.paymentStatus = 'refund_failed';
+    }
+  } else {
+    session.paymentStatus = 'refunded';
+  }
+  
   await session.save();
   try {
     const avail = await DoctorAvailability.findOne({ doctorId: session.doctorId });
@@ -477,8 +586,22 @@ const missedSession = asyncHandler(async (req, res) => {
   }
 
   session.status = 'cancelled';
-  session.acceptanceStatus = 'pending'; // or 'missed' if we add it to schema, but 'cancelled' covers it.
-  session.paymentStatus = 'refunded';
+  session.acceptanceStatus = 'pending';
+
+  if (session.paymentStatus === 'paid' && session.paymentId && !session.paymentId.startsWith('mock_') && !session.paymentId.startsWith('immediate_')) {
+    try {
+      await razorpay.payments.refund(session.paymentId, {
+        reverse_all: 1
+      });
+      session.paymentStatus = 'refunded';
+    } catch (err) {
+      logger.error('Razorpay refund failed in missedSession', { error: err.message, paymentId: session.paymentId });
+      session.paymentStatus = 'refund_failed';
+    }
+  } else {
+    session.paymentStatus = 'refunded';
+  }
+
   await session.save();
 
   const updateData = { sessionId, status: 'cancelled', cancelledBy: 'system', message: 'Doctor is unavailable. Session cancelled and refunded.' };

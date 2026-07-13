@@ -70,6 +70,11 @@ const FAQPage: React.FC = () => {
             question: 'Do you offer refunds?',
             answer: 'Yes, full refunds are provided for sessions cancelled at least 24 hours in advance. Refunds are processed within 5-7 business days to your original payment method.'
         },
+        {
+            category: 'payments',
+            question: 'Is my payment information secure?',
+            answer: 'Payments are securely processed through Razorpay. Veraawell does not store users\' debit card, credit card, UPI, net banking, or other payment credentials. Payment information is handled by our payment gateway partner in accordance with applicable security standards.'
+        },
 
         // Technical
         {

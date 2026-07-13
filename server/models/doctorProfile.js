@@ -127,6 +127,21 @@ const doctorProfileSchema = new mongoose.Schema({
   workingHours: {
     start: { type: String, default: '09:00' },
     end: { type: String, default: '18:00' }
+  },
+  // Razorpay Route fields
+  razorpayAccountId: {
+    type: String,
+    default: null
+  },
+  payoutSetupCompleted: {
+    type: Boolean,
+    default: false
+  },
+  customFeePercentage: {
+    type: Number,
+    default: null,
+    min: 0,
+    max: 100
   }
 }, {
   timestamps: true

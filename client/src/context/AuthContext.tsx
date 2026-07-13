@@ -6,6 +6,7 @@ import { API_BASE_URL } from '../config/api';
 interface User {
   userId: string;
   username: string;
+  email: string;
   role: string;
   firstName: string;
   lastName: string;

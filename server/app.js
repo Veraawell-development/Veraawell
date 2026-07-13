@@ -384,6 +384,10 @@ app.use('/api/session-reports', sessionReportsRoutes);
 const articleRoutes = require('./routes/articles');
 app.use('/api/articles', articleRoutes);
 
+// Payment routes
+const paymentRoutes = require('./routes/payment.routes');
+app.use('/api/payments', paymentRoutes);
+
 // SEO Routes (Sitemap and Robots.txt)
 const seoRoutes = require('./routes/seo');
 app.use('/', seoRoutes);

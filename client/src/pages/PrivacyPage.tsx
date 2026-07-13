@@ -172,10 +172,10 @@ export default function PrivacyPage() {
 
           <section className="space-y-4">
             <h2 className="text-2xl font-medium" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
-              3. Retention & Security
+              3. Data Retention & Security
             </h2>
             <p className="text-base leading-relaxed font-sans" style={{ color: 'var(--text-2)' }}>
-              All clinical files, task logs, and assessment scores are stored in encrypted databases. Access to patient notes is restricted exclusively to the patient and their assigned therapists. We use industry-standard HTTPS/SSL encryption to secure all database transactions.
+              We retain your personal information only for as long as necessary to provide our services, comply with legal obligations, resolve disputes, and enforce our agreements. When your information is no longer required, it is securely deleted or anonymized.
             </p>
           </section>
           
@@ -183,10 +183,32 @@ export default function PrivacyPage() {
 
           <section className="space-y-4">
             <h2 className="text-2xl font-medium" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
-              4. Your Rights
+              4. Data Deletion & Your Rights
             </h2>
             <p className="text-base leading-relaxed font-sans" style={{ color: 'var(--text-2)' }}>
-              You maintain full authority over your data. You may request access to, edit, or terminate your medical account by contacting our data protection representative.
+              Users may request deletion of their account and personal data by contacting us at support@veraawell.com. We will process such requests within a reasonable period, subject to applicable legal and regulatory requirements.
+            </p>
+          </section>
+
+          <div className="w-full h-px bg-gradient-to-r from-transparent via-[var(--border-strong)] to-transparent opacity-30" />
+
+          <section className="space-y-4">
+            <h2 className="text-2xl font-medium" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
+              5. Payment Information
+            </h2>
+            <p className="text-base leading-relaxed font-sans" style={{ color: 'var(--text-2)' }}>
+              Payments are securely processed through Razorpay. Veraawell does not store users' debit card, credit card, UPI, net banking, or other payment credentials. Payment information is handled by our payment gateway partner in accordance with applicable security standards.
+            </p>
+          </section>
+
+          <div className="w-full h-px bg-gradient-to-r from-transparent via-[var(--border-strong)] to-transparent opacity-30" />
+
+          <section className="space-y-4">
+            <h2 className="text-2xl font-medium" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
+              6. Cookies Usage
+            </h2>
+            <p className="text-base leading-relaxed font-sans" style={{ color: 'var(--text-2)' }}>
+              We use cookies and similar technologies to improve website functionality, maintain user sessions, analyze website usage, and enhance user experience. You may disable cookies through your browser settings, although some features of the platform may not function properly.
             </p>
           </section>
 

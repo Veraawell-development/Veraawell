@@ -168,6 +168,49 @@ export default function TermsPage() {
               Veraawell enforces a strict policy against harassment, abuse, or inappropriate behavior towards our consulting doctors. We reserve the absolute right to suspend or terminate accounts that exhibit abusive or unlawful behavior.
             </p>
           </section>
+          <div className="w-full h-px bg-gradient-to-r from-transparent via-[var(--border-strong)] to-transparent opacity-30" />
+
+          <section className="space-y-4">
+            <h2 className="text-2xl font-medium" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
+              5. Governing Law
+            </h2>
+            <p className="text-base leading-relaxed font-sans" style={{ color: 'var(--text-2)' }}>
+              These Terms shall be governed by and construed in accordance with the laws of India. Any disputes arising out of or relating to these Terms shall be subject to the exclusive jurisdiction of the courts of New Delhi, India.
+            </p>
+          </section>
+
+          <div className="w-full h-px bg-gradient-to-r from-transparent via-[var(--border-strong)] to-transparent opacity-30" />
+
+          <section className="space-y-4">
+            <h2 className="text-2xl font-medium" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
+              6. Limitation of Liability
+            </h2>
+            <p className="text-base leading-relaxed font-sans" style={{ color: 'var(--text-2)' }}>
+              Veraawell acts as a platform connecting users with independent mental health professionals. To the maximum extent permitted by law, Veraawell shall not be liable for any indirect, incidental, special, or consequential damages arising from the use of the platform or services provided by therapists.
+            </p>
+          </section>
+
+          <div className="w-full h-px bg-gradient-to-r from-transparent via-[var(--border-strong)] to-transparent opacity-30" />
+
+          <section className="space-y-4">
+            <h2 className="text-2xl font-medium" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
+              7. Account Suspension & Termination
+            </h2>
+            <p className="text-base leading-relaxed font-sans" style={{ color: 'var(--text-2)' }}>
+              We reserve the right to suspend or terminate your account at any time, with or without notice, if we determine that you have violated these Terms of Service or engaged in behavior that compromises the safety or integrity of the platform.
+            </p>
+          </section>
+
+          <div className="w-full h-px bg-gradient-to-r from-transparent via-[var(--border-strong)] to-transparent opacity-30" />
+
+          <section className="space-y-4">
+            <h2 className="text-2xl font-medium" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
+              8. Intellectual Property
+            </h2>
+            <p className="text-base leading-relaxed font-sans" style={{ color: 'var(--text-2)' }}>
+              All content, features, and functionality on the Veraawell platform, including but not limited to text, graphics, logos, and software, are the exclusive property of Veraawell and are protected by applicable intellectual property laws.
+            </p>
+          </section>
 
           {/* Contact CTA */}
           <div className="mt-12 p-8 rounded-3xl bg-[var(--dark-bg)] text-center">

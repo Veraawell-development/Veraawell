@@ -78,6 +78,22 @@ const sessionSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  platformFee: {
+    type: Number,
+    default: 0
+  },
+  doctorEarnings: {
+    type: Number,
+    default: 0
+  },
+  razorpayOrderId: {
+    type: String,
+    default: null
+  },
+  razorpayTransferId: {
+    type: String,
+    default: null
+  },
   sessionNotes: {
     type: String,
     default: ''

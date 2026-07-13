@@ -55,7 +55,7 @@ const DoctorProfilePage: React.FC = () => {
   const { doctorId } = useParams<{ doctorId: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, user } = useAuth();
   const { serviceType, bookingType } = (location.state as any) || { bookingType: 'scheduled' };
 
   // Determine if this is an immediate booking (Available Now doctor)
@@ -240,18 +240,62 @@ const DoctorProfilePage: React.FC = () => {
       return response.json();
     },
     onSuccess: (data) => {
-      const successMessage = isImmediate
-        ? 'Requesting session... Waiting for doctor to join.'
-        : 'Session scheduled! Check your dashboard for details.';
-      toast.success(successMessage);
-      queryClient.invalidateQueries({ queryKey: ['patient', 'sessions'] });
-      setTimeout(() => { 
-        if (isImmediate && data.session?._id) {
-          navigate(`/video-call/${data.session._id}`);
-        } else {
-          navigate('/patient-dashboard'); 
-        }
-      }, 500);
+      const sessionData = data.session;
+      if (sessionData && sessionData.razorpayOrderId) {
+        const options = {
+          key: import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_TCJDiOL4WcPBxR',
+          amount: sessionData.price * 100,
+          currency: 'INR',
+          name: 'Veraawell',
+          description: isImmediate ? 'Immediate Session' : 'Scheduled Session',
+          order_id: sessionData.razorpayOrderId,
+          handler: function (response: any) {
+            toast.success(isImmediate ? 'Payment successful! Joining session...' : 'Session scheduled successfully!');
+            queryClient.invalidateQueries({ queryKey: ['patient', 'sessions'] });
+            setTimeout(() => { 
+              if (isImmediate && sessionData._id) {
+                navigate(`/video-call/${sessionData._id}`);
+              } else {
+                navigate('/patient-dashboard'); 
+              }
+            }, 1000);
+          },
+          prefill: {
+            name: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
+            email: user?.email,
+          },
+          theme: {
+            color: '#0d9488'
+          },
+          modal: {
+            ondismiss: function() {
+              toast.error('Payment cancelled. Session will be automatically removed if unpaid.');
+              if (!isImmediate) {
+                setTimeout(() => navigate('/patient-dashboard'), 1500);
+              }
+            }
+          }
+        };
+
+        const rzp = new (window as any).Razorpay(options);
+        rzp.on('payment.failed', function (response: any) {
+          toast.error('Payment failed: ' + response.error.description);
+        });
+        rzp.open();
+      } else {
+        const successMessage = isImmediate
+          ? 'Requesting session... Waiting for doctor to join.'
+          : 'Session scheduled! Check your dashboard for details.';
+        toast.success(successMessage);
+        queryClient.invalidateQueries({ queryKey: ['patient', 'sessions'] });
+        setTimeout(() => { 
+          if (isImmediate && sessionData?._id) {
+            navigate(`/video-call/${sessionData._id}`);
+          } else {
+            navigate('/patient-dashboard'); 
+          }
+        }, 500);
+      }
     },
     onError: (error: Error) => {
       console.error('Booking error:', error);

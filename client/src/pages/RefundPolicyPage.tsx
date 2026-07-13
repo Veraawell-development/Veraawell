@@ -158,7 +158,7 @@ export default function RefundPolicyPage() {
               3. Processing of Refunds
             </h2>
             <div className="space-y-4 text-base leading-relaxed font-sans" style={{ color: 'var(--text-2)' }}>
-              <p>All eligible refunds are initiated directly back to the original source of payment (Credit Card, Debit Card, UPI, or Net Banking).</p>
+              <p>Refunds, where applicable, are credited to the original payment method only.</p>
               <ul className="list-none space-y-3 pl-2">
                 <li className="flex items-start gap-3">
                   <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--sage)] flex-shrink-0" />

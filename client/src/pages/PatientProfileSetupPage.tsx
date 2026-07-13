@@ -99,26 +99,34 @@ const PatientProfileSetupPage: React.FC = () => {
     const isSaving = profileMutation.isPending;
 
     return (
-        <div className="min-h-screen relative overflow-hidden font-sans flex flex-col md:flex-row" style={{ backgroundColor: 'var(--bg)' }}>
+        <div className="min-h-screen pt-32 pb-12 relative overflow-hidden font-sans flex justify-center px-4 md:px-8" style={{ backgroundColor: 'var(--bg)' }}>
             
-            {/* Left Side: Premium Branding Panel (Full Bleed) */}
-            <div className="hidden md:flex w-[40%] p-12 lg:p-20 flex-col relative overflow-hidden shadow-2xl z-20" style={{ backgroundColor: 'var(--teal)' }}>
-                    {/* Abstract Floating Shapes */}
+            {/* Background Ambient Decor (From Landing Page) */}
+            <LeafDecor className="absolute -top-20 -left-20 text-[var(--teal)] opacity-5 rotate-45 transform scale-150 pointer-events-none" />
+            <LeafDecor className="absolute top-1/2 -right-32 text-[var(--teal)] opacity-5 -rotate-90 transform scale-[2] pointer-events-none" />
+            
+            <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-[var(--teal-muted)] rounded-full mix-blend-multiply filter blur-[100px] opacity-40 transform translate-x-1/2 -translate-y-1/2 z-0 pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-[600px] h-[600px] bg-[var(--coral-muted)] rounded-full mix-blend-multiply filter blur-[120px] opacity-20 transform -translate-x-1/3 translate-y-1/3 z-0 pointer-events-none" />
+
+            {/* Main Split Card (Bento Style) */}
+            <div className="w-full max-w-[1700px] bg-[var(--surface)] rounded-[40px] shadow-2xl overflow-hidden flex flex-col md:flex-row border border-[var(--border)] relative z-10 min-h-[80vh]">
+                
+                {/* Left Side: Premium Branding Panel */}
+                <div className="hidden md:flex w-[40%] p-12 lg:p-14 flex-col relative overflow-hidden" style={{ backgroundColor: 'var(--teal)' }}>
+                    {/* Abstract Floating Shapes & Leaf Decor */}
+                    <LeafDecor className="absolute -bottom-32 -left-32 text-white opacity-[0.06] transform scale-[3] rotate-12 pointer-events-none" />
                     <div className="absolute top-0 right-0 w-64 h-64 bg-white rounded-full filter blur-[80px] opacity-10 transform translate-x-1/3 -translate-y-1/3 pointer-events-none" />
                     <div className="absolute bottom-0 left-0 w-64 h-64 bg-black rounded-full filter blur-[100px] opacity-20 transform -translate-x-1/3 translate-y-1/3 pointer-events-none" />
 
-                    <div className="relative z-10 flex flex-col h-full">
+                    <div className="relative z-10 flex flex-col h-full justify-between">
                         {/* Star Logo Mark */}
-                        <div className="mb-16">
-                            <div className="w-12 h-12 bg-white rounded-[16px] flex items-center justify-center shadow-lg transform hover:scale-105 transition-transform">
+                        <div>
+                            <div className="w-12 h-12 bg-white rounded-[16px] flex items-center justify-center shadow-lg transform hover:scale-105 transition-transform mb-16">
                                 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                                     <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="var(--teal)" />
                                 </svg>
                             </div>
-                        </div>
-
-                        <div className="mt-auto mb-auto">
-                            <h2 className="text-white tracking-tight leading-[1.1] mb-6" style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 4vw, 48px)' }}>
+                            <h2 className="text-white tracking-tight leading-[1.1] mb-6" style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 4vw, 42px)' }}>
                                 Welcome to<br/>
                                 <span>Veerawell.</span>
                             </h2>
@@ -129,7 +137,7 @@ const PatientProfileSetupPage: React.FC = () => {
                         </div>
 
                         {/* Minimal Footer Anchor */}
-                        <div className="mt-auto">
+                        <div>
                             <p className="text-[11px] text-white/60 font-bold tracking-[0.2em] uppercase" style={{ fontFamily: 'var(--font-mono)' }}>
                                 Encrypted & Private
                             </p>
@@ -137,14 +145,10 @@ const PatientProfileSetupPage: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Right Side: Form (Full Bleed) */}
-                <div className="flex-1 p-8 md:p-16 lg:p-24 flex flex-col bg-[var(--surface)] relative z-10 overflow-y-auto">
+                {/* Right Side: Form */}
+                <div className="flex-1 p-8 md:p-12 lg:p-16 flex flex-col bg-[var(--surface)] relative z-10 overflow-y-auto">
                     
-                    {/* Background Ambient Decor for Form Side */}
-                    <LeafDecor className="absolute -top-20 -right-20 text-[var(--teal)] opacity-5 rotate-45 transform scale-150 pointer-events-none" />
-                    <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-[var(--teal-muted)] rounded-full mix-blend-multiply filter blur-[120px] opacity-20 transform translate-x-1/3 -translate-y-1/3 z-0 pointer-events-none" />
-
-                    <div className="max-w-3xl w-full mx-auto relative z-10 pt-16 md:pt-0">
+                    {/* Header */}
                     <div className="mb-10 flex items-start justify-between shrink-0">
                         <div>
                             <button 
@@ -196,7 +200,7 @@ const PatientProfileSetupPage: React.FC = () => {
                                         value={formData.fullName}
                                         onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
                                         disabled={!isEditing}
-                                        className="w-full px-5 py-3.5 bg-transparent border rounded-full text-[14px] font-medium text-[var(--text)] transition-all focus:outline-none focus:border-[var(--teal)] focus:ring-4 focus:ring-[var(--teal-muted)] disabled:opacity-50 disabled:bg-gray-50/50"
+                                        className="w-full px-5 py-3.5 bg-[var(--bg)] border shadow-sm rounded-full text-[14px] font-medium text-[var(--text)] transition-all focus:outline-none focus:border-[var(--teal)] focus:ring-4 focus:ring-[var(--teal-muted)] disabled:opacity-50 disabled:bg-gray-50/50"
                                         style={{ borderColor: 'var(--border)' }}
                                         required
                                     />
@@ -211,7 +215,7 @@ const PatientProfileSetupPage: React.FC = () => {
                                         value={formData.dateOfBirth}
                                         onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
                                         disabled={!isEditing}
-                                        className="w-full px-5 py-3.5 bg-transparent border rounded-full text-[14px] font-medium text-[var(--text)] transition-all focus:outline-none focus:border-[var(--teal)] focus:ring-4 focus:ring-[var(--teal-muted)] disabled:opacity-50 disabled:bg-gray-50/50"
+                                        className="w-full px-5 py-3.5 bg-[var(--bg)] border shadow-sm rounded-full text-[14px] font-medium text-[var(--text)] transition-all focus:outline-none focus:border-[var(--teal)] focus:ring-4 focus:ring-[var(--teal-muted)] disabled:opacity-50 disabled:bg-gray-50/50"
                                         style={{ borderColor: 'var(--border)' }}
                                         required
                                     />
@@ -225,7 +229,7 @@ const PatientProfileSetupPage: React.FC = () => {
                                         value={formData.gender}
                                         onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
                                         disabled={!isEditing}
-                                        className="w-full px-5 py-3.5 bg-transparent border rounded-full text-[14px] font-medium text-[var(--text)] transition-all focus:outline-none focus:border-[var(--teal)] focus:ring-4 focus:ring-[var(--teal-muted)] appearance-none disabled:opacity-50 disabled:bg-gray-50/50"
+                                        className="w-full px-5 py-3.5 bg-[var(--bg)] border shadow-sm rounded-full text-[14px] font-medium text-[var(--text)] transition-all focus:outline-none focus:border-[var(--teal)] focus:ring-4 focus:ring-[var(--teal-muted)] appearance-none disabled:opacity-50 disabled:bg-gray-50/50"
                                         style={{ 
                                             borderColor: 'var(--border)',
                                             backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20width%3D%2220%22%20height%3D%2220%22%20viewBox%3D%220%200%24%2024%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M6%209L12%2015L18%209%22%20stroke%3D%22%239CA3AF%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E")',
@@ -250,7 +254,7 @@ const PatientProfileSetupPage: React.FC = () => {
                                         value={formData.phone}
                                         onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                                         disabled={!isEditing}
-                                        className="w-full px-5 py-3.5 bg-transparent border rounded-full text-[14px] font-medium text-[var(--text)] transition-all focus:outline-none focus:border-[var(--teal)] focus:ring-4 focus:ring-[var(--teal-muted)] disabled:opacity-50 disabled:bg-gray-50/50"
+                                        className="w-full px-5 py-3.5 bg-[var(--bg)] border shadow-sm rounded-full text-[14px] font-medium text-[var(--text)] transition-all focus:outline-none focus:border-[var(--teal)] focus:ring-4 focus:ring-[var(--teal-muted)] disabled:opacity-50 disabled:bg-gray-50/50"
                                         style={{ borderColor: 'var(--border)' }}
                                         placeholder="+91 1234567890"
                                         required
@@ -276,7 +280,7 @@ const PatientProfileSetupPage: React.FC = () => {
                                             value={formData.emergencyContactName}
                                             onChange={(e) => setFormData({ ...formData, emergencyContactName: e.target.value })}
                                             disabled={!isEditing}
-                                            className="w-full px-5 py-3.5 bg-transparent border rounded-full text-[14px] font-medium text-[var(--text)] transition-all focus:outline-none focus:border-[var(--teal)] focus:ring-4 focus:ring-[var(--teal-muted)] disabled:opacity-50 disabled:bg-gray-50/50"
+                                            className="w-full px-5 py-3.5 bg-[var(--bg)] border shadow-sm rounded-full text-[14px] font-medium text-[var(--text)] transition-all focus:outline-none focus:border-[var(--teal)] focus:ring-4 focus:ring-[var(--teal-muted)] disabled:opacity-50 disabled:bg-gray-50/50"
                                             style={{ borderColor: 'var(--border)' }}
                                             placeholder="Jane Doe"
                                         />
@@ -320,8 +324,8 @@ const PatientProfileSetupPage: React.FC = () => {
                             </div>
                         )}
                     </form>
-                    </div>
                 </div>
+            </div>
         </div>
     );
 };

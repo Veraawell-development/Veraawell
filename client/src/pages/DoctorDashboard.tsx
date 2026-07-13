@@ -71,10 +71,35 @@ const DoctorDashboard: React.FC = () => {
   const [delayedSessions, setDelayedSessions] = useState<(Session & { delayedUntil: Date })[]>([]);
   const [showPostSessionReport, setShowPostSessionReport] = useState(false);
   const [pendingReportData, setPendingReportData] = useState<any>(null);
+  const [isSettingUpPayouts, setIsSettingUpPayouts] = useState(false);
 
   //  REAL-TIME: Connect to data socket
   const { socket } = useDataSocket();
   const queryClient = useQueryClient();
+
+  const handleSetupPayouts = async () => {
+    try {
+      setIsSettingUpPayouts(true);
+      const res = await fetch(`${API_BASE_URL}/payments/onboard`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      const data = await res.json();
+      if (res.ok) {
+        toast.success('Razorpay Linked Account created! Check your email to complete KYC.');
+      } else {
+        toast.error(data.message || 'Failed to setup payouts');
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error('Network error while setting up payouts');
+    } finally {
+      setIsSettingUpPayouts(false);
+    }
+  };
 
   useEffect(() => {
     const fetchDelayed = async () => {
@@ -576,6 +601,19 @@ const DoctorDashboard: React.FC = () => {
                     {unreadCount}
                   </span>
                 )}
+              </button>
+
+              {/* Setup Payouts Button */}
+              <button
+                onClick={handleSetupPayouts}
+                disabled={isSettingUpPayouts}
+                className={`flex items-center gap-2 px-4 py-2.5 text-slate-700 bg-white border border-slate-200 rounded-full font-bold tracking-wide transition-all hover:shadow-md active:scale-95 text-sm ${isSettingUpPayouts ? 'opacity-50 cursor-not-allowed' : ''}`}
+                style={{ fontFamily: 'Inter, sans-serif' }}
+              >
+                <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {isSettingUpPayouts ? 'Setting up...' : 'Setup Payouts'}
               </button>
 
               {/* Online Status Toggle Button */}
