@@ -343,32 +343,41 @@ const CareerPage: React.FC = () => {
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-32 pb-24 relative z-10">
         
-        {/* ── Premium Hero Section ── */}
-        <div ref={headerRef} data-reveal className="text-center max-w-4xl mx-auto mb-10 relative">
-          <div className="absolute top-[10%] -left-8 md:-left-16 lg:-left-24 pointer-events-none z-0 hidden sm:block">
-            <SparkDecor color="var(--teal)" style={{ width: '120px', height: '120px', opacity: 0.5, animation: 'float-card 8s ease-in-out infinite alternate-reverse' }} />
-          </div>
-
-          <span className="text-xs font-medium tracking-widest uppercase block mb-4" style={{ color: 'var(--teal)', fontFamily: 'var(--font-mono)' }}>
-            — Join Our Team
-          </span>
-          <h1 className="leading-tight mb-2" style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(40px, 5vw, 64px)', color: 'var(--text)', letterSpacing: '-0.02em' }}>
-            Careers
-          </h1>
-          <p className="text-[20px] md:text-[24px] mt-4" style={{ color: 'var(--text-2)', fontFamily: 'var(--font-body)' }}>
-            Making You Happier.
-          </p>
-        </div>
-
-        {/* Hero Image - Perfectly Sized */}
-        <div className="relative mb-24">
-          <div ref={heroImageRef} data-reveal data-delay="1" className="relative w-full max-w-5xl mx-auto group rounded-[32px] overflow-hidden shadow-md border border-[var(--border)]">
-            <img
-              src="/carrer-page.png"
-              alt="Career Veraawell"
-              className="w-full h-auto transform group-hover:scale-[1.03] transition-transform duration-1000 ease-out"
+        {/* ── Editorial Hero Section ── */}
+        <div ref={headerRef} data-reveal className="text-center max-w-3xl mx-auto mb-32 relative">
+          {/* Decorative Stars */}
+          <div className="absolute top-[-20%] left-[-10%] pointer-events-none z-0 hidden sm:block">
+            <SparkDecor
+              color="#FCE588"
+              style={{
+                width: '80px',
+                height: '80px',
+                opacity: 0.6,
+                animation: 'float-card 8s ease-in-out infinite alternate-reverse'
+              }}
             />
           </div>
+          <div className="absolute bottom-[-40%] right-[-15%] pointer-events-none z-0 hidden sm:block">
+            <SparkDecor
+              color="rgba(107,168,136,0.8)"
+              style={{
+                width: '100px',
+                height: '100px',
+                opacity: 0.5,
+                animation: 'float-card 6s ease-in-out infinite alternate'
+              }}
+            />
+          </div>
+
+          <span className="text-sm font-semibold tracking-widest uppercase block mb-6 text-teal-600 relative z-10">
+            Join Our Team
+          </span>
+          <h1 className="leading-[1.1] mb-8 font-normal tracking-tight" style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(48px, 6vw, 72px)', color: 'var(--text)' }}>
+            Recharge your practice.
+          </h1>
+          <p className="text-lg md:text-xl leading-relaxed text-gray-500 font-medium max-w-2xl mx-auto">
+            Don't let administrative stress drain your battery. We provide the autonomy, tools, and flexible support you need to stay fully charged while healing others.
+          </p>
         </div>
 
         {/* Premium Marquee */}
@@ -409,69 +418,71 @@ const CareerPage: React.FC = () => {
         `
         }} />
 
-        {/* ── Content Sections (Bento-style alternating layout) ── */}
-        <div className="flex flex-col gap-8 md:gap-12 mb-24">
+        {/* ── Content Sections (Minimal Alternating Rows) ── */}
+        <div className="flex flex-col gap-24 md:gap-32 mb-40">
           
           {/* Why Choose Us Card */}
-          <div ref={card1Ref} data-reveal className="flex flex-col md:flex-row bg-[var(--surface)] border border-[var(--border)] rounded-[32px] overflow-hidden shadow-sm hover:shadow-md transition-all duration-300 group">
-            <div className="flex-1 p-8 md:p-12 lg:p-16 flex flex-col justify-center">
-              <span className="text-xs font-bold tracking-[0.2em] mb-6" style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
+          <div ref={card1Ref} data-reveal className="flex flex-col md:flex-row items-center gap-12 md:gap-20 bg-white border border-gray-100 rounded-[32px] p-6 md:p-10 shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all duration-500">
+            <div className="flex-1 order-2 md:order-1">
+              <span className="text-sm font-bold tracking-[0.2em] mb-4 block text-gray-400">
                 01
               </span>
-              <h2 className="text-[32px] md:text-[40px] font-bold mb-6" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}>
+              <h2 className="text-[32px] md:text-[40px] font-normal mb-6 leading-tight tracking-tight" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
                 Why Choose Us?
               </h2>
-              <div className="text-[16px] leading-relaxed space-y-4" style={{ color: 'var(--text-2)' }}>
+              <div className="text-[17px] leading-relaxed space-y-5 text-gray-600">
                 <p>We provide a comprehensive mental wellness platform designed to make therapy accessible, transparent, and effective. With a flexible pricing model, individuals can choose plans that suit their needs without financial strain.</p>
                 <p>Our progress-tracking dashboard and session-wise reports ensure complete clarity on personal growth and improvement. Offering on-demand therapy sessions and a strong network of highly qualified psychologists, we bring expert support right when it's needed the most.</p>
               </div>
             </div>
-            <div className="w-full md:w-[45%] bg-[#EAF1F8] relative overflow-hidden min-h-[300px]">
-               <img src="/carrer-01.svg" alt="Why Choose Us illustration" className="absolute inset-0 w-full h-full object-cover mix-blend-multiply opacity-90 group-hover:scale-105 transition-transform duration-700" />
+            <div className="w-full md:w-1/2 order-1 md:order-2 bg-[#EAF1F8]/50 rounded-[32px] p-8 md:p-12 aspect-square flex items-center justify-center relative overflow-hidden group">
+               <img src="/carrer-01.svg" alt="Why Choose Us illustration" className="w-full h-full object-cover mix-blend-multiply opacity-90 transition-transform duration-700 group-hover:scale-105" />
             </div>
           </div>
 
           {/* Culture At Veraawell Card */}
-          <div ref={card2Ref} data-reveal data-delay="1" className="flex flex-col md:flex-row-reverse bg-[var(--surface)] border border-[var(--border)] rounded-[32px] overflow-hidden shadow-sm hover:shadow-md transition-all duration-300 group">
-            <div className="flex-1 p-8 md:p-12 lg:p-16 flex flex-col justify-center">
-              <span className="text-xs font-bold tracking-[0.2em] mb-6" style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
+          <div ref={card2Ref} data-reveal className="flex flex-col md:flex-row-reverse items-center gap-12 md:gap-20 bg-white border border-gray-100 rounded-[32px] p-6 md:p-10 shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all duration-500">
+            <div className="flex-1 order-2 md:order-1">
+              <span className="text-sm font-bold tracking-[0.2em] mb-4 block text-gray-400">
                 02
               </span>
-              <h2 className="text-[32px] md:text-[40px] font-bold mb-6" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}>
+              <h2 className="text-[32px] md:text-[40px] font-normal mb-6 leading-tight tracking-tight" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
                 Culture At Veraawell
               </h2>
-              <div className="text-[16px] leading-relaxed space-y-4" style={{ color: 'var(--text-2)' }}>
+              <div className="text-[17px] leading-relaxed space-y-5 text-gray-600">
                 <p>We foster a collaborative, empathetic, and innovative culture. We believe in providing our professionals with the autonomy they need to effectively treat their clients, while supporting them with top-tier technological tools.</p>
                 <p>Continuous learning and peer support are at the core of our daily operations. We want you to grow as a professional while you help your clients grow.</p>
               </div>
             </div>
-            <div className="w-full md:w-[45%] bg-[#FDECEE] relative overflow-hidden min-h-[300px]">
-               <img src="/carrer-02.svg" alt="Culture illustration" className="absolute inset-0 w-full h-full object-cover mix-blend-multiply opacity-90 group-hover:scale-105 transition-transform duration-700" />
+            <div className="w-full md:w-1/2 order-1 md:order-2 bg-[#FDECEE]/50 rounded-[32px] p-8 md:p-12 aspect-square flex items-center justify-center relative overflow-hidden group">
+               <img src="/carrer-02.svg" alt="Culture illustration" className="w-full h-full object-cover mix-blend-multiply opacity-90 transition-transform duration-700 group-hover:scale-105" />
             </div>
           </div>
 
           {/* Benefits of Joining Card */}
-          <div ref={card3Ref} data-reveal data-delay="2" className="flex flex-col md:flex-row bg-[var(--surface)] border border-[var(--border)] rounded-[32px] overflow-hidden shadow-sm hover:shadow-md transition-all duration-300 group">
-            <div className="flex-1 p-8 md:p-12 lg:p-16 flex flex-col justify-center">
-              <span className="text-xs font-bold tracking-[0.2em] mb-6" style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
+          <div ref={card3Ref} data-reveal className="flex flex-col md:flex-row items-center gap-12 md:gap-20 bg-white border border-gray-100 rounded-[32px] p-6 md:p-10 shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all duration-500">
+            <div className="flex-1 order-2 md:order-1">
+              <span className="text-sm font-bold tracking-[0.2em] mb-4 block text-gray-400">
                 03
               </span>
-              <h2 className="text-[32px] md:text-[40px] font-bold mb-6" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}>
+              <h2 className="text-[32px] md:text-[40px] font-normal mb-6 leading-tight tracking-tight" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
                 Benefits of Joining
               </h2>
-              <div className="text-[16px] leading-relaxed space-y-4" style={{ color: 'var(--text-2)' }}>
+              <div className="text-[17px] leading-relaxed space-y-5 text-gray-600">
                 <p>By joining Veraawell, you instantly gain access to a platform that handles your scheduling, billing, and technical support, so you can focus entirely on your clients.</p>
                 <p>Enjoy flexible hours, competitive compensation, and the ability to work from anywhere. Be a part of a movement that is de-stigmatizing mental health across India.</p>
               </div>
             </div>
+            <div className="w-full md:w-1/2 order-1 md:order-2 bg-[#FFF9E6]/50 rounded-[32px] p-8 md:p-12 aspect-square flex items-center justify-center relative overflow-hidden group">
+               <img src="/about-04.svg" alt="Benefits illustration" className="w-full h-full object-cover mix-blend-multiply opacity-90 transition-transform duration-700 group-hover:scale-105" />
+            </div>
           </div>
-
         </div>
 
         {/* ── Join Us Form Section ── */}
-        <div ref={formRef} data-reveal id="join-us-form" className="w-full max-w-3xl mx-auto bg-[var(--surface)] border border-[var(--border)] rounded-[32px] shadow-sm p-8 md:p-12 lg:p-16 relative overflow-hidden">
-          {/* Subtle background flair */}
-          <div className="absolute top-0 right-0 w-64 h-64 bg-[var(--teal-muted)] rounded-full filter blur-3xl opacity-50 z-0"></div>
+        <div ref={formRef} data-reveal id="join-us-form" className="w-full max-w-4xl mx-auto bg-white border border-gray-100 rounded-[32px] shadow-[0_4px_24px_rgba(0,0,0,0.02)] p-8 md:p-16 relative overflow-hidden">
+          {/* Minimal background flair */}
+          <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-teal-50/50 rounded-full filter blur-[100px] -z-10 transform translate-x-1/2 -translate-y-1/2"></div>
           
           <div className="relative z-10">
             <h2 className="text-[32px] md:text-[48px] font-bold text-center mb-8" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}>
@@ -832,7 +843,7 @@ const CareerPage: React.FC = () => {
             {activeTab === 'partner' && (
               <div className="text-center py-16 animate-in fade-in">
                 <p className="text-[var(--text-2)] text-lg">
-                  Partnership opportunities coming soon! Please contact us at <a href="mailto:partnerships@veraawell.com" className="text-[var(--teal)] hover:underline">partnerships@veraawell.com</a>
+                  Partnership opportunities coming soon! Please contact us at <a href="mailto:contact@veraawell.com" className="text-[var(--teal)] hover:underline">contact@veraawell.com</a>
                 </p>
               </div>
             )}
@@ -840,7 +851,7 @@ const CareerPage: React.FC = () => {
             {activeTab === 'other' && (
               <div className="text-center py-16 animate-in fade-in">
                 <p className="text-[var(--text-2)] text-lg">
-                  For other queries, please reach out to us at <a href="mailto:support@veraawell.com" className="text-[var(--teal)] hover:underline">support@veraawell.com</a>
+                  For other queries, please reach out to us at <a href="mailto:contact@veraawell.com" className="text-[var(--teal)] hover:underline">contact@veraawell.com</a>
                 </p>
               </div>
             )}

@@ -53,7 +53,7 @@ const TherapistCard: React.FC<{ therapist: typeof therapists[0]; delay: number }
     <div
       data-reveal
       data-delay={`${delay}` as any}
-      className="therapist-card rounded-2xl overflow-hidden cursor-pointer"
+      className="therapist-card rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border)',
@@ -88,8 +88,8 @@ const TherapistCard: React.FC<{ therapist: typeof therapists[0]; delay: number }
               {therapist.name}
             </h3>
             <p
-              className="text-xs"
-              style={{ color: 'var(--text-2)', fontFamily: 'var(--font-mono)' }}
+              className="text-xs font-medium mt-1"
+              style={{ color: 'var(--text-2)', fontFamily: 'var(--font-body)' }}
             >
               {therapist.credential}
             </p>
@@ -252,13 +252,12 @@ const TherapistPreview: React.FC = () => {
               — Meet Our Therapists
             </span>
             <h2
-              className="leading-tight"
+              className="leading-[1.15] font-normal tracking-normal"
               style={{
                 fontFamily: 'var(--font-display)',
-                fontSize: 'clamp(28px, 3.5vw, 48px)',
+                fontSize: 'clamp(32px, 4vw, 52px)',
                 color: 'var(--text)',
-                letterSpacing: '-0.02em',
-                maxWidth: '420px',
+                maxWidth: '460px',
               }}
             >
               Verified experts, real{' '}
@@ -296,8 +295,8 @@ const TherapistPreview: React.FC = () => {
 
         {/* Bottom note */}
         <p
-          className="text-center mt-10 text-sm"
-          style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}
+          className="text-center mt-10 text-sm font-medium"
+          style={{ color: 'var(--text-2)', fontFamily: 'var(--font-body)' }}
           data-reveal
           data-delay="4"
         >

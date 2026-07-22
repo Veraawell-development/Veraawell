@@ -228,7 +228,7 @@ export default function Navbar() {
             </div>
 
             {/* Desktop Links */}
-            <div className="hidden md:flex items-center gap-6 lg:gap-8 absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
+            <div className="hidden md:flex items-center justify-center flex-1 gap-4 lg:gap-8 mx-4">
               {navLinks.map((link) => (
                 <div
                   key={link.name}

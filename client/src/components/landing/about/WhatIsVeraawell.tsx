@@ -28,12 +28,11 @@ const AboutSection: React.FC = () => {
             <h2
               data-reveal
               data-delay="1"
-              className="leading-tight mb-6"
+              className="leading-[1.15] mb-6 font-normal tracking-normal"
               style={{
                 fontFamily: 'var(--font-display)',
-                fontSize: 'clamp(28px, 3.5vw, 48px)',
+                fontSize: 'clamp(32px, 4vw, 52px)',
                 color: 'var(--text)',
-                letterSpacing: '-0.02em',
               }}
             >
               We're closing the gap between{' '}
@@ -62,11 +61,10 @@ const AboutSection: React.FC = () => {
             <p
               data-reveal
               data-delay="3"
-              className="text-lg font-semibold mb-7 leading-snug"
+              className="text-lg font-semibold mb-7 leading-snug tracking-wide"
               style={{
-                color: 'var(--text)',
-                fontFamily: 'var(--font-display)',
-                fontStyle: 'italic',
+                color: 'var(--text-2)',
+                fontFamily: 'var(--font-body)',
               }}
             >
               Find the perfect therapist for your mental health journey.
@@ -76,19 +74,10 @@ const AboutSection: React.FC = () => {
               data-reveal
               data-delay="4"
               onClick={() => navigate('/choose-professional')}
-              className="btn-shimmer inline-flex items-center gap-2 px-7 py-3.5 rounded-full text-sm font-semibold text-white"
+              className="btn-shimmer inline-flex items-center gap-2 px-8 py-3.5 rounded-full text-sm font-bold text-white transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:bg-[var(--teal-dark)]"
               style={{
                 background: 'var(--teal)',
                 boxShadow: 'var(--shadow-teal)',
-                transition: 'all 0.2s var(--ease-spring)',
-              }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLButtonElement).style.background = 'var(--teal-dark)';
-                (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-2px)';
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLButtonElement).style.background = 'var(--teal)';
-                (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(0)';
               }}
             >
               View Therapists →
@@ -142,16 +131,15 @@ const AboutSection: React.FC = () => {
                   "
                 </div>
                 <p
-                  className="text-base leading-relaxed mb-4"
+                  className="text-xl leading-relaxed mb-6 font-normal tracking-normal"
                   style={{
                     fontFamily: 'var(--font-display)',
                     fontStyle: 'italic',
                     color: 'var(--text)',
-                    fontSize: '17px',
                   }}
                 >
-                  I came in feeling lost, and today I feel stronger and more
-                  in control of my life.
+                  "I came in feeling lost, and today I feel stronger and more
+                  in control of my life."
                 </p>
                 <div className="flex items-center gap-3">
                   <div

@@ -126,7 +126,7 @@ const PatientProfileSetupPage: React.FC = () => {
                                     <path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z" fill="var(--teal)" />
                                 </svg>
                             </div>
-                            <h2 className="text-white tracking-tight leading-[1.1] mb-6" style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 4vw, 42px)' }}>
+                            <h2 className="text-white tracking-tight leading-[1.1] mb-6 font-normal" style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 4vw, 42px)' }}>
                                 Welcome to<br/>
                                 <span>Veerawell.</span>
                             </h2>
@@ -159,7 +159,7 @@ const PatientProfileSetupPage: React.FC = () => {
                                 <FiArrowLeft className="w-3.5 h-3.5 group-hover:-translate-x-1 transition-transform" />
                                 Dashboard
                             </button>
-                            <h1 className="text-[28px] font-bold text-[var(--text)] tracking-tight mb-1" style={{ fontFamily: 'var(--font-display)' }}>
+                            <h1 className="text-[28px] font-normal text-[var(--text)] tracking-tight mb-1" style={{ fontFamily: 'var(--font-display)' }}>
                                 Complete Profile
                             </h1>
                             <p className="text-[14px] text-[var(--text-2)]" style={{ fontFamily: 'var(--font-body)' }}>
@@ -192,46 +192,43 @@ const PatientProfileSetupPage: React.FC = () => {
                             {/* Basic Info */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-6">
                                 <div>
-                                    <label className="block text-[11px] font-bold text-[var(--text-3)] mb-2 uppercase tracking-widest pl-2" style={{ fontFamily: 'var(--font-mono)' }}>
-                                        Full Name <span className="text-red-400">*</span>
+                                    <label className="block text-sm font-medium text-[var(--text-2)] mb-2">
+                                        Full Name *
                                     </label>
                                     <input
                                         type="text"
                                         value={formData.fullName}
                                         onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
                                         disabled={!isEditing}
-                                        className="w-full px-5 py-3.5 bg-[var(--bg)] border shadow-sm rounded-full text-[14px] font-medium text-[var(--text)] transition-all focus:outline-none focus:border-[var(--teal)] focus:ring-4 focus:ring-[var(--teal-muted)] disabled:opacity-50 disabled:bg-gray-50/50"
-                                        style={{ borderColor: 'var(--border)' }}
+                                        className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)] disabled:opacity-50 disabled:bg-gray-50/50"
                                         required
                                     />
                                 </div>
 
                                 <div>
-                                    <label className="block text-[11px] font-bold text-[var(--text-3)] mb-2 uppercase tracking-widest pl-2" style={{ fontFamily: 'var(--font-mono)' }}>
-                                        Date of Birth <span className="text-red-400">*</span>
+                                    <label className="block text-sm font-medium text-[var(--text-2)] mb-2">
+                                        Date of Birth *
                                     </label>
                                     <input
                                         type="date"
                                         value={formData.dateOfBirth}
                                         onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
                                         disabled={!isEditing}
-                                        className="w-full px-5 py-3.5 bg-[var(--bg)] border shadow-sm rounded-full text-[14px] font-medium text-[var(--text)] transition-all focus:outline-none focus:border-[var(--teal)] focus:ring-4 focus:ring-[var(--teal-muted)] disabled:opacity-50 disabled:bg-gray-50/50"
-                                        style={{ borderColor: 'var(--border)' }}
+                                        className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)] disabled:opacity-50 disabled:bg-gray-50/50"
                                         required
                                     />
                                 </div>
 
                                 <div>
-                                    <label className="block text-[11px] font-bold text-[var(--text-3)] mb-2 uppercase tracking-widest pl-2" style={{ fontFamily: 'var(--font-mono)' }}>
-                                        Gender <span className="text-red-400">*</span>
+                                    <label className="block text-sm font-medium text-[var(--text-2)] mb-2">
+                                        Gender *
                                     </label>
                                     <select
                                         value={formData.gender}
                                         onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
                                         disabled={!isEditing}
-                                        className="w-full px-5 py-3.5 bg-[var(--bg)] border shadow-sm rounded-full text-[14px] font-medium text-[var(--text)] transition-all focus:outline-none focus:border-[var(--teal)] focus:ring-4 focus:ring-[var(--teal-muted)] appearance-none disabled:opacity-50 disabled:bg-gray-50/50"
+                                        className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)] disabled:opacity-50 disabled:bg-gray-50/50 appearance-none"
                                         style={{ 
-                                            borderColor: 'var(--border)',
                                             backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20width%3D%2220%22%20height%3D%2220%22%20viewBox%3D%220%200%24%2024%22%20fill%3D%22none%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cpath%20d%3D%22M6%209L12%2015L18%209%22%20stroke%3D%22%239CA3AF%22%20stroke-width%3D%222%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%2F%3E%3C%2Fsvg%3E")',
                                             backgroundRepeat: 'no-repeat',
                                             backgroundPosition: 'right 1rem center'
@@ -246,16 +243,15 @@ const PatientProfileSetupPage: React.FC = () => {
                                 </div>
 
                                 <div>
-                                    <label className="block text-[11px] font-bold text-[var(--text-3)] mb-2 uppercase tracking-widest pl-2" style={{ fontFamily: 'var(--font-mono)' }}>
-                                        Phone Number <span className="text-red-400">*</span>
+                                    <label className="block text-sm font-medium text-[var(--text-2)] mb-2">
+                                        Phone Number *
                                     </label>
                                     <input
                                         type="tel"
                                         value={formData.phone}
                                         onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                                         disabled={!isEditing}
-                                        className="w-full px-5 py-3.5 bg-[var(--bg)] border shadow-sm rounded-full text-[14px] font-medium text-[var(--text)] transition-all focus:outline-none focus:border-[var(--teal)] focus:ring-4 focus:ring-[var(--teal-muted)] disabled:opacity-50 disabled:bg-gray-50/50"
-                                        style={{ borderColor: 'var(--border)' }}
+                                        className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)] disabled:opacity-50 disabled:bg-gray-50/50"
                                         placeholder="+91 1234567890"
                                         required
                                     />
@@ -272,7 +268,7 @@ const PatientProfileSetupPage: React.FC = () => {
                                 </h3>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-6">
                                     <div>
-                                        <label className="block text-[11px] font-bold text-[var(--text-3)] mb-2 uppercase tracking-widest pl-2" style={{ fontFamily: 'var(--font-mono)' }}>
+                                        <label className="block text-sm font-medium text-[var(--text-2)] mb-2">
                                             Name
                                         </label>
                                         <input
@@ -280,13 +276,12 @@ const PatientProfileSetupPage: React.FC = () => {
                                             value={formData.emergencyContactName}
                                             onChange={(e) => setFormData({ ...formData, emergencyContactName: e.target.value })}
                                             disabled={!isEditing}
-                                            className="w-full px-5 py-3.5 bg-[var(--bg)] border shadow-sm rounded-full text-[14px] font-medium text-[var(--text)] transition-all focus:outline-none focus:border-[var(--teal)] focus:ring-4 focus:ring-[var(--teal-muted)] disabled:opacity-50 disabled:bg-gray-50/50"
-                                            style={{ borderColor: 'var(--border)' }}
+                                            className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)] disabled:opacity-50 disabled:bg-gray-50/50"
                                             placeholder="Jane Doe"
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-[11px] font-bold text-[var(--text-3)] mb-2 uppercase tracking-widest pl-2" style={{ fontFamily: 'var(--font-mono)' }}>
+                                        <label className="block text-sm font-medium text-[var(--text-2)] mb-2">
                                             Phone
                                         </label>
                                         <input
@@ -294,8 +289,7 @@ const PatientProfileSetupPage: React.FC = () => {
                                             value={formData.emergencyContactPhone}
                                             onChange={(e) => setFormData({ ...formData, emergencyContactPhone: e.target.value })}
                                             disabled={!isEditing}
-                                            className="w-full px-5 py-3.5 bg-transparent border rounded-full text-[14px] font-medium text-[var(--text)] transition-all focus:outline-none focus:border-[var(--teal)] focus:ring-4 focus:ring-[var(--teal-muted)] disabled:opacity-50 disabled:bg-gray-50/50"
-                                            style={{ borderColor: 'var(--border)' }}
+                                            className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)] disabled:opacity-50 disabled:bg-gray-50/50"
                                             placeholder="+91 1234567890"
                                         />
                                     </div>

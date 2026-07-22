@@ -571,7 +571,7 @@ const PatientDashboard: React.FC = () => {
           </div>
         ) : (
           /* 2x2 Grid Layout */
-          <div className="grid grid-cols-1 lg:grid-cols-2 lg:grid-rows-2 gap-4 h-[auto] lg:h-full min-h-0 pb-10 lg:pb-0">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-10">
 
             {/* Reports & Recommendation Card */}
             <div className="flex flex-col rounded-[24px] bg-gradient-to-br from-[#38ABAE] to-[#2A8285] shadow-[0_8px_30px_rgb(56,171,174,0.3)] border border-white/10 overflow-hidden min-h-[350px] lg:min-h-0 hover:shadow-[0_8px_30px_rgb(56,171,174,0.5)] transition-all duration-300">
@@ -814,7 +814,7 @@ const PatientDashboard: React.FC = () => {
             </div>
 
             {/* My Journal + Pending Tasks Card */}
-            <div className="flex flex-col space-y-4 min-h-[600px] lg:min-h-0 h-full">
+            <div className="flex flex-col space-y-4 h-full min-h-[500px]">
               {/* My Journal Section */}
               <div className="flex flex-col rounded-[24px] bg-gradient-to-br from-[#6DBEDF] to-[#4B9DBE] shadow-[0_8px_30px_rgb(109,190,223,0.3)] border border-white/10 overflow-hidden flex-1 min-h-0 hover:shadow-[0_8px_30px_rgb(109,190,223,0.5)] transition-all duration-300">
                 <div className="px-5 py-3 shrink-0 flex items-center justify-between border-b border-white/10">

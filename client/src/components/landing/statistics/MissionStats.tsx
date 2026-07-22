@@ -163,12 +163,11 @@ const MissionStats: React.FC = () => {
             <h2
               data-reveal
               data-delay="1"
-              className="leading-tight mb-6"
+              className="leading-[1.15] mb-6 font-normal tracking-normal"
               style={{
                 fontFamily: 'var(--font-display)',
-                fontSize: 'clamp(28px, 3.5vw, 48px)',
+                fontSize: 'clamp(32px, 4vw, 52px)',
                 color: 'var(--text)',
-                letterSpacing: '-0.02em',
               }}
             >
               We've made your mental health{' '}
@@ -182,7 +181,7 @@ const MissionStats: React.FC = () => {
               style={{ color: 'var(--text-2)', fontSize: '17px', maxWidth: '480px' }}
             >
               At Veraawell, we've built a diverse team of 50+ experts from the
-              fields of therapy, psychiatry, technology, and business — each
+              fields of therapy, psychiatry, technology, and business each
               bringing unique skills and perspectives to support your mental
               wellness journey.
             </p>
@@ -196,15 +195,15 @@ const MissionStats: React.FC = () => {
               key={i}
               data-reveal
               data-delay={`${i + 1}` as any}
-              className="stat-card rounded-2xl p-7"
+              className="stat-card rounded-2xl p-7 transition-all duration-300 hover:-translate-y-1 hover:shadow-md"
               style={{
                 background: 'var(--surface)',
                 border: '1px solid var(--border)',
                 boxShadow: 'var(--shadow-sm)',
-                borderLeft: `3px solid ${stat.accent}`,
+                borderLeft: `4px solid ${stat.accent}`,
               }}
               onMouseEnter={e => {
-                (e.currentTarget as HTMLDivElement).style.background = `${stat.accent}08`;
+                (e.currentTarget as HTMLDivElement).style.background = `${stat.accent}0C`;
               }}
               onMouseLeave={e => {
                 (e.currentTarget as HTMLDivElement).style.background = 'var(--surface)';
@@ -228,8 +227,8 @@ const MissionStats: React.FC = () => {
                 {stat.label}
               </p>
               <p
-                className="text-xs"
-                style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}
+                className="text-sm mt-1"
+                style={{ color: 'var(--text-2)', fontFamily: 'var(--font-body)' }}
               >
                 {stat.sublabel}
               </p>

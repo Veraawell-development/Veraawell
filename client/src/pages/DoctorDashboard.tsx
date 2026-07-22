@@ -559,7 +559,7 @@ const DoctorDashboard: React.FC = () => {
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16 transition-all duration-300">
             {/* Left side - Hamburger Menu */}
-            <div className="flex justify-start w-1/3">
+            <div className="flex justify-start shrink-0">
               <button
                 onClick={() => setSidebarOpen(true)}
                 className="p-2.5 hover:bg-black/5 rounded-full transition-all duration-300 hover:scale-105 active:scale-95 z-10 relative"
@@ -573,21 +573,25 @@ const DoctorDashboard: React.FC = () => {
             </div>
 
             {/* Center - Greeting */}
-            <div className="text-center w-1/3 flex justify-center">
-              <h1 className="text-lg md:text-xl font-medium text-gray-800 tracking-wide transition-all duration-300" style={{ fontFamily: 'Inter, sans-serif' }}>
-                {(() => {
-                  const hour = new Date().getHours();
-                  if (hour >= 5 && hour < 12) return 'Good morning';
-                  if (hour >= 12 && hour < 17) return 'Good afternoon';
-                  if (hour >= 17 && hour < 20) return 'Good evening';
-                  if (hour >= 20 && hour < 24) return 'Good night';
-                  return 'Night owl';
-                })()}, Dr. {user?.firstName || user?.username || 'Doctor'}
+            <div className="text-center flex-1 flex justify-center px-2 sm:px-4 min-w-0">
+              <h1 className="text-sm sm:text-lg md:text-xl font-medium text-gray-800 tracking-wide truncate transition-all duration-300" style={{ fontFamily: 'Inter, sans-serif' }}>
+                <span className="hidden md:inline">
+                  {(() => {
+                    const hour = new Date().getHours();
+                    if (hour >= 5 && hour < 12) return 'Good morning';
+                    if (hour >= 12 && hour < 17) return 'Good afternoon';
+                    if (hour >= 17 && hour < 20) return 'Good evening';
+                    if (hour >= 20 && hour < 24) return 'Good night';
+                    return 'Night owl';
+                  })()}, 
+                </span>
+                <span className="md:hidden">Welcome, </span>
+                Dr. {user?.firstName || user?.username || 'Doctor'}
               </h1>
             </div>
 
             {/* Right side - Chat and Active Toggle */}
-            <div className="flex items-center justify-end space-x-2 md:space-x-4 w-1/3">
+            <div className="flex items-center justify-end space-x-2 md:space-x-4 shrink-0">
               {/* Chat Icon with Notification Badge */}
               <button
                 onClick={() => navigate('/messages')}
@@ -607,7 +611,7 @@ const DoctorDashboard: React.FC = () => {
               <button
                 onClick={handleSetupPayouts}
                 disabled={isSettingUpPayouts}
-                className={`flex items-center gap-2 px-4 py-2.5 text-slate-700 bg-white border border-slate-200 rounded-full font-bold tracking-wide transition-all hover:shadow-md active:scale-95 text-sm ${isSettingUpPayouts ? 'opacity-50 cursor-not-allowed' : ''}`}
+                className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 text-slate-700 bg-white border border-slate-200 rounded-full font-bold tracking-wide transition-all hover:shadow-md active:scale-95 text-[11px] sm:text-sm whitespace-nowrap ${isSettingUpPayouts ? 'opacity-50 cursor-not-allowed' : ''}`}
                 style={{ fontFamily: 'Inter, sans-serif' }}
               >
                 <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -620,7 +624,7 @@ const DoctorDashboard: React.FC = () => {
               <button
                 onClick={toggleOnlineStatus}
                 disabled={isStatusLoading}
-                className={`flex items-center gap-2 px-6 py-2.5 md:px-7 md:py-2.5 text-white rounded-full font-bold tracking-wide transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 active:scale-95 text-sm ${isStatusLoading ? 'cursor-not-allowed opacity-70' : ''}`}
+                className={`flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2 sm:py-2.5 text-white rounded-full font-bold tracking-wide transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 active:scale-95 text-[11px] sm:text-sm whitespace-nowrap ${isStatusLoading ? 'cursor-not-allowed opacity-70' : ''}`}
                 style={{ backgroundColor: isActive ? '#10B981' : '#6B7280', fontFamily: 'Inter, sans-serif' }}
               >
                 <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-white animate-pulse' : 'bg-gray-300'}`}></div>
@@ -634,7 +638,7 @@ const DoctorDashboard: React.FC = () => {
       {/* Main Dashboard Content */}
       <div className="h-[calc(100%-4rem)] overflow-y-auto px-4 py-4">
         {/* 2x2 Grid Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 lg:grid-rows-2 gap-4 h-[auto] lg:h-full min-h-0 pb-10 lg:pb-0">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-10">
 
           {/* Session Notes Card */}
           <div className="flex flex-col rounded-[24px] bg-gradient-to-br from-[#38ABAE] to-[#2A8285] shadow-[0_8px_30px_rgb(56,171,174,0.3)] border border-white/10 overflow-hidden min-h-[350px] lg:min-h-0 hover:shadow-[0_8px_30px_rgb(56,171,174,0.5)] transition-all duration-300">
@@ -698,7 +702,7 @@ const DoctorDashboard: React.FC = () => {
           </div>
 
           {/* Calendar Card (Now bottom left) */}
-          <div className="flex flex-col rounded-[24px] bg-gradient-to-br from-[#ABA5D1] to-[#867EB5] shadow-[0_8px_30px_rgb(171,165,209,0.3)] border border-white/10 overflow-hidden min-h-[450px] lg:min-h-0 hover:shadow-[0_8px_30px_rgb(171,165,209,0.5)] transition-all duration-300">
+          <div className="flex flex-col rounded-[24px] bg-gradient-to-br from-[#ABA5D1] to-[#867EB5] shadow-[0_8px_30px_rgb(171,165,209,0.3)] border border-white/10 overflow-hidden min-h-[500px] hover:shadow-[0_8px_30px_rgb(171,165,209,0.5)] transition-all duration-300">
             <div className="px-6 py-4 shrink-0 flex items-center justify-between border-b border-white/10">
               <h3 className="text-lg font-bold text-white font-sans tracking-wide drop-shadow-sm">Calendar</h3>
               <button
@@ -761,7 +765,7 @@ const DoctorDashboard: React.FC = () => {
           </div>
 
           {/* Tasks & Reports Card (Now bottom right) */}
-          <div className="flex flex-col rounded-[24px] bg-gradient-to-br from-[#78BE9F] to-[#579F80] shadow-[0_8px_30px_rgb(120,190,159,0.3)] border border-white/10 overflow-hidden min-h-[350px] lg:min-h-0 hover:shadow-[0_8px_30px_rgb(120,190,159,0.5)] transition-all duration-300">
+          <div className="flex flex-col rounded-[24px] bg-gradient-to-br from-[#78BE9F] to-[#579F80] shadow-[0_8px_30px_rgb(120,190,159,0.3)] border border-white/10 overflow-hidden min-h-[450px] hover:shadow-[0_8px_30px_rgb(120,190,159,0.5)] transition-all duration-300">
             <div className="px-6 py-4 shrink-0 flex items-center justify-between border-b border-white/10">
               <h3 className="text-lg font-bold text-white font-sans tracking-wide drop-shadow-sm">Tasks & Reports</h3>
             </div>

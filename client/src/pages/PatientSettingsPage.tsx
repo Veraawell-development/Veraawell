@@ -106,7 +106,7 @@ const PatientSettingsPage: React.FC = () => {
   const isDeleting = deleteAccountMutation.isPending;
 
   return (
-    <div className="bg-[#f8fafc] min-h-screen">
+    <div className="bg-[#f8fafc] min-h-screen pt-32">
       <div className="max-w-4xl mx-auto px-4 py-12">
         <div className="flex items-center gap-4 mb-8">
           <button 

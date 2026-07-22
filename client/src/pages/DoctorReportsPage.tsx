@@ -76,12 +76,13 @@ const DoctorReportsPage: React.FC = () => {
     enabled: !!user
   });
 
-  const getInitials = (name: string) => {
-    const parts = name.split(' ').filter(Boolean);
+  const getInitials = (name?: string) => {
+    if (!name) return 'U';
+    const parts = String(name).split(' ').filter(Boolean);
     if (parts.length >= 2) {
       return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
     }
-    return name ? name[0].toUpperCase() : '';
+    return String(name)[0].toUpperCase();
   };
 
   if (loading) {

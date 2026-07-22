@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { ShieldCheck, Calendar, Clock, ArrowRight, Quote } from 'lucide-react';
 
 import LeafDecor from '../../ui/LeafDecor';
 
@@ -7,17 +8,17 @@ import LeafDecor from '../../ui/LeafDecor';
 const WellnessCard: React.FC = () => {
   const [selectedMood, setSelectedMood] = useState(3);
 
-  // Replaced childish emojis with a premium color-scale mood selector
+  // Premium Color Scale
   const moods = [
-    { color: '#E8956D', bg: '#FDF6F3', label: 'Low' },       // Warm/Rose
-    { color: '#F4A261', bg: '#FEF8F3', label: 'Okay' },      // Orange
-    { color: '#C4A882', bg: '#FDFCF9', label: 'Good' },      // Gold
-    { color: '#6BA888', bg: '#F2F8F5', label: 'Great' },     // Sage
-    { color: '#0097B2', bg: '#F0FBFC', label: 'Amazing' },   // Teal
+    { color: '#E8956D', bg: '#FDF6F3', label: 'Low' },
+    { color: '#F4A261', bg: '#FEF8F3', label: 'Okay' },
+    { color: '#C4A882', bg: '#FDFCF9', label: 'Good' },
+    { color: '#6BA888', bg: '#F2F8F5', label: 'Great' },
+    { color: '#0097B2', bg: '#F0FBFC', label: 'Amazing' },
   ];
 
   return (
-    <div className="relative select-none" style={{ maxWidth: '380px', width: '100%' }}>
+    <div className="relative select-none" style={{ maxWidth: '460px', width: '100%' }}>
       {/* Soft teal glow behind card */}
       <div
         className="absolute inset-0"
@@ -43,101 +44,96 @@ const WellnessCard: React.FC = () => {
           zIndex: 1,
         }}
       >
-        <div style={{ padding: '32px 28px' }}>
+        <div style={{ padding: '36px 32px' }}>
           {/* Greeting */}
-          <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center justify-between mb-8">
             <div>
               <p
-                className="text-xs font-semibold mb-1 uppercase tracking-widest"
+                className="text-[11px] font-bold mb-1.5 uppercase tracking-widest"
                 style={{ color: 'var(--sage)' }}
               >
                 Good Morning
               </p>
               <h3
-                className="text-xl font-medium"
+                className="text-2xl font-medium"
                 style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}
               >
-                Isha ☀️
+                Isha
               </h3>
             </div>
             <div
-              className="px-3 py-1.5 rounded-full text-xs font-medium border"
+              className="px-3 py-1.5 rounded-full text-[11px] font-bold border tracking-wider uppercase"
               style={{ 
-                background: 'rgba(255,255,255,0.8)', 
+                background: 'rgba(255,255,255,0.9)', 
                 color: 'var(--teal-dark)',
-                borderColor: 'rgba(0,151,178,0.2)'
+                borderColor: 'rgba(0,151,178,0.15)'
               }}
             >
               Week 8
             </div>
           </div>
 
-          {/* Daily affirmation */}
+          {/* Daily affirmation (Redesigned) */}
           <div
-            className="rounded-2xl p-5 mb-6 relative overflow-hidden"
+            className="rounded-[20px] p-6 mb-8 relative overflow-hidden group"
             style={{ 
-              background: 'rgba(240, 248, 249, 0.7)',
-              border: '1px solid rgba(0, 151, 178, 0.1)' 
+              background: 'linear-gradient(135deg, #F0F8F9 0%, #F5FBFC 100%)',
+              border: '1px solid rgba(0, 151, 178, 0.08)',
+              boxShadow: 'inset 0 2px 10px rgba(255,255,255,1)'
             }}
           >
-            <div className="absolute top-0 right-0 w-24 h-24 bg-white rounded-full mix-blend-overlay filter blur-xl opacity-50 transform translate-x-1/2 -translate-y-1/2" />
+            <Quote 
+              size={80} 
+              className="absolute -top-4 -right-4 text-teal-900 opacity-[0.03] transform -rotate-12 transition-transform duration-700 group-hover:scale-110 group-hover:-rotate-6"
+            />
             <p
-              className="text-xs font-semibold mb-2 uppercase tracking-widest"
+              className="text-[11px] font-bold mb-3 uppercase tracking-[0.2em]"
               style={{ color: 'var(--teal-dark)' }}
             >
               Daily Reflection
             </p>
             <p
-              className="text-base leading-relaxed font-serif"
+              className="text-[17px] leading-relaxed relative z-10"
               style={{
                 color: 'var(--text)',
                 fontFamily: 'var(--font-display)',
-                lineHeight: 1.5,
+                fontStyle: 'italic',
               }}
             >
               "Healing is not linear. Every small step forward is a victory."
             </p>
           </div>
 
-          {/* Mood check-in (Premium Color Scale) */}
-          <div className="mb-6">
-            <div className="flex items-center justify-between mb-3">
+          {/* Mood check-in (Premium Segmented Control) */}
+          <div className="mb-8">
+            <div className="flex items-center justify-between mb-4">
               <p
-                className="text-sm font-medium"
+                className="text-[13px] font-semibold tracking-wide"
                 style={{ color: 'var(--text-2)' }}
               >
                 How are you feeling today?
               </p>
-              <span className="text-xs font-medium" style={{ color: moods[selectedMood].color }}>
+              <span className="text-[11px] font-bold uppercase tracking-widest" style={{ color: moods[selectedMood].color }}>
                 {moods[selectedMood].label}
               </span>
             </div>
             
-            <div className="flex justify-between items-center bg-white p-2.5 rounded-2xl border border-gray-100 shadow-sm relative overflow-hidden">
-              {/* Dynamic background highlight */}
-              <div 
-                className="absolute top-2 bottom-2 rounded-xl transition-all duration-500 ease-out"
-                style={{
-                  width: 'calc(20% - 8px)',
-                  left: `calc(${selectedMood * 20}% + 4px)`,
-                  background: moods[selectedMood].bg,
-                  border: `1px solid ${moods[selectedMood].color}30`,
-                }}
-              />
-              
+            <div className="flex justify-between items-center p-2 rounded-2xl relative" style={{ background: '#F8F6F2', border: '1px solid rgba(26, 46, 50, 0.04)', boxShadow: 'inset 0 2px 4px rgba(26, 46, 50, 0.02)' }}>
               {moods.map((mood, i) => (
                 <button
                   key={i}
                   onClick={() => setSelectedMood(i)}
-                  className="relative z-10 flex flex-col items-center justify-center w-full h-10 rounded-xl transition-all duration-300 group"
+                  className="relative z-10 flex flex-col items-center justify-center w-full h-10 rounded-xl transition-all duration-300 group focus:outline-none"
                 >
                   <span 
-                    className="w-5 h-5 rounded-full transition-all duration-400 ease-out group-hover:scale-110"
+                    className="rounded-full transition-all duration-400 ease-out flex items-center justify-center"
                     style={{ 
+                      width: selectedMood === i ? '24px' : '16px',
+                      height: selectedMood === i ? '24px' : '16px',
                       background: mood.color,
-                      transform: selectedMood === i ? 'scale(1.3)' : 'scale(1)',
-                      boxShadow: selectedMood === i ? `0 4px 12px ${mood.color}40` : 'none',
-                      opacity: selectedMood !== i ? 0.4 : 1,
+                      border: selectedMood === i ? '3px solid #ffffff' : '0px solid transparent',
+                      boxShadow: selectedMood === i ? `0 4px 16px ${mood.color}60` : 'none',
+                      opacity: selectedMood !== i ? 0.3 : 1,
                     }} 
                   />
                 </button>
@@ -145,93 +141,126 @@ const WellnessCard: React.FC = () => {
             </div>
           </div>
 
-          {/* Next session */}
-          <div className="flex items-center gap-4 mb-5 p-3 rounded-2xl bg-white border border-gray-100 shadow-sm">
-            <div
-              className="w-12 h-12 rounded-full flex-shrink-0"
-              style={{ 
-                background: 'url(/priya.png) center/cover no-repeat',
-                border: '2px solid var(--teal-muted)',
-                boxShadow: '0 4px 10px rgba(0,0,0,0.05)'
-              }}
-            />
-            <div className="flex-1">
-              <p className="text-sm font-semibold text-gray-900 mb-0.5">
-                Dr. Priya Sharma
-              </p>
-              <p className="text-xs text-gray-500 flex items-center gap-1.5">
-                <span>Today, 3:00 PM</span>
-                <span className="w-1 h-1 rounded-full bg-gray-300" />
-                <span>45 min</span>
-              </p>
+          {/* Next session (Calendar Ticket) */}
+          <div className="mb-6 p-4 rounded-2xl bg-white border border-gray-100/80 shadow-sm relative overflow-hidden group hover:shadow-md transition-shadow duration-300">
+            <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-teal-400 to-teal-600 rounded-l-2xl opacity-80" />
+            <div className="flex items-center gap-4">
+              <div
+                className="w-12 h-12 rounded-full flex-shrink-0"
+                style={{ 
+                  background: 'url(/priya.png) center/cover no-repeat',
+                  boxShadow: '0 4px 12px rgba(0,0,0,0.08)'
+                }}
+              />
+              <div className="flex-1">
+                <p className="text-[15px] font-semibold text-gray-900 mb-1 leading-tight">
+                  Dr. Priya Sharma
+                </p>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-1.5 text-xs text-gray-500 font-medium">
+                    <Calendar size={13} className="text-teal-600" />
+                    <span>Today</span>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-gray-500 font-medium">
+                    <Clock size={13} className="text-teal-600" />
+                    <span>3:00 PM</span>
+                  </div>
+                </div>
+              </div>
+              <span className="pulse-dot mr-1" />
             </div>
-            <span className="pulse-dot mr-2" />
           </div>
 
           {/* Begin session */}
           <button
-            className="w-full py-3.5 rounded-2xl text-sm font-semibold text-white transition-all duration-300 hover:-translate-y-0.5"
+            className="group relative w-full py-4 rounded-2xl text-[15px] font-semibold text-white overflow-hidden transition-all duration-300 hover:-translate-y-0.5"
             style={{
               background: 'linear-gradient(135deg, var(--teal-dark), var(--teal))',
-              boxShadow: '0 8px 24px rgba(0, 151, 178, 0.25)',
+              boxShadow: '0 12px 28px rgba(0, 151, 178, 0.25)',
             }}
           >
-            Enter Safe Space →
+            <div className="absolute inset-0 bg-white/20 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out" />
+            <span className="relative z-10 flex items-center justify-center gap-2">
+              Enter Safe Space
+              <ArrowRight size={18} className="transition-transform duration-300 group-hover:translate-x-1" />
+            </span>
           </button>
         </div>
       </div>
 
       {/* Floating badge — top left — "Safe Space" */}
       <div
-        className="absolute rounded-2xl px-4 py-2.5"
+        className="absolute rounded-[18px] px-5 py-3"
         style={{
-          top: '-20px',
-          left: '-30px',
+          top: '-15px',
+          left: '-25px',
           background: 'rgba(255, 255, 255, 0.95)',
           backdropFilter: 'blur(20px)',
           boxShadow: '0 12px 32px rgba(26,46,50,0.08), 0 2px 8px rgba(26,46,50,0.04)',
           border: '1px solid rgba(255,255,255,1)',
+          borderTop: '1px solid rgba(255,255,255,0.8)',
           zIndex: 10,
           display: 'flex',
           alignItems: 'center',
-          gap: '8px',
+          gap: '10px',
           animation: 'float-card 7s ease-in-out infinite reverse',
         }}
       >
-        <span className="w-6 h-6 rounded-full bg-green-50 flex items-center justify-center text-green-600 text-sm">🌿</span>
-        <span className="text-xs font-semibold" style={{ color: 'var(--text-2)' }}>
+        <div className="w-8 h-8 rounded-full bg-teal-50 flex items-center justify-center border border-teal-100">
+          <ShieldCheck size={16} className="text-teal-600" />
+        </div>
+        <span className="text-[13px] font-bold tracking-wide" style={{ color: 'var(--text-2)' }}>
           100% Confidential
         </span>
       </div>
 
       {/* Floating badge — bottom right — sessions */}
       <div
-        className="absolute rounded-2xl px-5 py-3"
+        className="absolute rounded-[20px] p-4"
         style={{
-          bottom: '-10px',
-          right: '-25px',
+          bottom: '-20px',
+          right: '-30px',
           background: 'rgba(255, 255, 255, 0.95)',
           backdropFilter: 'blur(20px)',
-          boxShadow: '0 12px 32px rgba(26,46,50,0.08), 0 2px 8px rgba(26,46,50,0.04)',
+          boxShadow: '0 16px 40px rgba(26,46,50,0.1), 0 4px 12px rgba(26,46,50,0.05)',
           border: '1px solid rgba(255,255,255,1)',
           zIndex: 10,
           display: 'flex',
           alignItems: 'center',
-          gap: '12px',
+          gap: '14px',
           animation: 'float-card 8s ease-in-out infinite 1s',
         }}
       >
-        <div
-          className="text-2xl font-bold"
-          style={{ color: 'var(--teal)', fontFamily: 'var(--font-display)' }}
-        >
-          8/12
+        {/* SVG Progress Ring */}
+        <div className="relative w-12 h-12 flex items-center justify-center">
+          <svg className="w-full h-full transform -rotate-90" viewBox="0 0 36 36">
+            <path
+              className="text-gray-100"
+              strokeWidth="3.5"
+              stroke="currentColor"
+              fill="none"
+              d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+            />
+            <path
+              className="text-teal-500"
+              strokeWidth="3.5"
+              strokeDasharray="66.6, 100"
+              strokeLinecap="round"
+              stroke="currentColor"
+              fill="none"
+              d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+            />
+          </svg>
+          <div className="absolute flex items-center justify-center inset-0 text-teal-700 font-bold text-xs font-mono">
+            8
+          </div>
         </div>
+        
         <div>
-          <div className="text-sm font-semibold" style={{ color: 'var(--text)', lineHeight: 1.2 }}>
+          <div className="text-[13px] font-bold" style={{ color: 'var(--text)', lineHeight: 1.2 }}>
             Sessions
           </div>
-          <div className="text-xs" style={{ color: 'var(--text-2)', lineHeight: 1.2 }}>
+          <div className="text-[11px] font-medium tracking-wide uppercase mt-0.5" style={{ color: 'var(--text-3)', lineHeight: 1.2 }}>
             Completed
           </div>
         </div>
@@ -288,11 +317,11 @@ const HeroSection: React.FC = () => {
     >
       {/* Soft, warm, immersive background gradients */}
       <div 
-        className="absolute top-[-20%] left-[-10%] w-[70vw] h-[70vw] rounded-full mix-blend-multiply filter blur-[100px] opacity-40"
+        className="absolute top-[-20%] left-[-15%] w-[70vw] h-[70vw] rounded-full mix-blend-multiply filter blur-[100px] opacity-40"
         style={{ background: 'radial-gradient(circle, rgba(0,151,178,0.15) 0%, transparent 70%)', animation: 'blob-drift 25s ease-in-out infinite alternate' }}
       />
       <div 
-        className="absolute bottom-[-10%] right-[-10%] w-[60vw] h-[60vw] rounded-full mix-blend-multiply filter blur-[100px] opacity-40"
+        className="absolute bottom-[-10%] right-[-15%] w-[60vw] h-[60vw] rounded-full mix-blend-multiply filter blur-[100px] opacity-40"
         style={{ background: 'radial-gradient(circle, rgba(107,168,136,0.15) 0%, transparent 70%)', animation: 'blob-drift-2 20s ease-in-out infinite alternate' }}
       />
       <div 
@@ -332,10 +361,10 @@ const HeroSection: React.FC = () => {
           paddingBottom: '80px',
         }}
       >
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-8 items-center">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-center">
 
           {/* ── Left: Text ── */}
-          <div className="lg:col-span-6 lg:pr-8">
+          <div className="lg:col-span-7 lg:pr-12 xl:pr-16">
             {/* Eyebrow */}
             <div
               className="inline-flex items-center gap-3 mb-8 px-4 py-2 rounded-full bg-white/60 backdrop-blur-sm border border-gray-100 shadow-sm"
@@ -358,12 +387,13 @@ const HeroSection: React.FC = () => {
 
             {/* Headline */}
             <h1
-              className="mb-8 leading-[1.05]"
+              className="mb-8 leading-[1.1]"
               style={{
                 fontFamily: 'var(--font-display)',
                 fontSize: 'clamp(48px, 6.5vw, 88px)',
                 color: 'var(--text)',
-                letterSpacing: '-0.02em',
+                letterSpacing: 'normal',
+                wordSpacing: '0.05em',
               }}
             >
               <HeroLine delay={300}>Your mind</HeroLine>
@@ -457,7 +487,7 @@ const HeroSection: React.FC = () => {
 
           {/* ── Right: Wellness Card ── */}
           <div
-            className="hidden lg:flex lg:col-span-6 items-center justify-center relative"
+            className="hidden lg:flex lg:col-span-5 items-center justify-center relative"
             style={{
               opacity: 0,
               animation: 'fade-up 1s 0.6s cubic-bezier(0.16,1,0.3,1) forwards',

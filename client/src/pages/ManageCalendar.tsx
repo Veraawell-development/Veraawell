@@ -262,7 +262,7 @@ const ManageCalendar: React.FC = () => {
   );
 
   return (
-    <div style={{ height: '100vh', width: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', background: C.bg, fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif" }}>
+    <div style={{ height: '100vh', width: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', background: C.bg, fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif", paddingTop: 80, boxSizing: 'border-box' }}>
       <Toaster position="top-right" toastOptions={{ style: { fontFamily: 'Inter', fontSize: 13, borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: '0 4px 20px rgba(0,0,0,0.08)' } }} />
 
       {/* TOP NAV */}
