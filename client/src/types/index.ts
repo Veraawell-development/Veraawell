@@ -22,7 +22,7 @@ export interface Session {
   _id: string;
   sessionDate: string;
   sessionTime: string;
-  status: 'scheduled' | 'completed' | 'cancelled' | 'no-show' | 'ended' | 'active';
+  status: 'payment_pending' | 'scheduled' | 'completed' | 'cancelled' | 'no-show' | 'ended' | 'active';
   sessionType: 'regular' | 'immediate' | 'follow-up';
   patientId: {
     _id: string;

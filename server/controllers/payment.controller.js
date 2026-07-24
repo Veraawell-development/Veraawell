@@ -187,11 +187,28 @@ exports.verifyPayment = async (req, res) => {
 
     // Send emails
     try {
+      const sessionDate = new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+      // Email patient
       if (populated.patientId && populated.patientId.email) {
         await emailService.sendBookingConfirmationEmail(populated.patientId.email, {
-          date: new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+          date: sessionDate,
           time: session.sessionTime,
-          type: session.sessionType === 'immediate' ? 'Immediate' : 'Regular'
+          type: session.sessionType === 'immediate' ? 'Immediate' : 'Regular',
+          doctorName: `${populated.doctorId.firstName} ${populated.doctorId.lastName}`,
+          duration: session.duration,
+          price: session.price
+        });
+      }
+      // Email doctor about new booking
+      if (populated.doctorId && populated.doctorId.email) {
+        await emailService.sendDoctorNewBookingEmail(populated.doctorId.email, {
+          doctorName: `${populated.doctorId.firstName} ${populated.doctorId.lastName}`,
+          patientName: `${populated.patientId.firstName} ${populated.patientId.lastName}`,
+          date: sessionDate,
+          time: session.sessionTime,
+          duration: session.duration,
+          type: session.sessionType === 'immediate' ? 'Immediate' : 'Regular',
+          doctorEarnings: session.doctorEarnings
         });
       }
     } catch (emailErr) {
@@ -267,11 +284,23 @@ exports.razorpayWebhook = async (req, res) => {
     else if (event === 'payment.failed') {
       const payment = payload?.payment?.entity;
       if (payment) {
-        const session = await Session.findOne({ razorpayOrderId: payment.order_id });
+        const session = await Session.findOne({ razorpayOrderId: payment.order_id })
+          .populate('patientId', 'firstName lastName email')
+          .populate('doctorId', 'firstName lastName');
         if (session && session.paymentStatus === 'pending') {
           session.paymentStatus = 'failed';
           await session.save();
           console.log(`[Webhook] Session ${session._id} payment failed.`);
+          // Notify patient
+          if (session.patientId && session.patientId.email) {
+            try {
+              await emailService.sendPaymentFailedEmail(session.patientId.email, {
+                patientName: session.patientId.firstName,
+                doctorName: session.doctorId ? `${session.doctorId.firstName} ${session.doctorId.lastName}` : 'your doctor',
+                amount: session.price
+              });
+            } catch (e) { console.warn('[Webhook] Payment failed email error:', e.message); }
+          }
         }
       }
     }
@@ -346,7 +375,8 @@ exports.razorpayWebhook = async (req, res) => {
     else if (event === 'refund.processed') {
       const refund = payload?.refund?.entity;
       if (refund) {
-        const session = await Session.findOne({ paymentId: refund.payment_id });
+        const session = await Session.findOne({ paymentId: refund.payment_id })
+          .populate('patientId', 'firstName lastName email');
         if (session) {
           session.paymentStatus = 'refunded';
           if (!session.refundId) session.refundId = refund.id;
@@ -354,6 +384,17 @@ exports.razorpayWebhook = async (req, res) => {
           if (!session.refundAmount) session.refundAmount = refund.amount / 100;
           await session.save();
           console.log(`[Webhook] Refund ${refund.id} confirmed for session ${session._id}`);
+          // Email patient with confirmation
+          if (session.patientId && session.patientId.email) {
+            try {
+              await emailService.sendRefundConfirmedEmail(session.patientId.email, {
+                patientName: session.patientId.firstName,
+                amount: session.refundAmount,
+                refundId: refund.id,
+                date: new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+              });
+            } catch (e) { console.warn('[Webhook] Refund confirmed email error:', e.message); }
+          }
         }
       }
     }

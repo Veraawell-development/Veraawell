@@ -25,6 +25,7 @@ const { NotFoundError, AuthorizationError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('SESSION-CTRL');
+const emailService = require('../services/email.service');
 
 const SESSION_TYPE_MAP = { scheduled: 'regular', regular: 'regular', discovery: 'discovery', 'follow-up': 'follow-up', immediate: 'immediate' };
 const CALL_MODE_MAP = { video: 'Video Calling', voice: 'Voice Calling' };
@@ -534,13 +535,35 @@ const joinSession = asyncHandler(async (req, res) => {
 const completeSession = asyncHandler(async (req, res) => {
   const { sessionId } = req.params;
   const userId = req.user._id.toString();
-  const session = await Session.findById(sessionId);
+  const session = await Session.findById(sessionId)
+    .populate('patientId', 'firstName lastName email')
+    .populate('doctorId', 'firstName lastName email');
   if (!session) throw new NotFoundError('Session');
-  if (session.patientId?.toString() !== userId && session.doctorId?.toString() !== userId) throw new AuthorizationError('Unauthorized');
+  if (session.patientId?._id?.toString() !== userId && session.doctorId?._id?.toString() !== userId) throw new AuthorizationError('Unauthorized');
   if (session.status === 'completed') return res.json({ success: true, message: 'Session already marked as completed', session: { status: session.status } });
   session.status = 'completed';
   if (session.callStatus !== 'completed') { session.callStatus = 'completed'; session.callEndTime = session.callEndTime || new Date(); }
   await session.save();
+
+  // Send doctor earnings summary email
+  try {
+    if (session.doctorId && session.doctorId.email) {
+      const platformSettings = await PlatformSettings.getSettings();
+      const doctorProfile = await DoctorProfile.findOne({ userId: session.doctorId._id });
+      const feePercent = doctorProfile?.customFeePercentage ?? platformSettings.defaultPlatformFeePercentage;
+      await emailService.sendDoctorSessionSummaryEmail(session.doctorId.email, {
+        doctorName: `${session.doctorId.firstName} ${session.doctorId.lastName}`,
+        patientName: `${session.patientId.firstName} ${session.patientId.lastName}`,
+        date: new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+        duration: session.duration,
+        price: session.price,
+        platformFee: session.platformFee,
+        earnings: session.doctorEarnings,
+        feePercent
+      });
+    }
+  } catch (emailErr) { logger.warn('Session summary email failed', { error: emailErr.message }); }
+
   logger.info('Session completed', { sessionId: sessionId.substring(0, 8), by: req.user.role });
   res.json({ success: true, message: 'Session marked as completed', session: { status: session.status } });
 });
@@ -622,7 +645,7 @@ const cancelSession = asyncHandler(async (req, res) => {
     if (avail) await avail.releaseSlot(session.sessionDate.toISOString().split('T')[0], session.sessionTime);
   } catch (e) { logger.warn('Slot release failed', { error: e.message }); }
 
-  // Notify both parties
+  // Notify both parties via socket
   const pId = session.patientId.toString();
   const dId = session.doctorId.toString();
   _emitToUsers(req, 'session:cancelled', {
@@ -631,6 +654,42 @@ const cancelSession = asyncHandler(async (req, res) => {
     refundAmount,
     timestamp: new Date()
   }, [pId, dId]);
+
+  // Send cancellation emails to both parties
+  try {
+    const populatedSession = await Session.findById(session._id)
+      .populate('patientId', 'firstName lastName email')
+      .populate('doctorId', 'firstName lastName email');
+    const sessionDate = new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    const cancellerLabel = cancellerRole === 'doctor' ? 'Dr. ' + populatedSession.doctorId.firstName + ' ' + populatedSession.doctorId.lastName : populatedSession.patientId.firstName + ' ' + populatedSession.patientId.lastName;
+    
+    // Email patient
+    if (populatedSession.patientId?.email) {
+      await emailService.sendCancellationEmail(populatedSession.patientId.email, {
+        recipientName: populatedSession.patientId.firstName,
+        date: sessionDate,
+        time: session.sessionTime,
+        cancelledBy: cancellerLabel,
+        refundAmount,
+        message: cancellerRole === 'doctor'
+          ? `We're sorry, your session has been cancelled by the doctor. A full refund will be processed.`
+          : `Your session has been cancelled.`
+      });
+    }
+    // Email doctor
+    if (populatedSession.doctorId?.email) {
+      await emailService.sendCancellationEmail(populatedSession.doctorId.email, {
+        recipientName: `Dr. ${populatedSession.doctorId.firstName} ${populatedSession.doctorId.lastName}`,
+        date: sessionDate,
+        time: session.sessionTime,
+        cancelledBy: cancellerLabel,
+        refundAmount: 0, // No refund info for doctor
+        message: cancellerRole === 'patient'
+          ? `The patient has cancelled their upcoming session.`
+          : `You have cancelled your session with ${populatedSession.patientId.firstName} ${populatedSession.patientId.lastName}.`
+      });
+    }
+  } catch (emailErr) { logger.warn('Cancellation email failed', { error: emailErr.message }); }
 
   logger.info('Session cancelled', { sessionId: sessionId.substring(0, 8) });
 
@@ -754,9 +813,12 @@ const missedSession = asyncHandler(async (req, res) => {
   if (session.paymentStatus === 'paid' && session.paymentId && !session.paymentId.startsWith('mock_') && !session.paymentId.startsWith('immediate_')) {
     try {
       await razorpay.payments.refund(session.paymentId, {
-        reverse_all: 1
+        amount: session.price * 100,
+        speed: 'normal',
+        notes: { reason: 'Doctor missed session — auto refund' }
       });
       session.paymentStatus = 'refunded';
+      session.refundAmount = session.price;
     } catch (err) {
       logger.error('Razorpay refund failed in missedSession', { error: err.message, paymentId: session.paymentId });
       session.paymentStatus = 'refund_failed';
@@ -766,6 +828,21 @@ const missedSession = asyncHandler(async (req, res) => {
   }
 
   await session.save();
+
+  // Notify patient about missed session & refund via email
+  try {
+    const populatedMissed = await Session.findById(sessionId).populate('patientId', 'firstName lastName email');
+    if (populatedMissed.patientId?.email) {
+      await emailService.sendCancellationEmail(populatedMissed.patientId.email, {
+        recipientName: populatedMissed.patientId.firstName,
+        date: new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+        time: session.sessionTime,
+        cancelledBy: 'System (Doctor Unavailable)',
+        refundAmount: session.price,
+        message: 'Unfortunately your doctor was unavailable for your session. A full refund has been initiated automatically.'
+      });
+    }
+  } catch (e) { logger.warn('Missed session email failed', { error: e.message }); }
 
   const updateData = { sessionId, status: 'cancelled', cancelledBy: 'system', message: 'Doctor is unavailable. Session cancelled and refunded.' };
   _emitToUsers(req, 'session:cancelled', updateData, [session.patientId._id.toString(), session.doctorId._id.toString()]);

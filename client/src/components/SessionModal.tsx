@@ -9,7 +9,7 @@ interface Session {
   _id: string;
   sessionDate: string;
   sessionTime: string;
-  status: 'scheduled' | 'completed' | 'cancelled' | 'no-show' | 'ended' | 'active';
+  status: 'payment_pending' | 'scheduled' | 'completed' | 'cancelled' | 'no-show' | 'ended' | 'active';
   patientId: {
     firstName: string;
     lastName: string;
@@ -325,47 +325,75 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
   };
 
 
-  // Cancel Confirmation Modal
+  // ── Cancel Confirmation Modal with refund preview ──
   if (showCancelConfirm) {
+    // Calculate refund amount based on same policy as backend
+    const hoursUntil = (sessionDateTime.getTime() - Date.now()) / (1000 * 60 * 60);
+    let refundAmount = 0;
+    let refundLabel = '';
+    let refundColor = '#ef4444';
+    if (hoursUntil > 24) {
+      refundAmount = session.price;
+      refundLabel = '100% refund — full amount returned';
+      refundColor = '#10b981';
+    } else if (hoursUntil > 4) {
+      refundAmount = Math.round(session.price * 0.5);
+      refundLabel = '50% refund — cancelled within 24 hours';
+      refundColor = '#f59e0b';
+    } else {
+      refundAmount = 0;
+      refundLabel = 'No refund — cancelled less than 4 hours before session';
+      refundColor = '#ef4444';
+    }
+
     return (
       <div
         className="fixed inset-0 flex items-center justify-center z-50 px-4"
-        style={{ backgroundColor: 'rgba(0, 0, 0, 0.3)' }}
+        style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
         onClick={() => setShowCancelConfirm(false)}
       >
         <div
-          className="bg-white rounded-3xl shadow-2xl max-w-lg w-full p-12"
-          style={{ backgroundColor: '#E8E3F0' }}
+          className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8"
           onClick={(e) => e.stopPropagation()}
         >
-          <h2 className="text-2xl font-bold text-center mb-12" style={{ fontFamily: 'Bree Serif, serif', color: '#000' }}>
-            Are you sure that you want to cancel the session?
-          </h2>
-          <div className="flex justify-center space-x-8">
+          {/* Icon */}
+          <div className="flex justify-center mb-4">
+            <div className="w-14 h-14 rounded-full flex items-center justify-center" style={{ background: 'rgba(239,68,68,0.1)' }}>
+              <svg className="w-7 h-7 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+          </div>
+
+          <h2 className="text-xl font-bold text-center text-gray-900 mb-1">Cancel This Session?</h2>
+          <p className="text-sm text-center text-gray-500 mb-6">This action cannot be undone.</p>
+
+          {/* Refund Preview Box */}
+          <div className="rounded-2xl border p-4 mb-6" style={{ borderColor: refundColor + '40', background: refundColor + '0d' }}>
+            <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: refundColor }}>Refund Policy</p>
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-gray-600">{refundLabel}</span>
+              <span className="text-lg font-bold" style={{ color: refundColor }}>₹{refundAmount}</span>
+            </div>
+            {refundAmount > 0 && (
+              <p className="text-xs text-gray-400 mt-2">Refund will appear in your original payment method within 5–7 business days.</p>
+            )}
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => setShowCancelConfirm(false)}
+              className="flex-1 py-3 rounded-xl text-sm font-semibold border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              Keep Session
+            </button>
             <button
               onClick={handleCancelSession}
               disabled={loading}
-              className="px-16 py-4 rounded-full text-xl font-bold transition-all disabled:opacity-50"
-              style={{
-                backgroundColor: '#FFFFFF',
-                color: '#000',
-                fontFamily: 'Bree Serif, serif',
-                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
-              }}
+              className="flex-1 py-3 rounded-xl text-sm font-semibold text-white transition-colors disabled:opacity-50"
+              style={{ background: '#ef4444' }}
             >
-              YES
-            </button>
-            <button
-              onClick={() => setShowCancelConfirm(false)}
-              className="px-16 py-4 rounded-full text-xl font-bold transition-all"
-              style={{
-                backgroundColor: '#FFFFFF',
-                color: '#000',
-                fontFamily: 'Bree Serif, serif',
-                boxShadow: '0 4px 6px rgba(0, 0, 0, 0.1)'
-              }}
-            >
-              NO
+              {loading ? 'Cancelling...' : 'Yes, Cancel'}
             </button>
           </div>
         </div>

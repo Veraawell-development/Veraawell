@@ -22,7 +22,7 @@ interface Session {
     sessionTime: string;
     duration: number;
     sessionType: string;
-    status: 'scheduled' | 'completed' | 'cancelled' | 'no-show' | 'active' | 'ended';
+    status: 'payment_pending' | 'scheduled' | 'completed' | 'cancelled' | 'no-show' | 'active' | 'ended';
     callMode?: string;
     meetingLink?: string;
     notes?: string;
@@ -314,7 +314,8 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
             cancelled: { label: 'Cancelled', bg: 'bg-[#9CA3AF]/20', text: 'text-[#E5E7EB]' },
             'no-show': { label: 'No Show', bg: 'bg-white/20', text: 'text-white' },
             active: { label: 'Active', bg: 'bg-[#3B82F6]/20', text: 'text-[#93C5FD]' },
-            ended: { label: 'Ended', bg: 'bg-[#6366F1]/20', text: 'text-[#A5B4FC]' }
+            ended: { label: 'Ended', bg: 'bg-[#6366F1]/20', text: 'text-[#A5B4FC]' },
+            payment_pending: { label: 'Payment Pending', bg: 'bg-[#F59E0B]/20', text: 'text-[#FCD34D]' }
         };
 
         const config = statusConfig[status] || statusConfig.scheduled;

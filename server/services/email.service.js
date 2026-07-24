@@ -639,11 +639,300 @@ function generateSessionReminderHTML(session, reminderType, doctorName) {
   `;
 }
 
+/**
+ * Send new booking notification to doctor
+ */
+async function sendDoctorNewBookingEmail(email, details) {
+  const resend = getResendClient();
+  if (!resend) return;
+  try {
+    await resend.emails.send({
+      from: SENDER_EMAIL,
+      to: email,
+      subject: `New Session Booked — ${details.patientName} on ${details.date}`,
+      html: generateDoctorNewBookingHTML(details)
+    });
+    logger.info('Doctor new booking email sent', { email });
+  } catch (e) {
+    logger.error('Failed to send doctor new booking email', { error: e.message });
+  }
+}
+
+/**
+ * Send payment failed email to patient
+ */
+async function sendPaymentFailedEmail(email, details) {
+  const resend = getResendClient();
+  if (!resend) return;
+  try {
+    await resend.emails.send({
+      from: SENDER_EMAIL,
+      to: email,
+      subject: 'Payment Failed — Please Try Again | Veraawell',
+      html: generatePaymentFailedHTML(details)
+    });
+    logger.info('Payment failed email sent', { email });
+  } catch (e) {
+    logger.error('Failed to send payment failed email', { error: e.message });
+  }
+}
+
+/**
+ * Send cancellation email (to either patient or doctor)
+ */
+async function sendCancellationEmail(email, details) {
+  const resend = getResendClient();
+  if (!resend) return;
+  try {
+    await resend.emails.send({
+      from: SENDER_EMAIL,
+      to: email,
+      subject: `Session Cancelled — ${details.date} | Veraawell`,
+      html: generateCancellationHTML(details)
+    });
+    logger.info('Cancellation email sent', { email });
+  } catch (e) {
+    logger.error('Failed to send cancellation email', { error: e.message });
+  }
+}
+
+/**
+ * Send refund initiated email to patient
+ */
+async function sendRefundInitiatedEmail(email, details) {
+  const resend = getResendClient();
+  if (!resend) return;
+  try {
+    await resend.emails.send({
+      from: SENDER_EMAIL,
+      to: email,
+      subject: `Refund Initiated — ₹${details.amount} | Veraawell`,
+      html: generateRefundHTML(details, 'initiated')
+    });
+    logger.info('Refund initiated email sent', { email });
+  } catch (e) {
+    logger.error('Failed to send refund initiated email', { error: e.message });
+  }
+}
+
+/**
+ * Send refund confirmed email to patient
+ */
+async function sendRefundConfirmedEmail(email, details) {
+  const resend = getResendClient();
+  if (!resend) return;
+  try {
+    await resend.emails.send({
+      from: SENDER_EMAIL,
+      to: email,
+      subject: `Refund Confirmed — ₹${details.amount} is on its way | Veraawell`,
+      html: generateRefundHTML(details, 'confirmed')
+    });
+    logger.info('Refund confirmed email sent', { email });
+  } catch (e) {
+    logger.error('Failed to send refund confirmed email', { error: e.message });
+  }
+}
+
+/**
+ * Send doctor session earnings summary after session completes
+ */
+async function sendDoctorSessionSummaryEmail(email, details) {
+  const resend = getResendClient();
+  if (!resend) return;
+  try {
+    await resend.emails.send({
+      from: SENDER_EMAIL,
+      to: email,
+      subject: `Session Complete — ₹${details.earnings} earned | Veraawell`,
+      html: generateDoctorSessionSummaryHTML(details)
+    });
+    logger.info('Doctor session summary email sent', { email });
+  } catch (e) {
+    logger.error('Failed to send doctor session summary email', { error: e.message });
+  }
+}
+
+/**
+ * Send payout account activated email to doctor
+ */
+async function sendPayoutActivatedEmail(email, name) {
+  const resend = getResendClient();
+  if (!resend) return;
+  try {
+    await resend.emails.send({
+      from: SENDER_EMAIL,
+      to: email,
+      subject: 'Your Payout Account is Active! | Veraawell',
+      html: generatePayoutStatusHTML(name, 'active', '')
+    });
+    logger.info('Payout activated email sent', { email });
+  } catch (e) {
+    logger.error('Failed to send payout activated email', { error: e.message });
+  }
+}
+
+/**
+ * Send payout onboarding rejected email to doctor
+ */
+async function sendPayoutOnboardingRejectedEmail(email, name, reason) {
+  const resend = getResendClient();
+  if (!resend) return;
+  try {
+    await resend.emails.send({
+      from: SENDER_EMAIL,
+      to: email,
+      subject: 'Action Required: Payout Setup Issue | Veraawell',
+      html: generatePayoutStatusHTML(name, 'rejected', reason)
+    });
+    logger.info('Payout rejected email sent', { email });
+  } catch (e) {
+    logger.error('Failed to send payout rejected email', { error: e.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+// HTML GENERATORS FOR NEW EMAIL TYPES
+// ─────────────────────────────────────────────────────────────
+
+const BASE_STYLES = `
+  body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; margin: 0; padding: 0; background-color: #f0f9f9; color: #1f2937; }
+  .container { max-width: 600px; margin: 40px auto; padding: 40px 32px; background: #ffffff; border-radius: 24px; box-shadow: 0 10px 25px -5px rgba(0,151,178,0.05); border: 1px solid rgba(0,151,178,0.1); }
+  .logo { font-family: Georgia, serif; font-size: 28px; color: #0097b2; text-align: center; margin-bottom: 32px; }
+  .header { font-size: 22px; font-weight: 600; color: #111827; text-align: center; margin-bottom: 20px; }
+  .body-text { color: #4b5563; font-size: 15px; text-align: center; margin-bottom: 16px; }
+  .box { background: rgba(0,151,178,0.05); border: 1px solid rgba(0,151,178,0.15); padding: 24px 28px; border-radius: 16px; margin: 24px 0; }
+  .row { display: flex; justify-content: space-between; font-size: 14px; margin-bottom: 12px; }
+  .row:last-child { margin-bottom: 0; }
+  .label { color: #6b7280; font-weight: 500; }
+  .value { color: #0097b2; font-weight: 600; }
+  .btn-wrap { text-align: center; margin: 28px 0; }
+  .btn { display: inline-block; background: #0097b2; color: #fff; padding: 13px 36px; border-radius: 9999px; text-decoration: none; font-weight: 600; font-size: 15px; }
+  .footer { margin-top: 32px; padding-top: 20px; border-top: 1px solid #f1f5f9; text-align: center; font-size: 12px; color: #94a3b8; }
+`;
+
+function wrap(body) {
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><style>${BASE_STYLES}</style></head><body><div class="container"><div class="logo">Veraawell</div>${body}<div class="footer"><p>© ${new Date().getFullYear()} Veraawell. All rights reserved.</p><p>Your mental health journey starts here.</p></div></div></body></html>`;
+}
+
+function generateDoctorNewBookingHTML(d) {
+  return wrap(`
+    <h1 class="header">📅 New Session Booked</h1>
+    <p class="body-text">Hi Dr. ${d.doctorName},</p>
+    <p class="body-text">A patient has successfully booked a session with you. Please be ready at the scheduled time.</p>
+    <div class="box">
+      <div class="row"><span class="label">Patient</span><span class="value">${d.patientName}</span></div>
+      <div class="row"><span class="label">Date</span><span class="value">${d.date}</span></div>
+      <div class="row"><span class="label">Time</span><span class="value">${d.time}</span></div>
+      <div class="row"><span class="label">Duration</span><span class="value">${d.duration} minutes</span></div>
+      <div class="row"><span class="label">Session Type</span><span class="value">${d.type}</span></div>
+      <div class="row"><span class="label">Your Earnings</span><span class="value">₹${d.doctorEarnings}</span></div>
+    </div>
+    <div class="btn-wrap"><a href="${getFrontendUrl()}/doctor-dashboard" class="btn">Go to Dashboard</a></div>
+  `);
+}
+
+function generatePaymentFailedHTML(d) {
+  return wrap(`
+    <h1 class="header" style="color:#ef4444">❌ Payment Failed</h1>
+    <p class="body-text">Hi ${d.patientName},</p>
+    <p class="body-text">Unfortunately your payment for the session could not be processed. Your booking has not been confirmed.</p>
+    <div class="box">
+      <div class="row"><span class="label">Doctor</span><span class="value">Dr. ${d.doctorName}</span></div>
+      <div class="row"><span class="label">Amount</span><span class="value">₹${d.amount}</span></div>
+    </div>
+    <p class="body-text">No money has been deducted. Please try booking again.</p>
+    <div class="btn-wrap"><a href="${getFrontendUrl()}/patient-dashboard" class="btn">Try Again</a></div>
+  `);
+}
+
+function generateCancellationHTML(d) {
+  const isRefund = d.refundAmount > 0;
+  const refundBlock = isRefund
+    ? `<div class="row"><span class="label">Refund Amount</span><span class="value" style="color:#10b981">₹${d.refundAmount}</span></div><div class="row"><span class="label">Refund Timeline</span><span class="value">5–7 business days</span></div>`
+    : `<div class="row"><span class="label">Refund</span><span class="value" style="color:#6b7280">Not applicable per cancellation policy</span></div>`;
+  return wrap(`
+    <h1 class="header" style="color:#f59e0b">Session Cancelled</h1>
+    <p class="body-text">Hi ${d.recipientName},</p>
+    <p class="body-text">${d.message}</p>
+    <div class="box">
+      <div class="row"><span class="label">Date</span><span class="value">${d.date}</span></div>
+      <div class="row"><span class="label">Time</span><span class="value">${d.time}</span></div>
+      <div class="row"><span class="label">Cancelled By</span><span class="value">${d.cancelledBy}</span></div>
+      ${refundBlock}
+    </div>
+    <p class="body-text" style="font-size:13px;color:#9ca3af">If you have any questions, please contact support@veraawell.com</p>
+  `);
+}
+
+function generateRefundHTML(d, type) {
+  const isConfirmed = type === 'confirmed';
+  const title = isConfirmed ? '✅ Refund Confirmed' : '⏳ Refund Initiated';
+  const message = isConfirmed
+    ? `Your refund of ₹${d.amount} has been confirmed and will reflect in your original payment method within 5–7 business days.`
+    : `A refund of ₹${d.amount} has been initiated. It will appear in your original payment method within 5–7 business days.`;
+  return wrap(`
+    <h1 class="header" style="color:${isConfirmed ? '#10b981' : '#0097b2'}">${title}</h1>
+    <p class="body-text">Hi ${d.patientName},</p>
+    <p class="body-text">${message}</p>
+    <div class="box">
+      <div class="row"><span class="label">Refund Amount</span><span class="value">₹${d.amount}</span></div>
+      <div class="row"><span class="label">Refund ID</span><span class="value" style="font-size:12px;font-family:monospace">${d.refundId || 'Processing'}</span></div>
+      <div class="row"><span class="label">Original Session</span><span class="value">${d.date}</span></div>
+    </div>
+  `);
+}
+
+function generateDoctorSessionSummaryHTML(d) {
+  return wrap(`
+    <h1 class="header" style="color:#10b981">Session Complete 🎉</h1>
+    <p class="body-text">Hi Dr. ${d.doctorName},</p>
+    <p class="body-text">Your session with ${d.patientName} has been completed. Here's your earnings summary:</p>
+    <div class="box">
+      <div class="row"><span class="label">Patient</span><span class="value">${d.patientName}</span></div>
+      <div class="row"><span class="label">Date</span><span class="value">${d.date}</span></div>
+      <div class="row"><span class="label">Duration</span><span class="value">${d.duration} minutes</span></div>
+      <div class="row"><span class="label">Gross Revenue</span><span class="value">₹${d.price}</span></div>
+      <div class="row"><span class="label">Platform Fee (${d.feePercent}%)</span><span class="value" style="color:#6b7280">- ₹${d.platformFee}</span></div>
+      <div class="row" style="border-top:1px solid rgba(0,151,178,0.2);padding-top:12px;margin-top:4px"><span class="label">Your Earnings</span><span class="value" style="font-size:18px">₹${d.earnings}</span></div>
+    </div>
+    <p class="body-text" style="font-size:13px;color:#9ca3af">Earnings are transferred within 3 business days.</p>
+    <div class="btn-wrap"><a href="${getFrontendUrl()}/doctor-dashboard" class="btn">View Dashboard</a></div>
+  `);
+}
+
+function generatePayoutStatusHTML(name, status, reason) {
+  const isActive = status === 'active';
+  const title = isActive ? '🎉 Payout Account Activated!' : '⚠️ Payout Setup Issue';
+  const color = isActive ? '#10b981' : '#ef4444';
+  const message = isActive
+    ? 'Great news! Your Razorpay payout account is now active. Your earnings from completed sessions will be automatically transferred within 3 business days.'
+    : `There was an issue setting up your payout account. Reason: ${reason || 'Please contact support.'}. You may re-apply from your settings page.`;
+  return wrap(`
+    <h1 class="header" style="color:${color}">${title}</h1>
+    <p class="body-text">Hi Dr. ${name},</p>
+    <p class="body-text">${message}</p>
+    ${isActive ? `<div class="btn-wrap"><a href="${getFrontendUrl()}/doctor-dashboard" class="btn">Go to Dashboard</a></div>` : `<div class="btn-wrap"><a href="${getFrontendUrl()}/doctor-settings" class="btn">Re-apply Now</a></div>`}
+  `);
+}
+
 module.exports = {
   sendPasswordResetEmail,
   sendOTPEmail,
   sendBookingConfirmationEmail,
   sendDoctorApprovedEmail,
   sendDoctorRejectedEmail,
-  sendSessionReminderEmail
+  sendSessionReminderEmail,
+  // New functions
+  sendDoctorNewBookingEmail,
+  sendPaymentFailedEmail,
+  sendCancellationEmail,
+  sendRefundInitiatedEmail,
+  sendRefundConfirmedEmail,
+  sendDoctorSessionSummaryEmail,
+  sendPayoutActivatedEmail,
+  sendPayoutOnboardingRejectedEmail,
+  // Aliases for adminPayments.controller.js
+  sendOnboardingApprovedEmail: sendPayoutActivatedEmail,
+  sendOnboardingRejectedEmail: sendPayoutOnboardingRejectedEmail,
 };
