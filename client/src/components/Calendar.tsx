@@ -87,7 +87,7 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
     // If Now is at End (Start + Duration): Start - (Start + Duration) = -Duration.
     const isWithinJoinWindow = timeDiff <= (15 * 60 * 1000) && timeDiff >= -durationInMs;
 
-    return isWithinJoinWindow && session.status === 'scheduled';
+    return isWithinJoinWindow && (session.status === 'scheduled' || session.status === 'active');
   };
 
   // Helper to determine the visual status of a session
@@ -95,6 +95,11 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
     if (session.status === 'cancelled') return 'cancelled';
     if (session.status === 'completed') return 'completed';
     if (session.status === 'no-show') return 'cancelled';
+    
+    // Check if Joinable (highest priority for active sessions)
+    if (isSessionJoinable(session)) return 'joinable';
+
+    if (session.status === 'active') return 'joinable'; // Explicitly allow active sessions as joinable
 
     // Calculate end time
     // Calculate end time
@@ -105,9 +110,6 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
     // if (now > endTime) {
     //   return 'completed';
     // }
-
-    // Check if Joinable (highest priority for active sessions)
-    if (isSessionJoinable(session)) return 'joinable';
 
     // If it's not joinable, and it's in the past (duration has elapsed), it shouldn't say "upcoming".
     // This acts as a robust visual fallback against stale caching.

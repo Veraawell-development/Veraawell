@@ -19,6 +19,12 @@ const ProfileSetupPage: React.FC = () => {
   const totalSteps = 4;
   console.log('[ProfileSetupPage] RENDER - user:', user?.userId, 'role:', user?.role, 'currentStep:', currentStep);
 
+  const platformFeePercent = 20; // Assuming 20% platform fee
+  const calculateEarnings = (priceStr: string) => {
+    const p = parseFloat(priceStr) || 0;
+    return Math.max(0, p - (p * platformFeePercent / 100)).toFixed(0);
+  };
+
   // Form state for doctor profile
   const [formData, setFormData] = useState({
     name: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
@@ -592,6 +598,11 @@ const ProfileSetupPage: React.FC = () => {
                               min="0"
                             />
                           </div>
+                          {formData.price20 && (
+                            <p className="text-xs text-teal-600 mt-1 font-medium bg-teal-50 px-2 py-1 rounded inline-block">
+                              You earn: ₹{calculateEarnings(formData.price20)}
+                            </p>
+                          )}
                         </div>
                         <div className="space-y-1.5">
                           <label className="text-xs font-medium text-gray-600">40 Minutes</label>
@@ -611,6 +622,11 @@ const ProfileSetupPage: React.FC = () => {
                               min="0"
                             />
                           </div>
+                          {formData.price40 && (
+                            <p className="text-xs text-teal-600 mt-1 font-medium bg-teal-50 px-2 py-1 rounded inline-block">
+                              You earn: ₹{calculateEarnings(formData.price40)}
+                            </p>
+                          )}
                         </div>
                         <div className="space-y-1.5">
                           <label className="text-xs font-medium text-gray-600">55 Minutes</label>
@@ -630,6 +646,11 @@ const ProfileSetupPage: React.FC = () => {
                               min="0"
                             />
                           </div>
+                          {formData.price55 && (
+                            <p className="text-xs text-teal-600 mt-1 font-medium bg-teal-50 px-2 py-1 rounded inline-block">
+                              You earn: ₹{calculateEarnings(formData.price55)}
+                            </p>
+                          )}
                         </div>
                       </div>
                       <p className="text-xs text-gray-500 flex items-center gap-1.5 mt-2">
@@ -664,6 +685,11 @@ const ProfileSetupPage: React.FC = () => {
                               min="0"
                             />
                           </div>
+                          {formData.audioPrice20 && (
+                            <p className="text-xs text-teal-600 mt-1 font-medium bg-teal-50 px-2 py-1 rounded inline-block">
+                              You earn: ₹{calculateEarnings(formData.audioPrice20)}
+                            </p>
+                          )}
                         </div>
                         <div className="space-y-1.5">
                           <label className="text-xs font-medium text-gray-600">40 Minutes</label>
@@ -683,6 +709,11 @@ const ProfileSetupPage: React.FC = () => {
                               min="0"
                             />
                           </div>
+                          {formData.audioPrice40 && (
+                            <p className="text-xs text-teal-600 mt-1 font-medium bg-teal-50 px-2 py-1 rounded inline-block">
+                              You earn: ₹{calculateEarnings(formData.audioPrice40)}
+                            </p>
+                          )}
                         </div>
                         <div className="space-y-1.5">
                           <label className="text-xs font-medium text-gray-600">55 Minutes</label>
@@ -702,6 +733,11 @@ const ProfileSetupPage: React.FC = () => {
                               min="0"
                             />
                           </div>
+                          {formData.audioPrice55 && (
+                            <p className="text-xs text-teal-600 mt-1 font-medium bg-teal-50 px-2 py-1 rounded inline-block">
+                              You earn: ₹{calculateEarnings(formData.audioPrice55)}
+                            </p>
+                          )}
                         </div>
                       </div>
                       <p className="text-xs text-gray-500 flex items-center gap-1.5 mt-2">

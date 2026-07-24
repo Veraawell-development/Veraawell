@@ -179,15 +179,37 @@ const BookSessionPage: React.FC = () => {
       const sessionData = data.session;
       if (sessionData && sessionData.razorpayOrderId) {
         const options = {
-          key: import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_TCJDiOL4WcPBxR',
+          key: import.meta.env.VITE_RAZORPAY_KEY_ID,
           amount: sessionData.price * 100,
           currency: 'INR',
           name: 'Veraawell',
           description: `Session with Dr. ${doctor!.userId.firstName}`,
           order_id: sessionData.razorpayOrderId,
-          handler: function (response: any) {
-            showSuccess('Payment successful! Redirecting to your dashboard...');
-            setTimeout(() => navigate('/patient-dashboard', { state: { refreshSessions: true } }), 1500);
+          handler: async function (response: any) {
+            try {
+              // Cryptographic verification — NEVER trust client alone
+              const verifyRes = await fetch(`${API_CONFIG.BASE_URL}/payments/verify`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                })
+              });
+              const verifyData = await verifyRes.json();
+              if (verifyData.success) {
+                showSuccess('Payment confirmed! Your session is scheduled.');
+                setTimeout(() => navigate('/patient-dashboard', { state: { refreshSessions: true } }), 1500);
+              } else {
+                showErrorToast('Payment verification failed: ' + (verifyData.message || 'Unknown error'));
+              }
+            } catch {
+              showErrorToast('Could not verify payment. Please contact support.');
+            }
           },
           prefill: {
             name: `${user?.firstName} ${user?.lastName}`,
@@ -198,8 +220,7 @@ const BookSessionPage: React.FC = () => {
           },
           modal: {
             ondismiss: function() {
-              showErrorToast('Payment cancelled. Unpaid sessions may be removed.');
-              setTimeout(() => navigate('/patient-dashboard', { state: { refreshSessions: true } }), 1500);
+              showErrorToast('Payment cancelled. Your unpaid session slot will be released shortly.');
             }
           }
         };
@@ -213,6 +234,7 @@ const BookSessionPage: React.FC = () => {
         showSuccess('Session booked successfully! Redirecting to your dashboard...');
         setTimeout(() => navigate('/patient-dashboard', { state: { refreshSessions: true } }), 1500);
       }
+
     },
     onError: (err: any) => {
       logger.error('Error booking session:', err);

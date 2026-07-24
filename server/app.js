@@ -296,6 +296,8 @@ app.get('/api/profile/setup', verifyToken, profileController.getProfile);
 app.post('/api/profile/setup', verifyToken, profileController.setupProfile);
 app.put('/api/profile', verifyToken, profileController.updateProfile);
 app.get('/api/profile/status', verifyToken, profileController.getProfileStatus);
+app.patch('/api/profile/pricing', verifyToken, profileController.updatePricing);
+
 
 // Patient profile route (alias for backward compatibility)
 app.post('/api/auth/patient-profile', verifyToken, profileController.setupProfile);
@@ -361,6 +363,8 @@ if (oauthConfig.enabled) {
 
 app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/admin/approvals', adminApprovalRoutes);
+app.use('/api/admin/payments', require('./routes/adminPayments.routes'));
+
 
 // Protected admin debug/maintenance endpoints
 app.post('/api/admin/cleanup-sessions', verifyAdminToken, adminController.cleanupSessions);

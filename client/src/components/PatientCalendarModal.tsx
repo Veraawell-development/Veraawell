@@ -22,7 +22,7 @@ interface Session {
     sessionTime: string;
     duration: number;
     sessionType: string;
-    status: 'scheduled' | 'completed' | 'cancelled' | 'no-show';
+    status: 'scheduled' | 'completed' | 'cancelled' | 'no-show' | 'active' | 'ended';
     callMode?: string;
     meetingLink?: string;
     notes?: string;
@@ -110,6 +110,7 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
     };
 
     const isSessionJoinable = (session: Session) => {
+        // If status is cancelled or explicitly completed/no-show, not joinable
         if (session.status === 'cancelled' || session.status === 'completed' || session.status === 'no-show') return false;
 
         const now = new Date();
@@ -121,14 +122,13 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
         const timeDiff = sessionDateTime.getTime() - now.getTime();
         const isWithinJoinWindow = timeDiff <= (15 * 60 * 1000) && timeDiff >= -durationInMs;
 
-        return isWithinJoinWindow && session.status === 'scheduled';
+        return isWithinJoinWindow && (session.status === 'scheduled' || session.status === 'active');
     };
 
     const getSessionDotColor = (session: Session) => {
+        if (session.status === 'active' || isSessionJoinable(session)) return '#F59E0B'; // Yellow/Amber
         if (session.status === 'completed') return '#10B981'; // Green
-        if (session.status === 'cancelled') return '#9CA3AF'; // Gray
-        if (session.status === 'no-show') return '#9CA3AF'; // Gray
-        if (isSessionJoinable(session)) return '#F59E0B'; // Yellow/Amber
+        if (session.status === 'cancelled' || session.status === 'no-show') return '#9CA3AF'; // Gray
         return '#EF4444'; // Red - upcoming
     };
 
@@ -312,7 +312,9 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
             scheduled: { label: 'Upcoming', bg: 'bg-[#EF4444]/20', text: 'text-[#FCA5A5]' },
             completed: { label: 'Completed', bg: 'bg-[#10B981]/20', text: 'text-[#6EE7B7]' },
             cancelled: { label: 'Cancelled', bg: 'bg-[#9CA3AF]/20', text: 'text-[#E5E7EB]' },
-            'no-show': { label: 'No Show', bg: 'bg-white/20', text: 'text-white' }
+            'no-show': { label: 'No Show', bg: 'bg-white/20', text: 'text-white' },
+            active: { label: 'Active', bg: 'bg-[#3B82F6]/20', text: 'text-[#93C5FD]' },
+            ended: { label: 'Ended', bg: 'bg-[#6366F1]/20', text: 'text-[#A5B4FC]' }
         };
 
         const config = statusConfig[status] || statusConfig.scheduled;

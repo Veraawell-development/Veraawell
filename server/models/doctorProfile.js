@@ -142,7 +142,26 @@ const doctorProfileSchema = new mongoose.Schema({
     default: null,
     min: 0,
     max: 100
+  },
+  // Onboarding lifecycle tracking
+  razorpayOnboardingStatus: {
+    type: String,
+    enum: ['not_requested', 'pending_admin_approval', 'submitted_to_razorpay', 'active', 'rejected'],
+    default: 'not_requested'
+  },
+  razorpayOnboardingRequestedAt: {
+    type: Date,
+    default: null
+  },
+  razorpayActivatedAt: {
+    type: Date,
+    default: null
+  },
+  razorpayKYCRejectionReason: {
+    type: String,
+    default: null
   }
+
 }, {
   timestamps: true
 });

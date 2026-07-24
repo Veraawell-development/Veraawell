@@ -1,5 +1,6 @@
 const cron = require('node-cron');
 const Session = require('../models/session');
+const DoctorAvailability = require('../models/doctorAvailability');
 const { sendSessionReminderEmail } = require('./email.service');
 const { createLogger } = require('../utils/logger');
 
@@ -7,6 +8,7 @@ const logger = createLogger('SCHEDULER');
 
 let notificationTask = null;
 let statusUpdateTask = null;
+let paymentCleanupTask = null;
 
 /**
  * Sweep past sessions and mark them completed/no-show.
@@ -136,7 +138,55 @@ const startScheduler = () => {
         }
     });
 
-    logger.info('All schedulers started successfully (notifications: 1min, status-sweep: 5min)');
+    logger.info('All schedulers started successfully (notifications: 1min, status-sweep: 5min, payment-cleanup: 30min)');
+
+    // ── Phase 9: Expired Payment Cleanup (every 30 minutes) ──────────────────
+    // Sessions where the patient opened Razorpay but didn't pay within 30 mins.
+    // Mark them 'failed' and release the booked slot.
+    paymentCleanupTask = cron.schedule('*/30 * * * *', async () => {
+        try {
+            const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+
+            const staleSessions = await Session.find({
+                paymentStatus: 'pending',
+                razorpayOrderId: { $ne: null }, // Only sessions that went through Razorpay
+                createdAt: { $lte: thirtyMinutesAgo },
+                status: { $nin: ['cancelled', 'completed'] }
+            });
+
+            if (staleSessions.length === 0) return;
+
+            let cleaned = 0;
+            for (const session of staleSessions) {
+                try {
+                    // Mark as failed
+                    session.paymentStatus = 'failed';
+                    session.status = 'cancelled';
+                    await session.save();
+
+                    // Release the doctor's slot
+                    const dateStr = session.sessionDate instanceof Date
+                        ? session.sessionDate.toISOString().split('T')[0]
+                        : new Date(session.sessionDate).toISOString().split('T')[0];
+
+                    const avail = await DoctorAvailability.findOne({ doctorId: session.doctorId });
+                    if (avail && session.sessionTime) {
+                        await avail.releaseSlot(dateStr, session.sessionTime);
+                    }
+
+                    cleaned++;
+                } catch (err) {
+                    logger.error('Cleanup error for session', { sessionId: session._id, error: err.message });
+                }
+            }
+
+            if (cleaned > 0) {
+                logger.info('Expired payment cleanup complete', { cleaned });
+            }
+        } catch (error) {
+            logger.error('Error in payment cleanup job', { error: error.message });
+        }
+    });
 };
 
 /**
@@ -150,6 +200,10 @@ const stopScheduler = () => {
     if (statusUpdateTask) {
         statusUpdateTask.stop();
         statusUpdateTask = null;
+    }
+    if (paymentCleanupTask) {
+        paymentCleanupTask.stop();
+        paymentCleanupTask = null;
     }
     logger.info('All schedulers stopped');
 };

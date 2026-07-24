@@ -9,7 +9,7 @@ interface Session {
   _id: string;
   sessionDate: string;
   sessionTime: string;
-  status: 'scheduled' | 'completed' | 'cancelled' | 'no-show' | 'ended';
+  status: 'scheduled' | 'completed' | 'cancelled' | 'no-show' | 'ended' | 'active';
   patientId: {
     firstName: string;
     lastName: string;

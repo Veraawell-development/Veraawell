@@ -34,17 +34,73 @@ function _emitToUsers(req, event, data, userIds) {
   if (io) new SocketEmitter(io).emitToUsers(userIds, event, data);
 }
 
-/** GET /api/sessions/stats — Doctor session statistics */
+/** GET /api/sessions/stats — Doctor session statistics + earnings breakdown */
 const getStats = asyncHandler(async (req, res) => {
   if (req.user.role !== 'doctor') throw new AuthorizationError('Access denied');
   const userId = req.user._id.toString();
-  const stats = await Session.aggregate([
-    { $match: { doctorId: new mongoose.Types.ObjectId(userId), status: 'completed' } },
-    { $group: { _id: null, totalRevenue: { $sum: '$price' }, totalSessions: { $count: {} }, totalDurationMinutes: { $sum: '$duration' } } }
+
+  const [overallStats, recentEarnings] = await Promise.all([
+    Session.aggregate([
+      { $match: { doctorId: new mongoose.Types.ObjectId(userId), status: 'completed', paymentStatus: 'paid' } },
+      {
+        $group: {
+          _id: null,
+          totalGross: { $sum: '$price' },
+          totalPlatformFee: { $sum: '$platformFee' },
+          totalDoctorEarnings: { $sum: '$doctorEarnings' },
+          totalSessions: { $count: {} },
+          totalDurationMinutes: { $sum: '$duration' }
+        }
+      }
+    ]),
+    // Last 30 days daily breakdown for chart
+    Session.aggregate([
+      {
+        $match: {
+          doctorId: new mongoose.Types.ObjectId(userId),
+          status: 'completed',
+          paymentStatus: 'paid',
+          createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
+        }
+      },
+      {
+        $group: {
+          _id: { $dateToString: { format: '%Y-%m-%d', date: '$sessionDate' } },
+          earnings: { $sum: '$doctorEarnings' },
+          sessions: { $count: {} }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ])
   ]);
-  const r = stats[0] || { totalRevenue: 0, totalSessions: 0, totalDurationMinutes: 0 };
-  res.json({ success: true, totalRevenue: r.totalRevenue, totalSessions: r.totalSessions, totalHours: Math.round(r.totalDurationMinutes / 60) });
+
+  const r = overallStats[0] || { totalGross: 0, totalPlatformFee: 0, totalDoctorEarnings: 0, totalSessions: 0, totalDurationMinutes: 0 };
+
+  // Pending payout = completed + paid sessions with no transfer yet
+  const pendingPayout = await Session.aggregate([
+    {
+      $match: {
+        doctorId: new mongoose.Types.ObjectId(userId),
+        status: 'completed',
+        paymentStatus: 'paid',
+        razorpayTransferId: null
+      }
+    },
+    { $group: { _id: null, amount: { $sum: '$doctorEarnings' } } }
+  ]);
+
+  res.json({
+    success: true,
+    totalGross: r.totalGross,
+    totalPlatformFee: r.totalPlatformFee,
+    totalDoctorEarnings: r.totalDoctorEarnings,
+    totalSessions: r.totalSessions,
+    totalHours: Math.round(r.totalDurationMinutes / 60),
+    pendingPayout: pendingPayout[0]?.amount || 0,
+    recentEarnings
+  });
 });
+
 
 /** GET /api/sessions/my-doctors — Top 3 previously booked doctors for a patient */
 const getMyDoctors = asyncHandler(async (req, res) => {
@@ -99,8 +155,48 @@ const getCallHistory = asyncHandler(async (req, res) => {
   res.json(formatted);
 });
 
+/** 
+ * Cleans up abandoned checkout sessions older than 15 minutes 
+ * to free up calendar slots.
+ */
+const cleanupPendingSessions = async () => {
+  try {
+    const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
+    const pendingSessions = await Session.find({
+      paymentStatus: 'pending',
+      createdAt: { $lt: fifteenMinsAgo }
+    });
+
+    if (pendingSessions.length === 0) return;
+
+    const sessionIds = pendingSessions.map(s => s._id);
+    const doctorIds = [...new Set(pendingSessions.map(s => s.doctorId.toString()))];
+
+    await Session.updateMany(
+      { _id: { $in: sessionIds } },
+      { $set: { status: 'cancelled', paymentStatus: 'failed' } }
+    );
+
+    const DoctorAvailability = require('../models/doctorAvailability');
+    for (const docId of doctorIds) {
+      const availability = await DoctorAvailability.findOne({ doctorId: docId });
+      if (availability) {
+        availability.bookedSlots = availability.bookedSlots.filter(
+          slot => !sessionIds.some(id => id.equals(slot.sessionId))
+        );
+        await availability.save();
+      }
+    }
+    logger.info(`Cleaned up ${sessionIds.length} abandoned sessions.`);
+  } catch (error) {
+    logger.error('Error cleaning up pending sessions:', error);
+  }
+};
+
 /** GET /api/sessions/doctors/:doctorId/slots/:date */
 const getDoctorSlots = asyncHandler(async (req, res) => {
+  await cleanupPendingSessions(); // Clean up abandoned checkouts before returning availability
+  
   const { doctorId, date } = req.params;
   const availability = await getOrCreateAvailability(doctorId);
   const slots = availability.getAvailableSlotsForDate(date).filter(s => !s.isBooked).map(s => s.time);
@@ -165,7 +261,8 @@ const bookImmediate = asyncHandler(async (req, res) => {
     price: finalPrice,
     platformFee,
     doctorEarnings, 
-    paymentStatus: razorpayOrderId ? 'pending' : 'paid', 
+    paymentStatus: razorpayOrderId ? 'pending' : 'paid',
+    status: razorpayOrderId ? 'payment_pending' : 'scheduled',
     paymentId: razorpayOrderId ? null : `immediate_${Date.now()}`,
     razorpayOrderId, 
     callMode: CALL_MODE_MAP[mode] || 'Video Calling' 
@@ -178,21 +275,26 @@ const bookImmediate = asyncHandler(async (req, res) => {
 
   try { await Conversation.findOrCreateConversation(patientId, doctorId, saved._id); } catch (e) { logger.warn('Conversation creation failed', { error: e.message }); }
 
-  _emitToUsers(req, 'session:booked', { session: populated, patientId, doctorId, sessionId: saved._id.toString(), timestamp: new Date() }, [patientId, doctorId]);
+  // If mock payment (no razorpayOrderId), emit immediately
+  if (!razorpayOrderId) {
+    _emitToUsers(req, 'session:booked', { session: populated, patientId, doctorId, sessionId: saved._id.toString(), timestamp: new Date() }, [patientId, doctorId]);
+  }
   
   try {
-    const emailService = require('../services/email.service');
-    if (populated.patientId.email) {
-      await emailService.sendBookingConfirmationEmail(populated.patientId.email, {
-        date: new Date(saved.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
-        time: saved.sessionTime,
-        type: saved.sessionType || 'Immediate'
-      });
+    if (!razorpayOrderId) {
+      const emailService = require('../services/email.service');
+      if (populated.patientId.email) {
+        await emailService.sendBookingConfirmationEmail(populated.patientId.email, {
+          date: new Date(saved.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+          time: saved.sessionTime,
+          type: saved.sessionType || 'Immediate'
+        });
+      }
     }
   } catch (emailErr) { logger.warn('Email send failed', { error: emailErr.message }); }
 
-  logger.info('Immediate session booked', { sessionId: saved._id.toString().substring(0, 8) });
-  res.status(201).json({ success: true, message: 'Immediate session booked. You can join now.', session: populated });
+  logger.info('Immediate session order created', { sessionId: saved._id.toString().substring(0, 8) });
+  res.status(201).json({ success: true, message: 'Immediate session order created.', session: populated });
 });
 
 /** POST /api/sessions/book — Book a scheduled session */
@@ -264,7 +366,8 @@ const bookSession = asyncHandler(async (req, res) => {
     patientId, doctorId, sessionDate: new Date(sessionDate), sessionTime,
     sessionType: SESSION_TYPE_MAP[sessionType] || 'regular', duration: duration || 60,
     price: finalPrice, platformFee, doctorEarnings,
-    paymentStatus: razorpayOrderId ? 'pending' : 'paid', 
+    paymentStatus: razorpayOrderId ? 'pending' : 'paid',
+    status: razorpayOrderId ? 'payment_pending' : 'scheduled',
     paymentId: razorpayOrderId ? null : `mock_payment_${Date.now()}`,
     razorpayOrderId,
     meetingLink, sessionNotes: `Service Type: ${serviceType || 'General'}`,
@@ -281,20 +384,24 @@ const bookSession = asyncHandler(async (req, res) => {
 
   try { await Conversation.findOrCreateConversation(patientId, doctorId, session._id); } catch (e) { logger.warn('Conversation creation failed', { error: e.message }); }
 
-  _emitToUsers(req, 'session:booked', { session: populated, patientId, doctorId, sessionId: session._id.toString(), timestamp: new Date() }, [patientId, doctorId]);
+  if (!razorpayOrderId) {
+    _emitToUsers(req, 'session:booked', { session: populated, patientId, doctorId, sessionId: session._id.toString(), timestamp: new Date() }, [patientId, doctorId]);
+  }
 
   try {
-    const emailService = require('../services/email.service');
-    if (populated.patientId.email) {
-      await emailService.sendBookingConfirmationEmail(populated.patientId.email, {
-        date: new Date(populated.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
-        time: populated.sessionTime,
-        type: populated.sessionType || 'Regular'
-      });
+    if (!razorpayOrderId) {
+      const emailService = require('../services/email.service');
+      if (populated.patientId.email) {
+        await emailService.sendBookingConfirmationEmail(populated.patientId.email, {
+          date: new Date(populated.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+          time: populated.sessionTime,
+          type: populated.sessionType || 'Regular'
+        });
+      }
     }
   } catch (emailErr) { logger.warn('Email send failed', { error: emailErr.message }); }
-  logger.info('Session booked', { sessionId: session._id.toString().substring(0, 8) });
-  res.status(201).json({ success: true, message: 'Session booked successfully', session: populated });
+  logger.info('Session order created', { sessionId: session._id.toString().substring(0, 8) });
+  res.status(201).json({ success: true, message: 'Session order created', session: populated });
 });
 
 const attachDoctorProfiles = async (sessions) => {
@@ -444,43 +551,99 @@ const cancelSession = asyncHandler(async (req, res) => {
   const userId = req.user._id.toString();
   const session = await Session.findById(sessionId);
   if (!session) throw new NotFoundError('Session');
-  if (session.patientId.toString() !== userId && session.doctorId.toString() !== userId) throw new AuthorizationError('Not authorized to cancel this session');
+  if (session.patientId.toString() !== userId && session.doctorId.toString() !== userId) {
+    throw new AuthorizationError('Not authorized to cancel this session');
+  }
+
   const sessionDT = new Date(session.sessionDate);
   const [ch, cm] = session.sessionTime.split(':').map(Number);
   sessionDT.setHours(ch, cm, 0, 0);
 
-  // Patients can cancel at any time, restriction removed.
   if (sessionDT.getTime() < Date.now()) {
     return res.status(400).json({ success: false, message: 'Cannot cancel a session that has already started' });
   }
 
-  session.status = 'cancelled';
+  const cancellerRole = req.user.role; // 'patient' or 'doctor'
+  
+  // ── REFUND POLICY ─────────────────────────────────────────────────────────
+  const hoursUntil = (sessionDT.getTime() - Date.now()) / (1000 * 60 * 60);
+  
+  let refundAmount = 0;
+  if (cancellerRole === 'doctor') {
+    refundAmount = session.price; // Doctor cancels → 100% refund always
+  } else if (cancellerRole === 'patient') {
+    if (hoursUntil > 24) {
+      refundAmount = session.price;                         // >24h → 100%
+    } else if (hoursUntil > 4) {
+      refundAmount = Math.round(session.price * 0.5);      // 4-24h → 50%
+    } else {
+      refundAmount = 0;                                     // <4h → 0%
+    }
+  }
 
-  if (session.paymentStatus === 'paid' && session.paymentId && !session.paymentId.startsWith('mock_') && !session.paymentId.startsWith('immediate_')) {
+  session.status = 'cancelled';
+  session.cancelledBy = cancellerRole;
+
+  // ── PROCESS REFUND ────────────────────────────────────────────────────────
+  const isRealPayment = session.paymentId && 
+    !session.paymentId.startsWith('mock_') && 
+    !session.paymentId.startsWith('immediate_');
+
+  if (session.paymentStatus === 'paid' && isRealPayment && refundAmount > 0) {
+    session.paymentStatus = 'refund_pending';
+    await session.save(); // Save pending state first
+    
     try {
-      await razorpay.payments.refund(session.paymentId, {
-        reverse_all: 1
+      const refund = await razorpay.payments.refund(session.paymentId, {
+        amount: refundAmount * 100, // In paise
+        speed: 'normal',
+        notes: { reason: `Cancelled by ${cancellerRole}`, sessionId: sessionId }
       });
       session.paymentStatus = 'refunded';
+      session.refundId = refund.id;
+      session.refundedAt = new Date();
+      session.refundAmount = refundAmount;
     } catch (err) {
-      logger.error('Razorpay refund failed in cancelSession', { error: err.message, paymentId: session.paymentId });
+      logger.error('Razorpay refund failed', { error: err.message, paymentId: session.paymentId });
       session.paymentStatus = 'refund_failed';
     }
+  } else if (refundAmount === 0) {
+    session.paymentStatus = 'paid'; // No refund owed, payment stays as-is
   } else {
-    session.paymentStatus = 'refunded';
+    session.paymentStatus = 'refunded'; // Mock/immediate payments — mark refunded
+    session.refundAmount = session.price;
   }
-  
+
   await session.save();
+
+  // Release the slot
   try {
     const avail = await DoctorAvailability.findOne({ doctorId: session.doctorId });
     if (avail) await avail.releaseSlot(session.sessionDate.toISOString().split('T')[0], session.sessionTime);
-  } catch (e) { logger.warn('Slot release failed during cancellation', { error: e.message }); }
+  } catch (e) { logger.warn('Slot release failed', { error: e.message }); }
+
+  // Notify both parties
   const pId = session.patientId.toString();
   const dId = session.doctorId.toString();
-  _emitToUsers(req, 'session:cancelled', { sessionId: session._id.toString(), patientId: pId, doctorId: dId, cancelledBy: userId, timestamp: new Date() }, [pId, dId]);
+  _emitToUsers(req, 'session:cancelled', {
+    sessionId: session._id.toString(), 
+    cancelledBy: userId, 
+    refundAmount,
+    timestamp: new Date()
+  }, [pId, dId]);
+
   logger.info('Session cancelled', { sessionId: sessionId.substring(0, 8) });
-  res.json({ success: true, message: 'Session cancelled successfully' });
+
+  res.json({
+    success: true,
+    message: 'Session cancelled successfully',
+    refundAmount,
+    refundPolicy: refundAmount === session.price ? '100% refund' : 
+                  refundAmount === 0 ? 'No refund (cancelled <4h before session)' :
+                  '50% refund (cancelled 4-24h before session)'
+  });
 });
+
 
 /** GET /api/sessions/calendar/:year/:month */
 const getCalendar = asyncHandler(async (req, res) => {

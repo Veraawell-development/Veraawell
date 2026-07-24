@@ -31,7 +31,7 @@ const sessionSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['scheduled', 'completed', 'cancelled', 'no-show'],
+    enum: ['payment_pending', 'scheduled', 'active', 'completed', 'cancelled', 'no-show'],
     default: 'scheduled'
   },
   acceptanceStatus: {
@@ -71,7 +71,7 @@ const sessionSchema = new mongoose.Schema({
   },
   paymentStatus: {
     type: String,
-    enum: ['pending', 'paid', 'refunded'],
+    enum: ['pending', 'paid', 'refunded', 'refund_pending', 'refund_failed', 'failed', 'not_required'],
     default: 'pending'
   },
   paymentId: {
@@ -94,6 +94,25 @@ const sessionSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  // Refund tracking
+  refundId: {
+    type: String,
+    default: null
+  },
+  refundedAt: {
+    type: Date,
+    default: null
+  },
+  refundAmount: {
+    type: Number,
+    default: 0
+  },
+  cancelledBy: {
+    type: String,
+    enum: ['patient', 'doctor', 'admin', 'system'],
+    default: null
+  },
+
   sessionNotes: {
     type: String,
     default: ''

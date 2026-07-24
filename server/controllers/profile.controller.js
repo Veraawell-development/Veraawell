@@ -212,6 +212,107 @@ const getProfile = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Update doctor pricing only (PATCH /api/profile/pricing)
+ * Doctors can update their 6-slot price grid without re-submitting their full profile.
+ */
+const updatePricing = asyncHandler(async (req, res) => {
+  if (req.user.role !== 'doctor') {
+    return res.status(403).json({ success: false, message: 'Only doctors can update pricing' });
+  }
+
+  const userId = req.user._id;
+  const { pricing } = req.body;
+
+  if (!pricing) {
+    return res.status(400).json({ success: false, message: '"pricing" object is required in request body' });
+  }
+
+  // Validate all 6 slots
+  const slotKeys = [
+    { key: 'session20', label: '20-min video' },
+    { key: 'session40', label: '40-min video' },
+    { key: 'session55', label: '55-min video' },
+    { key: 'audio.session20', label: '20-min audio' },
+    { key: 'audio.session40', label: '40-min audio' },
+    { key: 'audio.session55', label: '55-min audio' },
+  ];
+
+  for (const { key, label } of slotKeys) {
+    const val = key.startsWith('audio.')
+      ? pricing?.audio?.[key.replace('audio.', '')]
+      : pricing?.[key];
+
+    if (val !== undefined && val !== null && val !== '') {
+      const num = Number(val);
+      if (isNaN(num) || num < 0) {
+        return res.status(400).json({ success: false, message: `${label} price must be a non-negative number` });
+      }
+      if (num > 0 && num < 100) {
+        return res.status(400).json({ success: false, message: `${label} price must be at least ₹100` });
+      }
+      if (num > 10000) {
+        return res.status(400).json({ success: false, message: `${label} price cannot exceed ₹10,000` });
+      }
+    }
+  }
+
+  // Logical ordering: longer sessions should cost >= shorter sessions (if both are set)
+  const v20 = Number(pricing.session20) || 0;
+  const v40 = Number(pricing.session40) || 0;
+  const v55 = Number(pricing.session55) || 0;
+  const a20 = Number(pricing?.audio?.session20) || 0;
+  const a40 = Number(pricing?.audio?.session40) || 0;
+  const a55 = Number(pricing?.audio?.session55) || 0;
+
+  if (v20 > 0 && v40 > 0 && v40 < v20) {
+    return res.status(400).json({ success: false, message: '40-min video price must be ≥ 20-min video price' });
+  }
+  if (v40 > 0 && v55 > 0 && v55 < v40) {
+    return res.status(400).json({ success: false, message: '55-min video price must be ≥ 40-min video price' });
+  }
+  if (a20 > 0 && a40 > 0 && a40 < a20) {
+    return res.status(400).json({ success: false, message: '40-min audio price must be ≥ 20-min audio price' });
+  }
+  if (a40 > 0 && a55 > 0 && a55 < a40) {
+    return res.status(400).json({ success: false, message: '55-min audio price must be ≥ 40-min audio price' });
+  }
+
+  // Auto-calculate min/max for public profile display
+  const allPrices = [v20, v40, v55, a20, a40, a55].filter(p => p > 0);
+  const newMin = allPrices.length > 0 ? Math.min(...allPrices) : 0;
+  const newMax = allPrices.length > 0 ? Math.max(...allPrices) : 0;
+
+  const updatedProfile = await DoctorProfile.findOneAndUpdate(
+    { userId },
+    {
+      $set: {
+        'pricing.session20': v20,
+        'pricing.session40': v40,
+        'pricing.session55': v55,
+        'pricing.audio.session20': a20,
+        'pricing.audio.session40': a40,
+        'pricing.audio.session55': a55,
+        'pricing.min': newMin,
+        'pricing.max': newMax,
+      }
+    },
+    { new: true }
+  );
+
+  if (!updatedProfile) {
+    return res.status(404).json({ success: false, message: 'Doctor profile not found. Please complete your profile setup first.' });
+  }
+
+  logger.info('Doctor pricing updated', { userId: userId.toString().substring(0, 8) });
+
+  res.json({
+    success: true,
+    message: 'Pricing updated. New rates apply to future bookings only.',
+    pricing: updatedProfile.pricing
+  });
+});
+
+/**
  * Update user profile (for phone number and basic info)
  */
 const updateProfile = asyncHandler(async (req, res) => {
@@ -248,6 +349,8 @@ module.exports = {
   setupProfile,
   getProfileStatus,
   getProfile,
-  updateProfile
+  updateProfile,
+  updatePricing
 };
+
 

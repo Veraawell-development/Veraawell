@@ -106,8 +106,9 @@ const SuperAdminDashboard: React.FC = () => {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // Desktop collapse
   const [doctorViewMode, setDoctorViewMode] = useState<'pending' | 'all'>('pending');
   const [adminViewMode, setAdminViewMode] = useState<'pending' | 'all'>('pending');
+  const [payoutViewMode, setPayoutViewMode] = useState<'pending' | 'active'>('pending');
   const location = useLocation();
-  const [activeTab, setActiveTab] = useState<'analytics' | 'doctors' | 'admins' | 'articles'>(() => {
+  const [activeTab, setActiveTab] = useState<'analytics' | 'doctors' | 'admins' | 'articles' | 'payouts' | 'revenue'>(() => {
     const locState = location.state as { tab?: string } | null;
     return (locState?.tab as any) || 'analytics';
   });
@@ -121,6 +122,9 @@ const SuperAdminDashboard: React.FC = () => {
   const [page, setPage] = useState(1);
   const [articleToDelete, setArticleToDelete] = useState<{ id: string, title: string } | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+
+  const [payoutModal, setPayoutModal] = useState<{ isOpen: boolean, type: 'approve' | 'reject', request: any } | null>(null);
+  const [payoutRejectReason, setPayoutRejectReason] = useState('');
 
   const navigate = useNavigate();
   const { admin, logout, loading: adminLoading } = useAdmin();
@@ -171,6 +175,21 @@ const SuperAdminDashboard: React.FC = () => {
     enabled: !!admin && admin.role === 'super_admin' && activeTab !== 'articles',
   });
 
+  const { data: payoutRequests = [], isLoading: payoutRequestsLoading } = useQuery<any[]>({
+    queryKey: ['admin', 'payouts', payoutViewMode],
+    queryFn: async () => {
+      const res = await fetchAndParse(`${API_BASE_URL}/admin/payments/onboarding-requests?status=${payoutViewMode === 'pending' ? 'pending_admin_approval' : 'active'}`);
+      return res.doctors || [];
+    },
+    enabled: !!admin && activeTab === 'payouts',
+  });
+
+  const { data: revenueData, isLoading: revenueLoading } = useQuery<any>({
+    queryKey: ['admin', 'revenue'],
+    queryFn: async () => fetchAndParse(`${API_BASE_URL}/admin/payments/revenue`),
+    enabled: !!admin && activeTab === 'revenue',
+  });
+
   const { data: articlesData, isLoading: articlesLoading } = useQuery({
     queryKey: ['admin', 'articles', page, debouncedSearch, selectedCategory, selectedStatus],
     queryFn: async () => {
@@ -194,7 +213,7 @@ const SuperAdminDashboard: React.FC = () => {
   const articles: Article[] = Array.isArray(articlesData) ? articlesData : (articlesData?.articles || []);
   const pagination: PaginationData | null = Array.isArray(articlesData) ? null : (articlesData?.pagination || null);
 
-  const loading = activeTab !== 'articles' && (
+  const loading = activeTab !== 'articles' && activeTab !== 'payouts' && (
     statsLoading || analyticsLoading || pendingDoctorsLoading || allDoctorsLoading || 
     (admin?.role === 'super_admin' && (pendingAdminsLoading || allAdminsLoading))
   );
@@ -247,6 +266,39 @@ const SuperAdminDashboard: React.FC = () => {
     },
     onError: () => toast.error('Failed to delete article'),
     onSettled: () => { setActionLoading(null); setArticleToDelete(null); }
+  });
+
+  const approvePayoutMutation = useMutation({
+    mutationFn: async (doctorId: string) => {
+      const res = await fetch(`${API_BASE_URL}/admin/payments/onboarding-requests/${doctorId}/approve`, {
+        method: 'POST',
+        headers,
+      });
+      if (!res.ok) throw new Error('Failed to approve payout');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'payouts'] });
+      toast.success('Payout account approved successfully');
+    },
+    onError: (err: any) => toast.error(err.message || 'Failed to approve payout account'),
+  });
+
+  const rejectPayoutMutation = useMutation({
+    mutationFn: async ({ doctorId, message }: { doctorId: string; message: string }) => {
+      const res = await fetch(`${API_BASE_URL}/admin/payments/onboarding-requests/${doctorId}/reject`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message }),
+      });
+      if (!res.ok) throw new Error('Failed to reject payout');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'payouts'] });
+      toast.success('Payout request rejected');
+    },
+    onError: (err: any) => toast.error(err.message || 'Failed to reject payout request'),
   });
   const confirmDelete = () => {
     if (!articleToDelete) return;
@@ -481,6 +533,40 @@ const SuperAdminDashboard: React.FC = () => {
                 )}
               </button>
             )}
+
+            {admin?.role === 'super_admin' && (
+              <button
+                onClick={() => setActiveTab('payouts')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors ${activeTab === 'payouts' ? 'bg-[#0097b2] text-white' : 'text-[#fff3db]/70 hover:bg-[#fff3db]/5 hover:text-[#fff3db]'} ${sidebarCollapsed ? 'justify-center' : ''}`}
+                title={sidebarCollapsed ? "Payout Approvals" : ""}
+              >
+                {sidebarCollapsed ? (
+                  <div className={`w-2 h-2 rounded-full ${activeTab === 'payouts' ? 'bg-white' : 'bg-[#fff3db]/40'}`} />
+                ) : (
+                  <FiClock size={16} />
+                )}
+                {!sidebarCollapsed && (
+                  <>
+                    <span>Payout Approvals</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            {admin?.role === 'super_admin' && (
+              <button
+                onClick={() => setActiveTab('revenue')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors ${activeTab === 'revenue' ? 'bg-[#0097b2] text-white' : 'text-[#fff3db]/70 hover:bg-[#fff3db]/5 hover:text-[#fff3db]'} ${sidebarCollapsed ? 'justify-center' : ''}`}
+                title={sidebarCollapsed ? "Revenue" : ""}
+              >
+                {sidebarCollapsed ? (
+                  <div className={`w-2 h-2 rounded-full ${activeTab === 'revenue' ? 'bg-white' : 'bg-[#fff3db]/40'}`} />
+                ) : (
+                  <FiActivity size={16} />
+                )}
+                {!sidebarCollapsed && <span>Revenue</span>}
+              </button>
+            )}
             
             <button
               onClick={() => setActiveTab('articles')}
@@ -530,8 +616,8 @@ const SuperAdminDashboard: React.FC = () => {
             <button onClick={() => setSidebarOpen(!sidebarOpen)} className="md:hidden text-neutral-600">
               <FiMenu size={18} />
             </button>
-            <h1 className="text-sm font-semibold text-neutral-900 capitalize">
-              {activeTab === 'analytics' ? 'Dashboard Overview' : activeTab === 'doctors' ? 'Doctor Approvals' : activeTab === 'admins' ? 'Admin Approvals' : 'Manage Articles'}
+            <h1 className="text-base font-semibold text-neutral-800 flex items-center gap-2">
+              {activeTab === 'analytics' ? 'Dashboard Overview' : activeTab === 'doctors' ? 'Doctor Approvals' : activeTab === 'admins' ? 'Admin Approvals' : activeTab === 'payouts' ? 'Payout Approvals' : activeTab === 'revenue' ? 'Platform Revenue' : 'Manage Articles'}
             </h1>
           </div>
           {/* Removed non-functional search bar to keep it minimal */}
@@ -887,6 +973,160 @@ const SuperAdminDashboard: React.FC = () => {
               </motion.div>
             )}
 
+            {/* ── Payouts Tab ──────────────────────────────────────── */}
+            {activeTab === 'payouts' && admin?.role === 'super_admin' && (
+              <motion.div key="payouts" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
+                
+                {/* View Mode Toggle */}
+                <div className="flex gap-2 mb-4">
+                  <button
+                    onClick={() => setPayoutViewMode('pending')}
+                    className={`px-4 py-2 text-xs font-semibold rounded-xl transition-colors ${payoutViewMode === 'pending' ? 'bg-[#0097b2] text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
+                  >
+                    Pending Approvals
+                  </button>
+                  <button
+                    onClick={() => setPayoutViewMode('active')}
+                    className={`px-4 py-2 text-xs font-semibold rounded-xl transition-colors ${payoutViewMode === 'active' ? 'bg-[#0097b2] text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
+                  >
+                    Approved Accounts
+                  </button>
+                </div>
+
+                {payoutRequests.length === 0 ? (
+                  <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm p-12 text-center">
+                    <FiClock size={28} className="text-neutral-300 mx-auto mb-3" />
+                    <p className="text-sm font-medium text-neutral-500">
+                      {payoutViewMode === 'pending' ? 'No pending payout requests' : 'No approved payout accounts'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {payoutRequests.map((request: any) => (
+                      <div key={request.doctorId} className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-sm flex flex-col md:flex-row justify-between gap-4 hover:shadow-md transition-shadow">
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-semibold text-neutral-900">Dr. {request.name}</h3>
+                            {payoutViewMode === 'pending' ? (
+                              <span className="inline-flex items-center px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded-full text-[10px] font-medium border border-amber-200">
+                                Pending
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-1.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-medium border border-emerald-200">
+                                Active
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-neutral-500">{request.email}</p>
+                          <p className="text-[11px] text-neutral-600 pt-1">
+                            <span className="font-medium text-neutral-400">Razorpay ID:</span> {request.razorpayAccountId || 'N/A'}
+                          </p>
+                          <p className="text-[11px] text-neutral-400">
+                            Requested on {formatDate(request.requestedAt)}
+                          </p>
+                        </div>
+                        
+                        {payoutViewMode === 'pending' && (
+                          <div className="flex md:flex-col justify-end gap-2">
+                            <button
+                              onClick={() => setPayoutModal({ isOpen: true, type: 'approve', request })}
+                              disabled={approvePayoutMutation.isPending}
+                              className="px-4 py-2 bg-[#0097b2] hover:bg-[#007c93] text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
+                            >
+                              <FiCheck size={14} />
+                              Approve
+                            </button>
+                            <button
+                              onClick={() => setPayoutModal({ isOpen: true, type: 'reject', request })}
+                              disabled={rejectPayoutMutation.isPending}
+                              className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
+                            >
+                              <FiX size={14} />
+                              Reject
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+            {/* ── Revenue Tab ────────────────────────────────────────────── */}
+            {activeTab === 'revenue' && admin?.role === 'super_admin' && (
+              <motion.div key="revenue" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+                
+                {revenueLoading ? (
+                  <div className="flex justify-center py-20">
+                    <div className="w-8 h-8 border-4 border-[#0097b2] border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                      {/* Summary Cards */}
+                      <div className="bg-white p-5 rounded-2xl border border-neutral-100 shadow-sm flex flex-col justify-center">
+                        <p className="text-xs font-medium text-neutral-500 uppercase tracking-wider mb-1">Gross Revenue</p>
+                        <p className="text-2xl font-bold text-neutral-900">₹ {(revenueData?.summary?.totalRevenue || 0).toLocaleString()}</p>
+                      </div>
+                      <div className="bg-white p-5 rounded-2xl border border-neutral-100 shadow-sm flex flex-col justify-center">
+                        <p className="text-xs font-medium text-neutral-500 uppercase tracking-wider mb-1">Platform Fee</p>
+                        <p className="text-2xl font-bold text-emerald-600">₹ {(revenueData?.summary?.totalPlatformFee || 0).toLocaleString()}</p>
+                      </div>
+                      <div className="bg-white p-5 rounded-2xl border border-neutral-100 shadow-sm flex flex-col justify-center">
+                        <p className="text-xs font-medium text-neutral-500 uppercase tracking-wider mb-1">Doctor Earnings</p>
+                        <p className="text-2xl font-bold text-neutral-900">₹ {(revenueData?.summary?.totalDoctorEarnings || 0).toLocaleString()}</p>
+                      </div>
+                      <div className="bg-white p-5 rounded-2xl border border-neutral-100 shadow-sm flex flex-col justify-center">
+                        <p className="text-xs font-medium text-neutral-500 uppercase tracking-wider mb-1">Total Sessions</p>
+                        <p className="text-2xl font-bold text-neutral-900">{revenueData?.summary?.totalSessions || 0}</p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm overflow-hidden">
+                      <div className="px-6 py-4 border-b border-neutral-100 bg-neutral-50/50">
+                        <h3 className="text-sm font-semibold text-neutral-800">Doctor Earnings Breakdown</h3>
+                      </div>
+                      
+                      {(!revenueData?.topDoctors || revenueData.topDoctors.length === 0) ? (
+                        <div className="p-8 text-center">
+                          <p className="text-sm text-neutral-500">No revenue data available for this period.</p>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="bg-neutral-50/50 text-neutral-500 text-[11px] font-semibold uppercase tracking-wider border-b border-neutral-100">
+                                <th className="p-4 pl-6 font-medium">Doctor Name</th>
+                                <th className="p-4 font-medium">Sessions</th>
+                                <th className="p-4 font-medium">Gross Revenue</th>
+                                <th className="p-4 font-medium text-emerald-600">Platform Fee</th>
+                                <th className="p-4 font-medium text-[#0097b2]">Net Payout</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-neutral-100">
+                              {revenueData.topDoctors.map((doc: any) => (
+                                <tr key={doc._id} className="hover:bg-neutral-50/50 transition-colors">
+                                  <td className="p-4 pl-6">
+                                    <div className="text-sm font-semibold text-neutral-900">{doc.name}</div>
+                                    <div className="text-[11px] text-neutral-500">{doc.email}</div>
+                                  </td>
+                                  <td className="p-4 text-sm text-neutral-700">{doc.sessions}</td>
+                                  <td className="p-4 text-sm text-neutral-700 font-medium">₹ {doc.grossRevenue.toLocaleString()}</td>
+                                  <td className="p-4 text-sm text-emerald-600 font-medium">₹ {doc.platformFee.toLocaleString()}</td>
+                                  <td className="p-4 text-sm text-[#0097b2] font-semibold">₹ {doc.doctorEarnings.toLocaleString()}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </motion.div>
+            )}
+
             {/* ── Articles Tab ────────────────────────────────────────────── */}
             {activeTab === 'articles' && (
               <motion.div key="articles" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
@@ -1108,6 +1348,77 @@ const SuperAdminDashboard: React.FC = () => {
                   {actionLoading === articleToDelete.id ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Trash2 size={14} />}
                   Delete
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </AnimatePresence>
+      {/* Payout Approval/Rejection Modal */}
+      <AnimatePresence>
+        {payoutModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setPayoutModal(null)}>
+            <div className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-lg max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-sm font-semibold text-neutral-900 mb-1">
+                {payoutModal.type === 'approve' ? 'Approve Payout Account' : 'Reject Payout Account'}
+              </h3>
+              
+              {payoutModal.type === 'approve' ? (
+                <p className="text-xs text-neutral-500 mb-6">
+                  Are you sure you want to approve the Razorpay account for <span className="font-semibold text-neutral-700">Dr. {payoutModal.request.name}</span>? 
+                  Once approved, their 80% split will be automatically routed to this account.
+                </p>
+              ) : (
+                <div className="mb-6 mt-4">
+                  <label className="block text-xs font-semibold text-neutral-700 mb-1.5">Reason for Rejection</label>
+                  <textarea
+                    value={payoutRejectReason}
+                    onChange={(e) => setPayoutRejectReason(e.target.value)}
+                    placeholder="Enter the reason for rejecting this payout request..."
+                    className="w-full p-3 text-xs bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400 min-h-[80px]"
+                  />
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2">
+                <button
+                  onClick={() => {
+                    setPayoutModal(null);
+                    setPayoutRejectReason('');
+                  }}
+                  className="px-4 py-2 bg-neutral-100 text-neutral-700 rounded-lg hover:bg-neutral-200 text-xs font-semibold transition-colors"
+                >
+                  Cancel
+                </button>
+                {payoutModal.type === 'approve' ? (
+                  <button
+                    onClick={() => {
+                      approvePayoutMutation.mutate(payoutModal.request.doctorId, {
+                        onSuccess: () => setPayoutModal(null)
+                      });
+                    }}
+                    disabled={approvePayoutMutation.isPending}
+                    className="px-4 py-2 bg-[#0097b2] text-white rounded-lg hover:bg-[#007c93] text-xs font-semibold transition-colors flex items-center gap-1.5"
+                  >
+                    {approvePayoutMutation.isPending ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <FiCheck size={14} />}
+                    Approve
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      rejectPayoutMutation.mutate({ doctorId: payoutModal.request.doctorId, message: payoutRejectReason }, {
+                        onSuccess: () => {
+                          setPayoutModal(null);
+                          setPayoutRejectReason('');
+                        }
+                      });
+                    }}
+                    disabled={rejectPayoutMutation.isPending || !payoutRejectReason.trim()}
+                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-xs font-semibold transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {rejectPayoutMutation.isPending ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <FiX size={14} />}
+                    Reject
+                  </button>
+                )}
               </div>
             </div>
           </div>

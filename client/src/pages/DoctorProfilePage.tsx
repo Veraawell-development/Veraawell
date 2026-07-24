@@ -249,16 +249,38 @@ const DoctorProfilePage: React.FC = () => {
           name: 'Veraawell',
           description: isImmediate ? 'Immediate Session' : 'Scheduled Session',
           order_id: sessionData.razorpayOrderId,
-          handler: function (response: any) {
-            toast.success(isImmediate ? 'Payment successful! Joining session...' : 'Session scheduled successfully!');
-            queryClient.invalidateQueries({ queryKey: ['patient', 'sessions'] });
-            setTimeout(() => { 
-              if (isImmediate && sessionData._id) {
-                navigate(`/video-call/${sessionData._id}`);
+          handler: async function (response: any) {
+            try {
+              // Cryptographic verification
+              const verifyRes = await fetch(`${API_BASE_URL}/payments/verify`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({
+                  razorpay_order_id: response.razorpay_order_id,
+                  razorpay_payment_id: response.razorpay_payment_id,
+                  razorpay_signature: response.razorpay_signature,
+                })
+              });
+              const verifyData = await verifyRes.json();
+              if (verifyData.success) {
+                toast.success(isImmediate ? 'Payment confirmed! Joining session...' : 'Session scheduled successfully!');
+                queryClient.invalidateQueries({ queryKey: ['patient', 'sessions'] });
+                setTimeout(() => { 
+                  if (isImmediate && sessionData._id) {
+                    navigate(`/video-call/${sessionData._id}`);
+                  } else {
+                    navigate('/patient-dashboard'); 
+                  }
+                }, 1000);
               } else {
-                navigate('/patient-dashboard'); 
+                toast.error('Payment verification failed: ' + (verifyData.message || 'Unknown error'));
               }
-            }, 1000);
+            } catch (err) {
+              toast.error('Could not verify payment. Please contact support.');
+            }
           },
           prefill: {
             name: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),

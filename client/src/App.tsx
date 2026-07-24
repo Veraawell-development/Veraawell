@@ -8,6 +8,7 @@ import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import LoadingScreen from './components/LoadingScreen';
 import { wakeUpBackend } from './utils/backendWakeup';
+import GlobalIncomingCallListener from './components/GlobalIncomingCallListener';
 import LandingPage from './pages/LandingPage';
 import AuthPage from './pages/AuthPage';
 import CareerPage from './pages/CareerPage';
@@ -58,6 +59,8 @@ import ArticleDetailPage from './pages/ArticleDetailPage';
 import AdminArticleEditorPage from './pages/AdminArticleEditorPage';
 import VideosPage from './pages/VideosPage';
 import NotFoundPage from './pages/NotFoundPage';
+import DoctorSettingsPage from './pages/DoctorSettingsPage';
+
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -248,6 +251,8 @@ function AppRoutes() {
         <Route path="/patient-dashboard" element={<ProtectedRoute allowedRoles={['patient']}><PatientDashboard /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute allowedRoles={['patient']}><PatientSettingsPage /></ProtectedRoute>} />
         <Route path="/doctor-dashboard" element={<ProtectedRoute allowedRoles={['doctor']}><DoctorDashboard /></ProtectedRoute>} />
+        <Route path="/doctor-settings" element={<ProtectedRoute allowedRoles={['doctor']}><DoctorSettingsPage /></ProtectedRoute>} />
+
         <Route path="/manage-calendar" element={<ProtectedRoute allowedRoles={['doctor']}><ManageCalendar /></ProtectedRoute>} />
         <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
@@ -313,7 +318,7 @@ function AppWithFooter() {
     location.pathname.startsWith('/my-tests') || location.pathname === '/my-therapists' ||
     location.pathname.startsWith('/test-results') || location.pathname === '/patient-profile-setup' ||
     location.pathname === '/profile-setup' || location.pathname === '/choose-professional' ||
-    location.pathname === '/manage-calendar';
+    location.pathname === '/manage-calendar' || location.pathname === '/doctor-settings';
   const isVideoCallRoute = location.pathname.startsWith('/video-call');
   const isDoctorProfileRoute = location.pathname.startsWith('/doctor/');
 
@@ -330,6 +335,7 @@ export default function App() {
     <Router>
       <AuthProvider>
         <AdminProvider>
+          <GlobalIncomingCallListener />
           <Toaster
             position="top-right"
             reverseOrder={false}
