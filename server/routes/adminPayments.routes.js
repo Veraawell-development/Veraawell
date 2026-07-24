@@ -15,6 +15,8 @@ router.post('/onboarding-requests/:doctorId/reject', verifyAdminToken, adminPaym
 
 // ── Phase 5: Admin refunds ────────────────────────────────────────────────────
 router.post('/sessions/:sessionId/refund', verifyAdminToken, adminPayments.adminRefundSession);
+router.get('/sessions/failed-refunds', verifyAdminToken, adminPayments.getFailedRefunds);
+router.post('/sessions/:sessionId/retry-refund', verifyAdminToken, adminPayments.retryRefund);
 
 // ── Phase 8: Revenue analytics ───────────────────────────────────────────────
 router.get('/revenue', verifyAdminToken, adminPayments.getRevenueAnalytics);

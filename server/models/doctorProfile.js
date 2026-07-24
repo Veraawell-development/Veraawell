@@ -160,6 +160,19 @@ const doctorProfileSchema = new mongoose.Schema({
   razorpayKYCRejectionReason: {
     type: String,
     default: null
+  },
+  // Doctor cancellation tracking
+  cancellationCount: {
+    type: Number,
+    default: 0
+  },
+  lastCancellationDate: {
+    type: Date,
+    default: null
+  },
+  cancellationWarningIssued: {
+    type: Boolean,
+    default: false
   }
 
 }, {

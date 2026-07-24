@@ -365,6 +365,19 @@ exports.adminRefundSession = async (req, res) => {
 
     console.log(`[Admin] Refund ${refund.id} issued for session ${sessionId}`);
 
+    // Send refund email to patient
+    try {
+      const emailService = require('../services/email.service');
+      if (session.patientId?.email) {
+        await emailService.sendRefundInitiatedEmail(session.patientId.email, {
+          patientName: session.patientId.firstName,
+          amount: session.price,
+          refundId: refund.id,
+          date: new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+        });
+      }
+    } catch (e) { console.warn('[Admin] Refund email failed:', e.message); }
+
     res.json({
       success: true,
       message: `Refund of ₹${session.price} initiated successfully.`,
@@ -375,6 +388,97 @@ exports.adminRefundSession = async (req, res) => {
   } catch (error) {
     console.error('[Admin] adminRefundSession error:', error);
     res.status(500).json({ message: 'Failed to process refund', error: error.message });
+  }
+};
+
+/**
+ * GET /api/admin/payments/sessions/failed-refunds
+ * List all sessions with paymentStatus = 'refund_failed' for admin review
+ */
+exports.getFailedRefunds = async (req, res) => {
+  try {
+    const sessions = await Session.find({ paymentStatus: 'refund_failed' })
+      .populate('patientId', 'firstName lastName email')
+      .populate('doctorId', 'firstName lastName email')
+      .sort({ updatedAt: -1 })
+      .limit(100);
+
+    res.json({
+      success: true,
+      count: sessions.length,
+      sessions: sessions.map(s => ({
+        _id: s._id,
+        patientName: s.patientId ? `${s.patientId.firstName} ${s.patientId.lastName}` : 'Unknown',
+        patientEmail: s.patientId?.email,
+        doctorName: s.doctorId ? `Dr. ${s.doctorId.firstName} ${s.doctorId.lastName}` : 'Unknown',
+        sessionDate: s.sessionDate,
+        sessionTime: s.sessionTime,
+        price: s.price,
+        paymentId: s.paymentId,
+        cancelledBy: s.cancelledBy,
+        updatedAt: s.updatedAt
+      }))
+    });
+  } catch (error) {
+    console.error('[Admin] getFailedRefunds error:', error);
+    res.status(500).json({ message: 'Failed to fetch failed refunds' });
+  }
+};
+
+/**
+ * POST /api/admin/payments/sessions/:sessionId/retry-refund
+ * Retry a stuck refund_failed session
+ */
+exports.retryRefund = async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const session = await Session.findById(sessionId)
+      .populate('patientId', 'firstName lastName email')
+      .populate('doctorId', 'firstName lastName email');
+
+    if (!session) return res.status(404).json({ message: 'Session not found' });
+    if (session.paymentStatus !== 'refund_failed') {
+      return res.status(400).json({ message: `Session paymentStatus is "${session.paymentStatus}", not "refund_failed"` });
+    }
+    if (!session.paymentId || session.paymentId.startsWith('mock_') || session.paymentId.startsWith('immediate_')) {
+      // Mock payment — just mark refunded
+      session.paymentStatus = 'refunded';
+      session.refundedAt = new Date();
+      session.refundAmount = session.price;
+      await session.save();
+      return res.json({ success: true, message: 'Mock refund marked as complete.' });
+    }
+
+    const refund = await razorpay.payments.refund(session.paymentId, {
+      amount: (session.refundAmount || session.price) * 100,
+      speed: 'normal',
+      notes: { reason: 'Admin retry refund', sessionId: sessionId.toString() }
+    });
+
+    session.paymentStatus = 'refunded';
+    session.refundId = refund.id;
+    session.refundedAt = new Date();
+    session.refundAmount = session.refundAmount || session.price;
+    await session.save();
+
+    // Notify patient
+    try {
+      const emailService = require('../services/email.service');
+      if (session.patientId?.email) {
+        await emailService.sendRefundInitiatedEmail(session.patientId.email, {
+          patientName: session.patientId.firstName,
+          amount: session.refundAmount,
+          refundId: refund.id,
+          date: new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+        });
+      }
+    } catch (e) { console.warn('[Admin] Retry refund email failed:', e.message); }
+
+    console.log(`[Admin] Retry refund ${refund.id} for session ${sessionId}`);
+    res.json({ success: true, message: `Refund retried successfully. Refund ID: ${refund.id}`, refundId: refund.id });
+  } catch (error) {
+    console.error('[Admin] retryRefund error:', error);
+    res.status(500).json({ message: 'Refund retry failed', error: error.message });
   }
 };
 

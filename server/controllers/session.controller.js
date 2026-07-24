@@ -639,6 +639,22 @@ const cancelSession = asyncHandler(async (req, res) => {
 
   await session.save();
 
+  // Track doctor cancellations
+  if (cancellerRole === 'doctor') {
+    try {
+      const docProfile = await DoctorProfile.findOne({ userId: session.doctorId });
+      if (docProfile) {
+        docProfile.cancellationCount = (docProfile.cancellationCount || 0) + 1;
+        docProfile.lastCancellationDate = new Date();
+        if (docProfile.cancellationCount >= 3) {
+          docProfile.cancellationWarningIssued = true;
+          logger.warn(`Doctor ${session.doctorId} has reached ${docProfile.cancellationCount} cancellations.`);
+        }
+        await docProfile.save();
+      }
+    } catch (err) { logger.warn('Failed to update doctor cancellation tracking', { error: err.message }); }
+  }
+
   // Release the slot
   try {
     const avail = await DoctorAvailability.findOne({ doctorId: session.doctorId });

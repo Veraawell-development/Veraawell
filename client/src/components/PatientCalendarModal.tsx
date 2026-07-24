@@ -26,6 +26,7 @@ interface Session {
     callMode?: string;
     meetingLink?: string;
     notes?: string;
+    paymentStatus?: string;
 }
 
 const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onClose }) => {
@@ -319,6 +320,21 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
         };
 
         const config = statusConfig[status] || statusConfig.scheduled;
+
+        if (status === 'cancelled' && session.paymentStatus === 'refund_failed') {
+            return (
+                <span className={`px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider font-bold bg-red-500/20 text-red-300 border border-red-500/30`} style={{ fontFamily: 'Inter, sans-serif' }}>
+                    Refund Failed
+                </span>
+            );
+        }
+        if (status === 'cancelled' && session.paymentStatus === 'refunded') {
+            return (
+                <span className={`px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider font-bold bg-[#10B981]/20 text-[#6EE7B7] border border-white/10`} style={{ fontFamily: 'Inter, sans-serif' }}>
+                    Refunded
+                </span>
+            );
+        }
 
         return (
             <span className={`px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider font-bold ${config.bg} ${config.text} border border-white/10`} style={{ fontFamily: 'Inter, sans-serif' }}>

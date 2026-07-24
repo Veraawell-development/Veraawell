@@ -190,6 +190,12 @@ const SuperAdminDashboard: React.FC = () => {
     enabled: !!admin && activeTab === 'revenue',
   });
 
+  const { data: failedRefundsData, isLoading: failedRefundsLoading } = useQuery<any>({
+    queryKey: ['admin', 'failed-refunds'],
+    queryFn: async () => fetchAndParse(`${API_BASE_URL}/admin/payments/sessions/failed-refunds`),
+    enabled: !!admin && activeTab === 'revenue',
+  });
+
   const { data: articlesData, isLoading: articlesLoading } = useQuery({
     queryKey: ['admin', 'articles', page, debouncedSearch, selectedCategory, selectedStatus],
     queryFn: async () => {
@@ -251,6 +257,26 @@ const SuperAdminDashboard: React.FC = () => {
   useEffect(() => {
     setPage(1);
   }, [selectedCategory, selectedStatus]);
+
+  const handleRetryRefund = async (sessionId: string) => {
+    const loadingId = toast.loading('Retrying refund...');
+    try {
+      const response = await fetch(`${API_BASE_URL}/admin/payments/sessions/${sessionId}/retry-refund`, {
+        method: 'POST',
+        headers,
+        credentials: 'include'
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        toast.success(data.message, { id: loadingId });
+        queryClient.invalidateQueries({ queryKey: ['admin', 'failed-refunds'] });
+      } else {
+        toast.error(data.message || 'Refund retry failed', { id: loadingId });
+      }
+    } catch (error: any) {
+      toast.error('Network error. Please try again.', { id: loadingId });
+    }
+  };
 
 
 
@@ -1115,6 +1141,65 @@ const SuperAdminDashboard: React.FC = () => {
                                   <td className="p-4 text-sm text-neutral-700 font-medium">₹ {doc.grossRevenue.toLocaleString()}</td>
                                   <td className="p-4 text-sm text-emerald-600 font-medium">₹ {doc.platformFee.toLocaleString()}</td>
                                   <td className="p-4 text-sm text-[#0097b2] font-semibold">₹ {doc.doctorEarnings.toLocaleString()}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Failed Refunds Section */}
+                    <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm overflow-hidden mt-6">
+                      <div className="px-6 py-4 border-b border-neutral-100 bg-red-50/50 flex justify-between items-center">
+                        <h3 className="text-sm font-semibold text-red-800">Failed Refunds</h3>
+                        <span className="text-xs font-medium text-red-600 bg-red-100 px-2.5 py-1 rounded-full">
+                          {failedRefundsData?.count || 0} Stuck
+                        </span>
+                      </div>
+                      
+                      {failedRefundsLoading ? (
+                        <div className="p-8 flex justify-center">
+                          <div className="w-6 h-6 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
+                        </div>
+                      ) : (!failedRefundsData?.sessions || failedRefundsData.sessions.length === 0) ? (
+                        <div className="p-8 text-center">
+                          <p className="text-sm text-neutral-500">No stuck refunds found.</p>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="bg-neutral-50/50 text-neutral-500 text-[11px] font-semibold uppercase tracking-wider border-b border-neutral-100">
+                                <th className="p-4 pl-6 font-medium">Session ID / Date</th>
+                                <th className="p-4 font-medium">Patient</th>
+                                <th className="p-4 font-medium">Doctor</th>
+                                <th className="p-4 font-medium text-red-600">Amount</th>
+                                <th className="p-4 font-medium text-right pr-6">Action</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-neutral-100">
+                              {failedRefundsData.sessions.map((session: any) => (
+                                <tr key={session._id} className="hover:bg-red-50/10 transition-colors">
+                                  <td className="p-4 pl-6">
+                                    <div className="text-[11px] text-neutral-500 font-mono mb-0.5">{session._id.substring(0, 8)}...</div>
+                                    <div className="text-sm font-semibold text-neutral-900">{new Date(session.sessionDate).toLocaleDateString()}</div>
+                                  </td>
+                                  <td className="p-4">
+                                    <div className="text-sm font-semibold text-neutral-900">{session.patientName}</div>
+                                    <div className="text-[11px] text-neutral-500">{session.patientEmail}</div>
+                                  </td>
+                                  <td className="p-4 text-sm text-neutral-700">{session.doctorName}</td>
+                                  <td className="p-4 text-sm text-red-600 font-medium">₹ {session.price.toLocaleString()}</td>
+                                  <td className="p-4 text-right pr-6">
+                                    <button
+                                      onClick={() => handleRetryRefund(session._id)}
+                                      className="px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-xs font-semibold transition-colors shadow-sm inline-flex items-center gap-1.5"
+                                    >
+                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+                                      Retry Refund
+                                    </button>
+                                  </td>
                                 </tr>
                               ))}
                             </tbody>
