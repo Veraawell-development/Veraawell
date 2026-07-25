@@ -110,7 +110,7 @@ const ManageCalendar: React.FC = () => {
 
   const isSlotInPast = (dateStr: string, timeStr: string) => {
     const selectedDate = new Date(dateStr);
-    if (isToday(selectedDate)) {
+    if (isToday(dateStr)) {
       const timeInMs = (timeVal: string) => {
         const [h, min] = parseTime(timeVal);
         const d = new Date();
@@ -119,7 +119,7 @@ const ManageCalendar: React.FC = () => {
       };
       return timeInMs(timeStr) < new Date().getTime();
     }
-    return selectedDate < new Date().setHours(0, 0, 0, 0);
+    return selectedDate.getTime() < new Date().setHours(0, 0, 0, 0);
   };
 
   const toggleSlot = (slot: string) => {
