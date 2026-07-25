@@ -284,15 +284,28 @@ const bookImmediate = asyncHandler(async (req, res) => {
   try {
     if (!razorpayOrderId) {
       const emailService = require('../services/email.service');
-      if (populated.patientId.email) {
+      const sessionDateFormatted = new Date(saved.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+      
+      if (populated.patientId && populated.patientId.email) {
         await emailService.sendBookingConfirmationEmail(populated.patientId.email, {
-          date: new Date(saved.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+          date: sessionDateFormatted,
+          time: saved.sessionTime,
+          type: saved.sessionType || 'Immediate'
+        });
+      }
+      
+      if (populated.doctorId && populated.doctorId.email) {
+        await emailService.sendDoctorNewBookingEmail(populated.doctorId.email, {
+          patientName: `${populated.patientId.firstName} ${populated.patientId.lastName}`,
+          date: sessionDateFormatted,
           time: saved.sessionTime,
           type: saved.sessionType || 'Immediate'
         });
       }
     }
-  } catch (emailErr) { logger.warn('Email send failed', { error: emailErr.message }); }
+  } catch (emailErr) { 
+    logger.warn('Email send failed in bookImmediate', { error: emailErr.message, stack: emailErr.stack }); 
+  }
 
   logger.info('Immediate session order created', { sessionId: saved._id.toString().substring(0, 8) });
   res.status(201).json({ success: true, message: 'Immediate session order created.', session: populated });
@@ -392,15 +405,28 @@ const bookSession = asyncHandler(async (req, res) => {
   try {
     if (!razorpayOrderId) {
       const emailService = require('../services/email.service');
-      if (populated.patientId.email) {
+      const sessionDateFormatted = new Date(populated.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+      
+      if (populated.patientId && populated.patientId.email) {
         await emailService.sendBookingConfirmationEmail(populated.patientId.email, {
-          date: new Date(populated.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+          date: sessionDateFormatted,
+          time: populated.sessionTime,
+          type: populated.sessionType || 'Regular'
+        });
+      }
+      
+      if (populated.doctorId && populated.doctorId.email) {
+        await emailService.sendDoctorNewBookingEmail(populated.doctorId.email, {
+          patientName: `${populated.patientId.firstName} ${populated.patientId.lastName}`,
+          date: sessionDateFormatted,
           time: populated.sessionTime,
           type: populated.sessionType || 'Regular'
         });
       }
     }
-  } catch (emailErr) { logger.warn('Email send failed', { error: emailErr.message }); }
+  } catch (emailErr) { 
+    logger.warn('Email send failed in bookSession', { error: emailErr.message, stack: emailErr.stack }); 
+  }
   logger.info('Session order created', { sessionId: session._id.toString().substring(0, 8) });
   res.status(201).json({ success: true, message: 'Session order created', session: populated });
 });
@@ -579,8 +605,12 @@ const cancelSession = asyncHandler(async (req, res) => {
   }
 
   const sessionDT = new Date(session.sessionDate);
-  const [ch, cm] = session.sessionTime.split(':').map(Number);
-  sessionDT.setHours(ch, cm, 0, 0);
+  let [ch, cm] = session.sessionTime.split(':');
+  let hours = Number(ch);
+  const min = parseInt(cm);
+  if (cm.includes('PM') && hours < 12) hours += 12;
+  if (cm.includes('AM') && hours === 12) hours = 0;
+  sessionDT.setHours(hours, min, 0, 0);
 
   if (sessionDT.getTime() < Date.now()) {
     return res.status(400).json({ success: false, message: 'Cannot cancel a session that has already started' });

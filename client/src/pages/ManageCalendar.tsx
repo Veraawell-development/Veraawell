@@ -5,6 +5,7 @@ import { Toaster, toast } from 'react-hot-toast';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config/api';
+import { isToday, parseTime } from '../utils/dateUtils';
 
 interface TimeSlot { time: string; isBooked: boolean; sessionId?: string; }
 interface DayAvailability { date: string; slots: TimeSlot[]; }
@@ -108,12 +109,17 @@ const ManageCalendar: React.FC = () => {
   };
 
   const isSlotInPast = (dateStr: string, timeStr: string) => {
-    const [y, m, d] = dateStr.split('-').map(Number);
-    const [tv, period] = timeStr.split(' ');
-    let [h, min] = tv.split(':').map(Number);
-    if (period === 'PM' && h !== 12) h += 12;
-    if (period === 'AM' && h === 12) h = 0;
-    return new Date(y, m - 1, d, h, min) < new Date();
+    const selectedDate = new Date(dateStr);
+    if (isToday(selectedDate)) {
+      const timeInMs = (timeVal: string) => {
+        const [h, min] = parseTime(timeVal);
+        const d = new Date();
+        d.setHours(h, min, 0, 0);
+        return d.getTime();
+      };
+      return timeInMs(timeStr) < new Date().getTime();
+    }
+    return selectedDate < new Date().setHours(0, 0, 0, 0);
   };
 
   const toggleSlot = (slot: string) => {

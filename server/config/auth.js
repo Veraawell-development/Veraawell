@@ -88,8 +88,8 @@ function getOAuthConfig() {
 function getCookieConfig() {
   return {
     httpOnly: true,
-    secure: true, // Always secure for cross-site cookies
-    sameSite: 'none', // Required for cross-site (Vercel -> Render)
+    secure: isProduction(), // Secure only in production (HTTPS)
+    sameSite: isProduction() ? 'none' : 'lax', // 'none' requires secure: true
     maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
     path: '/',
     domain: isProduction() ? '.veraawell.com' : undefined

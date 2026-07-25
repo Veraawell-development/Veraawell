@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { parseTime } = require('../utils/timeUtils');
 
 const sessionSchema = new mongoose.Schema({
   patientId: {
@@ -207,7 +208,7 @@ sessionSchema.index({ createdAt: -1 }); // Recent sessions
 
 // Virtual for session end time
 sessionSchema.virtual('sessionEndTime').get(function () {
-  const [hours, minutes] = this.sessionTime.split(':').map(Number);
+  const [hours, minutes] = parseTime(this.sessionTime);
   const startTime = new Date(this.sessionDate);
   startTime.setHours(hours, minutes, 0, 0);
 
@@ -219,7 +220,7 @@ sessionSchema.virtual('sessionEndTime').get(function () {
 sessionSchema.methods.isUpcoming = function () {
   const now = new Date();
   const sessionDateTime = new Date(this.sessionDate);
-  const [hours, minutes] = this.sessionTime.split(':').map(Number);
+  const [hours, minutes] = parseTime(this.sessionTime);
   sessionDateTime.setHours(hours, minutes, 0, 0);
 
   return sessionDateTime > now && this.status === 'scheduled';
@@ -229,7 +230,7 @@ sessionSchema.methods.isUpcoming = function () {
 sessionSchema.methods.canJoin = function () {
   const now = new Date();
   const sessionDateTime = new Date(this.sessionDate);
-  const [hours, minutes] = this.sessionTime.split(':').map(Number);
+  const [hours, minutes] = parseTime(this.sessionTime);
   sessionDateTime.setHours(hours, minutes, 0, 0);
 
   const timeDiff = sessionDateTime.getTime() - now.getTime();

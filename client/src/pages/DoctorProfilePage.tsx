@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { isToday, parseTime } from '../utils/dateUtils';
 
 interface BookingState {
   mode: 'video' | 'voice';
@@ -123,16 +124,12 @@ const DoctorProfilePage: React.FC = () => {
       if (!response.ok) throw new Error('Failed to fetch slots');
       const data = await response.json();
       const now = new Date();
-      const [year, month, day] = booking.date.split('-').map(Number);
-      const isToday = now.getFullYear() === year && now.getMonth() + 1 === month && now.getDate() === day;
 
       return (data.availableSlots as string[]).filter((slot: string) => {
-        if (!isToday) return true;
-        const [timeVal, period] = slot.split(' ');
-        let [h, m] = timeVal.split(':').map(Number);
-        if (period === 'PM' && h !== 12) h += 12;
-        if (period === 'AM' && h === 12) h = 0;
-        const slotDate = new Date(year, month - 1, day, h, m, 0, 0);
+        if (!isToday(booking.date)) return true;
+        const [h, m] = parseTime(slot);
+        const slotDate = new Date();
+        slotDate.setHours(h, m, 0, 0);
         return slotDate > now;
       });
     },

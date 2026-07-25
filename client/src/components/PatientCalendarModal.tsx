@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { API_CONFIG } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-hot-toast';
+import { parseTime } from '../utils/dateUtils';
 
 interface PatientCalendarModalProps {
     isOpen: boolean;
@@ -116,8 +117,10 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
 
         const now = new Date();
         const sessionDateTime = new Date(session.sessionDate);
-        const [hours, minutes] = session.sessionTime.split(':').map(Number);
-        sessionDateTime.setHours(hours, minutes, 0, 0);
+        if (session.sessionTime) {
+          const [hours, minutes] = parseTime(session.sessionTime);
+          sessionDateTime.setHours(hours, minutes, 0, 0);
+        }
 
         const durationInMs = (session.duration || 60) * 60 * 1000;
         const timeDiff = sessionDateTime.getTime() - now.getTime();
@@ -184,7 +187,7 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
     }).sort((a, b) => {
         const getDateWithTime = (sessionStr: string, timeStr: string) => {
             const d = new Date(sessionStr);
-            const [hours, minutes] = timeStr.split(':').map(Number);
+            const [hours, minutes] = parseTime(timeStr);
             if (!isNaN(hours) && !isNaN(minutes)) {
                 d.setHours(hours, minutes, 0, 0);
             }

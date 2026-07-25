@@ -193,12 +193,23 @@ const PatientProfileSetupPage: React.FC = () => {
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-6">
                                 <div>
                                     <label className="block text-sm font-medium text-[var(--text-2)] mb-2">
+                                        Email Address
+                                    </label>
+                                    <input
+                                        type="email"
+                                        value={user?.email || ''}
+                                        disabled
+                                        className="w-full px-4 py-3 rounded-xl border border-[var(--border)] bg-gray-50/50 text-[var(--text-3)] text-sm cursor-not-allowed"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-[var(--text-2)] mb-2">
                                         Full Name *
                                     </label>
                                     <input
                                         type="text"
                                         value={formData.fullName}
-                                        onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                                        onChange={(e) => setFormData(prev => ({ ...prev, fullName: e.target.value }))}
                                         disabled={!isEditing}
                                         className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)] disabled:opacity-50 disabled:bg-gray-50/50"
                                         required

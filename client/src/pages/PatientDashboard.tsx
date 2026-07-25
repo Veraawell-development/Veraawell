@@ -751,7 +751,7 @@ const PatientDashboard: React.FC = () => {
             </div>
 
             {/* Calendar Card */}
-            <div className="flex flex-col rounded-[24px] bg-gradient-to-br from-[#ABA5D1] to-[#867EB5] shadow-[0_8px_30px_rgb(171,165,209,0.3)] border border-white/10 overflow-hidden min-h-[450px] lg:min-h-0 hover:shadow-[0_8px_30px_rgb(171,165,209,0.5)] transition-all duration-300">
+            <div className="flex flex-col rounded-[24px] bg-gradient-to-br from-[#ABA5D1] to-[#867EB5] shadow-[0_8px_30px_rgb(171,165,209,0.3)] border border-white/10 min-h-[450px] lg:min-h-0 hover:shadow-[0_8px_30px_rgb(171,165,209,0.5)] transition-all duration-300">
               <div className="px-6 py-4 shrink-0 flex items-center justify-between border-b border-white/10">
                 <h3 className="text-lg font-bold text-white font-sans tracking-wide drop-shadow-sm">Calendar</h3>
                 <button
@@ -790,14 +790,20 @@ const PatientDashboard: React.FC = () => {
                     background-color: rgba(255, 255, 255, 0.2) !important;
                   }
                   /* Fix for tooltip and other explicit white backgrounds */
-                  .calendar-container .bg-white {
+                  .calendar-container .bg-white,
+                  .calendar-container .bg-white\\/95 {
                      background-color: rgba(255, 255, 255, 0.95) !important;
                   }
                   .calendar-container .bg-white span,
                   .calendar-container .bg-white div,
                   .calendar-container .bg-white h3,
                   .calendar-container .bg-white h4,
-                  .calendar-container .bg-white p {
+                  .calendar-container .bg-white p,
+                  .calendar-container .bg-white\\/95 span,
+                  .calendar-container .bg-white\\/95 div,
+                  .calendar-container .bg-white\\/95 h3,
+                  .calendar-container .bg-white\\/95 h4,
+                  .calendar-container .bg-white\\/95 p {
                      color: #333 !important;
                   }
                   /* Specifically preserve the dot colors by NOT using * selector */

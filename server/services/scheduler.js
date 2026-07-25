@@ -3,6 +3,7 @@ const Session = require('../models/session');
 const DoctorAvailability = require('../models/doctorAvailability');
 const { sendSessionReminderEmail } = require('./email.service');
 const { createLogger } = require('../utils/logger');
+const { parseTime } = require('../utils/timeUtils');
 
 const logger = createLogger('SCHEDULER');
 
@@ -30,9 +31,9 @@ const runSessionStatusUpdate = async () => {
 
         let updatedCount = 0;
         for (const session of scheduledSessions) {
-            const [hours, minutes] = session.sessionTime.split(':').map(Number);
+            const [hours, minutes] = parseTime(session.sessionTime);
             const sessionStart = new Date(session.sessionDate);
-            sessionStart.setUTCHours(hours, minutes, 0, 0);
+            sessionStart.setHours(hours, minutes, 0, 0);
             const sessionEnd = new Date(sessionStart.getTime() + (session.duration * 60000));
 
             if (sessionEnd < now) {
@@ -101,7 +102,7 @@ const startScheduler = () => {
                     continue;
                 }
 
-                const [hours, minutes] = session.sessionTime.split(':').map(Number);
+                const [hours, minutes] = parseTime(session.sessionTime);
                 const sessionDateTime = new Date(session.sessionDate);
                 sessionDateTime.setHours(hours, minutes, 0, 0);
 

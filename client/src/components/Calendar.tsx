@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { API_CONFIG } from '../config/api';
 import logger from '../utils/logger';
 import type { Session } from '../types';
+import { parseTime } from '../utils/dateUtils';
 
 interface CalendarProps {
   userRole: 'patient' | 'doctor';
@@ -75,8 +76,10 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
 
     const now = new Date();
     const sessionDateTime = new Date(session.sessionDate);
-    const [hours, minutes] = session.sessionTime.split(':').map(Number);
-    sessionDateTime.setHours(hours, minutes, 0, 0);
+    if (session.sessionTime) {
+      const [hours, minutes] = parseTime(session.sessionTime);
+      sessionDateTime.setHours(hours, minutes, 0, 0);
+    }
 
     const durationInMs = (session.duration || 60) * 60 * 1000;
     const timeDiff = sessionDateTime.getTime() - now.getTime(); // Positive if future, negative if past
@@ -115,8 +118,10 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
     // This acts as a robust visual fallback against stale caching.
     const now = new Date();
     const sessionDateTime = new Date(session.sessionDate);
-    const [hours, minutes] = session.sessionTime.split(':').map(Number);
-    sessionDateTime.setHours(hours, minutes, 0, 0);
+    if (session.sessionTime) {
+      const [hours, minutes] = parseTime(session.sessionTime);
+      sessionDateTime.setHours(hours, minutes, 0, 0);
+    }
     const durationInMs = (session.duration || 60) * 60 * 1000;
     
     if (now.getTime() > sessionDateTime.getTime() + durationInMs) {
@@ -167,6 +172,7 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
           const daySessions = getSessionsForDate(day);
           const isToday = isCurrentMonth && day === today.getDate();
           const hasSessions = daySessions.length > 0;
+          const dayOfWeek = (firstDay + i) % 7;
 
           let statusColor = '';
           if (hasSessions) {
@@ -205,7 +211,12 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
 
                 {/* Tooltip */}
                 {hoveredDate === day && hasSessions && (
-                  <div className="absolute z-50 bottom-full mb-3 w-64 bg-white/95 backdrop-blur-xl text-gray-800 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-4 text-left transform -translate-x-1/2 left-1/2 border border-white/50 cursor-default" onClick={(e) => e.stopPropagation()}>
+                  <div 
+                    className={`absolute z-50 bottom-full mb-3 w-64 bg-white/95 backdrop-blur-xl text-gray-800 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] p-4 text-left border border-white/50 cursor-default ${
+                      dayOfWeek >= 5 ? 'right-0' : dayOfWeek <= 1 ? 'left-0' : 'left-1/2 -translate-x-1/2'
+                    }`} 
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <div className="text-xs font-bold text-gray-400 mb-3 uppercase tracking-widest border-b border-gray-100 pb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
                       {daySessions.length} Session{daySessions.length > 1 ? 's' : ''}
                     </div>

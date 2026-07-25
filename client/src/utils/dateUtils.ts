@@ -1,6 +1,21 @@
 // Date and Time Utility Functions
 
 /**
+ * Parses a time string (e.g. "14:30" or "02:30 PM") and returns [hours, minutes] in 24h format
+ */
+export const parseTime = (timeString: string): [number, number] => {
+  if (!timeString) return [0, 0];
+  if (timeString.includes(' ')) {
+    const [time, modifier] = timeString.split(' ');
+    let [hours, minutes] = time.split(':').map(Number);
+    if (modifier === 'PM' && hours < 12) hours += 12;
+    if (modifier === 'AM' && hours === 12) hours = 0;
+    return [hours, minutes];
+  }
+  return timeString.split(':').map(Number) as [number, number];
+};
+
+/**
  * Formats a date string into a readable format with ordinal suffix
  * @example "2025-01-15" → "15th January 2025"
  */
@@ -50,7 +65,7 @@ export const isToday = (dateString: string): boolean => {
 export const isPast = (dateString: string, timeString?: string): boolean => {
   const date = new Date(dateString);
   if (timeString) {
-    const [hours, minutes] = timeString.split(':').map(Number);
+    const [hours, minutes] = parseTime(timeString);
     date.setHours(hours, minutes, 0, 0);
   }
   return date < new Date();

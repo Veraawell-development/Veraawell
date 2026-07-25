@@ -4,6 +4,8 @@ import EmergencyContactModal from './EmergencyContactModal';
 import RatingModal from './RatingModal';
 import SessionReportsModal from './SessionReportsModal';
 import { API_BASE_URL } from '../config/api';
+import { parseTime } from '../utils/dateUtils';
+import { toast } from 'react-hot-toast';
 
 interface Session {
   _id: string;
@@ -49,8 +51,8 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
     if (!session) return new Date();
     const d = new Date(session.sessionDate);
     if (session.sessionType !== 'immediate' && session.sessionTime) {
-      const [h, m] = session.sessionTime.split(':').map(Number);
-      d.setUTCHours(h, m, 0, 0);
+      const [h, m] = parseTime(session.sessionTime);
+      d.setHours(h, m, 0, 0);
     }
     return d;
   })();
@@ -176,9 +178,10 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
 
     const now = new Date();
     const sessionDateTime = new Date(session.sessionDate);
-    const [hours, minutes] = session.sessionTime.split(':').map(Number);
-    sessionDateTime.setHours(hours, minutes, 0, 0);
-
+    if (session.sessionTime) {
+      const [hours, minutes] = parseTime(session.sessionTime);
+      sessionDateTime.setHours(hours, minutes, 0, 0);
+    }
     const timeDiff = sessionDateTime.getTime() - now.getTime();
     const minutesDiff = timeDiff / (1000 * 60);
 
@@ -312,10 +315,12 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
         throw new Error(errorData.message || 'Failed to cancel session');
       }
 
-      alert('Session cancelled successfully. You will receive a refund if applicable.');
+      toast.success('Session cancelled successfully. You will receive a refund if applicable.');
       onClose();
-      // Refresh the page to update the calendar
-      window.location.reload();
+      // Refresh the page to update the calendar after a short delay so the toast is visible
+      setTimeout(() => {
+        window.location.reload();
+      }, 1500);
     } catch (error: any) {
       console.error('Error cancelling session:', error);
       setError(error.message || 'Failed to cancel session');

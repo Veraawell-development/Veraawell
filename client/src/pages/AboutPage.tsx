@@ -144,32 +144,54 @@ const AboutPage: React.FC = () => {
         </div>
 
         {/* ── Founder's Message (Editorial Style) ── */}
-        <div ref={founderRef} data-reveal className="max-w-4xl mx-auto border-t border-gray-100 pt-20 flex flex-col md:flex-row items-center gap-12">
-          {/* Founder Image */}
-          <div className="relative flex-shrink-0">
-            <div className="w-[180px] h-[220px] rounded-2xl overflow-hidden shadow-xl filter grayscale hover:grayscale-0 transition-all duration-700">
-              <img 
-                src="https://images.unsplash.com/photo-1560250097-0b93528c311a?q=80&w=800&auto=format&fit=crop" 
-                alt="Harris Chaudhary" 
-                className="w-full h-full object-cover object-top"
-              />
+        <div ref={founderRef} data-reveal className="max-w-5xl mx-auto border-t border-gray-100 pt-20">
+          <div className="relative bg-gradient-to-br from-[#FAFAFA] via-white to-[#F0F7F7] rounded-[36px] p-8 md:p-14 border border-gray-200/80 shadow-[0_20px_50px_rgba(0,0,0,0.06)] overflow-hidden flex flex-col md:flex-row items-center gap-10 md:gap-14">
+            {/* Background Decorative Accent */}
+            <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-[#2E8A99]/10 to-transparent rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
+            <div className="absolute bottom-0 left-0 w-72 h-72 bg-gradient-to-tr from-[#005B5C]/10 to-transparent rounded-full blur-2xl pointer-events-none -ml-16 -mb-16"></div>
+
+            {/* Founder Image with Premium Frame */}
+            <div className="relative flex-shrink-0 group">
+              <div className="absolute -inset-1 bg-gradient-to-r from-[#2E8A99] to-[#005B5C] rounded-[26px] blur-sm opacity-30 group-hover:opacity-60 transition duration-700"></div>
+              <div className="relative w-[200px] h-[250px] md:w-[220px] md:h-[280px] rounded-[24px] overflow-hidden shadow-2xl border-[3px] border-white bg-white">
+                <img 
+                  src="/profile-main.jpg" 
+                  alt="Harris Chaudhary" 
+                  className="w-full h-full object-cover object-top scale-[1.20] transition-transform duration-700 group-hover:scale-[1.25]"
+                />
+              </div>
+              <div className="absolute -bottom-3 -right-3 bg-[#005B5C] text-white px-3 py-1 rounded-full text-[10px] font-bold tracking-widest uppercase shadow-md border border-white/20 z-20">
+                Founder
+              </div>
             </div>
-          </div>
-          
-          {/* Founder Content */}
-          <div className="flex-1 text-center md:text-left">
-            <div className="text-[22px] md:text-[28px] leading-snug space-y-6 text-gray-800 mb-8" style={{ fontFamily: 'var(--font-display)' }}>
-              <p>
-                "Mental wellness shouldn't be a privilege — it must be a fundamental right."
-              </p>
-            </div>
-            <div>
-              <p className="text-[var(--text)] font-bold text-[18px] mb-1" style={{ fontFamily: 'var(--font-display)' }}>
-                Harris Chaudhary
-              </p>
-              <p className="text-gray-400 font-medium text-[12px] uppercase tracking-widest">
-                Founder, Veraawell
-              </p>
+            
+            {/* Founder Content */}
+            <div className="flex-1 text-center md:text-left relative z-10">
+              {/* Oversized Quote Mark */}
+              <div className="text-[#2E8A99]/15 text-[80px] md:text-[100px] font-serif leading-none absolute -top-8 -left-6 md:-left-8 select-none pointer-events-none">
+                “
+              </div>
+              
+              <div className="relative text-[22px] md:text-[30px] leading-relaxed text-gray-900 font-medium mb-8" style={{ fontFamily: 'var(--font-display)' }}>
+                <p className="italic">
+                  "Mental wellness shouldn't be a privilege, it must be a fundamental right."
+                </p>
+              </div>
+
+              <div className="flex flex-col md:flex-row md:items-center justify-between border-t border-gray-200/60 pt-6 gap-4">
+                <div>
+                  <p className="text-gray-900 font-bold text-[20px] tracking-tight mb-0.5" style={{ fontFamily: 'var(--font-display)' }}>
+                    Harris Chaudhary
+                  </p>
+                  <p className="text-[#2E8A99] font-semibold text-[12px] uppercase tracking-[0.2em]">
+                    Founder & CEO, Veraawell
+                  </p>
+                </div>
+                <div className="hidden md:flex items-center gap-2">
+                  <span className="w-12 h-[1px] bg-[#2E8A99]/40"></span>
+                  <span className="text-[13px] font-serif italic text-gray-500">A vision for accessible care</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>

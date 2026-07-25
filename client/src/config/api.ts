@@ -1,7 +1,7 @@
 // API Configuration - Centralized
 export const API_CONFIG = {
   BASE_URL: window.location.hostname === 'localhost'
-    ? 'http://localhost:5001/api'
+    ? '/api'
     : 'https://api.veraawell.com/api',
   SOCKET_URL: window.location.hostname === 'localhost'
     ? 'http://localhost:5001'

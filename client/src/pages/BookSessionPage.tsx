@@ -6,6 +6,7 @@ import { API_CONFIG } from '../config/api';
 import logger from '../utils/logger';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../context/AuthContext';
+import { parseTime } from '../utils/dateUtils';
 import type { Doctor } from '../types';
 
 const BookSessionPage: React.FC = () => {
@@ -57,10 +58,7 @@ const BookSessionPage: React.FC = () => {
 
       return (data.availableSlots as string[]).filter((slot: string) => {
         if (!isToday) return true;
-        const [timeVal, period] = slot.split(' ');
-        let [h, m] = timeVal.split(':').map(Number);
-        if (period === 'PM' && h !== 12) h += 12;
-        if (period === 'AM' && h === 12) h = 0;
+        const [h, m] = parseTime(slot);
         const slotDate = new Date(year, month - 1, day, h, m, 0, 0);
         return slotDate > now;
       });

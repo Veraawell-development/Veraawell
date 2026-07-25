@@ -1,5 +1,6 @@
 const Session = require('../models/session');
 const { createLogger } = require('./logger');
+const { parseTime } = require('./timeUtils');
 
 const logger = createLogger('SESSION-UPDATER');
 
@@ -23,9 +24,9 @@ const updateSessionStatuses = async () => {
         let updatedCount = 0;
 
         for (const session of scheduledSessions) {
-            const [hours, minutes] = session.sessionTime.split(':').map(Number);
+            const [hours, minutes] = parseTime(session.sessionTime);
             const sessionStart = new Date(session.sessionDate);
-            sessionStart.setUTCHours(hours, minutes, 0, 0);
+            sessionStart.setHours(hours, minutes, 0, 0);
 
             const sessionEnd = new Date(sessionStart.getTime() + (session.duration * 60000));
 

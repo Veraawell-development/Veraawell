@@ -434,11 +434,11 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
               <motion.form key="register" variants={stagger} initial="initial" animate="animate" exit="exit"
                 onSubmit={handleRegister} className="space-y-3">
                 <Field label="Full Name" type="text" value={firstName} onChange={setFirstName}
-                  placeholder="Your full name" icon={<FiUser size={15} />} disabled={loading} />
+                  placeholder="Your full name" icon={<FiUser size={15} />} disabled={isMutationLoading} />
                 <Field label="Email" type="email" value={email} onChange={setEmail}
-                  placeholder="rahul.sharma@gmail.com" icon={<FiMail size={15} />} disabled={loading} />
+                  placeholder="rahul.sharma@gmail.com" icon={<FiMail size={15} />} disabled={isMutationLoading} />
                 <Field label="Phone" type="tel" value={phoneNo} onChange={setPhoneNo}
-                  placeholder="+91 84487 45066" icon={<FiPhone size={15} />} disabled={loading} />
+                  placeholder="+91 84487 45066" icon={<FiPhone size={15} />} disabled={isMutationLoading} />
                 
                 {/* Password row */}
                 <motion.div variants={fadeUp} className="space-y-1">
@@ -446,7 +446,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
                   <div className="relative group">
                     <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400 group-focus-within:text-[var(--teal)] transition-colors pointer-events-none"><FiLock size={15} /></span>
                     <input type={showPw ? 'text' : 'password'} value={registerPassword}
-                      onChange={e => setRegisterPassword(e.target.value)} placeholder="Password" disabled={loading}
+                      onChange={e => setRegisterPassword(e.target.value)} placeholder="Password" disabled={isMutationLoading}
                       className="w-full pl-10 pr-10 py-2.5 bg-white border rounded-xl text-[13px] transition-all disabled:opacity-40"
                       style={{ borderColor: 'var(--border)', color: 'var(--text)', outline: 'none' }}
                       onFocus={e => { e.target.style.borderColor = 'var(--teal)'; e.target.style.boxShadow = '0 0 0 3px var(--teal-muted)'; }}
@@ -507,7 +507,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
                   <div className="relative group">
                     <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-400 group-focus-within:text-[var(--teal)] transition-colors pointer-events-none"><FiLock size={15} /></span>
                     <input type={showConfirm ? 'text' : 'password'} value={registerConfirm}
-                      onChange={e => setRegisterConfirm(e.target.value)} placeholder="Confirm Password" disabled={loading}
+                      onChange={e => setRegisterConfirm(e.target.value)} placeholder="Confirm Password" disabled={isMutationLoading}
                       className="w-full pl-10 pr-10 py-2.5 bg-white border rounded-xl text-[13px] transition-all disabled:opacity-40"
                       style={{ borderColor: 'var(--border)', color: 'var(--text)', outline: 'none' }}
                       onFocus={e => { e.target.style.borderColor = 'var(--teal)'; e.target.style.boxShadow = '0 0 0 3px var(--teal-muted)'; }}
@@ -519,21 +519,21 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
                   </div>
                 </motion.div>
 
-                <motion.button variants={fadeUp} type="submit" disabled={loading} whileTap={{ scale: 0.98 }}
+                <motion.button variants={fadeUp} type="submit" disabled={isMutationLoading} whileTap={{ scale: 0.98 }}
                   className="w-full mt-3 py-2.5 text-white text-[14px] font-semibold rounded-xl transition-all shadow-sm flex items-center justify-center gap-2"
                   style={{ background: 'var(--teal)', border: '1px solid rgba(0,0,0,0.05)' }}
                   onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = 'var(--teal-dark)'}
                   onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = 'var(--teal)'}>
-                  {loading ? <Spinner text="Creating Account..." /> : 'Create Account'}
+                  {isMutationLoading ? <Spinner text="Creating Account..." /> : 'Create Account'}
                 </motion.button>
               </motion.form>
             ) : (
               <motion.form key="login" variants={stagger} initial="initial" animate="animate" exit="exit"
                 onSubmit={handleLogin} className="space-y-3">
                 <Field label="Email or Phone" type="text" value={username} onChange={setUsername}
-                  placeholder="Enter your email or phone" icon={<FiMail size={15} />} disabled={loading} />
+                  placeholder="Enter your email or phone" icon={<FiMail size={15} />} disabled={isMutationLoading} />
                 <Field label="Password" type="password" value={password} onChange={setPassword}
-                  placeholder="Enter your password" icon={<FiLock size={15} />} disabled={loading}
+                  placeholder="Enter your password" icon={<FiLock size={15} />} disabled={isMutationLoading}
                   toggle showPw={showLoginPw} onToggle={() => setShowLoginPw(p => !p)} />
                 <motion.div variants={fadeUp} className="flex justify-end pt-0.5">
                   <button type="button" onClick={() => navigate('/forgot-password')}
