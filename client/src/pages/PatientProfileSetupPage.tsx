@@ -128,7 +128,7 @@ const PatientProfileSetupPage: React.FC = () => {
                             </div>
                             <h2 className="text-white tracking-tight leading-[1.1] mb-6 font-normal" style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 4vw, 42px)' }}>
                                 Welcome to<br/>
-                                <span>Veerawell.</span>
+                                <span>Veraawell.</span>
                             </h2>
                             <div className="w-16 h-1 bg-white/30 mb-8 rounded-full"></div>
                             <p className="text-white/80 text-[16px] leading-relaxed font-light max-w-[280px]" style={{ fontFamily: 'var(--font-body)' }}>

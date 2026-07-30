@@ -67,9 +67,10 @@ const HowItWorks: React.FC = () => {
             — How It Works
           </span>
           <h2
-            className="leading-[1.15] mx-auto font-normal tracking-normal"
+            className="leading-[1.15] mx-auto tracking-tight"
             style={{
-              fontFamily: 'var(--font-display)',
+              fontFamily: 'var(--font-body)',
+              fontWeight: 600,
               fontSize: 'clamp(32px, 4vw, 52px)',
               color: 'var(--text)',
               maxWidth: '600px',

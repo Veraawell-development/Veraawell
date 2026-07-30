@@ -9,7 +9,7 @@ import { test, expect } from '@playwright/test';
 test.describe('Landing Page', () => {
   test('loads and has correct title', async ({ page }) => {
     await page.goto('/');
-    await expect(page).toHaveTitle(/Veraawell|Veerawell/i);
+    await expect(page).toHaveTitle(/Veraawell/i);
   });
 
   test('landing page renders some content', async ({ page }) => {
@@ -41,7 +41,7 @@ test.describe('Navigation — Public Pages', () => {
     await expect(page.locator('h1, h2').first()).toBeVisible({ timeout: 5000 });
     // FAQ accordion: each item is a div containing a question button
     // The FAQ page renders plain <button> elements for each question
-    const faqButton = page.locator('button').filter({ hasText: 'What is Veerawell' }).first();
+    const faqButton = page.locator('button').filter({ hasText: 'What is Veraawell' }).first();
     await expect(faqButton).toBeVisible({ timeout: 5000 });
     // Clicking a question should expand the answer
     await faqButton.click();

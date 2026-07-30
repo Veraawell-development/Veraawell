@@ -12,7 +12,7 @@ async function approveE2EDoctor() {
     console.log('[APPROVE-SCRIPT] Connected to MongoDB');
     
     const result = await User.updateOne(
-      { email: 'e2e.doctor@veerawell.test' },
+      { email: 'e2e.doctor@veraawell.test' },
       { $set: { approvalStatus: 'approved' } }
     );
     

@@ -16,6 +16,7 @@ const therapists = [
     reviews: 142,
     color: '#0097B2',
     available: true,
+    startingPrice: 499,
   },
   {
     initials: 'RK',
@@ -28,6 +29,7 @@ const therapists = [
     reviews: 201,
     color: '#6BA888',
     available: true,
+    startingPrice: 599,
   },
   {
     initials: 'AN',
@@ -40,6 +42,7 @@ const therapists = [
     reviews: 98,
     color: '#C4A882',
     available: false,
+    startingPrice: 449,
   },
 ];
 
@@ -63,12 +66,32 @@ const TherapistCard: React.FC<{ therapist: typeof therapists[0]; delay: number }
     >
       {/* Card header with avatar */}
       <div
-        className="px-6 pt-7 pb-5"
+        className="px-6 pt-7 pb-5 relative"
         style={{
           background: `linear-gradient(135deg, ${therapist.color}10, ${therapist.color}05)`,
           borderBottom: '1px solid var(--border)',
         }}
       >
+        {/* Starting price badge */}
+        <div
+          className="absolute top-4 right-4 flex flex-col items-end leading-none"
+          title="Indicative starting price"
+        >
+          <span
+            className="text-[9px] font-semibold tracking-widest uppercase"
+            style={{ color: therapist.color, opacity: 0.75, fontFamily: 'var(--font-mono)' }}
+          >
+            From
+          </span>
+          <span
+            className="text-sm font-bold mt-0.5"
+            style={{ color: therapist.color }}
+          >
+            ₹{therapist.startingPrice}
+            <span className="text-[10px] font-medium" style={{ color: 'var(--text-3)' }}>/session</span>
+          </span>
+        </div>
+
         <div className="flex items-center gap-4">
           {/* Avatar */}
           <div

@@ -239,7 +239,7 @@ const bookImmediate = asyncHandler(async (req, res) => {
               account: doctorProfile.razorpayAccountId,
               amount: doctorEarnings * 100,
               currency: 'INR',
-              notes: { branch: "Veerawell Immediate" }
+              notes: { branch: "Veraawell Immediate" }
             }];
           }
 
@@ -363,7 +363,7 @@ const bookSession = asyncHandler(async (req, res) => {
           amount: doctorEarnings * 100,
           currency: 'INR',
           notes: {
-            branch: "Veerawell Session"
+            branch: "Veraawell Session"
           }
         }];
       }

@@ -9,15 +9,15 @@ export const API_URL  = 'http://localhost:5001/api';
 
 // ─── Test Credentials (must exist in DB or be seeded) ───────────────────────
 export const TEST_PATIENT = {
-  email:    'e2e.patient@veerawell.test',
+  email:    'e2e.patient@veraawell.test',
   password: 'TestPatient123!',
-  username: 'e2e.patient@veerawell.test',
+  username: 'e2e.patient@veraawell.test',
 };
 
 export const TEST_DOCTOR = {
-  email:    'e2e.doctor@veerawell.test',
+  email:    'e2e.doctor@veraawell.test',
   password: 'TestDoctor123!',
-  username: 'e2e.doctor@veerawell.test',
+  username: 'e2e.doctor@veraawell.test',
 };
 
 // ─── Page Object Models ──────────────────────────────────────────────────────

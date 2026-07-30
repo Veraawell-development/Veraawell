@@ -349,7 +349,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
           }}
         >
           <div className="mb-6">
-            <h1 className="text-2xl font-semibold tracking-normal mb-1.5" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
+            <h1 className="text-2xl font-semibold tracking-normal mb-1.5" style={{ color: 'var(--text)', fontFamily: 'var(--font-body)' }}>
               {registerMode ? 'Create account' : 'Welcome back'}
             </h1>
             <p className="text-[13px]" style={{ color: 'var(--text-2)' }}>

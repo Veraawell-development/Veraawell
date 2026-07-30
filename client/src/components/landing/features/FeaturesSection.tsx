@@ -166,7 +166,7 @@ const FeaturesSection: React.FC = () => {
             data-delay="3"
             className="rounded-[28px] p-8 cursor-pointer relative group overflow-hidden bg-[var(--surface)] border border-[var(--border)] shadow-sm hover:shadow-lg hover:border-transparent transition-all duration-500 ease-out hover:-translate-y-1 hover:bg-[#FDFCF9]"
           >
-            <div className="relative z-10">
+            <div className="relative z-10 w-2/3">
               <p className="text-[11px] font-bold mb-2 tracking-widest uppercase" style={{ color: 'var(--gold)' }}>03</p>
               <h3
                 className="text-[19px] font-bold mb-2 leading-snug tracking-tight"
@@ -174,14 +174,15 @@ const FeaturesSection: React.FC = () => {
               >
                 Session-Wise Reports
               </h3>
-              <p className="text-[14px] leading-relaxed relative z-20" style={{ color: 'var(--text-2)' }}>
+              <p className="text-[14px] leading-relaxed" style={{ color: 'var(--text-2)' }}>
                 Detailed post-session notes and therapist insights after every appointment.
               </p>
             </div>
             
             {/* Custom UI Illustration: Document */}
-            <div className="absolute -bottom-6 -right-6 w-36 h-36 rounded-tl-[40px] rounded-br-[28px] border-l-2 border-t-2 flex items-center justify-center transition-all duration-500 group-hover:-translate-x-2 group-hover:-translate-y-2 group-hover:shadow-[-8px_-8px_24px_rgba(196,168,130,0.1)]" style={{ background: 'rgba(196, 168, 130, 0.1)', borderColor: 'rgba(196, 168, 130, 0.3)' }}>
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--gold)' }} className="opacity-80">
+            <div className="absolute top-1/2 right-4 -translate-y-1/2 w-24 h-24 flex items-center justify-center transition-transform duration-500 group-hover:scale-110">
+              <div className="absolute inset-3 rounded-full border" style={{ borderColor: 'rgba(196, 168, 130, 0.3)' }} />
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--gold)' }} className="relative z-10">
                 <path d="M14 2H6C4.89543 2 4 2.89543 4 4V20C4 21.1046 4.89543 22 6 22H18C19.1046 22 20 21.1046 20 20V8L14 2Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M14 2V8H20" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                 <path d="M16 13H8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
@@ -227,7 +228,7 @@ const FeaturesSection: React.FC = () => {
             data-delay="5"
             className="rounded-[28px] p-8 cursor-pointer relative group overflow-hidden bg-[var(--surface)] border border-[var(--border)] shadow-sm hover:shadow-lg hover:border-transparent transition-all duration-500 ease-out hover:-translate-y-1 hover:bg-[#FDF6F3]"
           >
-            <div className="relative z-10">
+            <div className="relative z-10 w-2/3">
               <p className="text-[11px] font-bold mb-2 tracking-widest uppercase" style={{ color: 'var(--warm)' }}>05</p>
               <h3
                 className="text-[19px] font-bold mb-2 leading-snug tracking-tight"
@@ -235,15 +236,16 @@ const FeaturesSection: React.FC = () => {
               >
                 Flexible Pricing
               </h3>
-              <p className="text-[14px] leading-relaxed relative z-20" style={{ color: 'var(--text-2)' }}>
+              <p className="text-[14px] leading-relaxed" style={{ color: 'var(--text-2)' }}>
                 Pay per session or subscribe. No hidden fees.
               </p>
             </div>
 
             {/* Custom UI Illustration: Toggle */}
-            <div className="absolute -bottom-4 -right-4 w-32 h-24 rounded-tl-[32px] border-l-2 border-t-2 flex items-center justify-center transition-transform duration-500 group-hover:-translate-x-2 group-hover:-translate-y-2" style={{ background: 'rgba(232, 149, 109, 0.1)', borderColor: 'rgba(232, 149, 109, 0.2)' }}>
-              <div className="w-14 h-7 bg-white rounded-full border flex items-center px-1 shadow-inner" style={{ borderColor: 'rgba(232, 149, 109, 0.3)' }}>
-                <div className="w-5 h-5 rounded-full shadow-sm transition-transform duration-500 group-hover:translate-x-7" style={{ background: 'var(--warm)' }} />
+            <div className="absolute top-1/2 right-4 -translate-y-1/2 w-24 h-24 flex items-center justify-center transition-transform duration-500 group-hover:scale-110">
+              <div className="absolute inset-3 rounded-full border" style={{ borderColor: 'rgba(232, 149, 109, 0.3)' }} />
+              <div className="relative z-10 w-11 h-6 bg-white rounded-full border flex items-center px-1 shadow-inner" style={{ borderColor: 'rgba(232, 149, 109, 0.3)' }}>
+                <div className="w-4 h-4 rounded-full shadow-sm transition-transform duration-500 group-hover:translate-x-5" style={{ background: 'var(--warm)' }} />
               </div>
             </div>
           </div>

@@ -28,7 +28,7 @@ export const generateReportPDF = (report: Report) => {
     // Header
     doc.setFontSize(18);
     doc.setTextColor(56, 171, 174); // Teal color #38ABAE
-    doc.text('VEERAWELL MENTAL HEALTH PLATFORM', 105, 20, { align: 'center' });
+    doc.text('VERAAWELL MENTAL HEALTH PLATFORM', 105, 20, { align: 'center' });
 
     doc.setFontSize(14);
     doc.text('Patient Report', 105, 30, { align: 'center' });
@@ -94,7 +94,7 @@ export const generateTaskPDF = (task: Task) => {
     // Header
     doc.setFontSize(18);
     doc.setTextColor(56, 171, 174); // Teal color #38ABAE
-    doc.text('VEERAWELL MENTAL HEALTH PLATFORM', 105, 20, { align: 'center' });
+    doc.text('VERAAWELL MENTAL HEALTH PLATFORM', 105, 20, { align: 'center' });
 
     doc.setFontSize(14);
     doc.text('Task Assignment', 105, 30, { align: 'center' });

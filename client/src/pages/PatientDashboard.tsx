@@ -4,6 +4,7 @@ import Calendar from '../components/Calendar';
 import SessionModal from '../components/SessionModal';
 import RatingModal from '../components/RatingModal';
 import WelcomeModal from '../components/WelcomeModal';
+import MoodCheckInModal from '../components/MoodCheckInModal';
 import BookingPreferenceModal from '../components/BookingPreferenceModal';
 import EmergencyHotlineModal from '../components/EmergencyHotlineModal';
 import PatientCalendarModal from '../components/PatientCalendarModal';
@@ -17,6 +18,14 @@ import { useDataSocket } from '../hooks/useDataSocket';
 import toast from 'react-hot-toast';
 import { MENTAL_HEALTH_TESTS } from '../data/mentalHealthTests';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+
+const MOOD_INDICATOR_COLORS: Record<1 | 2 | 3 | 4 | 5, string> = {
+  1: '#E8956D',
+  2: '#C4A882',
+  3: '#9BB5BC',
+  4: '#6BA888',
+  5: '#0097B2',
+};
 
 const PatientDashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -35,6 +44,7 @@ const PatientDashboard: React.FC = () => {
   const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [sessionToRate, setSessionToRate] = useState<Session | null>(null);
+  const [showMoodModal, setShowMoodModal] = useState(false);
 
   //  REAL-TIME: Connect to data socket
   const { socket } = useDataSocket();
@@ -137,6 +147,46 @@ const PatientDashboard: React.FC = () => {
       setShowRatingModal(true);
     }
   }, [pendingFeedbackSession]);
+
+  // Daily mood check-in — server is source of truth for "already logged today"
+  const { data: moodToday } = useQuery({
+    queryKey: ['patient', 'moodToday'],
+    queryFn: async () => {
+      const res = await fetch(`${API_CONFIG.BASE_URL}/session-tools/mood/today`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch mood check-in status');
+      return res.json();
+    },
+    enabled: !!user?.userId,
+  });
+
+  useEffect(() => {
+    if (!moodToday || moodToday.hasLoggedToday) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const dismissedToday = localStorage.getItem(`moodPromptDismissed_${user?.userId}`) === today;
+    if (!dismissedToday) setShowMoodModal(true);
+  }, [moodToday, user?.userId]);
+
+  const handleMoodSubmit = async (mood: number) => {
+    const res = await fetch(`${API_CONFIG.BASE_URL}/session-tools/mood`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ mood }),
+    });
+    if (!res.ok) {
+      toast.error('Could not save your mood, please try again');
+      throw new Error('Failed to save mood');
+    }
+    queryClient.invalidateQueries({ queryKey: ['patient', 'moodToday'] });
+    toast.success('Thanks for checking in today');
+  };
+
+  const handleMoodModalClose = () => {
+    setShowMoodModal(false);
+    if (user?.userId) {
+      localStorage.setItem(`moodPromptDismissed_${user.userId}`, new Date().toISOString().slice(0, 10));
+    }
+  };
 
   //  REAL-TIME: Listen for session events
   useEffect(() => {
@@ -506,7 +556,7 @@ const PatientDashboard: React.FC = () => {
             </div>
 
             {/* Center - Greeting */}
-            <div className="text-center w-1/3 flex justify-center">
+            <div className="text-center w-1/3 flex flex-col items-center justify-center">
               <h1 className="text-lg md:text-xl font-medium text-gray-800 tracking-wide transition-all duration-300" style={{ fontFamily: 'Inter, sans-serif' }}>
                 {(() => {
                   const hour = new Date().getHours();
@@ -517,6 +567,22 @@ const PatientDashboard: React.FC = () => {
                   return 'Night owl';
                 })()}, {user?.firstName || user?.username || 'User'}
               </h1>
+              {moodToday?.hasLoggedToday && moodToday?.entry && (
+                <span
+                  className="mt-1 inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-0.5 rounded-full"
+                  style={{
+                    color: MOOD_INDICATOR_COLORS[moodToday.entry.mood as 1 | 2 | 3 | 4 | 5],
+                    background: `${MOOD_INDICATOR_COLORS[moodToday.entry.mood as 1 | 2 | 3 | 4 | 5]}14`,
+                    fontFamily: 'var(--font-mono)',
+                  }}
+                >
+                  <span
+                    className="w-1.5 h-1.5 rounded-full"
+                    style={{ background: MOOD_INDICATOR_COLORS[moodToday.entry.mood as 1 | 2 | 3 | 4 | 5] }}
+                  />
+                  Feeling {moodToday.entry.label} today
+                </span>
+              )}
             </div>
 
             {/* Right side - Chat, Book Session and Balance */}
@@ -939,6 +1005,14 @@ const PatientDashboard: React.FC = () => {
           onSubmit={handleRatingSubmit}
         />
       )}
+
+      {/* Daily Mood Check-In */}
+      <MoodCheckInModal
+        isOpen={showMoodModal}
+        firstName={user?.firstName}
+        onClose={handleMoodModalClose}
+        onSubmit={handleMoodSubmit}
+      />
     </div>
   );
 };

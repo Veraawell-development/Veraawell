@@ -214,9 +214,9 @@ function generateOTPEmailHTML(otp, userType) {
     </head>
     <body>
       <div class="container">
-        <div class="logo-text">Veerawell</div>
+        <div class="logo-text">Veraawell</div>
         <h1 class="header">Email Verification</h1>
-        <p class="message">Welcome to Veerawell! You're registering as a <strong>${userTypeDisplay}</strong>.</p>
+        <p class="message">Welcome to Veraawell! You're registering as a <strong>${userTypeDisplay}</strong>.</p>
         <p class="message">Please use the secure verification code below to complete your signup:</p>
         
         <div class="otp-container">
@@ -225,11 +225,11 @@ function generateOTPEmailHTML(otp, userType) {
         </div>
 
         <div class="info-box">
-          <strong>Security Tip:</strong> Never share this code with anyone. Veerawell staff will never ask for your OTP.
+          <strong>Security Tip:</strong> Never share this code with anyone. Veraawell staff will never ask for your OTP.
         </div>
         
         <div class="footer">
-          <p>© ${new Date().getFullYear()} Veerawell. All rights reserved.</p>
+          <p>© ${new Date().getFullYear()} Veraawell. All rights reserved.</p>
           <p>Your mental health journey starts here.</p>
         </div>
       </div>
@@ -410,7 +410,7 @@ function generateBookingConfirmationHTML(sessionDetails) {
     </head>
     <body>
       <div class="container">
-        <div class="logo-text">Veerawell</div>
+        <div class="logo-text">Veraawell</div>
         <h1 class="header">Booking Confirmed</h1>
         <p class="message">Your session has been successfully booked. Here are your details:</p>
         <div class="details-box">
@@ -420,7 +420,7 @@ function generateBookingConfirmationHTML(sessionDetails) {
         </div>
         <p class="message" style="font-size: 14px;">You can join the call directly from your dashboard when the time comes.</p>
         <div class="footer">
-          <p>© ${new Date().getFullYear()} Veerawell. All rights reserved.</p>
+          <p>© ${new Date().getFullYear()} Veraawell. All rights reserved.</p>
         </div>
       </div>
     </body>
@@ -511,7 +511,7 @@ function generateDoctorStatusHTML(name, status, loginUrl) {
     </head>
     <body>
       <div class="container">
-        <div class="logo-text">Veerawell</div>
+        <div class="logo-text">Veraawell</div>
         <h1 class="header" style="color: ${color};">${title}</h1>
         <p class="message">Dear ${name},</p>
         <p class="message">${msg}</p>
@@ -521,7 +521,7 @@ function generateDoctorStatusHTML(name, status, loginUrl) {
         </div>
         ` : ''}
         <div class="footer">
-          <p>© ${new Date().getFullYear()} Veerawell. All rights reserved.</p>
+          <p>© ${new Date().getFullYear()} Veraawell. All rights reserved.</p>
         </div>
       </div>
     </body>
@@ -624,14 +624,14 @@ function generateSessionReminderHTML(session, reminderType, doctorName) {
     </head>
     <body>
       <div class="container">
-        <div class="logo-text">Veerawell</div>
+        <div class="logo-text">Veraawell</div>
         <h1 class="header">${headerText}</h1>
         ${messageHTML}
         <div class="button-container">
           <a href="${joinUrl}" class="button">Join Session</a>
         </div>
         <div class="footer">
-          <p>© ${new Date().getFullYear()} Veerawell. All rights reserved.</p>
+          <p>© ${new Date().getFullYear()} Veraawell. All rights reserved.</p>
         </div>
       </div>
     </body>

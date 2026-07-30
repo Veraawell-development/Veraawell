@@ -26,7 +26,7 @@ test.describe('Careers / Professional Onboarding', () => {
 
     // Fill only partial fields and try to proceed
     await page.fill('input[placeholder="John"]', 'Test Doctor');
-    await page.fill('input[placeholder="john@example.com"]', 'testdoctor@veerawell.test');
+    await page.fill('input[placeholder="john@example.com"]', 'testdoctor@veraawell.test');
     // Leaving Phone empty
     // Form is standard HTML5 required fields, so the browser will prevent submission.
     // We will just fill everything correctly in the next test to test full flow.
@@ -36,7 +36,7 @@ test.describe('Careers / Professional Onboarding', () => {
     // Step 1
     await page.locator('button', { hasText: 'Join as Professional' }).click();
     await page.fill('input[placeholder="John"]', 'Test Professional');
-    await page.fill('input[placeholder="john@example.com"]', `e2e.prof.${Date.now()}@veerawell.test`);
+    await page.fill('input[placeholder="john@example.com"]', `e2e.prof.${Date.now()}@veraawell.test`);
     await page.fill('input[placeholder="+91 98765 43210"]', '9876543210');
     
     await page.locator('button', { hasText: 'Next Step' }).click();

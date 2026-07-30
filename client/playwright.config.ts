@@ -1,7 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Veerawell E2E Test Configuration
+ * Veraawell E2E Test Configuration
  * Tests run against the local dev server (http://localhost:5173)
  * Backend must be running at http://localhost:5001
  */

@@ -195,12 +195,11 @@ const MissionStats: React.FC = () => {
               key={i}
               data-reveal
               data-delay={`${i + 1}` as any}
-              className="stat-card rounded-2xl p-7 transition-all duration-300 hover:-translate-y-1 hover:shadow-md"
+              className="stat-card rounded-[28px] p-8 transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:border-transparent"
               style={{
                 background: 'var(--surface)',
                 border: '1px solid var(--border)',
                 boxShadow: 'var(--shadow-sm)',
-                borderLeft: `4px solid ${stat.accent}`,
               }}
               onMouseEnter={e => {
                 (e.currentTarget as HTMLDivElement).style.background = `${stat.accent}0C`;
@@ -209,13 +208,18 @@ const MissionStats: React.FC = () => {
                 (e.currentTarget as HTMLDivElement).style.background = 'var(--surface)';
               }}
             >
+              <span
+                className="inline-block w-1.5 h-1.5 rounded-full mb-4"
+                style={{ background: stat.accent }}
+              />
               <div
                 className="leading-none mb-2"
                 style={{
-                  fontFamily: 'var(--font-display)',
+                  fontFamily: 'var(--font-body)',
+                  fontWeight: 400,
                   fontSize: 'clamp(48px, 5vw, 64px)',
                   color: stat.accent,
-                  letterSpacing: '-0.03em',
+                  letterSpacing: '-0.02em',
                 }}
               >
                 <CountUp end={stat.end} duration={stat.duration} />

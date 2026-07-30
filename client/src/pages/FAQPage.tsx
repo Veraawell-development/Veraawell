@@ -18,12 +18,12 @@ const FAQPage: React.FC = () => {
         // General Questions
         {
             category: 'general',
-            question: 'What is Veerawell?',
-            answer: 'Veerawell is a comprehensive mental health platform that connects patients with qualified mental health professionals. We offer online therapy sessions, mental health assessments, journaling tools, and personalized care plans to support your mental wellness journey.'
+            question: 'What is Veraawell?',
+            answer: 'Veraawell is a comprehensive mental health platform that connects patients with qualified mental health professionals. We offer online therapy sessions, mental health assessments, journaling tools, and personalized care plans to support your mental wellness journey.'
         },
         {
             category: 'general',
-            question: 'How does Veerawell work?',
+            question: 'How does Veraawell work?',
             answer: 'Simply sign up as a patient, browse our verified therapists, book a session at your convenience, and connect via secure video calls. You can also take mental health assessments, maintain a journal, and track your progress over time.'
         },
         {
@@ -89,8 +89,8 @@ const FAQPage: React.FC = () => {
         },
         {
             category: 'technical',
-            question: 'Can I use Veerawell on my mobile phone?',
-            answer: 'Yes! Veerawell is fully responsive and works on all devices including smartphones and tablets. Simply access our website through your mobile browser.'
+            question: 'Can I use Veraawell on my mobile phone?',
+            answer: 'Yes! Veraawell is fully responsive and works on all devices including smartphones and tablets. Simply access our website through your mobile browser.'
         },
 
         // Mental Health Assessments
@@ -113,7 +113,7 @@ const FAQPage: React.FC = () => {
         // For Therapists
         {
             category: 'therapists',
-            question: 'How do I become a therapist on Veerawell?',
+            question: 'How do I become a therapist on Veraawell?',
             answer: 'Sign up as a doctor, complete your professional profile with qualifications and experience, and submit for verification. Our team will review your credentials, and once approved, you can start accepting patients.'
         },
         {
@@ -173,7 +173,7 @@ const FAQPage: React.FC = () => {
                         Frequently Asked Questions
                     </h1>
                     <p className="text-[17px] max-w-2xl mx-auto" style={{ color: 'var(--text-2)' }}>
-                        Everything you need to know about Veerawell, all in one place.
+                        Everything you need to know about Veraawell, all in one place.
                     </p>
                 </div>
             </div>

@@ -11,6 +11,7 @@ const noteController = require('../controllers/note.controller');
 const taskController = require('../controllers/task.controller');
 const reportController = require('../controllers/report.controller');
 const journalController = require('../controllers/journal.controller');
+const moodEntryController = require('../controllers/moodEntry.controller');
 
 // ==================== SESSION NOTES ====================
 router.post('/notes', verifyToken, noteController.createNote);
@@ -35,5 +36,10 @@ router.post('/journal', verifyToken, journalController.createEntry);
 router.get('/journal/patient/:patientId', verifyToken, journalController.getEntriesByPatient);
 router.put('/journal/:journalId', verifyToken, journalController.updateEntry);
 router.delete('/journal/:journalId', verifyToken, journalController.deleteEntry);
+
+// ==================== MOOD CHECK-IN ====================
+router.get('/mood/today', verifyToken, moodEntryController.getToday);
+router.post('/mood', verifyToken, moodEntryController.createEntry);
+router.get('/mood/history', verifyToken, moodEntryController.getHistory);
 
 module.exports = router;

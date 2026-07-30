@@ -462,7 +462,7 @@ const DoctorProfilePage: React.FC = () => {
                     "name": "How do I join the video or voice call?",
                     "acceptedAnswer": {
                       "@type": "Answer",
-                      "text": "Once you book an appointment, you'll receive a confirmation email. At the time of your appointment, simply log in to your Veerawell dashboard and click 'Join Session' to enter the secure, encrypted call environment."
+                      "text": "Once you book an appointment, you'll receive a confirmation email. At the time of your appointment, simply log in to your Veraawell dashboard and click 'Join Session' to enter the secure, encrypted call environment."
                     }
                   },
                   {
@@ -602,7 +602,7 @@ const DoctorProfilePage: React.FC = () => {
               "{doctorProfile.quote || 'Healing takes time, and asking for help is a courageous first step.'}"
             </h2>
             <p className="mt-4 text-gray-500 font-medium">
-              — {doctorProfile.quote ? doctorProfile.quoteAuthor || 'Professional Philosophy' : 'Veerawell Philosophy'}
+              — {doctorProfile.quote ? doctorProfile.quoteAuthor || 'Professional Philosophy' : 'Veraawell Philosophy'}
             </p>
           </div>
           
@@ -850,7 +850,7 @@ const DoctorProfilePage: React.FC = () => {
             },
             {
               q: "How do I join the video or voice call?",
-              a: "Once you book an appointment, you'll receive a confirmation email. At the time of your appointment, simply log in to your Veerawell dashboard and click \"Join Session\" to enter the secure, encrypted call environment."
+              a: "Once you book an appointment, you'll receive a confirmation email. At the time of your appointment, simply log in to your Veraawell dashboard and click \"Join Session\" to enter the secure, encrypted call environment."
             },
             {
               q: "What is the cancellation policy?",

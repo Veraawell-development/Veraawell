@@ -71,7 +71,7 @@ const ReportsRecommendationPage: React.FC = () => {
       doc.setTextColor('#FFFFFF');
       doc.setFontSize(22);
       doc.setFont('helvetica', 'bold');
-      doc.text('Veerawell', 15, 17);
+      doc.text('Veraawell', 15, 17);
       
       doc.setFontSize(10);
       doc.setFont('helvetica', 'normal');

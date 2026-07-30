@@ -147,13 +147,13 @@ const HospitalReportTemplate: React.FC<{ data: ReportData }> = ({ data }) => (
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                     <Image src="/logo.png" style={styles.logo} />
                     <View style={{ marginLeft: 10 }}>
-                        <Text style={styles.hospitalName}>VEERAWELL</Text>
+                        <Text style={styles.hospitalName}>VERAAWELL</Text>
                         <Text style={styles.hospitalSub}>Healthcare Management System</Text>
                     </View>
                 </View>
                 <View style={styles.hospitalInfo}>
                     <Text style={styles.hospitalSub}>123 Medical Avenue</Text>
-                    <Text style={styles.hospitalSub}>support@veerawell.com</Text>
+                    <Text style={styles.hospitalSub}>support@veraawell.com</Text>
                     <Text style={styles.hospitalSub}>+1 (555) 000-0000</Text>
                 </View>
             </View>

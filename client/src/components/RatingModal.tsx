@@ -151,7 +151,7 @@ const RatingModal: React.FC<RatingModalProps> = ({
                 {/* Header */}
                 <div className="p-8 pb-4 text-center relative">
                     <h2 className="text-2xl font-light tracking-tight text-gray-900">Session Feedback</h2>
-                    <p className="text-gray-400 mt-2 text-sm font-medium">Your feedback helps us improve Veerawell</p>
+                    <p className="text-gray-400 mt-2 text-sm font-medium">Your feedback helps us improve Veraawell</p>
                 </div>
 
                 <div className="p-8 space-y-10">
@@ -195,7 +195,7 @@ const RatingModal: React.FC<RatingModalProps> = ({
                             setScore={setPlatformScore}
                             hoverScore={platformHoveredScore}
                             setHoverScore={setPlatformHoveredScore}
-                            label="How was your experience with Veerawell?"
+                            label="How was your experience with Veraawell?"
                         />
 
                         <div className="mt-8">

@@ -19,13 +19,13 @@ async function runTests() {
         const { connectDatabase } = require('../config/database');
         await connectDatabase();
         
-        let admin = await User.findOne({ role: 'super_admin', email: 'test.admin@veerawell.test' });
+        let admin = await User.findOne({ role: 'super_admin', email: 'test.admin@veraawell.test' });
         if (!admin) {
             admin = await User.create({
                 firstName: 'Test',
                 lastName: 'Admin',
-                username: 'test.admin@veerawell.test',
-                email: 'test.admin@veerawell.test',
+                username: 'test.admin@veraawell.test',
+                email: 'test.admin@veraawell.test',
                 password: await require('bcrypt').hash('Admin123!', 10),
                 role: 'super_admin'
             });

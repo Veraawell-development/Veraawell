@@ -45,7 +45,7 @@ const AboutSection: React.FC = () => {
               className="mb-6 leading-relaxed"
               style={{ color: 'var(--text-2)', fontSize: '17px' }}
             >
-              <strong style={{ color: 'var(--text)', fontWeight: 600 }}>Veraawell</strong> is a
+              <strong style={{ color: 'var(--text)', fontWeight: 400 }}>Veraawell</strong> is a
               platform aimed at revolutionising the culture of mental health in India. We bridge
               the gap between people who seek professional help and psychologists — giving users
               the freedom to operate at their own pace and track their journey.
@@ -99,7 +99,8 @@ const AboutSection: React.FC = () => {
                 <div
                   className="leading-none mb-2"
                   style={{
-                    fontFamily: 'var(--font-display)',
+                    fontFamily: 'var(--font-body)',
+                    fontWeight: 400,
                     fontSize: 'clamp(56px, 7vw, 80px)',
                     color: 'var(--teal)',
                     letterSpacing: '-0.03em',

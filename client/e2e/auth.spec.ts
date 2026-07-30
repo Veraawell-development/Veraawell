@@ -97,7 +97,7 @@ test.describe('Authentication — Registration', () => {
     await page.goto('/login');
     await page.click('button:has-text("Sign Up")');
     await page.fill('input[placeholder="Your full name"]', 'Test User');
-    await page.fill('input[type="email"]', 'test_new_user_xyz@veerawell.test');
+    await page.fill('input[type="email"]', 'test_new_user_xyz@veraawell.test');
     await page.fill('input[type="tel"]', '9876543210');
     // Fill passwords
     const pwInputs = page.locator('input[type="password"]');

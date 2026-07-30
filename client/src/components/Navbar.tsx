@@ -212,7 +212,7 @@ export default function Navbar() {
           right: 0,
           zIndex: 1000,
           background: scrolled ? undefined : 'transparent',
-          borderBottom: scrolled ? undefined : 'none',
+          borderBottom: scrolled ? undefined : '1px solid var(--border)',
           transition: 'background 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease',
         }}
       >

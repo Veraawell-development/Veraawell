@@ -14,8 +14,8 @@ const API_URL = 'http://localhost:5001/api';
 const TEST_PATIENT = {
   firstName: 'E2E',
   lastName: 'Patient',
-  email: 'e2e.patient@veerawell.test',
-  username: 'e2e.patient@veerawell.test',
+  email: 'e2e.patient@veraawell.test',
+  username: 'e2e.patient@veraawell.test',
   password: 'TestPatient123!',
   phoneNo: '9000000001',
   role: 'patient',
@@ -24,8 +24,8 @@ const TEST_PATIENT = {
 const TEST_DOCTOR = {
   firstName: 'E2E',
   lastName: 'Doctor',
-  email: 'e2e.doctor@veerawell.test',
-  username: 'e2e.doctor@veerawell.test',
+  email: 'e2e.doctor@veraawell.test',
+  username: 'e2e.doctor@veraawell.test',
   password: 'TestDoctor123!',
   phoneNo: '9000000002',
   role: 'doctor',

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 
 type DoctorCardProps = {
   name: string;
@@ -34,6 +34,18 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
   isOnline = false,
   bgColor = '#0097B2',
 }) => {
+  const [tagsExpanded, setTagsExpanded] = useState(false);
+
+  const startingPriceMatch = pricing?.match(/₹\s*(\d+)/);
+  const startingPrice = startingPriceMatch ? startingPriceMatch[1] : null;
+
+  const allTags = treatsFor
+    .split(',')
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+  const visibleTags = tagsExpanded ? allTags : allTags.slice(0, 3);
+  const hiddenCount = allTags.length - 3;
+
   return (
     <div
       className={`therapist-card rounded-2xl overflow-hidden cursor-pointer flex flex-col h-full transition-all duration-300 hover:-translate-y-1 hover:shadow-lg`}
@@ -46,12 +58,27 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
     >
       {/* Card header with avatar */}
       <div
-        className="px-6 pt-7 pb-5"
+        className="px-6 pt-7 pb-5 relative"
         style={{
           background: `linear-gradient(135deg, ${bgColor}10, ${bgColor}05)`,
           borderBottom: '1px solid var(--border)',
         }}
       >
+        {startingPrice && (
+          <div className="absolute top-4 right-4 flex flex-col items-end leading-none">
+            <span
+              className="text-[9px] font-semibold tracking-widest uppercase"
+              style={{ color: bgColor, opacity: 0.75, fontFamily: 'var(--font-mono)' }}
+            >
+              Starting at
+            </span>
+            <span className="text-sm font-bold mt-0.5" style={{ color: bgColor }}>
+              ₹{startingPrice}
+              <span className="text-[10px] font-medium" style={{ color: 'var(--text-3)' }}>/session</span>
+            </span>
+          </div>
+        )}
+
         <div className="flex items-center gap-4">
           {/* Avatar */}
           <div
@@ -83,23 +110,38 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
       {/* Card body */}
       <div className="p-6 flex flex-col flex-1">
         {/* Specialisations */}
-        <div className="flex flex-wrap gap-1.5 mb-5 h-[28px] overflow-hidden">
-          {treatsFor.split(',').slice(0, 3).map((tag, index) => {
-            const cleanTag = tag.trim();
-            if (!cleanTag) return null;
-            return (
-              <span
-                key={index}
-                className="text-xs px-2.5 py-1 rounded-full font-medium whitespace-nowrap"
-                style={{
-                  background: `${bgColor}12`,
-                  color: bgColor,
-                }}
-              >
-                {cleanTag}
-              </span>
-            );
-          })}
+        <div
+          className={`flex flex-wrap gap-1.5 mb-5 overflow-hidden ${tagsExpanded ? '' : 'h-[28px]'}`}
+        >
+          {visibleTags.map((cleanTag, index) => (
+            <span
+              key={index}
+              className="text-xs px-2.5 py-1 rounded-full font-medium whitespace-nowrap"
+              style={{
+                background: `${bgColor}12`,
+                color: bgColor,
+              }}
+            >
+              {cleanTag}
+            </span>
+          ))}
+          {hiddenCount > 0 && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setTagsExpanded((prev) => !prev);
+              }}
+              className="text-xs px-2.5 py-1 rounded-full font-semibold whitespace-nowrap transition-colors"
+              style={{
+                background: 'var(--bg-2)',
+                color: 'var(--text-2)',
+                border: '1px solid var(--border)',
+              }}
+            >
+              {tagsExpanded ? 'Show less' : `+${hiddenCount} more`}
+            </button>
+          )}
         </div>
 
         {/* Stats row */}
