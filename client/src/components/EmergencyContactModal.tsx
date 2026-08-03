@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { IoClose } from 'react-icons/io5';
+import { FiUser, FiPhone, FiHeart, FiShield } from 'react-icons/fi';
 
 interface EmergencyContactModalProps {
   isOpen: boolean;
@@ -7,10 +8,12 @@ interface EmergencyContactModalProps {
   onSubmit: (contactName: string, contactPhone: string, contactRelationship: string) => void;
 }
 
-const EmergencyContactModal: React.FC<EmergencyContactModalProps> = ({ 
-  isOpen, 
-  onClose, 
-  onSubmit 
+const RELATIONSHIP_OPTIONS = ['Parent', 'Spouse', 'Sibling', 'Friend', 'Partner', 'Guardian', 'Other'];
+
+const EmergencyContactModal: React.FC<EmergencyContactModalProps> = ({
+  isOpen,
+  onClose,
+  onSubmit
 }) => {
   const [contactName, setContactName] = useState('');
   const [contactPhone, setContactPhone] = useState('');
@@ -18,6 +21,8 @@ const EmergencyContactModal: React.FC<EmergencyContactModalProps> = ({
   const [errors, setErrors] = useState({ name: '', phone: '', relationship: '' });
 
   if (!isOpen) return null;
+
+
 
   const validateForm = () => {
     const newErrors = { name: '', phone: '', relationship: '' };
@@ -66,123 +71,132 @@ const EmergencyContactModal: React.FC<EmergencyContactModalProps> = ({
   return (
     <>
       {/* Backdrop */}
-      <div 
+      <div
         className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 transition-opacity"
         onClick={onClose}
       />
-      
+
       {/* Modal */}
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
-        <div 
-          className="bg-white rounded-2xl shadow-2xl w-full max-w-md pointer-events-auto animate-scale-in"
+        <div
+          className="bg-white rounded-3xl shadow-2xl w-full max-w-md pointer-events-auto animate-scale-in overflow-hidden font-sans"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
-          <div className="relative px-6 py-5 border-b border-gray-200">
+          <div className="relative px-7 pt-7 pb-6" style={{ background: 'linear-gradient(135deg, #F2FAF9 0%, #FFFFFF 70%)' }}>
             <button
               onClick={onClose}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+              className="absolute top-5 right-5 text-gray-400 hover:text-gray-600 transition-colors"
               aria-label="Close modal"
             >
-              <IoClose size={24} />
+              <IoClose size={22} />
             </button>
-            <h2 className="text-2xl font-semibold pr-8" style={{ color: '#38ABAE', fontFamily: 'Bree Serif, serif' }}>
-              Emergency Contact Information
+
+            <div className="w-11 h-11 rounded-full flex items-center justify-center mb-4" style={{ background: 'rgba(56,171,174,0.12)' }}>
+              <FiShield className="w-5 h-5" style={{ color: '#38ABAE' }} />
+            </div>
+
+            <h2 className="text-[22px] font-bold text-gray-800 tracking-tight pr-8" style={{ fontFamily: 'Inter, sans-serif' }}>
+              Emergency Contact
             </h2>
-            <p className="text-sm text-gray-600 mt-2" style={{ fontFamily: 'Inter, sans-serif' }}>
-              Please provide an emergency contact in case immediate assistance is needed
+            <p className="text-sm text-gray-500 mt-1.5 leading-relaxed" style={{ fontFamily: 'Inter, sans-serif' }}>
+              Just in case we ever need to reach someone on your behalf — this only takes a moment.
             </p>
           </div>
 
           {/* Form */}
-          <form onSubmit={handleSubmit} className="p-6">
+          <form onSubmit={handleSubmit} className="px-7 pb-7 pt-1">
             {/* Contact Name */}
-            <div className="mb-5">
-              <label 
-                htmlFor="contactName" 
-                className="block text-sm font-medium text-gray-700 mb-2"
+            <div className="mb-4">
+              <label
+                htmlFor="contactName"
+                className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2"
                 style={{ fontFamily: 'Inter, sans-serif' }}
               >
-                Emergency Contact Name <span className="text-red-500">*</span>
+                Full Name
               </label>
-              <input
-                type="text"
-                id="contactName"
-                value={contactName}
-                onChange={(e) => setContactName(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
-                placeholder="Full name of emergency contact"
-                style={{ fontFamily: 'Inter, sans-serif' }}
-              />
+              <div className="relative">
+                <FiUser className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <input
+                  type="text"
+                  id="contactName"
+                  value={contactName}
+                  onChange={(e) => setContactName(e.target.value)}
+                  className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none transition-all bg-gray-50/50 focus:bg-white"
+                  placeholder="Jane Doe"
+                  style={{ fontFamily: 'Inter, sans-serif' }}
+                />
+              </div>
               {errors.name && (
-                <p className="text-red-500 text-sm mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+                <p className="text-red-500 text-xs mt-1.5" style={{ fontFamily: 'Inter, sans-serif' }}>
                   {errors.name}
                 </p>
               )}
             </div>
 
             {/* Contact Phone */}
-            <div className="mb-5">
-              <label 
-                htmlFor="contactPhone" 
-                className="block text-sm font-medium text-gray-700 mb-2"
+            <div className="mb-4">
+              <label
+                htmlFor="contactPhone"
+                className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2"
                 style={{ fontFamily: 'Inter, sans-serif' }}
               >
-                Emergency Contact Phone <span className="text-red-500">*</span>
+                Phone Number
               </label>
-              <input
-                type="tel"
-                id="contactPhone"
-                value={contactPhone}
-                onChange={handlePhoneChange}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
-                placeholder="10-digit phone number"
-                style={{ fontFamily: 'Inter, sans-serif' }}
-              />
+              <div className="relative">
+                <FiPhone className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                <input
+                  type="tel"
+                  id="contactPhone"
+                  value={contactPhone}
+                  onChange={handlePhoneChange}
+                  className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none transition-all bg-gray-50/50 focus:bg-white"
+                  placeholder="10-digit phone number"
+                  style={{ fontFamily: 'Inter, sans-serif' }}
+                />
+              </div>
               {errors.phone && (
-                <p className="text-red-500 text-sm mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+                <p className="text-red-500 text-xs mt-1.5" style={{ fontFamily: 'Inter, sans-serif' }}>
                   {errors.phone}
                 </p>
               )}
             </div>
 
             {/* Relationship */}
-            <div className="mb-6">
-              <label 
-                htmlFor="contactRelationship" 
-                className="block text-sm font-medium text-gray-700 mb-2"
+            <div className="mb-5">
+              <label
+                htmlFor="contactRelationship"
+                className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2"
                 style={{ fontFamily: 'Inter, sans-serif' }}
               >
-                Relationship <span className="text-red-500">*</span>
+                Relationship
               </label>
-              <select
-                id="contactRelationship"
-                value={contactRelationship}
-                onChange={(e) => setContactRelationship(e.target.value)}
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent transition-all"
-                style={{ fontFamily: 'Inter, sans-serif' }}
-              >
-                <option value="">Select relationship</option>
-                <option value="Parent">Parent</option>
-                <option value="Spouse">Spouse</option>
-                <option value="Sibling">Sibling</option>
-                <option value="Friend">Friend</option>
-                <option value="Partner">Partner</option>
-                <option value="Guardian">Guardian</option>
-                <option value="Other">Other</option>
-              </select>
+              <div className="relative">
+                <FiHeart className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
+                <select
+                  id="contactRelationship"
+                  value={contactRelationship}
+                  onChange={(e) => setContactRelationship(e.target.value)}
+                  className="w-full pl-11 pr-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-teal-500 focus:border-transparent outline-none transition-all bg-gray-50/50 focus:bg-white appearance-none"
+                  style={{ fontFamily: 'Inter, sans-serif' }}
+                >
+                  <option value="">Select relationship</option>
+                  {RELATIONSHIP_OPTIONS.map((option) => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </div>
               {errors.relationship && (
-                <p className="text-red-500 text-sm mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>
+                <p className="text-red-500 text-xs mt-1.5" style={{ fontFamily: 'Inter, sans-serif' }}>
                   {errors.relationship}
                 </p>
               )}
             </div>
 
             {/* Info Box */}
-            <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
-              <p className="text-sm text-blue-800" style={{ fontFamily: 'Inter, sans-serif' }}>
-                <strong>Why we need this:</strong> This contact will only be reached in case of a mental health emergency 
-                or if your therapist believes you need immediate support.
+            <div className="mb-6 p-3.5 rounded-xl border border-teal-100" style={{ background: 'rgba(56,171,174,0.06)' }}>
+              <p className="text-xs text-gray-600 leading-relaxed" style={{ fontFamily: 'Inter, sans-serif' }}>
+                <strong className="text-gray-700">Why we ask:</strong> This contact is only reached in a mental health emergency, or if your therapist believes you need immediate support.
               </p>
             </div>
 
@@ -191,15 +205,15 @@ const EmergencyContactModal: React.FC<EmergencyContactModalProps> = ({
               <button
                 type="button"
                 onClick={onClose}
-                className="flex-1 px-6 py-3 border border-gray-300 text-gray-700 rounded-full font-medium hover:bg-gray-50 transition-all"
-                style={{ fontFamily: 'Bree Serif, serif' }}
+                className="flex-1 px-6 py-3 border border-gray-200 text-gray-600 rounded-xl text-sm font-semibold hover:bg-gray-50 transition-all"
+                style={{ fontFamily: 'Inter, sans-serif' }}
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                className="flex-1 px-6 py-3 text-white rounded-full font-medium hover:opacity-90 transition-all"
-                style={{ backgroundColor: '#38ABAE', fontFamily: 'Bree Serif, serif' }}
+                className="flex-1 px-6 py-3 text-white rounded-xl text-sm font-semibold hover:opacity-90 transition-all shadow-sm"
+                style={{ backgroundColor: '#38ABAE', fontFamily: 'Inter, sans-serif' }}
               >
                 Continue
               </button>

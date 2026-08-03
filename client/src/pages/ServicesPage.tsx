@@ -1,55 +1,71 @@
 import React, { useState } from 'react';
+import {
+  FiCloudRain, FiWind, FiShield, FiBookOpen, FiHeart,
+  FiSmile, FiUsers, FiLink, FiUnlock
+} from 'react-icons/fi';
 import ServiceCard from '../components/ServiceCard';
 import BookingPreferenceModal from '../components/BookingPreferenceModal';
 import LeafDecor from '../components/ui/LeafDecor';
 import SparkDecor from '../components/ui/SparkDecor';
+import ArchDecor from '../components/ui/ArchDecor';
+import RippleDecor from '../components/ui/RippleDecor';
+import WaveDecor from '../components/ui/WaveDecor';
 import { useScrollReveal } from '../hooks/useScrollReveal';
 
 const services = [
   {
     title: 'Depression',
     description: 'Specialized therapy to help you overcome depressive episodes, manage symptoms, and rediscover joy and motivation in your daily life.',
-    accent: 'var(--blue)'
+    accent: 'var(--sage)',
+    icon: <FiCloudRain size={20} />
   },
   {
     title: 'Anxiety',
     description: 'Learn effective coping mechanisms and cognitive strategies to manage generalized anxiety, panic attacks, and social anxiety.',
-    accent: 'var(--teal)'
+    accent: 'var(--teal)',
+    icon: <FiWind size={20} />
   },
   {
     title: 'Trauma',
     description: 'A safe, supportive environment to process past traumatic experiences using evidence-based approaches like EMDR and TF-CBT.',
-    accent: 'var(--purple)'
+    accent: 'var(--warm)',
+    icon: <FiShield size={20} />
   },
   {
     title: 'Student Wellbeing',
     description: 'Navigate academic pressure, transition anxiety, and social challenges with specialized support designed specifically for students.',
-    accent: 'var(--teal)'
+    accent: 'var(--teal)',
+    icon: <FiBookOpen size={20} />
   },
   {
     title: 'Marriage & Couples',
     description: 'Strengthen communication, rebuild trust, and resolve conflicts through guided couple therapy and relationship counseling.',
-    accent: 'var(--purple)'
+    accent: 'var(--warm)',
+    icon: <FiHeart size={20} />
   },
   {
     title: 'Child Therapy',
     description: 'Child-friendly therapeutic approaches to help younger patients process emotions, manage behavior, and build resilience.',
-    accent: 'var(--blue)'
+    accent: 'var(--sage)',
+    icon: <FiSmile size={20} />
   },
   {
     title: 'Gender & Identity',
     description: 'Affirming care and support for exploring gender identity, sexual orientation, and navigating social transitions.',
-    accent: 'var(--purple)'
+    accent: 'var(--warm)',
+    icon: <FiUsers size={20} />
   },
   {
     title: 'Relationship',
     description: 'Individual counseling focused on attachment patterns, boundary setting, and building healthier interpersonal connections.',
-    accent: 'var(--blue)'
+    accent: 'var(--sage)',
+    icon: <FiLink size={20} />
   },
   {
     title: 'Addiction Recovery',
     description: 'Compassionate, non-judgmental support to understand triggers and develop sustainable strategies for long-term recovery.',
-    accent: 'var(--teal)'
+    accent: 'var(--teal)',
+    icon: <FiUnlock size={20} />
   }
 ];
 
@@ -116,6 +132,59 @@ const ServicesPage: React.FC = () => {
         />
       </div>
 
+      {/* 4. Ripple, opposite the hero sparkle, echoing "reaching out for support" */}
+      <div className="absolute top-[6%] right-[4%] pointer-events-none z-0 hidden md:block">
+        <RippleDecor
+          color="var(--sage)"
+          style={{
+            width: '160px',
+            height: '160px',
+            opacity: 0.35,
+            animation: 'float-card 9s ease-in-out infinite alternate'
+          }}
+        />
+      </div>
+
+      {/* 5. Arch, grounding the bottom of the page like a doorway into care */}
+      <div className="absolute bottom-[2%] left-[8%] pointer-events-none z-0 hidden lg:block">
+        <ArchDecor
+          color="var(--warm)"
+          style={{
+            width: '140px',
+            height: '140px',
+            opacity: 0.3,
+            animation: 'float-card 11s ease-in-out infinite alternate-reverse'
+          }}
+        />
+      </div>
+
+      {/* 7. Wave, drifting along the right margin next to the grid */}
+      <div className="absolute top-[58%] right-[2%] pointer-events-none z-0 hidden lg:block">
+        <WaveDecor
+          color="var(--sage)"
+          style={{
+            width: '170px',
+            height: '170px',
+            opacity: 0.35,
+            transform: 'rotate(-8deg)',
+            animation: 'float-card 14s ease-in-out infinite alternate-reverse'
+          }}
+        />
+      </div>
+
+      {/* 8. Second sparkle, bottom-right — bookends the bottom-left arch */}
+      <div className="absolute bottom-[4%] right-[6%] pointer-events-none z-0 hidden md:block">
+        <SparkDecor
+          color="var(--teal)"
+          style={{
+            width: '90px',
+            height: '90px',
+            opacity: 0.4,
+            animation: 'float-card 10s ease-in-out infinite alternate'
+          }}
+        />
+      </div>
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-32 pb-24 relative z-10">
         
         {/* Premium Typographic Hero */}
@@ -133,13 +202,13 @@ const ServicesPage: React.FC = () => {
               }}
             />
           </div>
-          <span className="text-xs font-medium tracking-widest uppercase block mb-4" style={{ color: 'var(--teal)', fontFamily: 'var(--font-mono)' }}>
+          <span data-reveal className="text-xs font-medium tracking-widest uppercase block mb-4" style={{ color: 'var(--teal)', fontFamily: 'var(--font-mono)' }}>
             — Expertise & Specialties
           </span>
-          <h1 className="leading-tight mb-6" style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(40px, 5vw, 64px)', color: 'var(--text)', letterSpacing: '-0.02em' }}>
+          <h1 data-reveal data-delay="1" className="leading-tight mb-6" style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(40px, 5vw, 64px)', color: 'var(--text)', letterSpacing: '-0.02em' }}>
             Find the right support for <em style={{ color: 'var(--teal)' }}>your journey.</em>
           </h1>
-          <p className="text-lg md:text-xl" style={{ color: 'var(--text-2)' }}>
+          <p data-reveal data-delay="2" className="text-lg md:text-xl" style={{ color: 'var(--text-2)' }}>
             Our network of verified professionals specializes in a wide range of therapeutic areas, providing personalized care designed around you.
           </p>
         </div>
@@ -153,6 +222,7 @@ const ServicesPage: React.FC = () => {
               title={service.title}
               description={service.description}
               accent={service.accent}
+              icon={service.icon}
               onClick={() => handleViewTherapist(service.title)}
             />
           ))}

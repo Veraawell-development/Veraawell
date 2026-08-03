@@ -11,7 +11,7 @@ import PatientCalendarModal from '../components/PatientCalendarModal';
 import ConnectionStatus from '../components/ConnectionStatus';
 import { useAuth } from '../context/AuthContext';
 import { API_CONFIG } from '../config/api';
-import { formatDate } from '../utils/dateUtils';
+import { formatDate, getGreeting, getGreetingPunctuation } from '../utils/dateUtils';
 import logger from '../utils/logger';
 import type { Session, Report, Task, JournalEntry } from '../types';
 import { useDataSocket } from '../hooks/useDataSocket';
@@ -161,10 +161,24 @@ const PatientDashboard: React.FC = () => {
 
   useEffect(() => {
     if (!moodToday || moodToday.hasLoggedToday) return;
-    const today = new Date().toISOString().slice(0, 10);
-    const dismissedToday = localStorage.getItem(`moodPromptDismissed_${user?.userId}`) === today;
+    // Use the server's IST calendar date (not the browser's local/UTC date) so the
+    // dismissal key always agrees with the backend's "today" — see moodToday.date.
+    const today = moodToday.date;
+    const dismissedToday = !!today && localStorage.getItem(`moodPromptDismissed_${user?.userId}`) === today;
     if (!dismissedToday) setShowMoodModal(true);
   }, [moodToday, user?.userId]);
+
+  // Long-lived tabs can sit open across the IST day boundary; re-check mood status
+  // whenever the tab regains focus so the check-in doesn't get stuck on stale data.
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        queryClient.invalidateQueries({ queryKey: ['patient', 'moodToday'] });
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [queryClient]);
 
   const handleMoodSubmit = async (mood: number) => {
     const res = await fetch(`${API_CONFIG.BASE_URL}/session-tools/mood`, {
@@ -178,13 +192,14 @@ const PatientDashboard: React.FC = () => {
       throw new Error('Failed to save mood');
     }
     queryClient.invalidateQueries({ queryKey: ['patient', 'moodToday'] });
+    queryClient.invalidateQueries({ queryKey: ['patient', 'moodHistory'] });
     toast.success('Thanks for checking in today');
   };
 
   const handleMoodModalClose = () => {
     setShowMoodModal(false);
-    if (user?.userId) {
-      localStorage.setItem(`moodPromptDismissed_${user.userId}`, new Date().toISOString().slice(0, 10));
+    if (user?.userId && moodToday?.date) {
+      localStorage.setItem(`moodPromptDismissed_${user.userId}`, moodToday.date);
     }
   };
 
@@ -202,7 +217,7 @@ const PatientDashboard: React.FC = () => {
       setCalendarRefreshTrigger(prev => prev + 1);
     });
 
-    socket.on('session:status-change', ({ sessionId, status }) => {
+    socket.on('session:status-update', ({ sessionId, acceptanceStatus }) => {
       setCalendarRefreshTrigger(prev => prev + 1);
     });
 
@@ -214,7 +229,7 @@ const PatientDashboard: React.FC = () => {
     return () => {
       socket.off('session:booked');
       socket.off('session:cancelled');
-      socket.off('session:status-change');
+      socket.off('session:status-update');
       socket.off('chat:new-message');
     };
   }, [socket, queryClient]);
@@ -362,6 +377,18 @@ const PatientDashboard: React.FC = () => {
     setIsSessionModalOpen(true);
   };
 
+  // Welcome, rating, and mood check-in are all independent full-screen modals that can
+  // become eligible at the same time. Only ever show one — in this priority order —
+  // instead of letting them stack behind each other. Each keeps its own "wants to be
+  // open" state; the one below simply resolves which single one is actually visible.
+  const activeDashboardModal: 'welcome' | 'rating' | 'mood' | null = showWelcomeModal
+    ? 'welcome'
+    : showRatingModal
+      ? 'rating'
+      : showMoodModal
+        ? 'mood'
+        : null;
+
   return (
     <div className="h-screen pt-16 md:pt-[80px] overflow-hidden bg-[#F0F2F5] box-border">
       {/* Connection Status Indicator */}
@@ -369,7 +396,7 @@ const PatientDashboard: React.FC = () => {
 
       {/* Welcome Modal */}
       <WelcomeModal
-        isOpen={showWelcomeModal}
+        isOpen={activeDashboardModal === 'welcome'}
         onClose={() => {
           setShowWelcomeModal(false);
           // Mark that user has seen the welcome modal
@@ -558,18 +585,14 @@ const PatientDashboard: React.FC = () => {
             {/* Center - Greeting */}
             <div className="text-center w-1/3 flex flex-col items-center justify-center">
               <h1 className="text-lg md:text-xl font-medium text-gray-800 tracking-wide transition-all duration-300" style={{ fontFamily: 'Inter, sans-serif' }}>
-                {(() => {
-                  const hour = new Date().getHours();
-                  if (hour >= 5 && hour < 12) return 'Good morning';
-                  if (hour >= 12 && hour < 17) return 'Good afternoon';
-                  if (hour >= 17 && hour < 20) return 'Good evening';
-                  if (hour >= 20 && hour < 24) return 'Good night';
-                  return 'Night owl';
-                })()}, {user?.firstName || user?.username || 'User'}
+                {getGreeting()}, {user?.firstName || user?.username || 'User'}{getGreetingPunctuation()}
               </h1>
-              {moodToday?.hasLoggedToday && moodToday?.entry && (
-                <span
-                  className="mt-1 inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-0.5 rounded-full"
+              {moodToday?.hasLoggedToday && moodToday?.entry ? (
+                <button
+                  type="button"
+                  onClick={() => setShowMoodModal(true)}
+                  title="Update today's mood"
+                  className="mt-1 inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-0.5 rounded-full transition-transform hover:scale-105 active:scale-95"
                   style={{
                     color: MOOD_INDICATOR_COLORS[moodToday.entry.mood as 1 | 2 | 3 | 4 | 5],
                     background: `${MOOD_INDICATOR_COLORS[moodToday.entry.mood as 1 | 2 | 3 | 4 | 5]}14`,
@@ -581,8 +604,19 @@ const PatientDashboard: React.FC = () => {
                     style={{ background: MOOD_INDICATOR_COLORS[moodToday.entry.mood as 1 | 2 | 3 | 4 | 5] }}
                   />
                   Feeling {moodToday.entry.label} today
-                </span>
-              )}
+                </button>
+              ) : moodToday && !moodToday.hasLoggedToday ? (
+                <button
+                  type="button"
+                  onClick={() => setShowMoodModal(true)}
+                  title="Log today's mood"
+                  className="mt-1 inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-0.5 rounded-full transition-transform hover:scale-105 active:scale-95"
+                  style={{ color: 'var(--text-3, #6B7280)', background: 'rgba(107, 114, 128, 0.08)', fontFamily: 'var(--font-mono)' }}
+                >
+                  <span className="w-1.5 h-1.5 rounded-full" style={{ background: 'currentColor' }} />
+                  How are you feeling today?
+                </button>
+              ) : null}
             </div>
 
             {/* Right side - Chat, Book Session and Balance */}
@@ -995,7 +1029,7 @@ const PatientDashboard: React.FC = () => {
       {/* Auto Rating Modal */}
       {sessionToRate && (
         <RatingModal
-          isOpen={showRatingModal}
+          isOpen={activeDashboardModal === 'rating'}
           sessionId={sessionToRate._id}
           doctorName={sessionToRate.doctorId?.lastName ? `Dr. ${sessionToRate.doctorId.firstName || ''} ${sessionToRate.doctorId.lastName}` : 'your therapist'}
           onClose={() => {
@@ -1008,7 +1042,7 @@ const PatientDashboard: React.FC = () => {
 
       {/* Daily Mood Check-In */}
       <MoodCheckInModal
-        isOpen={showMoodModal}
+        isOpen={activeDashboardModal === 'mood'}
         firstName={user?.firstName}
         onClose={handleMoodModalClose}
         onSubmit={handleMoodSubmit}

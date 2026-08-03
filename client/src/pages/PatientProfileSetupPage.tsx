@@ -20,7 +20,8 @@ const PatientProfileSetupPage: React.FC = () => {
         gender: '',
         phone: '',
         emergencyContactName: '',
-        emergencyContactPhone: ''
+        emergencyContactPhone: '',
+        emergencyContactRelationship: ''
     });
 
     const { data: profileData } = useQuery({
@@ -44,7 +45,8 @@ const PatientProfileSetupPage: React.FC = () => {
                 gender: profile.gender || '',
                 phone: profile.phoneNumber || '',
                 emergencyContactName: profile.emergencyContact?.name || '',
-                emergencyContactPhone: profile.emergencyContact?.phone || ''
+                emergencyContactPhone: profile.emergencyContact?.phone || '',
+                emergencyContactRelationship: profile.emergencyContact?.relationship || ''
             });
             setIsEditing(false);
         }
@@ -91,7 +93,8 @@ const PatientProfileSetupPage: React.FC = () => {
             phoneNumber: formData.phone,
             emergencyContact: formData.emergencyContactName ? {
                 name: formData.emergencyContactName,
-                phone: formData.emergencyContactPhone
+                phone: formData.emergencyContactPhone,
+                relationship: formData.emergencyContactRelationship
             } : undefined
         });
     };
@@ -303,6 +306,26 @@ const PatientProfileSetupPage: React.FC = () => {
                                             className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)] disabled:opacity-50 disabled:bg-gray-50/50"
                                             placeholder="+91 1234567890"
                                         />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-[var(--text-2)] mb-2">
+                                            Relationship
+                                        </label>
+                                        <select
+                                            value={formData.emergencyContactRelationship}
+                                            onChange={(e) => setFormData({ ...formData, emergencyContactRelationship: e.target.value })}
+                                            disabled={!isEditing}
+                                            className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)] disabled:opacity-50 disabled:bg-gray-50/50"
+                                        >
+                                            <option value="">Select relationship</option>
+                                            <option value="Parent">Parent</option>
+                                            <option value="Spouse">Spouse</option>
+                                            <option value="Sibling">Sibling</option>
+                                            <option value="Friend">Friend</option>
+                                            <option value="Partner">Partner</option>
+                                            <option value="Guardian">Guardian</option>
+                                            <option value="Other">Other</option>
+                                        </select>
                                     </div>
                                 </div>
                             </div>

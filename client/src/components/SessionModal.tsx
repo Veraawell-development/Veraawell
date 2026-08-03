@@ -374,7 +374,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
           <p className="text-sm text-center text-gray-500 mb-6">This action cannot be undone.</p>
 
           {/* Refund Preview Box */}
-          <div className="rounded-2xl border p-4 mb-6" style={{ borderColor: refundColor + '40', background: refundColor + '0d' }}>
+          <div className="rounded-xl border p-4 mb-6" style={{ borderColor: refundColor + '40', background: refundColor + '0d' }}>
             <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: refundColor }}>Refund Policy</p>
             <div className="flex items-center justify-between">
               <span className="text-sm text-gray-600">{refundLabel}</span>
@@ -413,7 +413,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full relative overflow-hidden font-sans"
+        className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full relative overflow-hidden font-sans"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close Button - Top Right */}
@@ -518,11 +518,14 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
                   <h4 className="text-sm font-bold text-red-800 mb-2">Emergency Contact</h4>
                   <div className="grid grid-cols-2 gap-2 text-xs text-red-700">
                     <p><span className="font-semibold">Name:</span> {patientEmergencyContact.name}</p>
+                    {patientEmergencyContact.relationship && (
+                      <p><span className="font-semibold">Relationship:</span> {patientEmergencyContact.relationship}</p>
+                    )}
                     <p className="col-span-2"><span className="font-semibold">Phone:</span> <a href={`tel:${patientEmergencyContact.phone}`} className="font-bold hover:underline">{patientEmergencyContact.phone}</a></p>
                   </div>
                   <button
                     onClick={() => window.location.href = `tel:${patientEmergencyContact.phone}`}
-                    className="mt-3 px-4 py-2 rounded-lg font-semibold text-white text-xs transition-all hover:bg-red-600"
+                    className="mt-3 px-4 py-2 rounded-xl font-semibold text-white text-xs transition-all hover:bg-red-600"
                     style={{ backgroundColor: '#EF4444' }}
                   >
                     Call Emergency Contact
@@ -587,7 +590,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
                 </div>
                 
                 {userRole === 'patient' && hasRating && (
-                  <div className="text-center py-2 px-4 rounded-lg bg-sky-50 text-sky-700 text-xs font-medium">
+                  <div className="text-center py-2 px-4 rounded-full bg-sky-50 text-sky-700 text-xs font-medium">
                     You have already rated this session
                   </div>
                 )}

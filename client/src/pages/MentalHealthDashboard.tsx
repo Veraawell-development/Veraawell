@@ -9,6 +9,7 @@ import {
 } from 'react-icons/fi';
 import { IoCheckmarkCircle } from 'react-icons/io5';
 import { useQuery } from '@tanstack/react-query';
+import MoodHistoryCard from '../components/MoodHistoryCard';
 
 const iconMap: Record<string, { icon: React.ReactNode; color: string; bg: string }> = {
     'depression': { icon: <FiCloudRain size={20} />, color: 'text-gray-900', bg: 'bg-gray-100' },
@@ -104,6 +105,8 @@ const MentalHealthDashboard: React.FC = () => {
                         </button>
                     </div>
                 </div>
+
+                <MoodHistoryCard />
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
                     {testCards.map((test) => {

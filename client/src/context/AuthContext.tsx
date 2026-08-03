@@ -14,6 +14,7 @@ interface User {
   emergencyContact?: {
     name: string | null;
     phone: string | null;
+    relationship: string | null;
   };
 }
 

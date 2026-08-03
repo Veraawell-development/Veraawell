@@ -21,7 +21,7 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<'notes' | 'tasks' | 'chat'>('notes');
   const [saving, setSaving] = useState(false);
-  const [emergencyContact, setEmergencyContact] = useState<{ name: string; phone: string } | null>(null);
+  const [emergencyContact, setEmergencyContact] = useState<{ name: string; phone: string; relationship?: string } | null>(null);
   const [hasUnreadTabMessages, setHasUnreadTabMessages] = useState(false);
 
   useEffect(() => {
@@ -203,7 +203,11 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
           <div className="px-6 py-3 bg-red-500/5 border-b border-red-500/10 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="text-[10px] font-bold uppercase tracking-widest text-red-400">Emergency</span>
-              <span className="text-white/80 text-sm font-medium">{emergencyContact.name} <span className="text-white/30 mx-1">&bull;</span> {emergencyContact.phone}</span>
+              <span className="text-white/80 text-sm font-medium">
+                {emergencyContact.name}
+                {emergencyContact.relationship && <span className="text-white/50"> ({emergencyContact.relationship})</span>}
+                <span className="text-white/30 mx-1">&bull;</span> {emergencyContact.phone}
+              </span>
             </div>
             <button
               onClick={() => window.location.href = `tel:${emergencyContact.phone}`}

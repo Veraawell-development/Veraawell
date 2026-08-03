@@ -3,7 +3,7 @@ import { Helmet } from 'react-helmet-async';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     Loader2, ArrowRight, Clock, Home, Link2, MessageCircle, Twitter, Linkedin,
-    ThumbsUp, ThumbsDown, ChevronRight, ArrowLeft
+    ThumbsUp, ThumbsDown, ChevronRight, ArrowLeft, BookOpen
 } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { API_BASE_URL } from '../config/api';
@@ -68,13 +68,20 @@ const ArticleDetailPage: React.FC = () => {
         enabled: !!slug
     });
 
-    const { data: relatedArticles = [] } = useQuery({
-        queryKey: ['articles', 'related', article?.category],
+    const { data: relatedArticles = [], isLoading: relatedLoading } = useQuery({
+        queryKey: ['articles', 'related', article?.category, article?._id],
         queryFn: async () => {
             const relatedResponse = await fetch(`${API_BASE_URL}/articles?category=${encodeURIComponent(article.category)}&limit=4`);
             if (!relatedResponse.ok) throw new Error('Failed to fetch related articles');
             const relatedData = await relatedResponse.json();
-            return relatedData.articles.filter((a: Article) => a._id !== article._id).slice(0, 3);
+            const sameCategory = relatedData.articles.filter((a: Article) => a._id !== article._id).slice(0, 3);
+            if (sameCategory.length > 0) return sameCategory;
+
+            // Fallback: this category has nothing else — just show other recent articles
+            const latestResponse = await fetch(`${API_BASE_URL}/articles?limit=4`);
+            if (!latestResponse.ok) return [];
+            const latestData = await latestResponse.json();
+            return latestData.articles.filter((a: Article) => a._id !== article._id).slice(0, 3);
         },
         enabled: !!article?.category
     });
@@ -309,6 +316,74 @@ const ArticleDetailPage: React.FC = () => {
                                 Book Now
                             </button>
                         </div>
+                    </div>
+
+                    {/* Related Articles */}
+                    <div className="bg-white rounded-[32px] p-6 border border-[var(--border)] shadow-sm">
+                        <h4 className="text-[12px] font-bold uppercase tracking-widest text-[var(--text-3)] mb-5 px-2" style={{ fontFamily: 'var(--font-mono)' }}>
+                            Related Articles
+                        </h4>
+                        {relatedLoading ? (
+                            <div className="flex flex-col gap-3 px-2">
+                                {[0, 1, 2].map((i) => (
+                                    <div key={i} className="flex items-center gap-3 animate-pulse">
+                                        <div className="w-16 h-16 rounded-xl bg-[var(--surface)] flex-shrink-0" />
+                                        <div className="flex-1 space-y-2">
+                                            <div className="h-3 w-full rounded bg-[var(--surface)]" />
+                                            <div className="h-3 w-2/3 rounded bg-[var(--surface)]" />
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : relatedArticles.length > 0 ? (
+                            <div className="flex flex-col gap-2">
+                                {relatedArticles.map((related: Article) => (
+                                    <button
+                                        key={related._id}
+                                        onClick={() => {
+                                            navigate(`/resources/articles/${related.slug}`);
+                                            window.scrollTo({ top: 0, behavior: 'smooth' });
+                                        }}
+                                        className="flex items-center gap-3 p-2 rounded-2xl hover:bg-[var(--surface)] transition-colors text-left group"
+                                    >
+                                        <div className="w-16 h-16 rounded-xl overflow-hidden bg-[#FDF6F3] flex-shrink-0">
+                                            {related.image ? (
+                                                <img src={related.image} alt={related.title} className="w-full h-full object-cover" />
+                                            ) : (
+                                                <div className="w-full h-full bg-gradient-to-br from-[#E0F7FA] to-[#B2EBF2]" />
+                                            )}
+                                        </div>
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-[14px] font-bold text-[var(--text)] leading-snug line-clamp-2 group-hover:text-[var(--teal)] transition-colors">
+                                                {related.title}
+                                            </p>
+                                            <div className="flex items-center gap-1.5 text-[12px] text-[var(--text-3)] font-medium mt-1.5">
+                                                <Clock size={11} />
+                                                <span>{related.readTime}</span>
+                                            </div>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center text-center py-6 px-3">
+                                <div className="w-10 h-10 rounded-full flex items-center justify-center bg-[var(--surface)] text-[var(--text-3)] mb-3">
+                                    <BookOpen size={18} />
+                                </div>
+                                <p className="text-[13px] font-medium text-[var(--text-2)] leading-relaxed">
+                                    No other articles yet
+                                </p>
+                                <p className="text-[12px] text-[var(--text-3)] mt-1 leading-relaxed">
+                                    We're still writing — check back soon.
+                                </p>
+                                <button
+                                    onClick={() => navigate('/resources/articles')}
+                                    className="mt-4 text-[12px] font-bold text-[var(--teal)] hover:underline"
+                                >
+                                    Browse all articles
+                                </button>
+                            </div>
+                        )}
                     </div>
 
                     {/* Sharing */}

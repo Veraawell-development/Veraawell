@@ -6,6 +6,7 @@ import { API_BASE_URL } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { isToday, parseTime } from '../utils/dateUtils';
+import { FiVideo, FiPhone, FiZap } from 'react-icons/fi';
 
 interface BookingState {
   mode: 'video' | 'voice';
@@ -420,6 +421,20 @@ const DoctorProfilePage: React.FC = () => {
   const doctorColor = getDoctorBgColor(doctorProfile.userId._id);
   const lightBgColor = hexToRgba(doctorColor, 0.15); // 15% opacity for background sections
 
+  // Shared pill styling for the booking section — solid fill when selected,
+  // soft tint (with a slightly deeper tint on hover) when not.
+  const pillStyle = (active: boolean) => (
+    active
+      ? { backgroundColor: doctorColor, color: '#fff', boxShadow: `0 4px 12px ${doctorColor}40` }
+      : { backgroundColor: `${doctorColor}12`, color: doctorColor }
+  );
+  const pillHoverHandlers = (active: boolean) => (
+    active ? {} : {
+      onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.backgroundColor = `${doctorColor}22`; },
+      onMouseLeave: (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.backgroundColor = `${doctorColor}12`; },
+    }
+  );
+
   return (
     <div className="bg-white min-h-screen pt-16 md:pt-[80px]">
       <Helmet>
@@ -623,29 +638,31 @@ const DoctorProfilePage: React.FC = () => {
         <div className="max-w-6xl mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Left Card */}
-            {/* Left Card */}
             <div
-              className="rounded-3xl p-8 text-white shadow-2xl relative overflow-hidden"
-              style={{ backgroundColor: doctorColor }}
+              className="rounded-3xl p-8 shadow-sm hover:shadow-md transition-shadow duration-300 relative overflow-hidden border"
+              style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}
             >
-              <div className="absolute inset-0 bg-black/5 pointer-events-none"></div>
               <div className="space-y-8 relative z-10">
                 {/* Select Mode */}
                 <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 items-start sm:items-center">
-                  <h3 className="font-bold text-base sm:text-lg w-auto sm:w-36 shrink-0">Select Mode:</h3>
+                  <h3 className="font-bold text-base sm:text-lg w-auto sm:w-36 shrink-0" style={{ color: 'var(--text)' }}>Select Mode:</h3>
                   <div className="flex flex-nowrap gap-2 w-full overflow-x-auto pb-1">
                     <button
                       onClick={() => handleModeChange('video')}
-                      className={`${booking.mode === 'video' ? 'bg-white ring-2 ring-blue-400 shadow-sm' : 'bg-white/20 text-white hover:bg-white/30'} font-semibold py-1.5 px-4 sm:py-2 sm:px-5 rounded-full transition-all duration-300 whitespace-nowrap text-sm sm:text-base`}
-                      style={{ color: booking.mode === 'video' ? doctorColor : '#fff' }}
+                      className="flex items-center gap-2 font-semibold py-1.5 px-4 sm:py-2 sm:px-5 rounded-full transition-all duration-300 whitespace-nowrap text-sm sm:text-base"
+                      style={pillStyle(booking.mode === 'video')}
+                      {...pillHoverHandlers(booking.mode === 'video')}
                     >
+                      <FiVideo size={15} />
                       Video Call
                     </button>
                     <button
                       onClick={() => handleModeChange('voice')}
-                      className={`${booking.mode === 'voice' ? 'bg-white ring-2 ring-blue-400 shadow-sm' : 'bg-white/20 text-white hover:bg-white/30'} font-semibold py-1.5 px-4 sm:py-2 sm:px-5 rounded-full transition-all duration-300 whitespace-nowrap text-sm sm:text-base`}
-                      style={{ color: booking.mode === 'voice' ? doctorColor : '#fff' }}
+                      className="flex items-center gap-2 font-semibold py-1.5 px-4 sm:py-2 sm:px-5 rounded-full transition-all duration-300 whitespace-nowrap text-sm sm:text-base"
+                      style={pillStyle(booking.mode === 'voice')}
+                      {...pillHoverHandlers(booking.mode === 'voice')}
                     >
+                      <FiPhone size={15} />
                       Voice Call
                     </button>
                   </div>
@@ -653,14 +670,15 @@ const DoctorProfilePage: React.FC = () => {
 
                 {/* Select Duration */}
                 <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 items-start sm:items-center">
-                  <h3 className="font-bold text-base sm:text-lg w-auto sm:w-36 shrink-0">Select Duration:</h3>
+                  <h3 className="font-bold text-base sm:text-lg w-auto sm:w-36 shrink-0" style={{ color: 'var(--text)' }}>Select Duration:</h3>
                   <div className="flex flex-nowrap gap-2 w-full overflow-x-auto pb-1">
                     {[20, 40, 55].map((dur) => (
                       <button
                         key={dur}
                         onClick={() => handleDurationChange(dur)}
-                        className={`${booking.duration === dur ? 'bg-white ring-2 ring-blue-400 shadow-sm' : 'bg-white/20 text-white hover:bg-white/30'} font-semibold py-1.5 px-3 sm:py-2 sm:px-4 rounded-full transition-all duration-300 whitespace-nowrap text-sm sm:text-base`}
-                        style={{ color: booking.duration === dur ? doctorColor : '#fff' }}
+                        className="font-semibold py-1.5 px-3 sm:py-2 sm:px-4 rounded-full transition-all duration-300 whitespace-nowrap text-sm sm:text-base"
+                        style={pillStyle(booking.duration === dur)}
+                        {...pillHoverHandlers(booking.duration === dur)}
                       >
                         {dur} Mins
                       </button>
@@ -670,13 +688,13 @@ const DoctorProfilePage: React.FC = () => {
 
                 {/* Price */}
                 <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 items-start sm:items-center">
-                  <h3 className="font-bold text-base sm:text-lg w-auto sm:w-36 shrink-0">Price:</h3>
+                  <h3 className="font-bold text-base sm:text-lg w-auto sm:w-36 shrink-0" style={{ color: 'var(--text)' }}>Price:</h3>
                   <div className="flex flex-nowrap gap-2 w-full overflow-x-auto pb-1">
                     {[20, 40, 55].map((dur) => (
                       <div
                         key={`price-${dur}`}
-                        className={`font-semibold py-1.5 px-3 sm:py-2 sm:px-4 rounded-full transition-all duration-300 flex flex-col items-center min-w-[75px] sm:min-w-[90px] whitespace-nowrap ${booking.duration === dur ? 'bg-white ring-2 ring-blue-400 shadow-sm' : 'bg-white/20 text-white hover:bg-white/30'}`}
-                        style={{ color: booking.duration === dur ? doctorColor : '#fff' }}
+                        className="font-semibold py-1.5 px-3 sm:py-2 sm:px-4 rounded-full transition-all duration-300 flex flex-col items-center min-w-[75px] sm:min-w-[90px] whitespace-nowrap"
+                        style={pillStyle(booking.duration === dur)}
                       >
                         <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider opacity-80 mb-0.5">{dur} Mins</span>
                         <span className="text-xs sm:text-sm">Rs. {getPriceForDurationAndMode(dur, booking.mode)}</span>
@@ -685,9 +703,9 @@ const DoctorProfilePage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="pt-6 mt-8 border-t border-white/20">
-                  <p className="text-sm font-medium text-white/90 leading-relaxed">
-                    <span className="font-bold">Note:</span> The session for the duration of 20 minutes is a discovery session where you can discuss your problems and discuss the way forward.
+                <div className="pt-6 mt-8 border-t" style={{ borderColor: 'var(--border)' }}>
+                  <p className="text-sm font-medium leading-relaxed" style={{ color: 'var(--text-2)' }}>
+                    <span className="font-bold" style={{ color: 'var(--text)' }}>Note:</span> The session for the duration of 20 minutes is a discovery session where you can discuss your problems and discuss the way forward.
                   </p>
                 </div>
               </div>
@@ -695,20 +713,31 @@ const DoctorProfilePage: React.FC = () => {
 
             {/* Right Card */}
             <div
-              className="rounded-3xl p-8 text-white shadow-2xl relative overflow-hidden flex flex-col justify-between"
-              style={{ backgroundColor: doctorColor }}
+              className="rounded-3xl p-8 shadow-sm hover:shadow-md transition-shadow duration-300 relative overflow-hidden border flex flex-col justify-between"
+              style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}
             >
-              <div className="absolute inset-0 bg-black/5 pointer-events-none"></div>
               <div className="space-y-8 relative z-10 flex-1 flex flex-col justify-center">
                 {/* Immediate booking: show instant session card. Scheduled: show date + slot picker. */}
                 {isImmediate ? (
                   <div className="text-center">
-                    <div className="bg-white/10 border border-white/10 rounded-2xl p-6 mb-8 backdrop-blur-sm">
-                      <svg className="w-16 h-16 mx-auto mb-3 text-white drop-shadow-sm" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                      <h3 className="text-2xl font-bold mb-2 tracking-tight">Instant Session</h3>
-                      <p className="text-white/90 text-sm leading-relaxed max-w-sm mx-auto">This doctor is available now. Click "Book Now" to start your session immediately!</p>
+                    <div
+                      className="rounded-2xl p-8 mb-2"
+                      style={{ background: `${doctorColor}0d` }}
+                    >
+                      <div className="relative inline-flex mb-4">
+                        <div
+                          className="w-16 h-16 rounded-2xl flex items-center justify-center"
+                          style={{ backgroundColor: `${doctorColor}18` }}
+                        >
+                          <FiZap size={28} style={{ color: doctorColor }} />
+                        </div>
+                        <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ backgroundColor: '#10B981' }} />
+                          <span className="relative inline-flex rounded-full h-4 w-4 border-2 border-white" style={{ backgroundColor: '#10B981' }} />
+                        </span>
+                      </div>
+                      <h3 className="text-2xl font-bold mb-2 tracking-tight" style={{ color: 'var(--text)' }}>Instant Session</h3>
+                      <p className="text-sm leading-relaxed max-w-sm mx-auto" style={{ color: 'var(--text-2)' }}>This doctor is available now. Click "Book Now" to start your session immediately!</p>
                     </div>
                   </div>
                 ) : (
@@ -716,8 +745,8 @@ const DoctorProfilePage: React.FC = () => {
                   <div className="space-y-8">
                     {/* Select Date */}
                     <div>
-                      <h3 className="font-bold text-lg mb-4">Select Date:</h3>
-                      <div 
+                      <h3 className="font-bold text-lg mb-4" style={{ color: 'var(--text)' }}>Select Date:</h3>
+                      <div
                         className="flex space-x-3 overflow-x-auto pb-2 scrollbar-hide"
                         style={{ WebkitOverflowScrolling: 'touch' }}
                       >
@@ -725,9 +754,9 @@ const DoctorProfilePage: React.FC = () => {
                           <button
                             key={dateObj.date}
                             onClick={() => handleDateChange(dateObj.date)}
-                            className={`${booking.date === dateObj.date ? 'bg-white ring-2 ring-blue-400 shadow-sm' : 'bg-white/20 hover:bg-white/30 text-white'
-                              } font-semibold py-3 px-3 rounded-2xl text-center flex-shrink-0 transition-all duration-300 flex flex-col items-center min-w-[64px]`}
-                            style={{ color: booking.date === dateObj.date ? doctorColor : '#fff' }}
+                            className="font-semibold py-3 px-3 rounded-2xl text-center flex-shrink-0 transition-all duration-300 flex flex-col items-center min-w-[64px]"
+                            style={pillStyle(booking.date === dateObj.date)}
+                            {...pillHoverHandlers(booking.date === dateObj.date)}
                           >
                             <span className="text-[10px] font-bold uppercase opacity-80 mb-1">{dateObj.day.split(' ')[1]?.toUpperCase()}</span>
                             <span className="text-2xl font-bold leading-none mb-1">{dateObj.dayNum}</span>
@@ -739,20 +768,20 @@ const DoctorProfilePage: React.FC = () => {
 
                     {/* Select Slot */}
                     <div>
-                      <h3 className="font-bold text-lg mb-4">Select Slot:</h3>
+                      <h3 className="font-bold text-lg mb-4" style={{ color: 'var(--text)' }}>Select Slot:</h3>
                       <div className="flex flex-wrap gap-3">
                         {availableSlots.length > 0 ? availableSlots.map((slot) => (
                           <button
                             key={slot}
                             onClick={() => handleTimeSlotChange(slot)}
-                            className={`${booking.timeSlot === slot ? 'bg-white ring-2 ring-blue-400 shadow-sm' : 'bg-white/20 hover:bg-white/30 text-white'
-                              } font-semibold py-2 px-6 rounded-full transition-all duration-300`}
-                            style={{ color: booking.timeSlot === slot ? doctorColor : '#fff' }}
+                            className="font-semibold py-2 px-6 rounded-full transition-all duration-300"
+                            style={pillStyle(booking.timeSlot === slot)}
+                            {...pillHoverHandlers(booking.timeSlot === slot)}
                           >
                             {slot}
                           </button>
                         )) : (
-                          <p className="text-white/80 italic text-sm p-4 bg-white/10 rounded-xl border border-white/10">
+                          <p className="italic text-sm p-4 rounded-xl" style={{ color: 'var(--text-2)', background: `${doctorColor}0d` }}>
                             {booking.date ? 'No available slots for this date' : 'Select a date to see slots'}
                           </p>
                         )}
@@ -764,17 +793,32 @@ const DoctorProfilePage: React.FC = () => {
 
               {/* Book Button */}
               <div className="mt-8 relative z-10 w-full">
-                <button
-                  onClick={handleBookNow}
-                  disabled={isImmediate ? isBooking : (isBooking || !booking.date || !booking.timeSlot)}
-                  className={`${(isImmediate ? isBooking : (isBooking || !booking.date || !booking.timeSlot))
-                    ? 'opacity-60 cursor-not-allowed bg-white/50 text-gray-800'
-                    : 'bg-white hover:shadow-2xl hover:scale-[1.02] active:scale-95'
-                    } font-bold py-4 px-10 rounded-full shadow-xl text-lg transition-all duration-300 w-full`}
-                  style={{ color: (isImmediate ? isBooking : (isBooking || !booking.date || !booking.timeSlot)) ? '' : doctorColor }}
-                >
-                  {isBooking ? 'Booking...' : isImmediate ? 'Book Now' : 'Schedule Session'}
-                </button>
+                {(() => {
+                  const bookDisabled = isImmediate ? isBooking : (isBooking || !booking.date || !booking.timeSlot);
+                  return (
+                    <button
+                      onClick={handleBookNow}
+                      disabled={bookDisabled}
+                      className={`${bookDisabled ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'} font-bold py-4 px-10 rounded-full text-lg transition-all duration-300 w-full`}
+                      style={{
+                        border: `2px solid ${doctorColor}`,
+                        color: doctorColor,
+                        background: 'transparent',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (bookDisabled) return;
+                        e.currentTarget.style.background = doctorColor;
+                        e.currentTarget.style.color = '#fff';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = 'transparent';
+                        e.currentTarget.style.color = doctorColor;
+                      }}
+                    >
+                      {isBooking ? 'Booking...' : isImmediate ? 'Book Now' : 'Schedule Session'}
+                    </button>
+                  );
+                })()}
               </div>
             </div>
           </div>

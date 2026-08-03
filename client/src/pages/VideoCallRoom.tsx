@@ -44,7 +44,7 @@ const VideoCallRoom: React.FC = () => {
   //  Mandatory Emergency Contact State
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
   const [savingContact, setSavingContact] = useState(false);
-  const [newEmergencyContact, setNewEmergencyContact] = useState({ name: '', phone: '' });
+  const [newEmergencyContact, setNewEmergencyContact] = useState({ name: '', phone: '', relationship: '' });
 
   // Consent Ending Modal States
   const [showConsentModal, setShowConsentModal] = useState(false);
@@ -81,7 +81,7 @@ const VideoCallRoom: React.FC = () => {
         if (data.delayedUntil) setDelayedUntil(new Date(data.delayedUntil));
         if (data.status === 'missed' || data.status === 'cancelled') {
           setError('Doctor is unavailable. Session cancelled and refunded.');
-          setTimeout(() => navigate('/patient-dashboard'), 3000);
+          setTimeout(() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard'), 3000);
         }
         if (data.doctorNote) setDoctorNote(data.doctorNote);
       }
@@ -131,7 +131,7 @@ const VideoCallRoom: React.FC = () => {
       if (data.delayedUntil) setDelayedUntil(new Date(data.delayedUntil));
       if (data.status === 'missed' || data.status === 'cancelled') {
         setError('Doctor is unavailable. Session cancelled and refunded.');
-        setTimeout(() => navigate('/patient-dashboard'), 3000);
+        setTimeout(() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard'), 3000);
       }
       if (data.doctorNote) setDoctorNote(data.doctorNote);
     }
@@ -194,7 +194,7 @@ const VideoCallRoom: React.FC = () => {
 
   const saveEmergencyContact = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newEmergencyContact.name || !newEmergencyContact.phone) return;
+    if (!newEmergencyContact.name || !newEmergencyContact.phone || !newEmergencyContact.relationship) return;
 
     setSavingContact(true);
     try {
@@ -205,7 +205,8 @@ const VideoCallRoom: React.FC = () => {
         body: JSON.stringify({
           emergencyContact: {
             name: newEmergencyContact.name,
-            phone: newEmergencyContact.phone
+            phone: newEmergencyContact.phone,
+            relationship: newEmergencyContact.relationship
           }
         })
       });
@@ -558,7 +559,7 @@ const VideoCallRoom: React.FC = () => {
         if (data.delayedUntil) setDelayedUntil(new Date(data.delayedUntil));
         if (data.status === 'missed' || data.status === 'cancelled') {
           setError('Doctor is unavailable. Session cancelled and refunded.');
-          setTimeout(() => navigate('/patient-dashboard'), 3000);
+          setTimeout(() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard'), 3000);
         }
         if (data.doctorNote) setDoctorNote(data.doctorNote);
 
@@ -1792,7 +1793,7 @@ const VideoCallRoom: React.FC = () => {
                     value={newEmergencyContact.name}
                     onChange={(e) => setNewEmergencyContact({ ...newEmergencyContact, name: e.target.value })}
                     className="w-full bg-gray-50 border-gray-200 border-2 rounded-2xl px-5 py-4 focus:border-teal-500 focus:bg-white focus:outline-none transition-all font-medium text-gray-800"
-                    placeholder="e.g. Spouse, Parent, Friend"
+                    placeholder="Full name of emergency contact"
                   />
                 </div>
 
@@ -1812,6 +1813,27 @@ const VideoCallRoom: React.FC = () => {
                       placeholder="1234567890"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">
+                    Relationship
+                  </label>
+                  <select
+                    required
+                    value={newEmergencyContact.relationship}
+                    onChange={(e) => setNewEmergencyContact({ ...newEmergencyContact, relationship: e.target.value })}
+                    className="w-full bg-gray-50 border-gray-200 border-2 rounded-2xl px-5 py-4 focus:border-teal-500 focus:bg-white focus:outline-none transition-all font-medium text-gray-800"
+                  >
+                    <option value="">Select relationship</option>
+                    <option value="Parent">Parent</option>
+                    <option value="Spouse">Spouse</option>
+                    <option value="Sibling">Sibling</option>
+                    <option value="Friend">Friend</option>
+                    <option value="Partner">Partner</option>
+                    <option value="Guardian">Guardian</option>
+                    <option value="Other">Other</option>
+                  </select>
                 </div>
               </div>
 

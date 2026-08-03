@@ -169,7 +169,7 @@ const FAQPage: React.FC = () => {
             {/* Hero Section */}
             <div className="relative z-10 pt-16 pb-12 px-6">
                 <div className="max-w-4xl mx-auto text-center">
-                    <h1 className="text-4xl md:text-5xl font-normal mb-4 tracking-tight" style={{ fontFamily: 'var(--font-display)', color: 'var(--text)' }}>
+                    <h1 className="text-4xl md:text-5xl font-bold mb-4 tracking-tight" style={{ fontFamily: 'Inter, sans-serif', color: 'var(--text)' }}>
                         Frequently Asked Questions
                     </h1>
                     <p className="text-[17px] max-w-2xl mx-auto" style={{ color: 'var(--text-2)' }}>

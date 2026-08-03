@@ -12,6 +12,7 @@ import InstantRequestModal from '../components/InstantRequestModal';
 import PostSessionReportModal from '../components/PostSessionReportModal';
 import DoctorSidebar from '../components/DoctorSidebar';
 import { API_BASE_URL } from '../config/api';
+import { getGreeting, getGreetingPunctuation } from '../utils/dateUtils';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 
 let sharedAudioCtx: any = null;
@@ -231,8 +232,8 @@ const DoctorDashboard: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['doctor', 'stats', user?.userId] });
     });
 
-    socket.on('session:status-change', ({ sessionId, status }) => {
-      console.log('[REAL-TIME] Session status changed:', { sessionId, status });
+    socket.on('session:status-update', ({ sessionId, acceptanceStatus }) => {
+      console.log('[REAL-TIME] Session status updated:', { sessionId, acceptanceStatus });
       setCalendarRefreshTrigger(prev => prev + 1);
       queryClient.invalidateQueries({ queryKey: ['doctor', 'stats', user?.userId] });
     });
@@ -550,18 +551,9 @@ const DoctorDashboard: React.FC = () => {
             {/* Center - Greeting */}
             <div className="text-center flex-1 flex justify-center px-2 sm:px-4 min-w-0">
               <h1 className="text-sm sm:text-lg md:text-xl font-medium text-gray-800 tracking-wide truncate transition-all duration-300" style={{ fontFamily: 'Inter, sans-serif' }}>
-                <span className="hidden md:inline">
-                  {(() => {
-                    const hour = new Date().getHours();
-                    if (hour >= 5 && hour < 12) return 'Good morning';
-                    if (hour >= 12 && hour < 17) return 'Good afternoon';
-                    if (hour >= 17 && hour < 20) return 'Good evening';
-                    if (hour >= 20 && hour < 24) return 'Good night';
-                    return 'Night owl';
-                  })()}, 
-                </span>
+                <span className="hidden md:inline">{getGreeting()}, </span>
                 <span className="md:hidden">Welcome, </span>
-                Dr. {user?.firstName || user?.username || 'Doctor'}
+                Dr. {user?.firstName || user?.username || 'Doctor'}{getGreetingPunctuation()}
               </h1>
             </div>
 
@@ -748,7 +740,7 @@ const DoctorDashboard: React.FC = () => {
                 <h4 className="text-white/80 text-xs font-bold uppercase tracking-wider mb-2">Recent Tasks</h4>
                 {assignedTasks.length > 0 ? (
                   assignedTasks.slice(0, 2).map((task: any) => (
-                    <div key={task._id} className="mb-2 bg-white/10 border border-white/10 p-3 rounded-xl backdrop-blur-md flex justify-between items-center text-sm text-white">
+                    <div key={task._id} className="mb-2 bg-white/10 border border-white/10 p-3 rounded-2xl backdrop-blur-md flex justify-between items-center text-sm text-white">
                       <span className="font-medium truncate mr-2">{task.title}</span>
                       <span className="text-white/70 whitespace-nowrap">{task.patientId.firstName}</span>
                     </div>
@@ -761,7 +753,7 @@ const DoctorDashboard: React.FC = () => {
                 <h4 className="text-white/80 text-xs font-bold uppercase tracking-wider mb-2 mt-2">Recent Reports</h4>
                 {recentReports.length > 0 ? (
                   recentReports.slice(0, 2).map((report: any) => (
-                    <div key={report._id} className="mb-2 bg-white/10 border border-white/10 p-3 rounded-xl backdrop-blur-md flex justify-between items-center text-sm text-white">
+                    <div key={report._id} className="mb-2 bg-white/10 border border-white/10 p-3 rounded-2xl backdrop-blur-md flex justify-between items-center text-sm text-white">
                       <span className="font-medium truncate mr-2">{report.title}</span>
                       <span className="text-white/70 whitespace-nowrap">{report.patientId.firstName}</span>
                     </div>
@@ -819,9 +811,9 @@ const DoctorDashboard: React.FC = () => {
             toast.success('Report submitted successfully!');
           }}
           onCancel={() => {
-            // Even if cancelled, we might want to keep it available or warn
             setShowPostSessionReport(false);
-            toast('Report draft saved. Please complete it from the Reports section.', { icon: '' });
+            setPendingReportData(null);
+            toast('Report not submitted. You can write it later from the Reports section.', { icon: '' });
           }}
         />
       )}

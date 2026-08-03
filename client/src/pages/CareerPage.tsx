@@ -1,11 +1,20 @@
 import React, { useState } from 'react';
 import { API_BASE_URL } from '../config/api';
-import { Upload, X, FileText, Loader2 } from 'lucide-react';
+import { Upload, X, FileText, Loader2, ClipboardCheck, Users, CheckCircle2, Handshake, UserPlus, MessageCircle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useMutation } from '@tanstack/react-query';
 import { useScrollReveal } from '../hooks/useScrollReveal';
 import LeafDecor from '../components/ui/LeafDecor';
 import SparkDecor from '../components/ui/SparkDecor';
+import RippleDecor from '../components/ui/RippleDecor';
+import WaveDecor from '../components/ui/WaveDecor';
+
+const hiringSteps = [
+  { icon: FileText, title: 'Apply Online', description: 'Share your details and specialization in a short application — takes under 5 minutes.', accent: 'var(--teal)' },
+  { icon: ClipboardCheck, title: 'Document Verification', description: 'Upload your license and credentials so our team can verify you securely.', accent: 'var(--sage)' },
+  { icon: Users, title: 'Quick Interview', description: 'A short conversation to understand your practice and how we can support it.', accent: 'var(--gold)' },
+  { icon: CheckCircle2, title: 'Get Onboarded', description: 'Once approved, set your availability and start seeing clients on your terms.', accent: 'var(--warm)' },
+];
 
 const CareerPage: React.FC = () => {
 
@@ -15,6 +24,7 @@ const CareerPage: React.FC = () => {
   const card1Ref = useScrollReveal<HTMLDivElement>();
   const card2Ref = useScrollReveal<HTMLDivElement>();
   const card3Ref = useScrollReveal<HTMLDivElement>();
+  const hiringRef = useScrollReveal<HTMLDivElement>();
   const formRef = useScrollReveal<HTMLDivElement>();
 
   const [activeTab, setActiveTab] = useState<'partner' | 'professional' | 'other'>('professional');
@@ -341,6 +351,20 @@ const CareerPage: React.FC = () => {
         />
       </div>
 
+      {/* Additional decor variety, spread down the page */}
+      <div className="absolute top-[38%] left-[3%] pointer-events-none z-0 hidden lg:block">
+        <RippleDecor
+          color="var(--gold)"
+          style={{ width: '140px', height: '140px', opacity: 0.3, animation: 'float-card 11s ease-in-out infinite alternate' }}
+        />
+      </div>
+      <div className="absolute bottom-[6%] right-[4%] pointer-events-none z-0 hidden md:block">
+        <WaveDecor
+          color="var(--teal)"
+          style={{ width: '160px', height: '160px', opacity: 0.3, transform: 'rotate(6deg)', animation: 'float-card 13s ease-in-out infinite alternate-reverse' }}
+        />
+      </div>
+
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-32 pb-24 relative z-10">
         
         {/* ── Editorial Hero Section ── */}
@@ -381,9 +405,9 @@ const CareerPage: React.FC = () => {
         </div>
 
         {/* Premium Marquee */}
-        <div ref={bannerRef} data-reveal className="w-full max-w-7xl mx-auto overflow-hidden mb-24 border-y border-[var(--border)] py-6 relative bg-[var(--surface)]">
-           <div className="absolute left-0 top-0 bottom-0 w-24 bg-gradient-to-r from-[var(--surface)] to-transparent z-10"></div>
-           <div className="absolute right-0 top-0 bottom-0 w-24 bg-gradient-to-l from-[var(--surface)] to-transparent z-10"></div>
+        <div ref={bannerRef} data-reveal className="w-full max-w-7xl mx-auto overflow-hidden mb-24 border-y border-[var(--border)] py-7 relative" style={{ background: 'linear-gradient(90deg, var(--teal-muted) 0%, var(--surface) 50%, var(--teal-muted) 100%)' }}>
+           <div className="absolute left-0 top-0 bottom-0 w-24 bg-gradient-to-r from-[var(--teal-muted)] to-transparent z-10"></div>
+           <div className="absolute right-0 top-0 bottom-0 w-24 bg-gradient-to-l from-[var(--teal-muted)] to-transparent z-10"></div>
            
            <div className="whitespace-nowrap flex" style={{ animation: 'scroll 30s linear infinite' }}>
              {[...Array(6)].map((_, i) => (
@@ -479,12 +503,69 @@ const CareerPage: React.FC = () => {
           </div>
         </div>
 
+        {/* ── Hiring Process Timeline ── */}
+        <div ref={hiringRef} className="mb-40">
+          <div className="text-center max-w-2xl mx-auto mb-16">
+            <span className="text-sm font-semibold tracking-widest uppercase block mb-4 text-teal-600">
+              How To Join
+            </span>
+            <h2 className="leading-tight font-normal tracking-tight" style={{ fontFamily: 'var(--font-display)', fontSize: 'clamp(32px, 4vw, 44px)', color: 'var(--text)' }}>
+              Four simple steps to get started.
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {hiringSteps.map((step, i) => {
+              const StepIcon = step.icon;
+              return (
+                <div
+                  key={i}
+                  data-reveal="scale"
+                  data-delay={i + 1}
+                  className="group relative rounded-[28px] p-7 text-center bg-white border border-gray-100 shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_12px_36px_rgba(0,0,0,0.06)] hover:-translate-y-1.5 transition-all duration-300 overflow-hidden"
+                >
+                  <div
+                    className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
+                    style={{ background: `${step.accent}08` }}
+                  />
+                  <div
+                    className="w-14 h-14 rounded-full flex items-center justify-center mx-auto mb-5 relative z-10 transition-transform duration-500 group-hover:scale-110"
+                    style={{ background: `${step.accent}14`, color: step.accent }}
+                  >
+                    <StepIcon size={22} />
+                  </div>
+                  <h3 className="text-[17px] font-bold mb-2 relative z-10" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
+                    {step.title}
+                  </h3>
+                  <p className="text-[14px] leading-relaxed text-gray-500 relative z-10">
+                    {step.description}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+          <div className="text-center mt-12">
+            <button
+              onClick={scrollToForm}
+              className="inline-flex items-center gap-2 px-8 py-3.5 rounded-full text-white font-semibold text-[15px] shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300"
+              style={{ background: 'var(--teal)' }}
+            >
+              Start Your Application
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
         {/* ── Join Us Form Section ── */}
         <div ref={formRef} data-reveal id="join-us-form" className="w-full max-w-4xl mx-auto bg-white border border-gray-100 rounded-[32px] shadow-[0_4px_24px_rgba(0,0,0,0.02)] p-8 md:p-16 relative overflow-hidden">
           {/* Minimal background flair */}
           <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-teal-50/50 rounded-full filter blur-[100px] -z-10 transform translate-x-1/2 -translate-y-1/2"></div>
           
           <div className="relative z-10">
+            <span className="text-sm font-semibold tracking-widest uppercase block mb-3 text-center text-teal-600">
+              — Get Started
+            </span>
             <h2 className="text-[32px] md:text-[48px] font-bold text-center mb-8" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)', letterSpacing: '-0.02em' }}>
               Join Us Now
             </h2>
@@ -493,29 +574,32 @@ const CareerPage: React.FC = () => {
             <div className="flex gap-2 md:gap-4 mb-8 justify-center flex-wrap">
               <button
                 onClick={() => { setActiveTab('partner'); setCurrentStep(1); }}
-                className={`px-6 py-3 rounded-full font-medium text-[15px] transition-all ${activeTab === 'partner'
+                className={`flex items-center gap-2 px-6 py-3 rounded-full font-medium text-[15px] transition-all ${activeTab === 'partner'
                   ? 'bg-[var(--teal)] text-white shadow-md'
                   : 'bg-transparent text-[var(--text-2)] border border-[var(--border)] hover:border-[var(--teal)] hover:text-[var(--teal)]'
                   }`}
               >
+                <Handshake size={16} />
                 Partner with us
               </button>
               <button
                 onClick={() => { setActiveTab('professional'); setCurrentStep(1); }}
-                className={`px-6 py-3 rounded-full font-medium text-[15px] transition-all ${activeTab === 'professional'
+                className={`flex items-center gap-2 px-6 py-3 rounded-full font-medium text-[15px] transition-all ${activeTab === 'professional'
                   ? 'bg-[var(--teal)] text-white shadow-md'
                   : 'bg-transparent text-[var(--text-2)] border border-[var(--border)] hover:border-[var(--teal)] hover:text-[var(--teal)]'
                   }`}
               >
+                <UserPlus size={16} />
                 Join as Professional
               </button>
               <button
                 onClick={() => { setActiveTab('other'); setCurrentStep(1); }}
-                className={`px-6 py-3 rounded-full font-medium text-[15px] transition-all ${activeTab === 'other'
+                className={`flex items-center gap-2 px-6 py-3 rounded-full font-medium text-[15px] transition-all ${activeTab === 'other'
                   ? 'bg-[var(--teal)] text-white shadow-md'
                   : 'bg-transparent text-[var(--text-2)] border border-[var(--border)] hover:border-[var(--teal)] hover:text-[var(--teal)]'
                   }`}
               >
+                <MessageCircle size={16} />
                 Other Queries
               </button>
             </div>
@@ -527,15 +611,28 @@ const CareerPage: React.FC = () => {
                 </p>
 
                 {/* Progress Bar */}
-                <div className="flex items-center justify-between mb-8 relative">
-                   <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 bg-[var(--border)] -z-10 rounded-full"></div>
-                   <div className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-[var(--teal)] -z-10 rounded-full transition-all duration-500" style={{ width: `${((currentStep - 1) / 2) * 100}%` }}></div>
-                   
-                   {[1, 2, 3].map((step) => (
-                     <div key={step} className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all duration-300 ${currentStep >= step ? 'bg-[var(--teal)] text-white shadow-md scale-110' : 'bg-white text-[var(--text-3)] border border-[var(--border)]'}`}>
-                       {step}
-                     </div>
-                   ))}
+                <div className="mb-8">
+                  <div className="flex items-center justify-between relative">
+                     <div className="absolute left-0 top-1/2 -translate-y-1/2 w-full h-1 bg-[var(--border)] -z-10 rounded-full"></div>
+                     <div className="absolute left-0 top-1/2 -translate-y-1/2 h-1 bg-[var(--teal)] -z-10 rounded-full transition-all duration-500" style={{ width: `${((currentStep - 1) / 2) * 100}%` }}></div>
+
+                     {[1, 2, 3].map((step) => (
+                       <div key={step} className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm transition-all duration-300 ${currentStep >= step ? 'bg-[var(--teal)] text-white shadow-md scale-110' : 'bg-white text-[var(--text-3)] border border-[var(--border)]'}`}>
+                         {step}
+                       </div>
+                     ))}
+                  </div>
+                  <div className="flex items-center justify-between mt-2">
+                    {['Your Details', 'Professional Info', 'Security & Docs'].map((label, i) => (
+                      <span
+                        key={label}
+                        className="text-[11px] font-semibold uppercase tracking-wide w-10 text-center -mx-8 sm:mx-0 sm:w-auto"
+                        style={{ color: currentStep >= i + 1 ? 'var(--teal)' : 'var(--text-3)' }}
+                      >
+                        <span className="hidden sm:inline">{label}</span>
+                      </span>
+                    ))}
+                  </div>
                 </div>
 
                 {/* Success/Error Messages */}
@@ -841,18 +938,44 @@ const CareerPage: React.FC = () => {
             )}
 
             {activeTab === 'partner' && (
-              <div className="text-center py-16 animate-in fade-in">
-                <p className="text-[var(--text-2)] text-lg">
-                  Partnership opportunities coming soon! Please contact us at <a href="mailto:contact@veraawell.com" className="text-[var(--teal)] hover:underline">contact@veraawell.com</a>
+              <div className="text-center py-16 animate-in fade-in max-w-md mx-auto">
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-6" style={{ background: 'var(--teal-muted)', color: 'var(--teal)' }}>
+                  <Handshake size={24} />
+                </div>
+                <h3 className="text-[20px] font-bold mb-3" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
+                  Partnership opportunities coming soon
+                </h3>
+                <p className="text-[var(--text-2)] mb-6">
+                  We're building out formal partnerships with clinics and organisations. Reach out and we'll get back to you personally.
                 </p>
+                <a
+                  href="mailto:contact@veraawell.com"
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-full text-white font-semibold text-[15px] shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300"
+                  style={{ background: 'var(--teal)' }}
+                >
+                  contact@veraawell.com
+                </a>
               </div>
             )}
 
             {activeTab === 'other' && (
-              <div className="text-center py-16 animate-in fade-in">
-                <p className="text-[var(--text-2)] text-lg">
-                  For other queries, please reach out to us at <a href="mailto:contact@veraawell.com" className="text-[var(--teal)] hover:underline">contact@veraawell.com</a>
+              <div className="text-center py-16 animate-in fade-in max-w-md mx-auto">
+                <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-6" style={{ background: 'var(--teal-muted)', color: 'var(--teal)' }}>
+                  <MessageCircle size={24} />
+                </div>
+                <h3 className="text-[20px] font-bold mb-3" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
+                  Got a different question?
+                </h3>
+                <p className="text-[var(--text-2)] mb-6">
+                  For anything else — press, careers questions, or general queries — drop us a line directly.
                 </p>
+                <a
+                  href="mailto:contact@veraawell.com"
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-full text-white font-semibold text-[15px] shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300"
+                  style={{ background: 'var(--teal)' }}
+                >
+                  contact@veraawell.com
+                </a>
               </div>
             )}
           </div>

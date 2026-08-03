@@ -3,6 +3,8 @@ import { useAuth } from '../context/AuthContext';
 import { useDataSocket } from '../hooks/useDataSocket';
 import InstantRequestModal from './InstantRequestModal';
 import { useNavigate } from 'react-router-dom';
+import { API_BASE_URL } from '../config/api';
+import toast from 'react-hot-toast';
 
 const GlobalIncomingCallListener: React.FC = () => {
   const { user, isLoggedIn } = useAuth();
@@ -27,21 +29,55 @@ const GlobalIncomingCallListener: React.FC = () => {
     };
   }, [isLoggedIn, socket, user]);
 
-  const handleAcceptRequest = (sessionId: string) => {
-    if (!socket) return;
-    socket.emit('session:accept', { sessionId });
+  const authHeaders = () => ({
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${localStorage.getItem('token')}`,
+  });
+
+  const handleAcceptRequest = async (sessionId: string) => {
     setIncomingRequest(null);
-    navigate(`/video-call/${sessionId}`);
+    try {
+      const res = await fetch(`${API_BASE_URL}/sessions/${sessionId}/accept`, {
+        method: 'POST',
+        headers: authHeaders(),
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || 'Failed to accept session');
+      navigate(`/video-call/${sessionId}`);
+    } catch (err: any) {
+      toast.error(err.message || 'Could not accept the session');
+    }
   };
 
-  const handleDelayRequest = (sessionId: string, minutes: number) => {
-    if (!socket) return;
-    socket.emit('session:delay', { sessionId, delayMinutes: minutes });
+  const handleDelayRequest = async (sessionId: string, minutes: number, note: string) => {
     setIncomingRequest(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/sessions/${sessionId}/delay`, {
+        method: 'POST',
+        headers: authHeaders(),
+        credentials: 'include',
+        body: JSON.stringify({ delayMinutes: minutes, doctorNote: note }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.message || 'Failed to delay session');
+      toast.success(`Patient notified — joining in ${minutes} minutes.`);
+    } catch (err: any) {
+      toast.error(err.message || 'Could not delay the session');
+    }
   };
 
-  const handleMissedRequest = (sessionId: string) => {
+  const handleMissedRequest = async (sessionId: string) => {
     setIncomingRequest(null);
+    try {
+      await fetch(`${API_BASE_URL}/sessions/${sessionId}/missed`, {
+        method: 'POST',
+        headers: authHeaders(),
+        credentials: 'include',
+      });
+    } catch (err) {
+      console.error('Failed to mark session as missed:', err);
+    }
   };
 
   if (!incomingRequest) return null;

@@ -140,6 +140,27 @@ export const isTomorrow = (dateString: string): boolean => {
 };
 
 /**
+ * Time-of-day greeting phrase, e.g. "Good morning".
+ */
+export const getGreeting = (): string => {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return 'Good morning';
+  if (hour >= 12 && hour < 17) return 'Good afternoon';
+  if (hour >= 17 && hour < 20) return 'Good evening';
+  if (hour >= 20 && hour < 24) return 'Good night';
+  return 'Night owl';
+};
+
+/**
+ * Punctuation to close out a greeting — an exclamation during the lively hours,
+ * a quieter full stop once it's late so a "Good night!" doesn't read as too loud.
+ */
+export const getGreetingPunctuation = (): string => {
+  const hour = new Date().getHours();
+  return hour >= 5 && hour < 20 ? '!' : '.';
+};
+
+/**
  * Gets days until a date
  */
 export const getDaysUntil = (dateString: string): number => {
