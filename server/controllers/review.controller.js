@@ -28,9 +28,9 @@ async function _syncDoctorRating(doctorId) {
 /** POST /api/reviews/submit — Submit a session review (Patient only) */
 const submitReview = asyncHandler(async (req, res) => {
   const { sessionId, rating, feedback, positives, improvements, wouldRecommend, reviewType } = req.body;
-  const patientId = req.user._id.toString();
+  const patientId = req.actor.id;
 
-  if (req.user.role !== 'patient') throw new AuthorizationError('Only patients can submit reviews');
+  if (req.actor.role !== 'patient') throw new AuthorizationError('Only patients can submit reviews');
   if (!sessionId || !rating || !feedback) return res.status(400).json({ success: false, message: 'Session ID, rating, and feedback are required' });
   // A non-numeric rating (e.g. the string "abc") used to slip past both
   // range checks below silently — "abc" < 1 and "abc" > 5 both evaluate to
@@ -77,7 +77,7 @@ const submitReview = asyncHandler(async (req, res) => {
 /** GET /api/reviews/check/:sessionId — Check if session is already reviewed */
 const checkReview = asyncHandler(async (req, res) => {
   const { sessionId } = req.params;
-  const patientId = req.user._id.toString();
+  const patientId = req.actor.id;
   const review = await Review.findOne({ sessionId, patientId });
   res.json({ success: true, hasReview: !!review, review: review || null });
 });
@@ -94,11 +94,18 @@ const getPlatformReviews = asyncHandler(async (req, res) => {
 /** GET /api/reviews/doctor/:doctorId — Get reviews for a doctor profile */
 const getDoctorReviews = asyncHandler(async (req, res) => {
   const { doctorId } = req.params;
-  const limit = parseInt(req.query.limit) || 10;
-  const skip = parseInt(req.query.skip) || 0;
-  const includeAll = req.query.includeAll === 'true';
-  const filter = { doctorId, reviewType: 'doctor' };
-  if (!includeAll) filter.approvedForDisplay = true;
+  const limit = Math.min(parseInt(req.query.limit) || 10, 50);
+  const skip = Math.max(parseInt(req.query.skip) || 0, 0);
+
+  // This is an unauthenticated public endpoint, and it used to honour
+  // `?includeAll=true` by dropping the moderation filter — so anyone could
+  // read reviews that had been flagged or were still awaiting approval, which
+  // is the entire point of holding them back. Verified: default returned 0
+  // reviews, `?includeAll=true` returned the unapproved one.
+  //
+  // The parameter is ignored. A doctor who wants to see their own unapproved
+  // reviews has GET /api/reviews/my-reviews; admins have /api/reviews/admin/all.
+  const filter = { doctorId, reviewType: 'doctor', approvedForDisplay: true };
   const reviews = await Review.find(filter).populate('patientId', 'firstName lastName').sort({ createdAt: -1 }).limit(limit).skip(skip);
   const stats = await Review.getDoctorStats(doctorId);
   res.json({ success: true, reviews, stats, total: await Review.countDocuments(filter) });
@@ -106,8 +113,8 @@ const getDoctorReviews = asyncHandler(async (req, res) => {
 
 /** GET /api/reviews/my-reviews — Doctor's own received reviews */
 const getMyReviews = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'doctor') throw new AuthorizationError('Only doctors can access this endpoint');
-  const doctorId = req.user._id;
+  if (req.actor.role !== 'doctor') throw new AuthorizationError('Only doctors can access this endpoint');
+  const doctorId = req.actor.id;
   const limit = parseInt(req.query.limit) || 20;
   const skip = parseInt(req.query.skip) || 0;
   const reviews = await Review.find({ doctorId, reviewType: 'doctor' }).populate('patientId', 'firstName lastName').populate('sessionId', 'sessionDate sessionTime').sort({ createdAt: -1 }).limit(limit).skip(skip);
@@ -182,7 +189,7 @@ const adminUpdateReviewStatus = asyncHandler(async (req, res) => {
   const { reviewId } = req.params;
   const { status, adminNotes } = req.body;
   if (!['pending', 'reviewed', 'flagged'].includes(status)) return res.status(400).json({ success: false, message: 'Invalid status' });
-  const review = await Review.findByIdAndUpdate(reviewId, { reviewStatus: status, adminNotes: adminNotes || '', reviewedBy: req.user._id, reviewedAt: new Date() }, { new: true });
+  const review = await Review.findByIdAndUpdate(reviewId, { reviewStatus: status, adminNotes: adminNotes || '', reviewedBy: req.actor.id, reviewedAt: new Date() }, { new: true });
   if (!review) throw new NotFoundError('Review');
   res.json({ success: true, message: 'Review status updated', review });
 });
@@ -191,7 +198,7 @@ const adminUpdateReviewStatus = asyncHandler(async (req, res) => {
 const adminApproveReview = asyncHandler(async (req, res) => {
   const { reviewId } = req.params;
   const { approved } = req.body;
-  const review = await Review.findByIdAndUpdate(reviewId, { approvedForDisplay: approved, isPublic: approved, reviewedBy: req.user._id, reviewedAt: new Date() }, { new: true });
+  const review = await Review.findByIdAndUpdate(reviewId, { approvedForDisplay: approved, isPublic: approved, reviewedBy: req.actor.id, reviewedAt: new Date() }, { new: true });
   if (!review) throw new NotFoundError('Review');
   res.json({ success: true, message: approved ? 'Review approved for display' : 'Review hidden from display', review });
 });

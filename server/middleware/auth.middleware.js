@@ -200,6 +200,10 @@ async function verifyAdminToken(req, res, next) {
 
 /**
  * Verify super admin role (must be used after verifyAdminToken)
+ *
+ * Tagged so authz/audit.js counts it as a declared authorization requirement.
+ * It predates the policy layer but it genuinely states one, and treating it as
+ * "undeclared" would overstate the gap.
  */
 function verifySuperAdmin(req, res, next) {
   if (!req.admin || req.admin.role !== 'super_admin') {
@@ -207,6 +211,7 @@ function verifySuperAdmin(req, res, next) {
   }
   next();
 }
+verifySuperAdmin.__authz = { kind: 'role', roles: ['super_admin'], legacy: true };
 
 /**
  * Optional token verification (doesn't fail if no token)
@@ -242,12 +247,14 @@ async function optionalAuth(req, res, next) {
  * Verify specific role
  */
 function requireRole(...roles) {
-  return (req, res, next) => {
+  const middleware = (req, res, next) => {
     if (!req.user || !roles.includes(req.user.role)) {
       return next(new AuthorizationError('Insufficient permissions'));
     }
     next();
   };
+  middleware.__authz = { kind: 'role', roles, legacy: true };
+  return middleware;
 }
 
 module.exports = {

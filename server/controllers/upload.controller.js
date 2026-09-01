@@ -99,18 +99,6 @@ const uploadBannerImage = async (req, res) => {
   }
 };
 
-/** DELETE /api/upload/profile-image/:publicId — Delete a profile image */
-const deleteProfileImage = async (req, res) => {
-  try {
-    await cloudinary.uploader.destroy(req.params.publicId);
-    logger.info('Profile image deleted', { publicId: req.params.publicId });
-    res.json({ success: true, message: 'Image deleted successfully' });
-  } catch (error) {
-    logger.error('Profile image delete error', { error: error.message });
-    res.status(500).json({ success: false, message: 'Failed to delete image', error: error.message });
-  }
-};
-
 /** POST /api/upload/doctor-documents — Upload multiple doctor verification documents */
 const uploadDoctorDocuments = async (req, res) => {
   try {
@@ -180,4 +168,4 @@ const uploadArticleImage = async (req, res) => {
   }
 };
 
-module.exports = { imageUpload, documentUpload, uploadProfileImage, uploadBannerImage, deleteProfileImage, uploadDoctorDocuments, uploadDoctorDocument, uploadArticleImage };
+module.exports = { imageUpload, documentUpload, uploadProfileImage, uploadBannerImage, uploadDoctorDocuments, uploadDoctorDocument, uploadArticleImage };
