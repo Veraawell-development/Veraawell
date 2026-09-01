@@ -7,6 +7,7 @@
 const Session = require('../models/session');
 const { createLogger } = require('../utils/logger');
 const { createSocketAuthMiddleware } = require('./authMiddleware');
+const { createGuardedRegistrar, grantRoom, revokeRoom } = require('../authz/socket');
 
 const logger = createLogger('SOCKET-HANDLER');
 
@@ -27,8 +28,14 @@ module.exports = (io) => {
     const { id: userId, role, username } = socket.user || {};
     log.info('New socket connection', { socketId: socket.id, userId, role });
 
+    // Every handler below is registered through this, which enforces the
+    // policy declared in its spec. See authz/socket.js — 13 of these events
+    // previously had no authorization at all and acted on whatever sessionId
+    // the client sent.
+    const { on } = createGuardedRegistrar(socket, { tag: 'VIDEO' });
+
     // Handle disconnection
-    socket.on('disconnect', async () => {
+    on('disconnect', { mode: 'open' }, async () => {
       log.info('User disconnected', { userId, role, sessionId: socket.roomId });
       if (socket.roomId && activeRooms.has(socket.roomId)) {
         const room = activeRooms.get(socket.roomId);
@@ -98,57 +105,23 @@ module.exports = (io) => {
           }
         }
       }
+      if (socket.roomId) revokeRoom(socket, socket.roomId);
       userSockets.delete(userId);
     });
 
     // Join video call room
-    socket.on('join-room', async ({ sessionId }) => {
+    on('join-room', { mode: 'policy', action: 'session:join' }, async ({ sessionId }, ctx) => {
       try {
-        if (!userId || !role) {
-          throw new Error('User not authenticated');
-        }
-
         log.info('User joining room', { userId, role, sessionId });
 
-        // Verify session exists
-        const session = await Session.findById(sessionId);
-        if (!session) {
-          log.error('Session not found', { sessionId });
-          return socket.emit('error', { message: 'Session not found' });
-        }
-
-        // Verify user authorization
-        const patientId = session.patientId?.toString();
-        const doctorId = session.doctorId?.toString();
-
-        // Debug: Full ID comparison for authorization check
-        logger.debug('Authorization check', {
-          userId: userId?.substring(0, 8),
-          patientId: patientId?.substring(0, 8),
-          doctorId: doctorId?.substring(0, 8),
-          sessionType: session.sessionType
-        });
-
-        const isPatient = userId === patientId;
-        const isDoctor = doctorId && userId === doctorId;
-        // Immediate sessions only bypass identity checks when no doctor has been assigned yet
-        // (a genuine self-session case) — a normal instant booking always has a doctorId, so
-        // this must never be used to let an arbitrary authenticated user into someone else's call.
-        const isImmediateSession = session.sessionType === 'immediate' && !doctorId;
-
-        const isAuthorized = isPatient || isDoctor || isImmediateSession;
-
-        if (!isAuthorized) {
-          log.error('Unauthorized join attempt', {
-            userId: userId.substring(0, 8),
-            patientId: patientId?.substring(0, 8) || 'null',
-            doctorId: doctorId?.substring(0, 8) || 'null',
-            sessionId: sessionId.substring(0, 8),
-            sessionType: session.sessionType
-          });
-          socket.emit('error', { message: 'Not authorized to join this session' });
-          return;
-        }
+        // Identity and participation are enforced by the registrar via the
+        // 'session:join' policy, which also loaded the record. The
+        // hand-written party comparison that used to live here — including a
+        // self-session bypass for immediate sessions — is gone; `ctx.resource`
+        // is the authorized Session.
+        const session = ctx.resource;
+        const isPatient = String(session.patientId) === userId;
+        const isDoctor = String(session.doctorId) === userId;
 
         // A session that hasn't actually been paid for (or explicitly marked
         // not_required, e.g. a free/mock session) must not be joinable — the
@@ -198,7 +171,11 @@ module.exports = (io) => {
           log.info('User left previous room', { userId, role, sessionId: socket.roomId });
         }
 
-        // Join the new room
+        // Join the new room. grantRoom is what subsequently authorizes the
+        // high-frequency signaling events (offer/answer/ice-candidate/
+        // media-state-change): they check membership of this server-side set
+        // instead of re-reading the Session on every ICE candidate.
+        grantRoom(socket, sessionId);
         socket.join(sessionId);
         socket.roomId = sessionId;
         userSockets.set(userId, socket.id);
@@ -324,17 +301,17 @@ module.exports = (io) => {
     });
 
     // WebRTC Signaling: Send offer
-    socket.on('request-end-session', ({ sessionId, requestedByRole }) => {
+    on('request-end-session', { mode: 'policy', action: 'session:end-call' }, ({ sessionId, requestedByRole }) => {
       log.info('Request end session', { sessionId: sessionId?.substring(0, 8), requestedByRole });
       socket.to(sessionId).emit('request-end-session', { requestedByRole });
     });
 
-    socket.on('confirm-end-session', ({ sessionId, agree, confirmedByRole }) => {
+    on('confirm-end-session', { mode: 'policy', action: 'session:end-call' }, ({ sessionId, agree, confirmedByRole }) => {
       log.info('Confirm end session', { sessionId: sessionId?.substring(0, 8), agree, confirmedByRole });
       socket.to(sessionId).emit('confirm-end-session', { agree, confirmedByRole });
     });
 
-    socket.on('call-ended', async ({ sessionId, endedBy, userName }) => {
+    on('call-ended', { mode: 'policy', action: 'session:end-call' }, async ({ sessionId, endedBy, userName }) => {
       log.info('Call ended by user', { sessionId, endedBy, userName });
       // Broadcast to other users in the room
       socket.to(sessionId).emit('call-ended', { endedBy, userName });
@@ -366,7 +343,7 @@ module.exports = (io) => {
       }
     });
 
-    socket.on('leave-room', ({ sessionId }) => {
+    on('leave-room', { mode: 'joined' }, ({ sessionId }) => {
       log.info('User leaving room manually', { userId, role, sessionId });
       if (activeRooms.has(sessionId)) {
         const room = activeRooms.get(sessionId);
@@ -390,21 +367,22 @@ module.exports = (io) => {
           log.info('Room closed (empty)', { sessionId: sessionId.substring(0, 8) });
         }
       }
+      revokeRoom(socket, sessionId);
       socket.leave(sessionId);
       socket.roomId = null;
     });
 
-    socket.on('patient-ready', ({ sessionId }) => {
+    on('patient-ready', { mode: 'joined' }, ({ sessionId }) => {
       log.info('Patient ready signal received', { sessionId: sessionId.substring(0, 8) });
       socket.to(sessionId).emit('patient-ready');
     });
 
-    socket.on('patient-prep-data', ({ sessionId, tags }) => {
+    on('patient-prep-data', { mode: 'joined' }, ({ sessionId, tags }) => {
       log.info('Patient prep data received', { sessionId: sessionId.substring(0, 8), tags });
       socket.to(sessionId).emit('patient-prep-data', { tags });
     });
 
-    socket.on('offer', ({ sessionId, offer, targetUserId }) => {
+    on('offer', { mode: 'joined' }, ({ sessionId, offer, targetUserId }) => {
       log.info('Offer received', {
         sessionId: sessionId.substring(0, 8),
         from: socket.id.substring(0, 8),
@@ -418,7 +396,7 @@ module.exports = (io) => {
     });
 
     // WebRTC Signaling: Send answer
-    socket.on('answer', ({ sessionId, answer, targetUserId }) => {
+    on('answer', { mode: 'joined' }, ({ sessionId, answer, targetUserId }) => {
       log.info('Answer received', {
         sessionId: sessionId.substring(0, 8),
         from: socket.id.substring(0, 8),
@@ -432,7 +410,7 @@ module.exports = (io) => {
     });
 
     // WebRTC Signaling: ICE candidate
-    socket.on('ice-candidate', ({ sessionId, candidate }) => {
+    on('ice-candidate', { mode: 'joined' }, ({ sessionId, candidate }) => {
       log.info('ICE candidate received', {
         sessionId: sessionId.substring(0, 8),
         from: socket.id.substring(0, 8)
@@ -445,7 +423,7 @@ module.exports = (io) => {
     });
 
     // Media state change (mute/unmute, video on/off)
-    socket.on('media-state-change', ({ sessionId, video, audio }) => {
+    on('media-state-change', { mode: 'joined' }, ({ sessionId, video, audio }) => {
       log.info('Media state change', {
         sessionId: sessionId.substring(0, 8),
         userId: userId.substring(0, 8),

@@ -29,9 +29,11 @@
 
 const registry = require('./registry');
 
-// Register every policy exactly once, at require time, so an unknown action
-// name is a boot-time error rather than a runtime 500.
-registry.loadPolicies();
+// Register every policy up front so an unknown action name surfaces at boot
+// rather than as a runtime 500. The registry also self-initialises on first
+// lookup, for entry points that require its submodules directly (see
+// authz/socket.js).
+registry.ensureLoaded();
 
 const { authorize, withScope, publicRoute, requireRole, requireSuperAdmin } = require('./authorize');
 const { can, assertCan } = require('./can');

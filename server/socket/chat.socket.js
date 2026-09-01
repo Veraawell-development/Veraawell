@@ -10,6 +10,7 @@ const Conversation = require('../models/conversation');
 const Message = require('../models/message');
 const { sendMessageAndNotify } = require('../services/chat.service');
 const { createSocketAuthMiddleware } = require('./authMiddleware');
+const { createGuardedRegistrar } = require('../authz/socket');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('CHAT-SOCKET');
@@ -31,6 +32,10 @@ const initializeChatSocket = (io) => {
   chatNamespace.on('connection', (socket) => {
     logger.info('User connected', { userId: socket.userId?.substring(0, 8), role: socket.userRole });
 
+    // See authz/socket.js. typing:start / typing:stop previously broadcast
+    // into whatever conversation room the client named, with no check.
+    const { on } = createGuardedRegistrar(socket, { tag: 'CHAT' });
+
     // Track this connection. activeUsers is userId -> Set<socketId> (not a
     // single socketId) so a user with two tabs/devices open doesn't lose
     // presence when the OLDER tab disconnects — a single-value map meant the
@@ -44,7 +49,7 @@ const initializeChatSocket = (io) => {
     socket.join(`user:${socket.userId}`);
 
     // Handle joining a conversation room
-    socket.on('conversation:join', async (conversationId) => {
+    on('conversation:join', { mode: 'policy', action: 'conversation:participate', key: 'conversationId' }, async (conversationId) => {
       try {
         // Verify user is part of this conversation
         const conversation = await Conversation.findById(conversationId);
@@ -81,13 +86,13 @@ const initializeChatSocket = (io) => {
     });
 
     // Handle leaving a conversation room
-    socket.on('conversation:leave', (conversationId) => {
+    on('conversation:leave', { mode: 'policy', action: 'conversation:participate', key: 'conversationId' }, (conversationId) => {
       socket.leave(`conversation:${conversationId}`);
       logger.info('User left conversation', { userId: socket.userId?.substring(0, 8), conversationId: conversationId?.substring(0, 8) });
     });
 
     // Handle sending a message
-    socket.on('message:send', async (data) => {
+    on('message:send', { mode: 'policy', action: 'conversation:participate', key: 'conversationId' }, async (data) => {
       try {
         const { conversationId, text } = data;
         const senderId = socket.userId;
@@ -118,7 +123,7 @@ const initializeChatSocket = (io) => {
     });
 
     // Handle typing indicator
-    socket.on('typing:start', (data) => {
+    on('typing:start', { mode: 'policy', action: 'conversation:participate', key: 'conversationId' }, (data) => {
       const { conversationId } = data;
       socket.to(`conversation:${conversationId}`).emit('user:typing:start', {
         conversationId,
@@ -126,7 +131,7 @@ const initializeChatSocket = (io) => {
       });
     });
 
-    socket.on('typing:stop', (data) => {
+    on('typing:stop', { mode: 'policy', action: 'conversation:participate', key: 'conversationId' }, (data) => {
       const { conversationId } = data;
       socket.to(`conversation:${conversationId}`).emit('user:typing:stop', {
         conversationId,
@@ -143,7 +148,7 @@ const initializeChatSocket = (io) => {
     // surface that looked like a supported feature.
 
     // Handle disconnection
-    socket.on('disconnect', () => {
+    on('disconnect', { mode: 'open' }, () => {
       logger.info('User disconnected', { userId: socket.userId?.substring(0, 8) });
       const sockets = activeUsers.get(socket.userId);
       if (sockets) {

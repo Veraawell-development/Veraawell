@@ -31,34 +31,70 @@ function initializeGoogleStrategy() {
   passport.use(new GoogleStrategy({
     clientID: oauthConfig.clientId,
     clientSecret: oauthConfig.clientSecret,
-    callbackURL: callbackURL
-  }, async function (accessToken, refreshToken, profile, cb) {
+    callbackURL: callbackURL,
+    // Needed so the strategy can read the signup intent that
+    // GET /api/auth/google stashed in the session. The intent is applied only
+    // when creating a brand-new account — never to an existing one.
+    passReqToCallback: true
+  }, async function (req, accessToken, refreshToken, profile, cb) {
     try {
       logger.debug('Google profile received', {
         id: profile.id,
         email: profile.emails?.[0]?.value
       });
 
-      // Check if user exists
+      const email = profile.emails?.[0]?.value;
+      const emailVerified = profile.emails?.[0]?.verified;
+      if (!email) return cb(new Error('Google account has no email address'), null);
+
       let user = await User.findOne({ googleId: profile.id });
 
       if (!user) {
-        // Create new user
+        // Account linking. Previously this only looked up by googleId, so a
+        // user who had registered with email+password and later clicked
+        // "Sign in with Google" fell through to the create branch, hit the
+        // unique index on `email`, and got a generic
+        // "?error=google-auth-failed" with no way to recover.
+        //
+        // Linking is gated on Google asserting the address is verified. Without
+        // that check, anyone able to create a Google account claiming an
+        // address could take over the matching local account.
+        const existing = await User.findOne({ email: email.toLowerCase() });
+        if (existing) {
+          if (!emailVerified) {
+            logger.warn('Refusing to link an unverified Google email to an existing account', { email });
+            return cb(new Error('EMAIL_NOT_VERIFIED'), null);
+          }
+          existing.googleId = profile.id;
+          await existing.save();
+          logger.info('Linked Google identity to an existing account', { email: existing.email });
+          return cb(null, existing);
+        }
+
         const firstName = profile.name?.givenName || profile.displayName || 'Google';
         const lastName = profile.name?.familyName || 'User';
-        const role = 'patient'; // Default role
+
+        // The signup intent (?role=) is applied HERE, at creation, and nowhere
+        // else — see handleOAuthCallback. A doctor created this way starts
+        // 'pending' and must still be approved by an admin.
+        const intent = req.session && req.session.oauthRole;
+        const role = intent === 'doctor' ? 'doctor' : 'patient';
 
         user = new User({
           googleId: profile.id,
-          email: profile.emails[0].value,
-          firstName: firstName,
-          lastName: lastName,
-          username: profile.emails[0].value,
-          password: 'google-auth-' + Math.random().toString(36).substring(7),
-          role: role
+          email,
+          firstName,
+          lastName,
+          username: email,
+          // Never used for authentication: comparePassword() returns false
+          // outright for a googleId account. Generated with a CSPRNG rather
+          // than Math.random() so it is not a weak secret sitting in the DB.
+          password: `google-auth-${require('crypto').randomBytes(24).toString('hex')}`,
+          role,
+          approvalStatus: role === 'doctor' ? 'pending' : 'approved'
         });
         await user.save();
-        logger.info('New Google user created', { email: user.email });
+        logger.info('New Google user created', { email: user.email, role, approvalStatus: user.approvalStatus });
       } else {
         logger.debug('Existing Google user found', { email: user.email });
       }
@@ -86,14 +122,27 @@ async function handleOAuthCallback(req, res, user, requestedRole) {
       requestedRole
     });
 
-    // Update user's role if different
+    // A role is NEVER taken from the request here.
+    //
+    // This used to copy `requestedRole` — which comes straight from the
+    // `?role=` query parameter on /api/auth/google — onto the user and save,
+    // without resetting approvalStatus. Since a Google user is created as a
+    // patient (and patients are auto-approved), visiting
+    //     /api/auth/google?role=doctor
+    // flipped the account to role 'doctor' while it kept approvalStatus
+    // 'approved'. Verified against the running server: patient/approved ->
+    // doctor/approved. Anyone with a Google account became a live, bookable
+    // therapist with no admin review, no licence and no documents.
+    //
+    // The signup intent is now applied exactly once, at account creation, in
+    // the strategy above — where 'doctor' also forces approvalStatus
+    // 'pending'. An existing account's role can only be changed by an admin.
     if (requestedRole && requestedRole !== user.role) {
-      logger.info('Updating user role', {
-        from: user.role,
-        to: requestedRole
+      logger.warn('Ignoring a role change requested via the OAuth query string', {
+        userId: user._id.toString().substring(0, 8),
+        currentRole: user.role,
+        requestedRole
       });
-      user.role = requestedRole;
-      await user.save();
     }
 
     // Generate token

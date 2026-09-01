@@ -48,7 +48,26 @@ function register(policy) {
   }
 }
 
+/**
+ * Policies must be registered before the first lookup, whatever the entry
+ * point. Loading them only from authz/index.js was not enough: authz/socket.js
+ * requires ./can directly, so the socket namespaces reached an empty registry
+ * and every policy-mode event failed with "unknown action" — which surfaced to
+ * the client as a generic internal error rather than a denial.
+ *
+ * Lazy rather than at module load, because the policy modules require Mongoose
+ * models and this module is itself required by them transitively in some
+ * orders. Policy files never require the registry, so there is no cycle.
+ */
+let loaded = false;
+function ensureLoaded() {
+  if (loaded) return;
+  loaded = true;
+  loadPolicies();
+}
+
 function getRule(action) {
+  ensureLoaded();
   const entry = rules.get(action);
   if (!entry) {
     throw new Error(
@@ -59,6 +78,7 @@ function getRule(action) {
 }
 
 function getScope(action) {
+  ensureLoaded();
   const entry = scopes.get(action);
   if (!entry) {
     throw new Error(
@@ -68,10 +88,10 @@ function getScope(action) {
   return entry;
 }
 
-function hasRule(action) { return rules.has(action); }
-function hasScope(action) { return scopes.has(action); }
-function listActions() { return [...rules.keys()].sort(); }
-function listScopes() { return [...scopes.keys()].sort(); }
+function hasRule(action) { ensureLoaded(); return rules.has(action); }
+function hasScope(action) { ensureLoaded(); return scopes.has(action); }
+function listActions() { ensureLoaded(); return [...rules.keys()].sort(); }
+function listScopes() { ensureLoaded(); return [...scopes.keys()].sort(); }
 
 /**
  * Evaluate a rule. A rule may return a boolean, or an object
@@ -100,6 +120,7 @@ async function evaluate(entry, context) {
 
 /** Load every policy module. Called once from authz/index.js. */
 function loadPolicies() {
+  loaded = true;
   const fs = require('fs');
   const path = require('path');
   const dir = path.join(__dirname, 'policies');
@@ -110,7 +131,7 @@ function loadPolicies() {
 }
 
 module.exports = {
-  register, getRule, getScope, hasRule, hasScope,
+  register, ensureLoaded, getRule, getScope, hasRule, hasScope,
   listActions, listScopes, evaluate, loadPolicies,
   _rules: rules, _scopes: scopes
 };
