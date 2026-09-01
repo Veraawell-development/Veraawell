@@ -5,6 +5,9 @@
  * 'completed' with no record the session had ever been cancelled (and,
  * depending on timing, no record it had already been refunded).
  */
+process.env.RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || 'rzp_test_dummy';
+process.env.RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || 'dummy_secret';
+
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const express = require('express');
@@ -22,7 +25,7 @@ jest.mock('../services/email.service', () => ({
   sendDoctorSessionSummaryEmail: jest.fn().mockResolvedValue(undefined)
 }));
 
-const { errorHandler } = require('../middleware/error.middleware');
+const { mountRoutes, tokenFor } = require('./helpers/harness');
 
 let mongod;
 let Session, User, sessionController;
@@ -45,22 +48,19 @@ afterEach(async () => {
   await User.deleteMany({});
 });
 
-function buildApp(userId, role) {
-  const app = express();
-  app.use(express.json());
-  app.use((req, res, next) => {
-    req.user = { _id: userId, role };
-    next();
-  });
-  app.post('/sessions/:sessionId/cancel', sessionController.cancelSession);
-  app.post('/sessions/:sessionId/complete', sessionController.completeSession);
-  app.use(errorHandler);
-  return app;
+/**
+ * The real router, so the request travels verifyToken -> validateObjectIdParam
+ * -> authorize(...) -> controller. The previous version mounted the controller
+ * directly behind a stubbed req.user, which meant this test could not have
+ * caught a missing authorization check on the route it exercises.
+ */
+function buildApp() {
+  return mountRoutes({ '/sessions': '../../routes/sessions' });
 }
 
 test('completing an already-cancelled session is rejected, not silently allowed', async () => {
-  const patient = await User.create({ firstName: 'Pat', email: 'pat3@test.com', username: 'pat_test3', password: 'x', role: 'patient' });
-  const doctor = await User.create({ firstName: 'Doc', email: 'doc3@test.com', username: 'doc_test3', password: 'x', role: 'doctor' });
+  const patient = await User.create({ firstName: 'Pat', email: 'pat3@test.com', username: 'pat_test3', password: 'password123', role: 'patient' });
+  const doctor = await User.create({ firstName: 'Doc', email: 'doc3@test.com', username: 'doc_test3', password: 'password123', role: 'doctor' });
 
   const sessionDate = new Date();
   sessionDate.setHours(sessionDate.getHours() + 10, 0, 0, 0);
@@ -78,17 +78,18 @@ test('completing an already-cancelled session is rejected, not silently allowed'
     paymentId: 'pay_realpaymentid456'
   });
 
-  const app = buildApp(patient._id.toString(), 'patient');
+  const app = buildApp();
+    const auth = `Bearer ${tokenFor(patient)}`;
 
   // Cancel it first
-  const cancelRes = await request(app).post(`/sessions/${session._id}/cancel`);
+  const cancelRes = await request(app).post(`/sessions/${session._id}/cancel`).set('Authorization', auth);
   expect(cancelRes.status).toBe(200);
 
   const afterCancel = await Session.findById(session._id);
   expect(afterCancel.status).toBe('cancelled');
 
   // Now try to complete the already-cancelled session
-  const completeRes = await request(app).post(`/sessions/${session._id}/complete`);
+  const completeRes = await request(app).post(`/sessions/${session._id}/complete`).set('Authorization', auth);
   expect(completeRes.status).toBe(400);
 
   const afterComplete = await Session.findById(session._id);

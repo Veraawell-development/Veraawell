@@ -18,6 +18,7 @@ const { calculateSessionPrice, getOrCreateAvailability, getGenderBasedImage } = 
 const { calculateRefund, describeRefundPolicy } = require('../services/refundPolicy');
 const { parseTime } = require('../utils/timeUtils');
 const { asyncHandler } = require('../middleware/error.middleware');
+const { sealedFilter } = require('../authz');
 const { NotFoundError, AuthorizationError } = require('../utils/errors');
 const { getRazorpay } = require('../services/razorpay.client');
 const { isStubMode, isSyntheticAccountId } = require('../config/payments');
@@ -148,8 +149,7 @@ async function _incrementDoctorCancellationCount(doctorId, warnMessageOnFailure)
 
 /** GET /api/sessions/stats — Doctor session statistics + earnings breakdown */
 const getStats = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'doctor') throw new AuthorizationError('Access denied');
-  const userId = req.user._id.toString();
+  const userId = req.actor.id;
 
   const [overallStats, recentEarnings] = await Promise.all([
     Session.aggregate([
@@ -216,8 +216,7 @@ const getStats = asyncHandler(async (req, res) => {
 
 /** GET /api/sessions/my-doctors — Top 3 previously booked doctors for a patient */
 const getMyDoctors = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'patient') throw new AuthorizationError('Only patients can access this endpoint');
-  const userId = req.user._id;
+  const userId = req.actor.id;
   const previousDoctors = await Session.aggregate([
     { $match: { patientId: new mongoose.Types.ObjectId(userId), status: { $in: ['completed', 'ended'] } } },
     { $group: { _id: '$doctorId', sessionCount: { $sum: 1 }, lastSession: { $max: '$sessionDate' } } },
@@ -235,8 +234,8 @@ const getMyDoctors = asyncHandler(async (req, res) => {
 
 /** GET /api/sessions/pending-feedback — Sessions needing patient review */
 const getPendingFeedback = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'patient') return res.json({ session: null });
-  const userId = req.user._id.toString();
+  if (req.actor.role !== 'patient') return res.json({ session: null });
+  const userId = req.actor.id;
   const threeDaysAgo = new Date(Date.now() - 72 * 60 * 60 * 1000);
   const completedSessions = await Session.find({ patientId: new mongoose.Types.ObjectId(userId), status: 'completed', sessionDate: { $gte: threeDaysAgo } })
     .populate('doctorId', 'firstName lastName').sort({ sessionDate: -1, sessionTime: -1 }).lean();
@@ -249,14 +248,13 @@ const getPendingFeedback = asyncHandler(async (req, res) => {
 
 /** GET /api/sessions/call-history — Call history for the authenticated user */
 const getCallHistory = asyncHandler(async (req, res) => {
-  const userId = req.user._id.toString();
-  const userRole = req.user.role;
+  const userId = req.actor.id;
+  const userRole = req.actor.role;
   const page = parseInt(req.query.page) || 1;
   const limit = parseInt(req.query.limit) || 100;
   const skip = (page - 1) * limit;
 
-  const query = userRole === 'patient' ? { patientId: userId } : { doctorId: userId };
-  const callHistory = await Session.find({ ...query, $or: [{ status: { $in: ['completed', 'cancelled'] } }, { callStatus: { $in: ['in-progress', 'completed'] } }, { callStartTime: { $exists: true, $ne: null } }] })
+  const callHistory = await Session.find({ ...req.authz.scope, $or: [{ status: { $in: ['completed', 'cancelled'] } }, { callStatus: { $in: ['in-progress', 'completed'] } }, { callStartTime: { $exists: true, $ne: null } }] })
     .populate('patientId', 'firstName lastName').populate('doctorId', 'firstName lastName').select('+rating').sort({ sessionDate: -1, sessionTime: -1 }).skip(skip).limit(limit).lean();
   const formatted = callHistory.map(s => ({
     _id: s._id,
@@ -318,7 +316,7 @@ const getDoctorSlots = asyncHandler(async (req, res) => {
 /** POST /api/sessions/book-immediate — Book an immediate (now) session */
 const bookImmediate = asyncHandler(async (req, res) => {
   let { doctorId, mode, duration, price } = req.body;
-  const patientId = req.user._id.toString();
+  const patientId = req.actor.id;
   if (!doctorId || doctorId === 'test-doctor-id') doctorId = patientId;
 
   const now = new Date();
@@ -417,7 +415,7 @@ const bookImmediate = asyncHandler(async (req, res) => {
 /** POST /api/sessions/book — Book a scheduled session */
 const bookSession = asyncHandler(async (req, res) => {
   const { doctorId, sessionDate, sessionTime, sessionType, price, mode, duration, serviceType } = req.body;
-  const patientId = req.user._id.toString();
+  const patientId = req.actor.id;
 
   if (!doctorId || !sessionDate || !sessionTime || price === undefined) {
     return res.status(400).json({ success: false, message: 'Missing required fields' });
@@ -548,17 +546,14 @@ const getMySessions = asyncHandler(async (req, res) => {
   const limit = parseInt(req.query.limit) || 100;
   const skip = (page - 1) * limit;
 
-  const userId = req.user._id.toString();
-  const query = req.user.role === 'patient' ? { patientId: userId } : { doctorId: userId };
-  const sessions = await Session.find(query).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ sessionDate: -1, sessionTime: -1 }).skip(skip).limit(limit);
+  const sessions = await Session.find(req.authz.scope).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ sessionDate: -1, sessionTime: -1 }).skip(skip).limit(limit);
   const enrichedSessions = await attachDoctorProfiles(sessions);
   res.json(enrichedSessions);
 });
 
 /** GET /api/sessions/upcoming */
 const getUpcoming = asyncHandler(async (req, res) => {
-  const userId = req.user._id.toString();
-  const query = { status: 'scheduled', sessionDate: { $gte: new Date() }, ...(req.user.role === 'patient' ? { patientId: userId } : { doctorId: userId }) };
+  const query = sealedFilter(req.authz.scope, { status: 'scheduled', sessionDate: { $gte: new Date() } });
   const sessions = await Session.find(query).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ sessionDate: 1, sessionTime: 1 }).limit(10);
   const enrichedSessions = await attachDoctorProfiles(sessions);
   res.json(enrichedSessions);
@@ -616,12 +611,11 @@ const getDoctorById = asyncHandler(async (req, res) => {
 
 /** GET /api/sessions/:sessionId — Get session by ID */
 const getSessionById = asyncHandler(async (req, res) => {
-  const session = await Session.findById(req.params.sessionId).populate('patientId', 'firstName lastName email gender').populate('doctorId', 'firstName lastName email gender').lean();
-  if (!session) throw new NotFoundError('Session');
-  const userId = req.user._id.toString();
-  const pId = session.patientId?._id?.toString() || session.patientId?.toString();
-  const dId = session.doctorId?._id?.toString() || session.doctorId?.toString();
-  if (pId !== userId && dId !== userId) throw new AuthorizationError('Unauthorized to view this session');
+  // authorize('session:read') loaded this and confirmed the caller is one of
+  // the two parties. The three-way `?._id?.toString() || ?.toString()` dance
+  // that used to live here existed only because each handler populated
+  // differently; the policy's loader normalises that.
+  const session = req.authz.resource;
 
   // Fetch doctor profile for image
   if (session.doctorId) {
@@ -637,13 +631,7 @@ const getSessionById = asyncHandler(async (req, res) => {
 
 /** GET /api/sessions/join/:sessionId */
 const joinSession = asyncHandler(async (req, res) => {
-  const { sessionId } = req.params;
-  const userId = req.user._id.toString();
-  const session = await Session.findById(sessionId).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email');
-  if (!session) throw new NotFoundError('Session');
-  const pId = session.patientId?._id?.toString() || session.patientId?.toString();
-  const dId = session.doctorId?._id?.toString() || session.doctorId?.toString();
-  if (pId !== userId && dId !== userId) throw new AuthorizationError('Not authorized to join this session');
+  const session = req.authz.resource;
   if (session.sessionType !== 'immediate' && !session.canJoin()) return res.status(400).json({ success: false, message: 'Session cannot be joined at this time. Please wait until 15 minutes before the scheduled time.' });
   res.json({ success: true, message: 'Session can be joined', session, meetingLink: session.meetingLink });
 });
@@ -651,12 +639,7 @@ const joinSession = asyncHandler(async (req, res) => {
 /** POST /api/sessions/:sessionId/complete */
 const completeSession = asyncHandler(async (req, res) => {
   const { sessionId } = req.params;
-  const userId = req.user._id.toString();
-  const session = await Session.findById(sessionId)
-    .populate('patientId', 'firstName lastName email')
-    .populate('doctorId', 'firstName lastName email');
-  if (!session) throw new NotFoundError('Session');
-  if (session.patientId?._id?.toString() !== userId && session.doctorId?._id?.toString() !== userId) throw new AuthorizationError('Unauthorized');
+  const session = req.authz.resource;
   if (session.status === 'completed') return res.json({ success: true, message: 'Session already marked as completed', session: { status: session.status } });
   // Mirrors the guard added to cancelSession (which now rejects completing an
   // already-cancelled session) — without this, a stale/replayed/racing
@@ -688,19 +671,15 @@ const completeSession = asyncHandler(async (req, res) => {
     }
   } catch (emailErr) { logger.warn('Session summary email failed', { error: emailErr.message }); }
 
-  logger.info('Session completed', { sessionId: sessionId.substring(0, 8), by: req.user.role });
+  logger.info('Session completed', { sessionId: sessionId.substring(0, 8), by: req.actor.role });
   res.json({ success: true, message: 'Session marked as completed', session: { status: session.status } });
 });
 
 /** POST /api/sessions/:sessionId/cancel */
 const cancelSession = asyncHandler(async (req, res) => {
   const { sessionId } = req.params;
-  const userId = req.user._id.toString();
-  const session = await Session.findById(sessionId);
-  if (!session) throw new NotFoundError('Session');
-  if (session.patientId.toString() !== userId && session.doctorId.toString() !== userId) {
-    throw new AuthorizationError('Not authorized to cancel this session');
-  }
+  const userId = req.actor.id;
+  const session = req.authz.resource;
 
   // Idempotency guard — completeSession has an equivalent check (line ~590)
   // but cancelSession never had one. Without it, a duplicate request (double
@@ -737,7 +716,7 @@ const cancelSession = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Cannot cancel a session that has already started' });
   }
 
-  const cancellerRole = req.user.role; // 'patient' or 'doctor'
+  const cancellerRole = req.actor.role; // 'patient' or 'doctor'
 
   // ── REFUND POLICY ─────────────────────────────────────────────────────────
   const hoursUntil = (sessionDT.getTime() - Date.now()) / (1000 * 60 * 60);
@@ -869,12 +848,12 @@ const cancelSession = asyncHandler(async (req, res) => {
 /** GET /api/sessions/calendar/:year/:month */
 const getCalendar = asyncHandler(async (req, res) => {
   const { year, month } = req.params;
-  const userId = req.user._id.toString();
+  const userId = req.actor.id;
   const yearNum = parseInt(year);
   const monthNum = parseInt(month);
   const startDate = new Date(Date.UTC(yearNum, monthNum - 1, 1));
   const endDate = new Date(Date.UTC(yearNum, monthNum, 1));
-  const query = { sessionDate: { $gte: startDate, $lt: endDate }, ...(req.user.role === 'patient' ? { patientId: userId } : { doctorId: userId }) };
+  const query = sealedFilter(req.authz.scope, { sessionDate: { $gte: startDate, $lt: endDate } });
   const sessions = await Session.find(query).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ sessionDate: 1, sessionTime: 1 });
 
   const enrichedSessions = await attachDoctorProfiles(sessions);
@@ -883,10 +862,13 @@ const getCalendar = asyncHandler(async (req, res) => {
 
 /** GET /api/sessions/patients/:patientId/emergency-contact */
 const getPatientEmergencyContact = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'doctor') throw new AuthorizationError('Only doctors can access emergency contacts');
+  // requireRole('doctor') on the route, plus a treating-relationship check:
+  // a doctor may only see the emergency contact of a patient they treat.
   const { patientId } = req.params;
-  const hasSession = await Session.findOne({ doctorId: req.user._id, patientId });
-  if (!hasSession) throw new AuthorizationError('You can only view emergency contacts for your patients');
+  const { hasTreatedRelationship } = require('../authz/relations');
+  if (!(await hasTreatedRelationship(req.actor.id, patientId))) {
+    throw new AuthorizationError('You can only view emergency contacts for your patients');
+  }
   const patient = await User.findById(patientId).select('firstName lastName emergencyContact');
   if (!patient) throw new NotFoundError('Patient');
   res.json({ success: true, patientName: `${patient.firstName} ${patient.lastName}`, emergencyContact: patient.emergencyContact });
@@ -894,8 +876,7 @@ const getPatientEmergencyContact = asyncHandler(async (req, res) => {
 
 /** GET /api/sessions/my-therapists */
 const getMyTherapists = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'patient') throw new AuthorizationError('Only patients can access this endpoint');
-  const patientId = req.user._id.toString();
+  const patientId = req.actor.id;
   const sessions = await Session.find({ patientId, status: { $in: ['completed', 'scheduled'] } }).populate('doctorId', 'firstName lastName email').sort({ sessionDate: -1 });
   const map = {};
   sessions.forEach(s => {
@@ -922,12 +903,9 @@ const getMyTherapists = asyncHandler(async (req, res) => {
 
 /** POST /api/sessions/:sessionId/accept — Doctor accepts instant session */
 const acceptSession = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'doctor') throw new AuthorizationError('Only doctors can accept sessions');
   const { sessionId } = req.params;
-  const userId = req.user._id.toString();
-  const session = await Session.findById(sessionId).populate('patientId', 'firstName lastName').populate('doctorId', 'firstName lastName');
-  if (!session) throw new NotFoundError('Session');
-  if (session.doctorId._id.toString() !== userId) throw new AuthorizationError('You are not assigned to this session');
+  const userId = req.actor.id;
+  const session = req.authz.resource;
   session.acceptanceStatus = 'accepted';
   // Payment verification already set status to 'active' for immediate sessions —
   // don't downgrade it back to 'scheduled' once the doctor accepts.
@@ -942,13 +920,10 @@ const acceptSession = asyncHandler(async (req, res) => {
 
 /** POST /api/sessions/:sessionId/delay — Doctor delays instant session */
 const delaySession = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'doctor') throw new AuthorizationError('Only doctors can delay sessions');
   const { sessionId } = req.params;
   const { delayMinutes, doctorNote } = req.body;
-  const userId = req.user._id.toString();
-  const session = await Session.findById(sessionId).populate('patientId', 'firstName lastName').populate('doctorId', 'firstName lastName');
-  if (!session) throw new NotFoundError('Session');
-  if (session.doctorId._id.toString() !== userId) throw new AuthorizationError('You are not assigned to this session');
+  const userId = req.actor.id;
+  const session = req.authz.resource;
   session.acceptanceStatus = 'delayed';
   session.delayMinutes = delayMinutes || 5;
   session.delayedUntil = new Date(Date.now() + session.delayMinutes * 60000);
@@ -1018,12 +993,25 @@ async function _autoCancelUnacceptedSession(session, io) {
 
 /** POST /api/sessions/:sessionId/missed — Handle when doctor misses the ring or delay timeout */
 const missedSession = asyncHandler(async (req, res) => {
-  const { sessionId } = req.params;
-  const session = await Session.findById(sessionId).populate('patientId', 'firstName lastName').populate('doctorId', 'firstName lastName');
-  if (!session) throw new NotFoundError('Session');
+  // Authorization is declared on the route as authorize('session:mark-missed')
+  // and restricts this to the session's own patient. There was previously NO
+  // check here at all, so any authenticated account could cancel and refund
+  // any session in the system by id.
+  //
+  // `req.authz.resource` is the session the policy already loaded and
+  // authorized, so this no longer refetches. The populate the notification
+  // path needs is declared alongside the policy on the route.
+  const session = req.authz.resource;
 
   if (session.acceptanceStatus === 'accepted') {
     return res.json({ success: false, message: 'Session already accepted' });
+  }
+
+  // Guard against re-running the cancel+refund path on a session that is
+  // already resolved. Without it a replayed request re-enters the refund
+  // logic on a terminal session.
+  if (['cancelled', 'completed'].includes(session.status)) {
+    return res.json({ success: false, message: `Session is already ${session.status}` });
   }
 
   await _autoCancelUnacceptedSession(session, req.app.get('io'));
@@ -1060,8 +1048,8 @@ const sweepStuckUnacceptedSessions = async (io) => {
 
 /** GET /api/sessions/delayed — Get all active delayed sessions for a doctor */
 const getDelayedSessions = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'doctor') return res.json({ sessions: [] });
-  const userId = req.user._id.toString();
+  if (req.actor.role !== 'doctor') return res.json({ sessions: [] });
+  const userId = req.actor.id;
   
   // Find sessions that are delayed and the delayedUntil time hasn't passed by more than 15 minutes
   const fifteenMinsAgo = new Date(Date.now() - 15 * 60000);

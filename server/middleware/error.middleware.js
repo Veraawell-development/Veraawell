@@ -22,11 +22,21 @@ function errorHandler(err, req, res, next) {
     ip: req.ip
   });
 
-  // Handle known application errors
+  // Handle known application errors.
+  //
+  // `code` and `category` are surfaced so the client can tell one 403 from
+  // another. Two client behaviours depend on this:
+  //   - utils/csrfFetchInterceptor.ts treats every 403 as a stale CSRF token
+  //     and discards its cached token; it should only do that for
+  //     category === 'csrf'.
+  //   - context/AuthContext.tsx treats a 403 from /api/protected as a logout;
+  //     an authorization denial is not a logout.
   if (err instanceof AppError) {
     return res.status(err.statusCode).json({
       success: false,
       message: err.message,
+      ...(err.code && { code: err.code }),
+      ...(err.category && { category: err.category }),
       ...(err.errors && { errors: err.errors })
     });
   }

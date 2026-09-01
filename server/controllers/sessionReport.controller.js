@@ -13,10 +13,14 @@ const logger = createLogger('SESSION-REPORT-CTRL');
 
 /** GET /api/session-reports/patient/:patientId */
 const getReportsByPatient = asyncHandler(async (req, res) => {
-  const { patientId } = req.params;
-  const userId = req.user._id.toString();
-  if (userId !== patientId && req.user.role !== 'doctor') throw new AuthorizationError('Unauthorized access');
-  const reports = await SessionReport.find({ patientId, isSharedWithPatient: true })
+  // This handler used to gate on `userId !== patientId && role !== 'doctor'`,
+  // which reads as "any doctor may see this" rather than "the treating doctor
+  // may see this". Verified: an unrelated doctor retrieved a stranger's report
+  // titled "PHI: suicidal ideation notes".
+  //
+  // withScope('session-report:list-by-patient') now requires an actual
+  // doctor-patient Session to exist, and returns DENY otherwise.
+  const reports = await SessionReport.find(req.authz.scope)
     .populate('sessionId', 'sessionDate sessionTime')
     .populate('doctorId', 'firstName lastName')
     .sort({ createdAt: -1 }).lean();
@@ -25,26 +29,21 @@ const getReportsByPatient = asyncHandler(async (req, res) => {
 
 /** GET /api/session-reports/session/:sessionId */
 const getReportsBySession = asyncHandler(async (req, res) => {
+  // authorize('session:read') has already loaded the session and confirmed
+  // this actor is one of its two parties.
   const { sessionId } = req.params;
-  const userId = req.user._id.toString();
-  const session = await Session.findById(sessionId);
-  if (!session) throw new NotFoundError('Session');
-  if (session.patientId.toString() !== userId && session.doctorId.toString() !== userId) throw new AuthorizationError('Unauthorized access');
   const reports = await SessionReport.find({ sessionId }).populate('doctorId', 'firstName lastName').sort({ createdAt: -1 }).lean();
   res.json({ success: true, reports });
 });
 
 /** POST /api/session-reports — Create a new report (Doctor only) */
 const createReport = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'doctor') throw new AuthorizationError('Only doctors can create reports');
-  const userId = req.user._id;
-  const { sessionId, reportType, title, content, attachments } = req.body;
+  const userId = req.actor.id;
+  const { reportType, title, content, attachments } = req.body;
+  // Server-derived from the session authorize('session-report:create') verified.
+  const { sessionId, patientId } = req.authz.derived;
 
-  const session = await Session.findById(sessionId);
-  if (!session) throw new NotFoundError('Session');
-  if (session.doctorId.toString() !== userId.toString()) throw new AuthorizationError('You can only create reports for your own sessions');
-
-  const report = new SessionReport({ sessionId, patientId: session.patientId, doctorId: userId, reportType, title, content, attachments: attachments || [] });
+  const report = new SessionReport({ sessionId, patientId, doctorId: userId, reportType, title, content, attachments: attachments || [] });
   await report.save();
   await report.populate('doctorId', 'firstName lastName');
   await report.populate('sessionId', 'sessionDate sessionTime');
@@ -55,11 +54,12 @@ const createReport = asyncHandler(async (req, res) => {
 
 /** GET /api/session-reports/:reportId — Get a single report */
 const getReportById = asyncHandler(async (req, res) => {
-  const { reportId } = req.params;
-  const userId = req.user._id.toString();
-  const report = await SessionReport.findById(reportId).populate('sessionId', 'sessionDate sessionTime patientId doctorId').populate('doctorId', 'firstName lastName').lean();
-  if (!report) throw new NotFoundError('Report');
-  if (report.patientId.toString() !== userId && report.doctorId._id.toString() !== userId) throw new AuthorizationError('Unauthorized access');
+  // authorize('session-report:read') loaded and authorized the record; this
+  // re-reads it only to attach the populated fields the response needs.
+  const report = await SessionReport.findById(req.authz.resource._id)
+    .populate('sessionId', 'sessionDate sessionTime patientId doctorId')
+    .populate('doctorId', 'firstName lastName')
+    .lean();
   res.json({ success: true, report });
 });
 

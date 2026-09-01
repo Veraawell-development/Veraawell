@@ -16,16 +16,10 @@ const logger = createLogger('REPORT-CTRL');
  * Create a report (Doctor only)
  */
 const createReport = asyncHandler(async (req, res) => {
-  const { sessionId, patientId, title, reportType, content, isSharedWithPatient } = req.body;
-  const doctorId = req.user._id.toString();
-
-  if (req.user.role !== 'doctor') throw new AuthorizationError('Only doctors can create reports');
-
-  const session = await Session.findById(sessionId);
-  if (!session) throw new NotFoundError('Session');
-
-  const sessionDoctorId = session.doctorId?._id?.toString() || session.doctorId?.toString();
-  if (sessionDoctorId !== doctorId) throw new AuthorizationError('Unauthorized to create reports for this session');
+  const { title, reportType, content, isSharedWithPatient } = req.body;
+  const doctorId = req.actor.id;
+  // Server-derived from the authorized session — see authz/policies/clinicalRecords.policy.js
+  const { sessionId, patientId } = req.authz.derived;
 
   const report = new Report({
     sessionId, doctorId, patientId, title, reportType, content,
@@ -49,17 +43,7 @@ const createReport = asyncHandler(async (req, res) => {
  * Get reports for a patient
  */
 const getReportsByPatient = asyncHandler(async (req, res) => {
-  const { patientId } = req.params;
-  const userId = req.user._id.toString();
-  const userRole = req.user.role;
-
-  if (userRole === 'patient' && userId !== patientId) throw new AuthorizationError('Unauthorized');
-
-  let query = { patientId };
-  if (userRole === 'patient') query.isSharedWithPatient = true;
-  else if (userRole === 'doctor') query.doctorId = userId;
-
-  const reports = await Report.find(query)
+  const reports = await Report.find(req.authz.scope)
     .populate('doctorId', 'firstName lastName')
     .populate('sessionId', 'sessionDate sessionTime')
     .populate('patientId', 'firstName lastName')
@@ -73,12 +57,7 @@ const getReportsByPatient = asyncHandler(async (req, res) => {
  * Get all reports created by a doctor
  */
 const getReportsByDoctor = asyncHandler(async (req, res) => {
-  const { doctorId } = req.params;
-  const userId = req.user._id.toString();
-
-  if (userId !== doctorId) throw new AuthorizationError('Unauthorized');
-
-  const reports = await Report.find({ doctorId })
+  const reports = await Report.find(req.authz.scope)
     .populate('patientId', 'firstName lastName')
     .populate('sessionId', 'sessionDate sessionTime')
     .sort({ createdAt: -1 });
@@ -94,16 +73,10 @@ const getReportsByDoctor = asyncHandler(async (req, res) => {
  */
 const getReportsBySession = asyncHandler(async (req, res) => {
   const { sessionId } = req.params;
-  const userId = req.user._id.toString();
-
-  const session = await Session.findById(sessionId);
-  if (!session) throw new NotFoundError('Session');
-  if (session.patientId.toString() !== userId && session.doctorId.toString() !== userId) {
-    throw new AuthorizationError('Unauthorized access');
-  }
-
+  // authorize('session:read') has already confirmed this actor is a party to
+  // the session; patients additionally only see reports shared with them.
   const query = { sessionId };
-  if (req.user.role === 'patient') query.isSharedWithPatient = true;
+  if (req.actor.role === 'patient') query.isSharedWithPatient = true;
 
   const reports = await Report.find(query)
     .populate('doctorId', 'firstName lastName')
@@ -118,11 +91,8 @@ const getReportsBySession = asyncHandler(async (req, res) => {
  */
 const markReportViewed = asyncHandler(async (req, res) => {
   const { reportId } = req.params;
-  const userId = req.user._id.toString();
 
-  const report = await Report.findById(reportId);
-  if (!report) throw new NotFoundError('Report');
-  if (report.patientId.toString() !== userId) throw new AuthorizationError('Unauthorized');
+  const report = req.authz.resource;
 
   report.viewedByPatient = true;
   report.viewedAt = new Date();

@@ -8,6 +8,7 @@ const User = require('../models/user');
 const { getJWTSecret, getAdminJWTSecret } = require('../config/auth');
 const { AuthenticationError, AuthorizationError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
+const { normalizeActor, CHANNEL } = require('../authz/actor');
 
 const logger = createLogger('AUTH');
 
@@ -33,11 +34,16 @@ function extractToken(req) {
     }
   }
 
-  // If no header, check cookies
-  token = req.cookies.token || req.cookies.adminToken;
+  // If no header, check cookies.
+  // Guarded: `req.cookies` is undefined unless cookieParser has run. Reading
+  // through it unguarded turned "no credentials" into a 500 with a stack
+  // trace instead of a 401, and made every authenticated route depend on
+  // middleware ordering that nothing asserted.
+  const cookies = req.cookies || {};
+  token = cookies.token || cookies.adminToken;
 
   if (token) {
-    tokenSource = req.cookies.token ? 'cookie:token' : 'cookie:adminToken';
+    tokenSource = cookies.token ? 'cookie:token' : 'cookie:adminToken';
     logger.debug('Token extracted from cookie', {
       source: tokenSource,
       tokenPreview: token.substring(0, 20) + '...'
@@ -57,7 +63,7 @@ function extractToken(req) {
  */
 function getSecretForToken(req, token) {
   // If adminToken cookie exists, use admin secret
-  if (req.cookies.adminToken) {
+  if (req.cookies && req.cookies.adminToken) {
     return getAdminJWTSecret();
   }
 
@@ -103,9 +109,26 @@ async function verifyToken(req, res, next) {
       throw new AuthenticationError('User not found');
     }
 
+    // Account status was never checked here, only in verifyAdminToken. So
+    // suspending a patient or doctor did nothing at all: their existing token
+    // kept full access for its 30-day life, and they could continue booking,
+    // messaging and joining calls. Verified against the running server — a
+    // user with status 'suspended' got HTTP 200 from /api/protected.
+    if (user.status !== 'active') {
+      logger.warn('Suspended account attempted access', {
+        userId: user._id.toString().substring(0, 8),
+        status: user.status
+      });
+      throw new AuthorizationError('This account has been suspended');
+    }
+
     // Attach user to request
     req.user = user;
     req.token = decoded;
+    // Single normalized view of the caller, correct in both auth realms. See
+    // authz/actor.js — handlers read req.actor.id rather than guessing
+    // between req.user and req.admin.
+    req.actor = normalizeActor(user, CHANNEL.USER);
 
     logger.debug('Token verified successfully', {
       userId: user._id.toString().substring(0, 8) + '...',
@@ -133,25 +156,36 @@ async function verifyAdminToken(req, res, next) {
     const secret = getAdminJWTSecret();
     const decoded = jwt.verify(token, secret);
 
-    // Check for admin roles
-    if (!decoded.role || !['admin', 'super_admin'].includes(decoded.role)) {
-      logger.warn('Invalid admin role', { role: decoded.role });
-      throw new AuthorizationError('Access denied');
-    }
-
-    // Find admin
     const admin = await User.findById(decoded.userId);
     if (!admin) {
       throw new AuthenticationError('Admin not found');
     }
 
-    // Check if admin is active
     if (admin.status !== 'active') {
       throw new AuthorizationError('Admin account is suspended');
     }
 
+    // The role is taken from the DATABASE, not from the JWT claim.
+    //
+    // Previously the claim alone decided this, so demoting an admin had no
+    // effect until their token expired — up to 8 hours of retained privilege
+    // after the revocation was supposed to take effect. The claim is now only
+    // a hint; a disagreement means the token predates a role change.
+    if (!['admin', 'super_admin'].includes(admin.role)) {
+      logger.warn('Admin token presented by a non-admin account', {
+        claimedRole: decoded.role, actualRole: admin.role
+      });
+      throw new AuthorizationError('Access denied');
+    }
+    if (decoded.role !== admin.role) {
+      logger.warn('Admin role claim differs from the stored role — using the stored role', {
+        claimedRole: decoded.role, actualRole: admin.role
+      });
+    }
+
     req.admin = admin;
     req.token = decoded;
+    req.actor = normalizeActor(admin, CHANNEL.ADMIN);
 
     logger.debug('Admin token verified', {
       adminId: admin._id.toString().substring(0, 8),
@@ -187,9 +221,12 @@ async function optionalAuth(req, res, next) {
 
       if (decoded.userId) {
         const user = await User.findById(decoded.userId);
-        if (user) {
+        // A suspended account is treated as anonymous here rather than as an
+        // error, since this middleware is for endpoints that work either way.
+        if (user && user.status === 'active') {
           req.user = user;
           req.token = decoded;
+          req.actor = normalizeActor(user, CHANNEL.USER);
         }
       }
     }

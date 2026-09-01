@@ -25,7 +25,6 @@ process.env.RAZORPAY_WEBHOOK_SECRET = 'dummy_webhook';
 
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
-const express = require('express');
 const request = require('supertest');
 
 // Razorpay is mocked so we can drive order creation to succeed or fail on
@@ -45,7 +44,7 @@ jest.mock('../services/email.service', () => ({
   sendDoctorSessionSummaryEmail: jest.fn().mockResolvedValue(undefined)
 }));
 
-const { errorHandler } = require('../middleware/error.middleware');
+const { mountRoutes, tokenFor } = require('./helpers/harness');
 
 let mongod;
 let Session, User, DoctorProfile, DoctorAvailability, PlatformSettings, sessionController;
@@ -75,15 +74,13 @@ afterEach(async () => {
   mockRefund.mockClear();
 });
 
-/** Simulates verifyToken having already run. */
-function buildApp(userId, role) {
-  const app = express();
-  app.use(express.json());
-  app.use((req, res, next) => { req.user = { _id: userId, role }; next(); });
-  app.post('/sessions/book', sessionController.bookSession);
-  app.post('/sessions/:sessionId/cancel', sessionController.cancelSession);
-  app.use(errorHandler);
-  return app;
+/**
+ * The real router, so requests travel verifyToken -> authorize -> controller.
+ * Mounting the controller directly behind a stubbed req.user would bypass the
+ * exact middleware chain these behaviours now depend on.
+ */
+function buildApp() {
+  return mountRoutes({ '/sessions': '../../routes/sessions' });
 }
 
 let seq = 0;
@@ -131,8 +128,8 @@ describe('a booking that owes money is never created as paid', () => {
     const patient = await mkUser('patient');
     const { doctor, dateStr } = await seedDoctor({ razorpayAccountId: 'acc_REAL_LOOKING' });
 
-    const res = await request(buildApp(patient._id, 'patient'))
-      .post('/sessions/book').send(bookBody(doctor, dateStr));
+    const res = await request(buildApp())
+      .post('/sessions/book').set('Authorization', `Bearer ${tokenFor(patient)}`).send(bookBody(doctor, dateStr));
 
     expect(res.status).toBe(502);
     // The decisive assertion is the absence of a session, not the status code:
@@ -144,8 +141,8 @@ describe('a booking that owes money is never created as paid', () => {
     const patient = await mkUser('patient');
     const { doctor, dateStr } = await seedDoctor({ razorpayAccountId: null });
 
-    const res = await request(buildApp(patient._id, 'patient'))
-      .post('/sessions/book').send(bookBody(doctor, dateStr));
+    const res = await request(buildApp())
+      .post('/sessions/book').set('Authorization', `Bearer ${tokenFor(patient)}`).send(bookBody(doctor, dateStr));
 
     expect(res.status).toBe(409);
     expect(mockOrdersCreate).not.toHaveBeenCalled();
@@ -156,8 +153,8 @@ describe('a booking that owes money is never created as paid', () => {
     const patient = await mkUser('patient');
     const { doctor, dateStr } = await seedDoctor({ razorpayAccountId: 'acc_mock_deadbeef' });
 
-    const res = await request(buildApp(patient._id, 'patient'))
-      .post('/sessions/book').send(bookBody(doctor, dateStr));
+    const res = await request(buildApp())
+      .post('/sessions/book').set('Authorization', `Bearer ${tokenFor(patient)}`).send(bookBody(doctor, dateStr));
 
     expect(res.status).toBe(409);
     expect(await Session.countDocuments({})).toBe(0);
@@ -168,8 +165,8 @@ describe('a booking that owes money is never created as paid', () => {
     const patient = await mkUser('patient');
     const { doctor, dateStr } = await seedDoctor({ razorpayAccountId: 'acc_REAL_LOOKING' });
 
-    const res = await request(buildApp(patient._id, 'patient'))
-      .post('/sessions/book').send(bookBody(doctor, dateStr));
+    const res = await request(buildApp())
+      .post('/sessions/book').set('Authorization', `Bearer ${tokenFor(patient)}`).send(bookBody(doctor, dateStr));
 
     expect(res.status).toBe(201);
     const session = await Session.findOne({});
@@ -183,8 +180,8 @@ describe('a booking that owes money is never created as paid', () => {
     mockOrdersCreate.mockResolvedValue({ id: 'order_realone' });
     const patient = await mkUser('patient');
     const { doctor, dateStr } = await seedDoctor({ razorpayAccountId: 'acc_REAL_LOOKING' });
-    await request(buildApp(patient._id, 'patient'))
-      .post('/sessions/book').send(bookBody(doctor, dateStr));
+    await request(buildApp())
+      .post('/sessions/book').set('Authorization', `Bearer ${tokenFor(patient)}`).send(bookBody(doctor, dateStr));
 
     const paid = await Session.find({ paymentStatus: 'paid' });
     expect(paid).toHaveLength(0);
@@ -205,8 +202,8 @@ describe('cancelling a session that was never paid does not fabricate a refund',
       razorpayOrderId: 'order_abandoned', paymentId: null
     });
 
-    const res = await request(buildApp(patient._id, 'patient'))
-      .post(`/sessions/${session._id}/cancel`).send({});
+    const res = await request(buildApp())
+      .post(`/sessions/${session._id}/cancel`).set('Authorization', `Bearer ${tokenFor(patient)}`).send({});
 
     expect(res.status).toBe(200);
     const after = await Session.findById(session._id);
@@ -226,8 +223,8 @@ describe('cancelling a session that was never paid does not fabricate a refund',
       status: 'scheduled', paymentStatus: 'not_required', paymentId: null
     });
 
-    await request(buildApp(patient._id, 'patient'))
-      .post(`/sessions/${session._id}/cancel`).send({});
+    await request(buildApp())
+      .post(`/sessions/${session._id}/cancel`).set('Authorization', `Bearer ${tokenFor(patient)}`).send({});
 
     const after = await Session.findById(session._id);
     expect(after.paymentStatus).toBe('not_required');

@@ -11,6 +11,9 @@
  * any refund-tier computation) closes that gap: a second call must be a
  * pure no-op — no second Razorpay call, no state change.
  */
+process.env.RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || 'rzp_test_dummy';
+process.env.RAZORPAY_KEY_SECRET = process.env.RAZORPAY_KEY_SECRET || 'dummy_secret';
+
 const mongoose = require('mongoose');
 const { MongoMemoryServer } = require('mongodb-memory-server');
 const express = require('express');
@@ -33,7 +36,7 @@ jest.mock('../services/email.service', () => ({
   sendDoctorSessionSummaryEmail: jest.fn().mockResolvedValue(undefined)
 }));
 
-const { errorHandler } = require('../middleware/error.middleware');
+const { mountRoutes, tokenFor } = require('./helpers/harness');
 
 let mongod;
 let Session, User, sessionController;
@@ -57,17 +60,14 @@ afterEach(async () => {
   mockRefund.mockClear();
 });
 
-function buildApp(userId, role) {
-  const app = express();
-  app.use(express.json());
-  // Simulates verifyToken having already run and attached req.user
-  app.use((req, res, next) => {
-    req.user = { _id: userId, role };
-    next();
-  });
-  app.post('/sessions/:sessionId/cancel', sessionController.cancelSession);
-  app.use(errorHandler);
-  return app;
+/**
+ * The real router, so the request travels verifyToken -> validateObjectIdParam
+ * -> authorize(...) -> controller. The previous version mounted the controller
+ * directly behind a stubbed req.user, which meant this test could not have
+ * caught a missing authorization check on the route it exercises.
+ */
+function buildApp() {
+  return mountRoutes({ '/sessions': '../../routes/sessions' });
 }
 
 async function createPaidSession({ patientId, doctorId, hoursFromNow }) {
@@ -90,16 +90,17 @@ async function createPaidSession({ patientId, doctorId, hoursFromNow }) {
 
 describe('cancelSession idempotency', () => {
   test('a second cancel request on an already-cancelled session is a no-op — does not re-issue a refund or flip paymentStatus back', async () => {
-    const patient = await User.create({ firstName: 'Pat', email: 'pat@test.com', username: 'pat_test', password: 'x', role: 'patient' });
-    const doctor = await User.create({ firstName: 'Doc', email: 'doc@test.com', username: 'doc_test', password: 'x', role: 'doctor' });
+    const patient = await User.create({ firstName: 'Pat', email: 'pat@test.com', username: 'pat_test', password: 'password123', role: 'patient' });
+    const doctor = await User.create({ firstName: 'Doc', email: 'doc@test.com', username: 'doc_test', password: 'password123', role: 'doctor' });
 
     // 10 hours out -> lands in the 4-24h / 50% refund tier
     const session = await createPaidSession({ patientId: patient._id, doctorId: doctor._id, hoursFromNow: 10 });
 
-    const app = buildApp(patient._id.toString(), 'patient');
+    const app = buildApp();
+    const auth = `Bearer ${tokenFor(patient)}`;
 
     // First call: real cancellation + refund
-    const first = await request(app).post(`/sessions/${session._id}/cancel`);
+    const first = await request(app).post(`/sessions/${session._id}/cancel`).set('Authorization', auth);
     expect(first.status).toBe(200);
     expect(first.body.success).toBe(true);
     expect(first.body.refundAmount).toBe(500);
@@ -112,7 +113,7 @@ describe('cancelSession idempotency', () => {
 
     // Second call on the same session: must be a no-op, not a second refund
     // attempt, and must NOT change paymentStatus/refundAmount.
-    const second = await request(app).post(`/sessions/${session._id}/cancel`);
+    const second = await request(app).post(`/sessions/${session._id}/cancel`).set('Authorization', auth);
     expect(second.status).toBe(200);
     expect(second.body.success).toBe(true);
     expect(mockRefund).toHaveBeenCalledTimes(1); // still just once, not twice
@@ -124,14 +125,15 @@ describe('cancelSession idempotency', () => {
   });
 
   test('cancelling an already-completed session is rejected, not silently allowed', async () => {
-    const patient = await User.create({ firstName: 'Pat', email: 'pat2@test.com', username: 'pat_test2', password: 'x', role: 'patient' });
-    const doctor = await User.create({ firstName: 'Doc', email: 'doc2@test.com', username: 'doc_test2', password: 'x', role: 'doctor' });
+    const patient = await User.create({ firstName: 'Pat', email: 'pat2@test.com', username: 'pat_test2', password: 'password123', role: 'patient' });
+    const doctor = await User.create({ firstName: 'Doc', email: 'doc2@test.com', username: 'doc_test2', password: 'password123', role: 'doctor' });
     const session = await createPaidSession({ patientId: patient._id, doctorId: doctor._id, hoursFromNow: 10 });
     session.status = 'completed';
     await session.save();
 
-    const app = buildApp(patient._id.toString(), 'patient');
-    const res = await request(app).post(`/sessions/${session._id}/cancel`);
+    const app = buildApp();
+    const auth = `Bearer ${tokenFor(patient)}`;
+    const res = await request(app).post(`/sessions/${session._id}/cancel`).set('Authorization', auth);
 
     expect(res.status).toBe(400);
     expect(mockRefund).not.toHaveBeenCalled();

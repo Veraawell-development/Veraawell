@@ -16,9 +16,8 @@ const logger = createLogger('JOURNAL-CTRL');
  */
 const createEntry = asyncHandler(async (req, res) => {
   const { title, content, mood, tags } = req.body;
-  const patientId = req.user._id.toString();
-
-  if (req.user.role !== 'patient') throw new AuthorizationError('Only patients can create journal entries');
+  // requireRole('patient') is declared on the route.
+  const patientId = req.actor.id;
 
   const journal = new Journal({ patientId, title, content, mood, tags: tags || [] });
   await journal.save();
@@ -33,9 +32,6 @@ const createEntry = asyncHandler(async (req, res) => {
  */
 const getEntriesByPatient = asyncHandler(async (req, res) => {
   const { patientId } = req.params;
-  const userId = req.user._id.toString();
-
-  if (userId !== patientId) throw new AuthorizationError('Unauthorized');
 
   // Unbounded before this — a long-term patient journaling regularly for
   // years returned their entire history on every page load. The supporting
@@ -56,11 +52,8 @@ const getEntriesByPatient = asyncHandler(async (req, res) => {
 const updateEntry = asyncHandler(async (req, res) => {
   const { journalId } = req.params;
   const { title, content, mood, tags } = req.body;
-  const userId = req.user._id.toString();
 
-  const journal = await Journal.findById(journalId);
-  if (!journal) throw new NotFoundError('Journal entry');
-  if (journal.patientId.toString() !== userId) throw new AuthorizationError('Unauthorized');
+  const journal = req.authz.resource;
 
   if (title) journal.title = title;
   if (content) journal.content = content;
@@ -79,12 +72,8 @@ const updateEntry = asyncHandler(async (req, res) => {
  */
 const deleteEntry = asyncHandler(async (req, res) => {
   const { journalId } = req.params;
-  const userId = req.user._id.toString();
 
-  const journal = await Journal.findById(journalId);
-  if (!journal) throw new NotFoundError('Journal entry');
-  if (journal.patientId.toString() !== userId) throw new AuthorizationError('Unauthorized');
-
+  // authorize('journal:delete') already loaded and ownership-checked it.
   await Journal.findByIdAndDelete(journalId);
 
   logger.info('Journal entry deleted', { entryId: journalId.substring(0, 8) });

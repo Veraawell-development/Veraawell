@@ -6,6 +6,7 @@
 const Task = require('../models/task');
 const Session = require('../models/session');
 const { asyncHandler } = require('../middleware/error.middleware');
+const { sealedFilter } = require('../authz');
 const { NotFoundError, AuthorizationError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
 
@@ -17,16 +18,10 @@ const logger = createLogger('TASK-CTRL');
  */
 
 const createTask = asyncHandler(async (req, res) => {
-  const { sessionId, patientId, title, description, dueDate, priority } = req.body;
-  const doctorId = req.user._id.toString();
-
-  if (req.user.role !== 'doctor') throw new AuthorizationError('Only doctors can create tasks');
-
-  const session = await Session.findById(sessionId);
-  if (!session) throw new NotFoundError('Session');
-
-  const sessionDoctorId = session.doctorId?._id?.toString() || session.doctorId?.toString();
-  if (sessionDoctorId !== doctorId) throw new AuthorizationError('Unauthorized to create tasks for this session');
+  const { title, description, dueDate, priority } = req.body;
+  const doctorId = req.actor.id;
+  // Server-derived from the authorized session — see authz/policies/clinicalRecords.policy.js
+  const { sessionId, patientId } = req.authz.derived;
 
   const task = new Task({ sessionId, doctorId, patientId, title, description, dueDate: new Date(dueDate), priority: priority || 'medium' });
   await task.save();
@@ -44,16 +39,12 @@ const createTask = asyncHandler(async (req, res) => {
  * Get tasks for a patient
  */
 const getTasksByPatient = asyncHandler(async (req, res) => {
-  const { patientId } = req.params;
-  const userId = req.user._id.toString();
-  const userRole = req.user.role;
   const { status } = req.query;
 
-  if (userRole === 'patient' && userId !== patientId) throw new AuthorizationError('Unauthorized');
-
-  let query = { patientId };
-  if (userRole === 'doctor') query.doctorId = userId;
-  if (status) query.status = status;
+  // sealedFilter throws if a caller-supplied term would overwrite a key the
+  // authorization scope pinned — that is the regression which would silently
+  // widen this query back out to another patient's records.
+  const query = sealedFilter(req.authz.scope, status ? { status } : {});
 
   const tasks = await Task.find(query)
     .populate('doctorId', 'firstName lastName')
@@ -69,12 +60,7 @@ const getTasksByPatient = asyncHandler(async (req, res) => {
  * Get all tasks assigned by a doctor
  */
 const getTasksByDoctor = asyncHandler(async (req, res) => {
-  const { doctorId } = req.params;
-  const userId = req.user._id.toString();
-
-  if (userId !== doctorId) throw new AuthorizationError('Unauthorized');
-
-  const tasks = await Task.find({ doctorId })
+  const tasks = await Task.find(req.authz.scope)
     .populate('patientId', 'firstName lastName')
     .populate('sessionId', 'sessionDate sessionTime')
     .sort({ createdAt: -1, dueDate: 1 });
@@ -89,14 +75,8 @@ const getTasksByDoctor = asyncHandler(async (req, res) => {
 const updateTask = asyncHandler(async (req, res) => {
   const { taskId } = req.params;
   const { status, patientNotes } = req.body;
-  const userId = req.user._id.toString();
 
-  const task = await Task.findById(taskId);
-  if (!task) throw new NotFoundError('Task');
-
-  if (task.patientId.toString() !== userId && task.doctorId.toString() !== userId) {
-    throw new AuthorizationError('Unauthorized');
-  }
+  const task = req.authz.resource;
 
   if (status) {
     // Patients can toggle a task between pending/completed (the real UI
@@ -104,7 +84,7 @@ const updateTask = asyncHandler(async (req, res) => {
     // 'in-progress' is a doctor/clinical-workflow state no patient-facing UI
     // ever sends today; there was no server-side check stopping a crafted
     // request from setting it anyway.
-    if (req.user.role === 'patient' && !['pending', 'completed'].includes(status)) {
+    if (req.actor.role === 'patient' && !['pending', 'completed'].includes(status)) {
       throw new AuthorizationError("Patients can only set a task's status to pending or completed");
     }
     task.status = status;

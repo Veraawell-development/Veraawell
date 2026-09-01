@@ -52,7 +52,10 @@ function verifyCSRF(req, res, next) {
   const headerToken = req.headers[CSRF_HEADER_NAME];
 
   if (!cookieToken || !headerToken) {
-    return res.status(403).json({ success: false, message: 'CSRF token missing. Please refresh the page and try again.' });
+    // `category` lets the client tell a CSRF failure from an authorization
+    // failure. Its fetch interceptor drops its cached token on any 403; it
+    // should only do that for these two responses.
+    return res.status(403).json({ success: false, category: 'csrf', code: 'CSRF_TOKEN_MISSING', message: 'CSRF token missing. Please refresh the page and try again.' });
   }
 
   const cookieBuf = Buffer.from(String(cookieToken));
@@ -60,7 +63,7 @@ function verifyCSRF(req, res, next) {
   const isValid = cookieBuf.length === headerBuf.length && crypto.timingSafeEqual(cookieBuf, headerBuf);
 
   if (!isValid) {
-    return res.status(403).json({ success: false, message: 'Invalid CSRF token. Please refresh the page and try again.' });
+    return res.status(403).json({ success: false, category: 'csrf', code: 'CSRF_TOKEN_INVALID', message: 'Invalid CSRF token. Please refresh the page and try again.' });
   }
 
   next();

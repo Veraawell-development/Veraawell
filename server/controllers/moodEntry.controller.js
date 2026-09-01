@@ -19,10 +19,8 @@ const todayIST = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkat
  * Whether the logged-in patient has already logged a mood today
  */
 const getToday = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'patient') throw new AuthorizationError('Only patients have a mood check-in');
-
   const date = todayIST();
-  const entry = await MoodEntry.findOne({ patientId: req.user._id, date });
+  const entry = await MoodEntry.findOne({ patientId: req.actor.id, date });
   res.json({ success: true, hasLoggedToday: !!entry, entry: entry || null, date });
 });
 
@@ -31,8 +29,6 @@ const getToday = asyncHandler(async (req, res) => {
  * Log today's mood (one entry per patient per day)
  */
 const createEntry = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'patient') throw new AuthorizationError('Only patients have a mood check-in');
-
   const { mood, note } = req.body;
   const moodValue = Number(mood);
 
@@ -46,12 +42,12 @@ const createEntry = asyncHandler(async (req, res) => {
   // Allow correcting today's entry (e.g. re-opened from the dashboard) rather than
   // silently ignoring the new value once today's row already exists.
   const entry = await MoodEntry.findOneAndUpdate(
-    { patientId: req.user._id, date },
-    { $set: { mood: moodValue, label, note: note || '' }, $setOnInsert: { patientId: req.user._id, date } },
+    { patientId: req.actor.id, date },
+    { $set: { mood: moodValue, label, note: note || '' }, $setOnInsert: { patientId: req.actor.id, date } },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
 
-  logger.info('Mood entry logged', { patientId: req.user._id.toString().substring(0, 8), date, mood: moodValue });
+  logger.info('Mood entry logged', { patientId: req.actor.id.toString().substring(0, 8), date, mood: moodValue });
   res.status(201).json({ success: true, entry });
 });
 
@@ -60,10 +56,8 @@ const createEntry = asyncHandler(async (req, res) => {
  * Recent mood entries for trend display
  */
 const getHistory = asyncHandler(async (req, res) => {
-  if (req.user.role !== 'patient') throw new AuthorizationError('Only patients have a mood check-in');
-
   const days = Math.min(Math.max(parseInt(req.query.days) || 30, 1), 90);
-  const entries = await MoodEntry.find({ patientId: req.user._id })
+  const entries = await MoodEntry.find({ patientId: req.actor.id })
     .sort({ date: -1 })
     .limit(days);
 

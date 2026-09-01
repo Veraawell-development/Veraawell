@@ -16,20 +16,14 @@ const logger = createLogger('NOTE-CTRL');
  * Create a session note (Doctor only)
  */
 const createNote = asyncHandler(async (req, res) => {
-  const { sessionId, patientId, content, mood, topicsDiscussed, progressInsights, therapeuticTechniques, isPrivate } = req.body;
-  const doctorId = req.user._id.toString();
+  const { content, mood, topicsDiscussed, progressInsights, therapeuticTechniques, isPrivate } = req.body;
+  const doctorId = req.actor.id;
 
-  if (req.user.role !== 'doctor') {
-    throw new AuthorizationError('Only doctors can create session notes');
-  }
-
-  const session = await Session.findById(sessionId);
-  if (!session) throw new NotFoundError('Session');
-
-  const sessionDoctorId = session.doctorId?._id?.toString() || session.doctorId?.toString();
-  if (sessionDoctorId !== doctorId) {
-    throw new AuthorizationError('Unauthorized to create notes for this session');
-  }
+  // sessionId and patientId come from the session that authorize('note:create')
+  // already loaded and verified this doctor owns. patientId used to be read
+  // from req.body, which let a doctor file a note against any patient id —
+  // authorize() now deletes those keys from the body entirely.
+  const { sessionId, patientId } = req.authz.derived;
 
   const note = new SessionNote({ sessionId, doctorId, patientId, content, mood, topicsDiscussed, progressInsights, therapeuticTechniques, isPrivate: isPrivate || false });
   await note.save();
@@ -47,19 +41,9 @@ const createNote = asyncHandler(async (req, res) => {
  * Get notes for a specific session
  */
 const getNotesBySession = asyncHandler(async (req, res) => {
-  const { sessionId } = req.params;
-  const userId = req.user._id.toString();
-  const userRole = req.user.role;
-
-  let query = { sessionId };
-  if (userRole === 'patient') {
-    query.isPrivate = false;
-    query.patientId = userId;
-  } else if (userRole === 'doctor') {
-    query.doctorId = userId;
-  }
-
-  const notes = await SessionNote.find(query)
+  // The filter is the authorization: withScope('note:list-by-session') pins
+  // it to this actor and returns DENY for anyone who is neither party.
+  const notes = await SessionNote.find(req.authz.scope)
     .populate('doctorId', 'firstName lastName')
     .populate('patientId', 'firstName lastName')
     .sort({ createdAt: -1 });
@@ -72,19 +56,7 @@ const getNotesBySession = asyncHandler(async (req, res) => {
  * Get all notes for a patient
  */
 const getNotesByPatient = asyncHandler(async (req, res) => {
-  const { patientId } = req.params;
-  const userId = req.user._id.toString();
-  const userRole = req.user.role;
-
-  if (userRole === 'patient' && userId !== patientId) {
-    throw new AuthorizationError('Unauthorized');
-  }
-
-  let query = { patientId };
-  if (userRole === 'patient') query.isPrivate = false;
-  else if (userRole === 'doctor') query.doctorId = userId;
-
-  const notes = await SessionNote.find(query)
+  const notes = await SessionNote.find(req.authz.scope)
     .populate('doctorId', 'firstName lastName')
     .populate('sessionId', 'sessionDate sessionTime')
     .populate('patientId', 'firstName lastName')
@@ -98,12 +70,7 @@ const getNotesByPatient = asyncHandler(async (req, res) => {
  * Get all notes created by a doctor
  */
 const getNotesByDoctor = asyncHandler(async (req, res) => {
-  const { doctorId } = req.params;
-  const userId = req.user._id.toString();
-
-  if (userId !== doctorId) throw new AuthorizationError('Unauthorized');
-
-  const notes = await SessionNote.find({ doctorId })
+  const notes = await SessionNote.find(req.authz.scope)
     .populate('patientId', 'firstName lastName')
     .populate('sessionId', 'sessionDate sessionTime')
     .sort({ createdAt: -1 });
