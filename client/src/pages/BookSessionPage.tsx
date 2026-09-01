@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import EmergencyContactModal from '../components/EmergencyContactModal';
 import { API_CONFIG } from '../config/api';
+import { getAuthToken } from '../utils/authToken';
 import logger from '../utils/logger';
 import { useToast } from '../hooks/useToast';
 import { useAuth } from '../context/AuthContext';
@@ -190,7 +191,7 @@ const BookSessionPage: React.FC = () => {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${localStorage.getItem('token')}`
+                  'Authorization': `Bearer ${getAuthToken()}`
                 },
                 body: JSON.stringify({
                   razorpay_order_id: response.razorpay_order_id,

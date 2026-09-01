@@ -1,4 +1,5 @@
 import React from 'react';
+import { motion } from 'framer-motion';
 import SparkDecor from './ui/SparkDecor';
 
 type ServiceCardProps = {
@@ -8,6 +9,8 @@ type ServiceCardProps = {
   icon?: React.ReactNode;
   index: number;
   onClick?: () => void;
+  /** Set false when an ancestor (e.g. framer-motion) already owns the entrance animation. */
+  reveal?: boolean;
 };
 
 const ServiceCard: React.FC<ServiceCardProps> = ({
@@ -17,19 +20,22 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
   icon,
   index,
   onClick,
+  reveal = true,
 }) => {
   const revealDelay = (index % 6) + 1;
 
   return (
-    <div
+    <motion.div
       onClick={onClick}
-      data-reveal="scale"
-      data-delay={revealDelay}
+      {...(reveal ? { 'data-reveal': 'scale', 'data-delay': revealDelay } : {})}
       className="feature-card relative rounded-[32px] p-8 md:p-10 flex flex-col h-full min-h-[360px] overflow-hidden cursor-pointer group"
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border)',
       }}
+      whileHover={{ y: -8, boxShadow: `0 20px 48px -12px ${accent}30` }}
+      whileTap={{ scale: 0.98, y: -4 }}
+      transition={{ duration: 0.35, ease: [0.16, 1, 0.3, 1] }}
     >
       {/* Decorative subtle background gradient on hover */}
       <div
@@ -47,22 +53,34 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
       <div className="relative z-20 flex flex-col h-full">
         {/* Top Header Row (Number + Icon) */}
         <div className="flex justify-between items-start mb-10">
-          {/* Overline Number */}
-          <div
-            className="text-xs font-bold tracking-[0.2em]"
-            style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}
-          >
-            {String(index + 1).padStart(2, '0')}
+          {/* Overline Number + ambient "live" pulse */}
+          <div className="flex items-center gap-2">
+            <span className="relative inline-flex" style={{ width: 6, height: 6 }}>
+              <span className="absolute inset-0 rounded-full" style={{ background: accent }} />
+              <span
+                className="absolute inset-0 rounded-full"
+                style={{ background: accent, animation: 'pulse-ring 2.4s ease-out infinite' }}
+              />
+            </span>
+            <div
+              className="text-xs font-bold tracking-[0.2em]"
+              style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}
+            >
+              {String(index + 1).padStart(2, '0')}
+            </div>
           </div>
 
-          {/* Topic Icon */}
+          {/* Topic Icon — gentle idle breathing, plus a livelier hover response */}
           {icon && (
-            <div
-              className="w-11 h-11 rounded-2xl flex items-center justify-center transition-transform duration-500 group-hover:scale-110 group-hover:-rotate-6"
+            <motion.div
+              className="w-11 h-11 rounded-2xl flex items-center justify-center group-hover:-rotate-6"
               style={{ background: `${accent}14`, color: accent }}
+              animate={{ scale: [1, 1.06, 1] }}
+              transition={{ duration: 3.2, repeat: Infinity, ease: 'easeInOut' }}
+              whileHover={{ scale: 1.16 }}
             >
               {icon}
-            </div>
+            </motion.div>
           )}
         </div>
 
@@ -93,7 +111,7 @@ const ServiceCard: React.FC<ServiceCardProps> = ({
           </svg>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 };
 

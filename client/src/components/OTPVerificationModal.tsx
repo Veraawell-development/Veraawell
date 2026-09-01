@@ -45,9 +45,11 @@ export default function OTPVerificationModal({
         return () => clearInterval(timer);
     }, [isOpen]);
 
-    // Auto-verify when 6 digits entered
+    // Auto-verify when 6 digits entered. Guarded on isVerifying so a paste
+    // event or rapid re-render firing twice at length 6 can't trigger two
+    // concurrent verify requests for the same code.
     useEffect(() => {
-        if (otp.length === 6) {
+        if (otp.length === 6 && !isVerifying) {
             handleVerify();
         }
     }, [otp]);

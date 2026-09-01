@@ -147,10 +147,12 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
       )}
 
       {/* Month and Year Header */}
-      <div className="flex items-center justify-between mb-2 px-1">
-        <h4 className="text-lg font-bold text-gray-800" style={{ fontFamily: 'Inter, sans-serif' }}>{monthNames[currentDate.getMonth()]}</h4>
-        <p className="text-sm font-bold text-gray-500 uppercase tracking-wider" style={{ fontFamily: 'Inter, sans-serif' }}>{currentDate.getFullYear()}</p>
-      </div>
+      {!hideTitle && (
+        <div className="flex items-center justify-between mb-2 px-1">
+          <h4 className="text-lg font-bold text-gray-800" style={{ fontFamily: 'Inter, sans-serif' }}>{monthNames[currentDate.getMonth()]}</h4>
+          <p className="text-sm font-bold text-gray-500 uppercase tracking-wider" style={{ fontFamily: 'Inter, sans-serif' }}>{currentDate.getFullYear()}</p>
+        </div>
+      )}
 
       {/* Day Headers */}
       <div className="grid grid-cols-7 gap-1 text-center text-[10px] mb-1 font-bold text-gray-400 uppercase tracking-widest" style={{ fontFamily: 'Inter, sans-serif' }}>

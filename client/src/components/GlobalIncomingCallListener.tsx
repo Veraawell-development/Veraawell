@@ -4,6 +4,7 @@ import { useDataSocket } from '../hooks/useDataSocket';
 import InstantRequestModal from './InstantRequestModal';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/api';
+import { getAuthToken } from '../utils/authToken';
 import toast from 'react-hot-toast';
 
 const GlobalIncomingCallListener: React.FC = () => {
@@ -31,7 +32,7 @@ const GlobalIncomingCallListener: React.FC = () => {
 
   const authHeaders = () => ({
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${localStorage.getItem('token')}`,
+    Authorization: `Bearer ${getAuthToken()}`,
   });
 
   const handleAcceptRequest = async (sessionId: string) => {

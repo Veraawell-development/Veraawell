@@ -5,6 +5,7 @@ import { API_CONFIG, API_BASE_URL } from '../config/api';
 import { useDataSocket } from '../hooks/useDataSocket';
 import LeafDecor from '../components/ui/LeafDecor';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { getDoctorAccentColor } from '../utils/doctorColor';
 
 interface Doctor {
   _id: string;
@@ -103,15 +104,7 @@ const ChooseProfessionalPage: React.FC = () => {
     });
   };
 
-  const getDoctorBgColor = (id: string) => {
-    const colors = ['#43A047', '#00897B', '#7E57C2', '#F4511E'];
-    let hash = 0;
-    for (let i = 0; i < id.length; i++) {
-      hash = id.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const index = Math.abs(hash) % colors.length;
-    return colors[index];
-  };
+  const getDoctorBgColor = getDoctorAccentColor;
 
   // Helper function to get gender-based image
   const getDoctorImage = (doctor: any) => {

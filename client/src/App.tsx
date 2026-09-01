@@ -20,7 +20,6 @@ import PatientDashboard from './pages/PatientDashboard';
 import DoctorDashboard from './pages/DoctorDashboard';
 import ForgotPasswordPage from './pages/ForgotPasswordPage';
 import ResetPasswordPage from './pages/ResetPasswordPage';
-import AdminLogin from './pages/admin/AdminLogin';
 import AdminLoginPage from './pages/AdminLoginPage';
 import AdminSignupPage from './pages/AdminSignupPage';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
@@ -153,9 +152,12 @@ function AppRoutes() {
       const roleFromUrl = urlParams.get('role');
       const tokenFromUrl = urlParams.get('token');
 
-      // If token is in URL (fallback for blocked cookies), save it
+      // If token is in URL (fallback for blocked cookies — Safari ITP blocks
+      // the cross-site httpOnly cookie in this OAuth redirect), keep it
+      // in-memory only via setAuthToken (see AuthContext.tsx / utils/authToken.ts)
+      // rather than localStorage, which would be readable by any script on
+      // the page — exactly what the httpOnly cookie exists to prevent.
       if (tokenFromUrl) {
-        localStorage.setItem('token', tokenFromUrl);
         setAuthToken(tokenFromUrl);
       }
 
@@ -257,7 +259,11 @@ function AppRoutes() {
         <Route path="/messages" element={<ProtectedRoute><MessagesPage /></ProtectedRoute>} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
-        <Route path="/admin/login" element={<AdminLogin />} />
+        {/* /admin/login used to be a second, dead admin login page (its own raw
+            fetch, never wired to AdminContext, and it navigated to
+            /admin/dashboard which doesn't exist) — redirect any stale
+            bookmarks/links to the real one. */}
+        <Route path="/admin/login" element={<Navigate to="/admin-login" replace />} />
         <Route path="/admin-login" element={<AdminLoginPage />} />
         <Route path="/admin-signup" element={<AdminSignupPage />} />
         <Route path="/super-admin-dashboard" element={<AdminProtectedRoute><SuperAdminDashboard /></AdminProtectedRoute>} />

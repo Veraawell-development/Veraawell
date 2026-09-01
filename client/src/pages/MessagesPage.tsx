@@ -129,7 +129,17 @@ const MessagesPage: React.FC = () => {
     socketRef.current.on('message:receive', (message: Message) => {
       const activeConvId = selectedConvRef.current;
       if (activeConvId) {
-        queryClient.setQueryData(['chat', 'messages', activeConvId], (old: Message[] = []) => [...old, message]);
+        queryClient.setQueryData(['chat', 'messages', activeConvId], (old: Message[] = []) => {
+          // The server always echoes a sender's own message back via this same
+          // event. Without reconciling against the optimistic temp-id entry
+          // added in handleSendMessage, every sent message rendered twice —
+          // once as the optimistic bubble, once as the server-confirmed one.
+          if (old.some((m) => m._id === message._id)) return old; // already applied
+          const withoutOptimisticDuplicate = message.isSentByMe
+            ? old.filter((m) => !m._id.startsWith('temp-'))
+            : old;
+          return [...withoutOptimisticDuplicate, message];
+        });
       }
       queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
     });

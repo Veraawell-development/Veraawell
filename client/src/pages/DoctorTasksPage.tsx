@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { FiCheckSquare } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config/api';
+import { getAuthToken } from '../utils/authToken';
 import { useQuery } from '@tanstack/react-query';
 
 interface PatientTask {
@@ -38,7 +39,7 @@ const DoctorTasksPage: React.FC = () => {
     queryKey: ['doctor', 'tasks', 'patients', user?.userId],
     queryFn: async () => {
       if (!user) return [];
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const headers: HeadersInit = {};
       if (token) headers['Authorization'] = `Bearer ${token}`;
 

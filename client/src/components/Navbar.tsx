@@ -10,12 +10,16 @@ export default function Navbar() {
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [resourcesOpen, setResourcesOpen] = useState(false);
-  const [scrolled, setScrolled] = useState(false);
+  const [scrolledPast, setScrolledPast] = useState(false);
   const [dropdownTimer, setDropdownTimer] = useState<ReturnType<typeof setTimeout> | null>(null);
+
+  // Both dashboards now scroll normally with transparent headers, so the navbar
+  // just uses its regular scroll-triggered transparent→solid behavior everywhere.
+  const scrolled = scrolledPast;
 
   /* ── Scroll detection ── */
   useEffect(() => {
-    const handleScroll = () => setScrolled(window.scrollY > 60);
+    const handleScroll = () => setScrolledPast(window.scrollY > 60);
     window.addEventListener('scroll', handleScroll, { passive: true });
     return () => window.removeEventListener('scroll', handleScroll);
   }, []);
@@ -210,7 +214,11 @@ export default function Navbar() {
           top: 0,
           left: 0,
           right: 0,
-          zIndex: 1000,
+          // Sandwiched between ordinary in-page content (z-index up to 30 — e.g.
+          // dashboard headers) and modal/drawer overlays (z-40 to z-[200]): high
+          // enough that the navbar and its dropdowns always paint above normal
+          // page content, low enough that modals still cover and dim it.
+          zIndex: 35,
           background: scrolled ? undefined : 'transparent',
           borderBottom: scrolled ? undefined : '1px solid var(--border)',
           transition: 'background 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease',

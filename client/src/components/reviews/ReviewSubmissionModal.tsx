@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X } from 'lucide-react';
 import { API_BASE_URL } from '../../config/api';
+import { getAuthToken } from '../../utils/authToken';
 
 interface ReviewSubmissionModalProps {
     isOpen: boolean;
@@ -44,7 +45,7 @@ const ReviewSubmissionModal: React.FC<ReviewSubmissionModalProps> = ({
         setError('');
 
         try {
-            const token = localStorage.getItem('token');
+            const token = getAuthToken();
             const response = await fetch(`${API_BASE_URL}/reviews/submit`, {
                 method: 'POST',
                 headers: {

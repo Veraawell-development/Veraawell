@@ -5,7 +5,7 @@ import logger from '../utils/logger';
 
 interface Report {
     _id: string;
-    type: 'session-notes' | 'prescription' | 'progress-summary' | 'treatment-plan' | 'other';
+    reportType: 'assessment' | 'progress' | 'diagnosis' | 'treatment-plan' | 'discharge' | 'other';
     title: string;
     doctorId: {
         firstName: string;
@@ -43,12 +43,16 @@ const SessionReportsModal: React.FC<SessionReportsModalProps> = ({
     const fetchReports = async () => {
         setLoading(true);
         try {
-            const response = await fetch(`${API_CONFIG.BASE_URL}/session-reports/session/${sessionId}`, {
+            // Previously pointed at /session-reports, a separate, disconnected
+            // report system nothing ever wrote to — doctor-created reports
+            // (written via /session-tools/reports) never showed up here. Now
+            // reads from the same system PostSessionReportModal writes to.
+            const response = await fetch(`${API_CONFIG.BASE_URL}/session-tools/reports/session/${sessionId}`, {
                 credentials: 'include'
             });
             if (response.ok) {
                 const data = await response.json();
-                setReports(data);
+                setReports(data.reports || []);
             }
         } catch (error) {
             logger.error('Error fetching reports:', error);
@@ -60,7 +64,7 @@ const SessionReportsModal: React.FC<SessionReportsModalProps> = ({
     const handleDownload = (report: Report) => {
         // Generate PDF logic will go here
         // For now, construct a simple text blob
-        const content = `Type: ${report.type}\nTitle: ${report.title}\nDate: ${new Date(report.createdAt).toLocaleDateString()}\n\nContent:\n${report.content}`;
+        const content = `Type: ${report.reportType}\nTitle: ${report.title}\nDate: ${new Date(report.createdAt).toLocaleDateString()}\n\nContent:\n${report.content}`;
         const blob = new Blob([content], { type: 'text/plain' });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -121,7 +125,7 @@ const SessionReportsModal: React.FC<SessionReportsModalProps> = ({
                             {reports.map((report) => (
                                 <ReportCard
                                     key={report._id}
-                                    type={report.type}
+                                    type={report.reportType}
                                     title={report.title}
                                     doctorName={`Dr. ${report.doctorId.firstName} ${report.doctorId.lastName}`}
                                     date={report.createdAt}

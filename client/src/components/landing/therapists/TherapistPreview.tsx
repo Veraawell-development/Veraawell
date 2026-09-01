@@ -2,6 +2,7 @@ import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useScrollReveal } from '../../../hooks/useScrollReveal';
 import LeafDecor from '../../ui/LeafDecor';
+import DoctorCard from '../../DoctorCard';
 
 /* ─── Placeholder Therapist Data ─────────────────────────────── */
 const therapists = [
@@ -45,187 +46,6 @@ const therapists = [
     startingPrice: 449,
   },
 ];
-
-/* ─── Single Therapist Card ──────────────────────────────────── */
-const TherapistCard: React.FC<{ therapist: typeof therapists[0]; delay: number }> = ({
-  therapist,
-  delay,
-}) => {
-  const navigate = useNavigate();
-  return (
-    <div
-      data-reveal
-      data-delay={`${delay}` as any}
-      className="therapist-card rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-lg"
-      style={{
-        background: 'var(--surface)',
-        border: '1px solid var(--border)',
-        boxShadow: 'var(--shadow-sm)',
-      }}
-      onClick={() => navigate('/choose-professional')}
-    >
-      {/* Card header with avatar */}
-      <div
-        className="px-6 pt-7 pb-5 relative"
-        style={{
-          background: `linear-gradient(135deg, ${therapist.color}10, ${therapist.color}05)`,
-          borderBottom: '1px solid var(--border)',
-        }}
-      >
-        {/* Starting price badge */}
-        <div
-          className="absolute top-4 right-4 flex flex-col items-end leading-none"
-          title="Indicative starting price"
-        >
-          <span
-            className="text-[9px] font-semibold tracking-widest uppercase"
-            style={{ color: therapist.color, opacity: 0.75, fontFamily: 'var(--font-mono)' }}
-          >
-            From
-          </span>
-          <span
-            className="text-sm font-bold mt-0.5"
-            style={{ color: therapist.color }}
-          >
-            ₹{therapist.startingPrice}
-            <span className="text-[10px] font-medium" style={{ color: 'var(--text-3)' }}>/session</span>
-          </span>
-        </div>
-
-        <div className="flex items-center gap-4">
-          {/* Avatar */}
-          <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl font-bold text-white flex-shrink-0"
-            style={{ 
-              background: therapist.image ? `url(${therapist.image}) center/cover no-repeat` : therapist.color,
-              border: `2px solid ${therapist.color}40`,
-            }}
-          >
-            {!therapist.image && therapist.initials}
-          </div>
-          <div>
-            <h3
-              className="text-base font-semibold leading-tight mb-0.5"
-              style={{ color: 'var(--text)' }}
-            >
-              {therapist.name}
-            </h3>
-            <p
-              className="text-xs font-medium mt-1"
-              style={{ color: 'var(--text-2)', fontFamily: 'var(--font-body)' }}
-            >
-              {therapist.credential}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Card body */}
-      <div className="p-6">
-        {/* Specialisations */}
-        <div className="flex flex-wrap gap-1.5 mb-5">
-          {therapist.specialisations.map((tag) => (
-            <span
-              key={tag}
-              className="text-xs px-2.5 py-1 rounded-full font-medium"
-              style={{
-                background: `${therapist.color}12`,
-                color: therapist.color,
-              }}
-            >
-              {tag}
-            </span>
-          ))}
-        </div>
-
-        {/* Stats row */}
-        <div
-          className="flex items-center justify-between mb-5 py-3 px-3 rounded-xl"
-          style={{ background: 'var(--bg-2)' }}
-        >
-          <div>
-            <div
-              className="text-xs"
-              style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}
-            >
-              Experience
-            </div>
-            <div className="text-sm font-semibold" style={{ color: 'var(--text)' }}>
-              {therapist.experience}
-            </div>
-          </div>
-          <div
-            className="w-px h-8"
-            style={{ background: 'var(--border)' }}
-          />
-          <div>
-            <div
-              className="text-xs"
-              style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}
-            >
-              Rating
-            </div>
-            <div
-              className="text-sm font-semibold flex items-center gap-1"
-              style={{ color: 'var(--text)' }}
-            >
-              <span style={{ color: '#F59E0B' }}>★</span>
-              {therapist.rating}
-              <span
-                className="font-normal"
-                style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)', fontSize: '11px' }}
-              >
-                ({therapist.reviews})
-              </span>
-            </div>
-          </div>
-          <div
-            className="w-px h-8"
-            style={{ background: 'var(--border)' }}
-          />
-          <div>
-            <div
-              className="text-xs"
-              style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}
-            >
-              Status
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span
-                className="w-1.5 h-1.5 rounded-full"
-                style={{ background: therapist.available ? '#10B981' : '#F59E0B' }}
-              />
-              <span className="text-xs font-medium" style={{ color: 'var(--text)' }}>
-                {therapist.available ? 'Available' : 'Busy'}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {/* CTA */}
-        <button
-          className="w-full py-2.5 rounded-xl text-sm font-semibold text-center"
-          style={{
-            border: `1.5px solid ${therapist.color}`,
-            color: therapist.color,
-            background: 'transparent',
-            transition: 'all 0.2s var(--ease-spring)',
-          }}
-          onMouseEnter={e => {
-            (e.currentTarget as HTMLButtonElement).style.background = therapist.color;
-            (e.currentTarget as HTMLButtonElement).style.color = 'white';
-          }}
-          onMouseLeave={e => {
-            (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
-            (e.currentTarget as HTMLButtonElement).style.color = therapist.color;
-          }}
-        >
-          View Profile →
-        </button>
-      </div>
-    </div>
-  );
-};
 
 /* ─── Therapist Preview Section ──────────────────────────────── */
 const TherapistPreview: React.FC = () => {
@@ -309,10 +129,24 @@ const TherapistPreview: React.FC = () => {
           </button>
         </div>
 
-        {/* Cards Grid */}
+        {/* Cards Grid — reuses the same DoctorCard used everywhere else, so this stays in sync */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
           {therapists.map((t, i) => (
-            <TherapistCard key={t.name} therapist={t} delay={i + 1} />
+            <div key={t.name} data-reveal data-delay={`${i + 1}` as any}>
+              <DoctorCard
+                name={t.name}
+                experience={t.experience}
+                qualification={t.credential}
+                pricing={`₹${t.startingPrice}`}
+                language=""
+                treatsFor={t.specialisations.join(', ')}
+                imageSrc={t.image}
+                rating={{ average: t.rating, totalReviews: t.reviews }}
+                isOnline={t.available}
+                bgColor={t.color}
+                onViewProfile={() => navigate('/choose-professional')}
+              />
+            </div>
           ))}
         </div>
 

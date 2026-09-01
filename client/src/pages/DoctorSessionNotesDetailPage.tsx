@@ -4,6 +4,7 @@ import { FiArrowLeft, FiActivity } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { API_BASE_URL } from '../config/api';
+import { getAuthToken } from '../utils/authToken';
 
 interface SessionNote {
   _id: string;
@@ -29,7 +30,7 @@ const DoctorSessionNotesDetailPage: React.FC = () => {
   const { data: notes = [], isLoading: loading } = useQuery<SessionNote[]>({
     queryKey: ['doctor', 'notes', 'patient', patientId],
     queryFn: async () => {
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
       const response = await fetch(`${API_BASE_URL}/session-tools/notes/patient/${patientId}`, {
         credentials: 'include',

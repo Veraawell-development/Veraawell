@@ -6,6 +6,8 @@ import SessionReportsModal from './SessionReportsModal';
 import { API_BASE_URL } from '../config/api';
 import { parseTime } from '../utils/dateUtils';
 import { toast } from 'react-hot-toast';
+import { calculateRefundPreview } from '../utils/refundPolicy';
+import { getAuthToken } from '../utils/authToken';
 
 interface Session {
   _id: string;
@@ -70,7 +72,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
 
   const checkEmergencyContact = async () => {
     try {
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const headers: HeadersInit = {};
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
@@ -94,7 +96,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
     if (!session) return;
 
     try {
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const headers: HeadersInit = {};
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
@@ -118,7 +120,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
     if (!session || !session.patientId) return;
 
     try {
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const headers: HeadersInit = {};
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
@@ -160,7 +162,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
     console.log('[RATING] Rating successfully submitted via RatingModal:', { sessionId: session._id, score: ratingData.score });
     setHasRating(true);
     setShowRatingModal(false);
-    alert('Thank you for your rating!');
+    toast.success('Thank you for your rating!');
   };
 
   if (!isOpen || !session) return null;
@@ -218,7 +220,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
 
   const handleEmergencyContactSubmit = async (contactName: string, contactPhone: string, contactRelationship: string) => {
     try {
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const headers: HeadersInit = {
         'Content-Type': 'application/json',
       };
@@ -251,7 +253,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
       setError(null);
 
       // Get token from localStorage
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const headers: HeadersInit = {};
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
@@ -297,7 +299,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
       setShowCancelConfirm(false);
 
       // Get token from localStorage
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const headers: HeadersInit = {};
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
@@ -332,24 +334,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
 
   // ── Cancel Confirmation Modal with refund preview ──
   if (showCancelConfirm) {
-    // Calculate refund amount based on same policy as backend
-    const hoursUntil = (sessionDateTime.getTime() - Date.now()) / (1000 * 60 * 60);
-    let refundAmount = 0;
-    let refundLabel = '';
-    let refundColor = '#ef4444';
-    if (hoursUntil > 24) {
-      refundAmount = session.price;
-      refundLabel = '100% refund — full amount returned';
-      refundColor = '#10b981';
-    } else if (hoursUntil > 4) {
-      refundAmount = Math.round(session.price * 0.5);
-      refundLabel = '50% refund — cancelled within 24 hours';
-      refundColor = '#f59e0b';
-    } else {
-      refundAmount = 0;
-      refundLabel = 'No refund — cancelled less than 4 hours before session';
-      refundColor = '#ef4444';
-    }
+    const { amount: refundAmount, label: refundLabel, color: refundColor } = calculateRefundPreview(session.price, sessionDateTime);
 
     return (
       <div

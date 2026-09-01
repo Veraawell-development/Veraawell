@@ -9,6 +9,15 @@ import SparkDecor from '../components/ui/SparkDecor';
 import RippleDecor from '../components/ui/RippleDecor';
 import WaveDecor from '../components/ui/WaveDecor';
 
+const CAREER_MARQUEE_ITEMS = [
+  'Join Us As A Professional',
+  'Transform Mental Healthcare',
+  'Flexible Hours',
+  'Nationwide Reach',
+  'Verified Community',
+  'Grow Your Practice',
+];
+
 const hiringSteps = [
   { icon: FileText, title: 'Apply Online', description: 'Share your details and specialization in a short application — takes under 5 minutes.', accent: 'var(--teal)' },
   { icon: ClipboardCheck, title: 'Document Verification', description: 'Upload your license and credentials so our team can verify you securely.', accent: 'var(--sage)' },
@@ -26,6 +35,33 @@ const CareerPage: React.FC = () => {
   const card3Ref = useScrollReveal<HTMLDivElement>();
   const hiringRef = useScrollReveal<HTMLDivElement>();
   const formRef = useScrollReveal<HTMLDivElement>();
+
+  const careerSections = [
+    {
+      ref: card1Ref, num: '01', title: 'Why Choose Us?', accent: 'var(--teal)',
+      img: '/carrer-01.svg', imgAlt: 'Why Choose Us illustration', imgBg: '#EAF1F880',
+      paragraphs: [
+        'We provide a comprehensive mental wellness platform designed to make therapy accessible, transparent, and effective. With a flexible pricing model, individuals can choose plans that suit their needs without financial strain.',
+        "Our progress-tracking dashboard and session-wise reports ensure complete clarity on personal growth and improvement. Offering on-demand therapy sessions and a strong network of highly qualified psychologists, we bring expert support right when it's needed the most.",
+      ],
+    },
+    {
+      ref: card2Ref, num: '02', title: 'Culture At Veraawell', accent: 'var(--sage)',
+      img: '/carrer-02.svg', imgAlt: 'Culture illustration', imgBg: '#FDECEE80',
+      paragraphs: [
+        'We foster a collaborative, empathetic, and innovative culture. We believe in providing our professionals with the autonomy they need to effectively treat their clients, while supporting them with top-tier technological tools.',
+        'Continuous learning and peer support are at the core of our daily operations. We want you to grow as a professional while you help your clients grow.',
+      ],
+    },
+    {
+      ref: card3Ref, num: '03', title: 'Benefits of Joining', accent: 'var(--gold)',
+      img: '/about-04.svg', imgAlt: 'Benefits illustration', imgBg: '#FFF9E680',
+      paragraphs: [
+        'By joining Veraawell, you instantly gain access to a platform that handles your scheduling, billing, and technical support, so you can focus entirely on your clients.',
+        'Enjoy flexible hours, competitive compensation, and the ability to work from anywhere. Be a part of a movement that is de-stigmatizing mental health across India.',
+      ],
+    },
+  ];
 
   const [activeTab, setActiveTab] = useState<'partner' | 'professional' | 'other'>('professional');
   const [currentStep, setCurrentStep] = useState(1);
@@ -404,103 +440,71 @@ const CareerPage: React.FC = () => {
           </p>
         </div>
 
-        {/* Premium Marquee */}
-        <div ref={bannerRef} data-reveal className="w-full max-w-7xl mx-auto overflow-hidden mb-24 border-y border-[var(--border)] py-7 relative" style={{ background: 'linear-gradient(90deg, var(--teal-muted) 0%, var(--surface) 50%, var(--teal-muted) 100%)' }}>
-           <div className="absolute left-0 top-0 bottom-0 w-24 bg-gradient-to-r from-[var(--teal-muted)] to-transparent z-10"></div>
-           <div className="absolute right-0 top-0 bottom-0 w-24 bg-gradient-to-l from-[var(--teal-muted)] to-transparent z-10"></div>
-           
-           <div className="whitespace-nowrap flex" style={{ animation: 'scroll 30s linear infinite' }}>
-             {[...Array(6)].map((_, i) => (
-               <React.Fragment key={i}>
-                 <span className="font-bold tracking-widest uppercase mx-6 text-[var(--teal)]"
-                   style={{ 
-                     fontSize: 'clamp(0.875rem, 1.5vw, 1.125rem)',
-                     fontFamily: 'var(--font-mono)'
-                   }}>
-                   Join Us As A Professional
-                 </span>
-                 <span className="mx-6 text-[var(--teal)] opacity-50" style={{ fontSize: '1.2rem' }}>✦</span>
-                 <span className="font-bold tracking-widest uppercase mx-6 text-[var(--text-3)]"
-                   style={{ 
-                     fontSize: 'clamp(0.875rem, 1.5vw, 1.125rem)',
-                     fontFamily: 'var(--font-mono)'
-                   }}>
-                   Transform Mental Healthcare
-                 </span>
-                 <span className="mx-6 text-[var(--teal)] opacity-50" style={{ fontSize: '1.2rem' }}>✦</span>
-               </React.Fragment>
-             ))}
-           </div>
+        {/* ── Careers Marquee — matches the About page's values strip ── */}
+        <div ref={bannerRef} data-reveal className="relative w-full overflow-hidden mb-24" style={{ borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
+          <div className="absolute inset-y-0 left-0 w-16 sm:w-32 z-10 pointer-events-none" style={{ background: 'linear-gradient(to right, var(--bg), transparent)' }} />
+          <div className="absolute inset-y-0 right-0 w-16 sm:w-32 z-10 pointer-events-none" style={{ background: 'linear-gradient(to left, var(--bg), transparent)' }} />
+          <div className="marquee-track">
+            {[...CAREER_MARQUEE_ITEMS, ...CAREER_MARQUEE_ITEMS].map((v, i) => (
+              <div key={i} className="flex items-center gap-4 sm:gap-6 py-5 flex-none">
+                <span
+                  className="uppercase whitespace-nowrap"
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 'clamp(13px, 1.4vw, 16px)', letterSpacing: '0.14em', color: i % 2 === 0 ? 'var(--teal)' : 'var(--text-2)', fontWeight: 700 }}
+                >
+                  {v}
+                </span>
+                <span aria-hidden style={{ color: 'var(--teal)', fontSize: 16, lineHeight: 1, opacity: 0.6 }}>✦</span>
+              </div>
+            ))}
+          </div>
         </div>
-        
-        <style dangerouslySetInnerHTML={{
-          __html: `
-          @keyframes scroll {
-            0% { transform: translateX(0%); }
-            100% { transform: translateX(-50%); }
-          }
-        `
-        }} />
 
-        {/* ── Content Sections (Minimal Alternating Rows) ── */}
-        <div className="flex flex-col gap-24 md:gap-32 mb-40">
-          
-          {/* Why Choose Us Card */}
-          <div ref={card1Ref} data-reveal className="flex flex-col md:flex-row items-center gap-12 md:gap-20 bg-white border border-gray-100 rounded-[32px] p-6 md:p-10 shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all duration-500">
-            <div className="flex-1 order-2 md:order-1">
-              <span className="text-sm font-bold tracking-[0.2em] mb-4 block text-gray-400">
-                01
-              </span>
-              <h2 className="text-[32px] md:text-[40px] font-normal mb-6 leading-tight tracking-tight" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
-                Why Choose Us?
-              </h2>
-              <div className="text-[17px] leading-relaxed space-y-5 text-gray-600">
-                <p>We provide a comprehensive mental wellness platform designed to make therapy accessible, transparent, and effective. With a flexible pricing model, individuals can choose plans that suit their needs without financial strain.</p>
-                <p>Our progress-tracking dashboard and session-wise reports ensure complete clarity on personal growth and improvement. Offering on-demand therapy sessions and a strong network of highly qualified psychologists, we bring expert support right when it's needed the most.</p>
+        {/* ── Content Sections (varied editorial rows, one accent per idea) ── */}
+        <div className="flex flex-col gap-14 md:gap-16 mb-40">
+          {careerSections.map((s, i) => (
+            <div
+              key={s.num}
+              ref={s.ref}
+              data-reveal
+              className={`group relative overflow-hidden flex flex-col md:flex-row ${i % 2 === 1 ? 'md:flex-row-reverse' : ''} items-center gap-8 md:gap-14 rounded-[20px] p-6 md:p-9 border transition-all duration-500 hover:-translate-y-1`}
+              style={{ background: `linear-gradient(135deg, ${s.accent}0C, transparent 60%)`, borderColor: `${s.accent}22`, boxShadow: '0 4px 24px rgba(0,0,0,0.03)' }}
+            >
+              {/* Top accent line */}
+              <div
+                className="absolute top-0 left-8 right-8 md:left-10 md:right-10 h-[2px] rounded-full"
+                style={{ background: `linear-gradient(90deg, transparent, ${s.accent}, transparent)` }}
+              />
+
+              <div className="flex-1 order-2 md:order-1">
+                <div className="flex items-center gap-3 mb-5">
+                  <div
+                    className="w-11 h-11 rounded-full flex items-center justify-center text-[13px] font-bold flex-none transition-transform duration-500 group-hover:scale-110"
+                    style={{ background: `${s.accent}18`, color: s.accent, fontFamily: 'var(--font-display)' }}
+                  >
+                    {s.num}
+                  </div>
+                  <span aria-hidden style={{ color: s.accent, fontSize: 14 }}>✦</span>
+                </div>
+                <h2 className="text-[30px] md:text-[38px] font-normal mb-5 leading-tight tracking-tight" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
+                  {s.title}
+                </h2>
+                <div className="text-[16.5px] leading-relaxed space-y-4 text-gray-600">
+                  {s.paragraphs.map((p, pi) => <p key={pi}>{p}</p>)}
+                </div>
+              </div>
+
+              <div
+                className="w-full md:w-[42%] flex-none order-1 md:order-2 rounded-[18px] aspect-[16/10] relative overflow-hidden"
+                style={{ background: s.imgBg, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.05)' }}
+              >
+                <img src={s.img} alt={s.imgAlt} className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.06]" />
+                <div
+                  className="absolute inset-0 pointer-events-none"
+                  style={{ background: `linear-gradient(to top, ${s.accent}26, transparent 45%)` }}
+                />
               </div>
             </div>
-            <div className="w-full md:w-1/2 order-1 md:order-2 bg-[#EAF1F8]/50 rounded-[32px] p-8 md:p-12 aspect-square flex items-center justify-center relative overflow-hidden group">
-               <img src="/carrer-01.svg" alt="Why Choose Us illustration" className="w-full h-full object-cover mix-blend-multiply opacity-90 transition-transform duration-700 group-hover:scale-105" />
-            </div>
-          </div>
-
-          {/* Culture At Veraawell Card */}
-          <div ref={card2Ref} data-reveal className="flex flex-col md:flex-row-reverse items-center gap-12 md:gap-20 bg-white border border-gray-100 rounded-[32px] p-6 md:p-10 shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all duration-500">
-            <div className="flex-1 order-2 md:order-1">
-              <span className="text-sm font-bold tracking-[0.2em] mb-4 block text-gray-400">
-                02
-              </span>
-              <h2 className="text-[32px] md:text-[40px] font-normal mb-6 leading-tight tracking-tight" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
-                Culture At Veraawell
-              </h2>
-              <div className="text-[17px] leading-relaxed space-y-5 text-gray-600">
-                <p>We foster a collaborative, empathetic, and innovative culture. We believe in providing our professionals with the autonomy they need to effectively treat their clients, while supporting them with top-tier technological tools.</p>
-                <p>Continuous learning and peer support are at the core of our daily operations. We want you to grow as a professional while you help your clients grow.</p>
-              </div>
-            </div>
-            <div className="w-full md:w-1/2 order-1 md:order-2 bg-[#FDECEE]/50 rounded-[32px] p-8 md:p-12 aspect-square flex items-center justify-center relative overflow-hidden group">
-               <img src="/carrer-02.svg" alt="Culture illustration" className="w-full h-full object-cover mix-blend-multiply opacity-90 transition-transform duration-700 group-hover:scale-105" />
-            </div>
-          </div>
-
-          {/* Benefits of Joining Card */}
-          <div ref={card3Ref} data-reveal className="flex flex-col md:flex-row items-center gap-12 md:gap-20 bg-white border border-gray-100 rounded-[32px] p-6 md:p-10 shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all duration-500">
-            <div className="flex-1 order-2 md:order-1">
-              <span className="text-sm font-bold tracking-[0.2em] mb-4 block text-gray-400">
-                03
-              </span>
-              <h2 className="text-[32px] md:text-[40px] font-normal mb-6 leading-tight tracking-tight" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
-                Benefits of Joining
-              </h2>
-              <div className="text-[17px] leading-relaxed space-y-5 text-gray-600">
-                <p>By joining Veraawell, you instantly gain access to a platform that handles your scheduling, billing, and technical support, so you can focus entirely on your clients.</p>
-                <p>Enjoy flexible hours, competitive compensation, and the ability to work from anywhere. Be a part of a movement that is de-stigmatizing mental health across India.</p>
-              </div>
-            </div>
-            <div className="w-full md:w-1/2 order-1 md:order-2 bg-[#FFF9E6]/50 rounded-[32px] p-8 md:p-12 aspect-square flex items-center justify-center relative overflow-hidden group">
-               <img src="/about-04.svg" alt="Benefits illustration" className="w-full h-full object-cover mix-blend-multiply opacity-90 transition-transform duration-700 group-hover:scale-105" />
-            </div>
-          </div>
+          ))}
         </div>
 
         {/* ── Hiring Process Timeline ── */}

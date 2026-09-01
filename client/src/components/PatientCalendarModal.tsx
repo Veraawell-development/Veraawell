@@ -30,6 +30,26 @@ interface Session {
     paymentStatus?: string;
 }
 
+// Design tokens — matches the patient dashboard's cream/teal design language.
+const T = {
+    bg: '#f6f3ec',
+    border: 'rgba(27,43,46,.08)',
+    text: '#16262a',
+    text2: '#6b7573',
+    muted: '#8a938f',
+    teal: '#1f7a8c',
+    tealHover: '#155e6c',
+    tealBg: 'rgba(31,122,140,.1)',
+    green: '#2fae7a',
+    greenBg: '#eef6f0',
+    amber: '#c99a5b',
+    amberBg: '#faf3e6',
+    red: '#c25b4a',
+    redBg: '#fbeeeb',
+};
+const FONT_SERIF = "'Newsreader', Georgia, serif";
+const FONT_SANS = "'Public Sans', 'Inter', sans-serif";
+
 const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onClose }) => {
     const navigate = useNavigate();
     const { user } = useAuth();
@@ -130,10 +150,10 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
     };
 
     const getSessionDotColor = (session: Session) => {
-        if (session.status === 'active' || isSessionJoinable(session)) return '#F59E0B'; // Yellow/Amber
-        if (session.status === 'completed') return '#10B981'; // Green
-        if (session.status === 'cancelled' || session.status === 'no-show') return '#9CA3AF'; // Gray
-        return '#EF4444'; // Red - upcoming
+        if (session.status === 'active' || isSessionJoinable(session)) return T.amber;
+        if (session.status === 'completed') return T.green;
+        if (session.status === 'cancelled' || session.status === 'no-show') return T.muted;
+        return T.red; // upcoming
     };
 
     const canReschedule = (session: Session) => {
@@ -230,8 +250,13 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                 <div
                     key={day}
                     onClick={() => setSelectedDate(date)}
-                    className={`h-10 flex flex-col items-center justify-center cursor-pointer rounded-xl transition-all ${isToday ? 'bg-white/20 font-bold border border-white/30 text-white' : ''
-                        } ${isSelected ? 'bg-white text-[#867EB5] shadow-md font-bold' : 'hover:bg-white/10 text-white'}`}
+                    className="h-10 flex flex-col items-center justify-center cursor-pointer rounded-xl transition-all"
+                    style={{
+                        background: isSelected ? T.teal : isToday ? T.tealBg : 'transparent',
+                        color: isSelected ? '#fff' : T.text,
+                        fontWeight: isSelected || isToday ? 700 : 500,
+                        border: isToday && !isSelected ? `1px solid ${T.teal}` : '1px solid transparent',
+                    }}
                 >
                     <span className="text-sm">{day}</span>
                     {daySessions.length > 0 && (
@@ -240,7 +265,7 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                                 <div
                                     key={idx}
                                     className="w-1 h-1 rounded-full"
-                                    style={{ backgroundColor: getSessionDotColor(session) }}
+                                    style={{ backgroundColor: isSelected ? '#fff' : getSessionDotColor(session) }}
                                 />
                             ))}
                         </div>
@@ -250,19 +275,19 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
         }
 
         return (
-            <div className="bg-white/10 rounded-[20px] p-4 border border-white/20 shadow-sm backdrop-blur-md text-white">
+            <div style={{ background: '#fff', border: `1px solid ${T.border}`, borderRadius: 20, padding: 16, boxShadow: '0 1px 3px rgba(27,43,46,.04)' }}>
                 {/* Month Header */}
                 <div className="flex items-center justify-between mb-4">
-                    <button onClick={prevMonth} className="p-1.5 hover:bg-white/20 rounded-full transition-all duration-300 ease-out hover:scale-110 active:scale-95">
-                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <button onClick={prevMonth} className="p-1.5 rounded-full transition-all duration-200 ease-out hover:scale-110 active:scale-95" style={{ background: T.tealBg }}>
+                        <svg className="w-5 h-5" fill="none" stroke={T.teal} viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
                         </svg>
                     </button>
-                    <h3 className="text-lg font-bold text-white drop-shadow-sm transition-all duration-300" style={{ fontFamily: 'Inter, sans-serif' }}>
+                    <h3 style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, color: T.text }}>
                         {monthName}
                     </h3>
-                    <button onClick={nextMonth} className="p-1.5 hover:bg-white/20 rounded-full transition-all duration-300 ease-out hover:scale-110 active:scale-95">
-                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <button onClick={nextMonth} className="p-1.5 rounded-full transition-all duration-200 ease-out hover:scale-110 active:scale-95" style={{ background: T.tealBg }}>
+                        <svg className="w-5 h-5" fill="none" stroke={T.teal} viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
                         </svg>
                     </button>
@@ -271,37 +296,37 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                 {/* Day Labels */}
                 <div className="grid grid-cols-7 gap-1 mb-2">
                     {['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map(day => (
-                        <div key={day} className="text-center text-xs font-bold text-white/70 uppercase tracking-wider">
+                        <div key={day} className="text-center text-xs font-semibold uppercase tracking-wider" style={{ color: T.muted, fontFamily: FONT_SANS }}>
                             {day}
                         </div>
                     ))}
                 </div>
 
                 {/* Calendar Grid */}
-                <div className="grid grid-cols-7 gap-1">
+                <div className="grid grid-cols-7 gap-1" style={{ fontFamily: FONT_SANS }}>
                     {days}
                 </div>
 
                 {/* Legend */}
-                <div className="mt-4 pt-4 border-t border-white/20 space-y-2">
-                    <p className="text-xs font-bold text-white/90 mb-2 uppercase tracking-wider" style={{ fontFamily: 'Inter, sans-serif' }}>
+                <div className="mt-4 pt-4 space-y-2" style={{ borderTop: `1px solid ${T.border}` }}>
+                    <p className="text-xs font-semibold mb-2 uppercase tracking-wider" style={{ fontFamily: FONT_SANS, color: T.text2 }}>
                         Legend
                     </p>
-                    <div className="flex items-center gap-2 text-xs font-bold text-white mb-1.5">
-                        <div className="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(239,68,68,0.8)]" style={{ backgroundColor: '#EF4444' }}></div>
-                        <span className="drop-shadow-sm">Upcoming</span>
+                    <div className="flex items-center gap-2 text-xs font-semibold mb-1.5" style={{ fontFamily: FONT_SANS, color: T.text }}>
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: T.red }}></div>
+                        <span>Upcoming</span>
                     </div>
-                    <div className="flex items-center gap-2 text-xs font-bold text-white mb-1.5">
-                        <div className="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(245,158,11,0.8)]" style={{ backgroundColor: '#F59E0B' }}></div>
-                        <span className="drop-shadow-sm">Ready</span>
+                    <div className="flex items-center gap-2 text-xs font-semibold mb-1.5" style={{ fontFamily: FONT_SANS, color: T.text }}>
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: T.amber }}></div>
+                        <span>Ready</span>
                     </div>
-                    <div className="flex items-center gap-2 text-xs font-bold text-white mb-1.5">
-                        <div className="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(16,185,129,0.8)]" style={{ backgroundColor: '#10B981' }}></div>
-                        <span className="drop-shadow-sm">Completed</span>
+                    <div className="flex items-center gap-2 text-xs font-semibold mb-1.5" style={{ fontFamily: FONT_SANS, color: T.text }}>
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: T.green }}></div>
+                        <span>Completed</span>
                     </div>
-                    <div className="flex items-center gap-2 text-xs font-bold text-white">
-                        <div className="w-2.5 h-2.5 rounded-full shadow-[0_0_8px_rgba(156,163,175,0.8)]" style={{ backgroundColor: '#9CA3AF' }}></div>
-                        <span className="drop-shadow-sm">Cancelled</span>
+                    <div className="flex items-center gap-2 text-xs font-semibold" style={{ fontFamily: FONT_SANS, color: T.text }}>
+                        <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: T.muted }}></div>
+                        <span>Cancelled</span>
                     </div>
                 </div>
             </div>
@@ -309,38 +334,32 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
     };
 
     const getStatusBadge = (status: Session['status'], session: Session) => {
+        const badgeBase: React.CSSProperties = { fontFamily: FONT_SANS, fontWeight: 700, fontSize: 10, letterSpacing: '.06em', textTransform: 'uppercase', padding: '4px 10px', borderRadius: 100 };
+
         if (isSessionJoinable(session)) {
-            return <span className="px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider font-bold bg-[#F59E0B]/20 text-[#FCD34D] border border-white/10" style={{ fontFamily: 'Inter, sans-serif' }}>Ready</span>;
+            return <span style={{ ...badgeBase, background: T.amberBg, color: T.amber }}>Ready</span>;
         }
-        const statusConfig = {
-            scheduled: { label: 'Upcoming', bg: 'bg-[#EF4444]/20', text: 'text-[#FCA5A5]' },
-            completed: { label: 'Completed', bg: 'bg-[#10B981]/20', text: 'text-[#6EE7B7]' },
-            cancelled: { label: 'Cancelled', bg: 'bg-[#9CA3AF]/20', text: 'text-[#E5E7EB]' },
-            'no-show': { label: 'No Show', bg: 'bg-white/20', text: 'text-white' },
-            active: { label: 'Active', bg: 'bg-[#3B82F6]/20', text: 'text-[#93C5FD]' },
-            ended: { label: 'Ended', bg: 'bg-[#6366F1]/20', text: 'text-[#A5B4FC]' },
-            payment_pending: { label: 'Payment Pending', bg: 'bg-[#F59E0B]/20', text: 'text-[#FCD34D]' }
+        const statusConfig: Record<string, { label: string; bg: string; color: string }> = {
+            scheduled: { label: 'Upcoming', bg: T.redBg, color: T.red },
+            completed: { label: 'Completed', bg: T.greenBg, color: T.green },
+            cancelled: { label: 'Cancelled', bg: '#f0efe9', color: T.muted },
+            'no-show': { label: 'No Show', bg: '#f0efe9', color: T.text2 },
+            active: { label: 'Active', bg: T.tealBg, color: T.teal },
+            ended: { label: 'Ended', bg: T.tealBg, color: T.teal },
+            payment_pending: { label: 'Payment Pending', bg: T.amberBg, color: T.amber },
         };
 
         const config = statusConfig[status] || statusConfig.scheduled;
 
         if (status === 'cancelled' && session.paymentStatus === 'refund_failed') {
-            return (
-                <span className={`px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider font-bold bg-red-500/20 text-red-300 border border-red-500/30`} style={{ fontFamily: 'Inter, sans-serif' }}>
-                    Refund Failed
-                </span>
-            );
+            return <span style={{ ...badgeBase, background: T.redBg, color: T.red }}>Refund Failed</span>;
         }
         if (status === 'cancelled' && session.paymentStatus === 'refunded') {
-            return (
-                <span className={`px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider font-bold bg-[#10B981]/20 text-[#6EE7B7] border border-white/10`} style={{ fontFamily: 'Inter, sans-serif' }}>
-                    Refunded
-                </span>
-            );
+            return <span style={{ ...badgeBase, background: T.greenBg, color: T.green }}>Refunded</span>;
         }
 
         return (
-            <span className={`px-2.5 py-1 rounded-full text-[10px] uppercase tracking-wider font-bold ${config.bg} ${config.text} border border-white/10`} style={{ fontFamily: 'Inter, sans-serif' }}>
+            <span style={{ ...badgeBase, background: config.bg, color: config.color }}>
                 {config.label}
             </span>
         );
@@ -356,14 +375,21 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
         const formattedTime = session.sessionTime; // Already formatted as string
 
         return (
-            <div key={session._id} className="bg-white/10 rounded-[20px] p-5 border border-white/10 hover:shadow-2xl hover:bg-white/20 hover:-translate-y-1 transition-all duration-300 ease-out shadow-sm backdrop-blur-md">
+            <div
+                key={session._id}
+                className="transition-all duration-300 ease-out"
+                style={{ background: '#fff', border: `1px solid ${T.border}`, borderRadius: 20, padding: 20, boxShadow: '0 1px 3px rgba(27,43,46,.04)' }}
+                onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.boxShadow = '0 8px 24px rgba(27,43,46,.08)'; (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'; }}
+                onMouseLeave={(e) => { (e.currentTarget as HTMLDivElement).style.boxShadow = '0 1px 3px rgba(27,43,46,.04)'; (e.currentTarget as HTMLDivElement).style.transform = 'translateY(0)'; }}
+            >
                 {/* Doctor Info */}
                 <div className="flex items-start gap-3 mb-3">
                     {session.doctorId.profileImage ? (
-                        <img 
-                            src={session.doctorId.profileImage} 
-                            alt={`Dr. ${session.doctorId.firstName} ${session.doctorId.lastName}`} 
-                            className="w-12 h-12 rounded-full object-cover shadow-sm border-2 border-white flex-shrink-0"
+                        <img
+                            src={session.doctorId.profileImage}
+                            alt={`Dr. ${session.doctorId.firstName} ${session.doctorId.lastName}`}
+                            className="w-12 h-12 rounded-full object-cover flex-shrink-0"
+                            style={{ border: `2px solid ${T.border}` }}
                             onError={(e) => {
                                 // Fallback to initials if image fails to load
                                 (e.target as HTMLElement).style.display = 'none';
@@ -372,28 +398,34 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                             }}
                         />
                     ) : null}
-                    <div className={`w-12 h-12 bg-white rounded-full items-center justify-center text-[#867EB5] font-bold text-lg flex-shrink-0 shadow-sm border-2 border-white/20 ${session.doctorId.profileImage ? 'hidden' : 'flex'}`}>
+                    <div
+                        className={`w-12 h-12 rounded-full items-center justify-center font-bold text-lg flex-shrink-0 ${session.doctorId.profileImage ? 'hidden' : 'flex'}`}
+                        style={{ background: T.teal, color: '#fff', fontFamily: FONT_SERIF }}
+                    >
                         {session.doctorId.firstName[0]}{session.doctorId.lastName[0]}
                     </div>
                     <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
-                            <h4 className="text-lg font-bold text-white drop-shadow-sm" style={{ fontFamily: 'Inter, sans-serif' }}>
+                            <h4 style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, color: T.text }}>
                                 Dr. {session.doctorId.firstName} {session.doctorId.lastName}
                             </h4>
                             {getStatusBadge(session.status, session)}
                         </div>
-                        <p className="text-sm font-bold text-white/80 drop-shadow-sm" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        <p className="text-sm" style={{ fontFamily: FONT_SANS, fontWeight: 500, color: T.text2 }}>
                             {formattedDate} at {formattedTime}
                         </p>
                     </div>
-                    <span className="px-3 py-1.5 rounded-full text-[10px] uppercase tracking-wider font-bold bg-white text-[#867EB5] shadow-sm" style={{ fontFamily: 'Inter, sans-serif' }}>
+                    <span
+                        className="text-[10px] uppercase tracking-wider font-bold px-3 py-1.5 rounded-full flex-shrink-0"
+                        style={{ fontFamily: FONT_SANS, background: T.bg, color: T.text2, border: `1px solid ${T.border}` }}
+                    >
                         {session.sessionType || 'Session'}
                     </span>
                 </div>
 
                 {/* Duration */}
-                <div className="flex items-center gap-2 text-sm font-bold text-white/90 mb-4 drop-shadow-sm">
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className="flex items-center gap-2 text-sm mb-4" style={{ fontFamily: FONT_SANS, fontWeight: 500, color: T.text2 }}>
+                    <svg className="w-4 h-4" fill="none" stroke={T.teal} viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     <span>{session.duration} minutes</span>
@@ -401,7 +433,7 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
 
                 {/* Actions */}
                 {session.status === 'scheduled' && (
-                    <div className="flex justify-end gap-3 mt-[-10px]">
+                    <div className="flex justify-end gap-3">
                         {isSessionJoinable(session) && (
                             <button
                                 onClick={() => {
@@ -411,8 +443,8 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                                         window.location.href = `/messages`;
                                     }
                                 }}
-                                className="px-4 py-1.5 bg-[#F59E0B]/20 hover:bg-[#F59E0B]/40 text-[#FCD34D] border border-[#F59E0B]/30 rounded-full font-bold transition-all text-xs flex items-center justify-center gap-1.5"
-                                style={{ fontFamily: 'Inter, sans-serif' }}
+                                className="px-4 py-1.5 rounded-full font-bold transition-all text-xs flex items-center justify-center gap-1.5"
+                                style={{ fontFamily: FONT_SANS, background: T.amberBg, color: T.amber, border: `1px solid ${T.amber}33` }}
                             >
                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -423,8 +455,8 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                         {canReschedule(session) && !isSessionJoinable(session) && (
                             <button
                                 onClick={() => {/* TODO: Implement reschedule */ }}
-                                className="px-4 py-2 bg-white text-[#867EB5] rounded-full font-bold hover:shadow-lg transition-all text-xs shadow-sm"
-                                style={{ fontFamily: 'Inter, sans-serif' }}
+                                className="px-4 py-2 rounded-full font-bold transition-all text-xs"
+                                style={{ fontFamily: FONT_SANS, background: '#fff', color: T.teal, border: `1px solid ${T.teal}` }}
                             >
                                 Reschedule
                             </button>
@@ -433,18 +465,20 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                             <>
                                 {confirmCancelId === session._id ? (
                                     <div className="flex items-center gap-2">
-                                        <span className="text-[10px] text-white/60 font-bold uppercase tracking-wider">Are you sure?</span>
+                                        <span className="text-[10px] font-bold uppercase tracking-wider" style={{ fontFamily: FONT_SANS, color: T.text2 }}>Are you sure?</span>
                                         <button
                                             onClick={() => handleCancelSession(session._id)}
                                             disabled={cancelLoadingId === session._id}
-                                            className="px-3 py-1 bg-red-500/20 text-red-300 hover:bg-red-500/40 rounded-full font-bold transition-all text-xs border border-red-500/30"
+                                            className="px-3 py-1 rounded-full font-bold transition-all text-xs"
+                                            style={{ fontFamily: FONT_SANS, background: T.redBg, color: T.red, border: `1px solid ${T.red}33` }}
                                         >
                                             {cancelLoadingId === session._id ? 'Cancelling...' : 'Yes, Cancel'}
                                         </button>
                                         <button
                                             onClick={() => setConfirmCancelId(null)}
                                             disabled={cancelLoadingId === session._id}
-                                            className="px-3 py-1 bg-white/10 text-white hover:bg-white/20 rounded-full font-bold transition-all text-xs border border-white/20"
+                                            className="px-3 py-1 rounded-full font-bold transition-all text-xs"
+                                            style={{ fontFamily: FONT_SANS, background: T.bg, color: T.text2, border: `1px solid ${T.border}` }}
                                         >
                                             No
                                         </button>
@@ -452,8 +486,8 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                                 ) : (
                                     <button
                                         onClick={() => setConfirmCancelId(session._id)}
-                                        className="px-4 py-1.5 bg-white/10 text-white rounded-full font-bold hover:bg-white/20 border border-white/20 transition-all text-xs shadow-sm"
-                                        style={{ fontFamily: 'Inter, sans-serif' }}
+                                        className="px-4 py-1.5 rounded-full font-bold transition-all text-xs"
+                                        style={{ fontFamily: FONT_SANS, background: T.bg, color: T.text2, border: `1px solid ${T.border}` }}
                                     >
                                         Cancel
                                     </button>
@@ -467,16 +501,18 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                     <div className="flex gap-3">
                         <button
                             onClick={() => {/* TODO: View session details */ }}
-                            className="flex-1 px-4 py-2.5 bg-white text-[#867EB5] rounded-full font-bold hover:shadow-lg transition-all text-sm shadow-sm"
-                            style={{ fontFamily: 'Inter, sans-serif' }}
+                            className="flex-1 px-4 py-2.5 rounded-full font-bold transition-all text-sm"
+                            style={{ fontFamily: FONT_SANS, background: '#fff', color: T.teal, border: `1px solid ${T.teal}` }}
                         >
                             View Details
                         </button>
                         {session.status === 'completed' && (
                             <button
                                 onClick={() => {/* TODO: Open rating modal */ }}
-                                className="flex-1 px-4 py-2.5 bg-white text-[#38ABAE] rounded-full font-bold hover:shadow-lg transition-all text-sm shadow-sm"
-                                style={{ fontFamily: 'Inter, sans-serif' }}
+                                className="flex-1 px-4 py-2.5 rounded-full font-bold transition-all text-sm"
+                                style={{ fontFamily: FONT_SANS, background: T.teal, color: '#fff' }}
+                                onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = T.tealHover; }}
+                                onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = T.teal; }}
                             >
                                 Rate Session
                             </button>
@@ -490,7 +526,7 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 lg:p-8 bg-black/60 backdrop-blur-md transition-opacity duration-300 ease-out animate-fadeIn">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 lg:p-8 transition-opacity duration-300 ease-out animate-fadeIn" style={{ background: 'rgba(22,38,42,.55)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }}>
             <style>{`
                 @keyframes scaleIn {
                     from { opacity: 0; transform: scale(0.95) translateY(10px); }
@@ -500,17 +536,27 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                     animation: scaleIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
                 }
             `}</style>
-            <div className="bg-gradient-to-br from-[#ABA5D1] to-[#867EB5] rounded-[32px] shadow-[0_20px_60px_rgba(134,126,181,0.5)] max-w-6xl w-full h-[95vh] lg:h-[85vh] overflow-hidden border border-white/20 flex flex-col animate-scaleIn transition-all duration-300 ease-in-out">
+            <div
+                className="rounded-[32px] max-w-6xl w-full h-[95vh] lg:h-[85vh] overflow-hidden flex flex-col animate-scaleIn transition-all duration-300 ease-in-out"
+                style={{ background: T.bg, boxShadow: '0 20px 60px rgba(27,43,46,.25)', border: `1px solid ${T.border}` }}
+            >
                 {/* Header */}
-                <div className="flex items-center justify-between p-6 sm:px-8 border-b border-white/10 shrink-0">
-                    <h2 className="text-2xl font-bold text-white tracking-tight drop-shadow-sm" style={{ fontFamily: 'Inter, sans-serif' }}>
-                        Manage My Sessions
-                    </h2>
+                <div className="flex items-center justify-between p-6 sm:px-8 shrink-0" style={{ borderBottom: `1px solid ${T.border}` }}>
+                    <div>
+                        <div className="flex items-center gap-1.5 mb-1" style={{ fontFamily: FONT_SANS, fontWeight: 600, fontSize: 10, letterSpacing: '.12em', color: T.teal, textTransform: 'uppercase' }}>
+                            <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.green, display: 'inline-block' }} />
+                            Schedule
+                        </div>
+                        <h2 style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 24, color: T.text }}>
+                            Manage My Sessions
+                        </h2>
+                    </div>
                     <button
                         onClick={onClose}
-                        className="p-2 bg-white/10 hover:bg-white/20 hover:scale-105 active:scale-95 text-white rounded-full transition-all duration-300 ease-out shadow-sm backdrop-blur-sm"
+                        className="p-2 rounded-full transition-all duration-300 ease-out hover:scale-105 active:scale-95"
+                        style={{ background: '#fff', border: `1px solid ${T.border}` }}
                     >
-                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-5 h-5" fill="none" stroke={T.text} viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
                         </svg>
                     </button>
@@ -527,79 +573,66 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                     <div className="flex-1">
                         {/* Filters */}
                         <div className="flex flex-wrap gap-2 mb-4">
-                            <button
-                                onClick={() => setFilter('all')}
-                                className={`px-6 py-2.5 rounded-full font-bold text-sm transition-all shadow-sm ${filter === 'all'
-                                    ? 'bg-white text-[#867EB5] shadow-md'
-                                    : 'bg-white/10 text-white hover:bg-white/20'
-                                    }`}
-                                style={{ fontFamily: 'Inter, sans-serif' }}
-                            >
-                                All
-                            </button>
-                            <button
-                                onClick={() => setFilter('video')}
-                                className={`px-6 py-2.5 rounded-full font-bold text-sm transition-all shadow-sm ${filter === 'video'
-                                    ? 'bg-white text-[#867EB5] shadow-md'
-                                    : 'bg-white/10 text-white hover:bg-white/20'
-                                    }`}
-                                style={{ fontFamily: 'Inter, sans-serif' }}
-                            >
-                                Video
-                            </button>
-                            <button
-                                onClick={() => setFilter('in-person')}
-                                className={`px-6 py-2.5 rounded-full font-bold text-sm transition-all shadow-sm ${filter === 'in-person'
-                                    ? 'bg-white text-[#867EB5] shadow-md'
-                                    : 'bg-white/10 text-white hover:bg-white/20'
-                                    }`}
-                                style={{ fontFamily: 'Inter, sans-serif' }}
-                            >
-                                In-person
-                            </button>
+                            {(['all', 'video', 'in-person'] as const).map((f) => (
+                                <button
+                                    key={f}
+                                    onClick={() => setFilter(f)}
+                                    className="px-6 py-2.5 rounded-full font-bold text-sm transition-all"
+                                    style={
+                                        filter === f
+                                            ? { fontFamily: FONT_SANS, background: T.teal, color: '#fff' }
+                                            : { fontFamily: FONT_SANS, background: '#fff', color: T.text2, border: `1px solid ${T.border}` }
+                                    }
+                                >
+                                    {f === 'all' ? 'All' : f === 'video' ? 'Video' : 'In-person'}
+                                </button>
+                            ))}
                         </div>
 
                         {/* View Toggle */}
-                        <div className="flex flex-wrap gap-2 mb-6 p-1 bg-black/10 rounded-3xl w-fit">
+                        <div className="flex flex-wrap gap-1 mb-6 p-1 rounded-3xl w-fit" style={{ background: '#efece2' }}>
                             <button
                                 onClick={() => setView('upcoming')}
-                                className={`px-6 py-2 rounded-full font-bold text-sm transition-all ${view === 'upcoming'
-                                    ? 'bg-white text-[#867EB5] shadow-md'
-                                    : 'text-white/80 hover:text-white'
-                                    }`}
-                                style={{ fontFamily: 'Inter, sans-serif' }}
+                                className="px-6 py-2 rounded-full font-bold text-sm transition-all"
+                                style={
+                                    view === 'upcoming'
+                                        ? { fontFamily: FONT_SANS, background: '#fff', color: T.text, boxShadow: '0 1px 3px rgba(27,43,46,.08)' }
+                                        : { fontFamily: FONT_SANS, background: 'transparent', color: T.text2 }
+                                }
                             >
                                 Upcoming Sessions
                             </button>
                             <button
                                 onClick={() => setView('past')}
-                                className={`px-6 py-2 rounded-full font-bold text-sm transition-all ${view === 'past'
-                                    ? 'bg-white text-[#867EB5] shadow-md'
-                                    : 'text-white/80 hover:text-white'
-                                    }`}
-                                style={{ fontFamily: 'Inter, sans-serif' }}
+                                className="px-6 py-2 rounded-full font-bold text-sm transition-all"
+                                style={
+                                    view === 'past'
+                                        ? { fontFamily: FONT_SANS, background: '#fff', color: T.text, boxShadow: '0 1px 3px rgba(27,43,46,.08)' }
+                                        : { fontFamily: FONT_SANS, background: 'transparent', color: T.text2 }
+                                }
                             >
                                 Past Sessions
                             </button>
-                        </div>                        {/* Sessions List */}
+                        </div>
+                        {/* Sessions List */}
                         <div className="space-y-4">
                             {loading ? (
                                 <div className="text-center py-12">
-                                    <div className="inline-block w-8 h-8 border-4 border-teal-600 border-t-transparent rounded-full animate-spin"></div>
+                                    <div className="inline-block w-8 h-8 border-4 rounded-full animate-spin" style={{ borderColor: T.teal, borderTopColor: 'transparent' }}></div>
                                 </div>
                             ) : filteredSessions.length > 0 ? (
                                 filteredSessions.map(renderSessionCard)
                             ) : (
-                                <div className="text-center py-16 bg-white/5 rounded-[24px] border border-white/10">
-                                    <svg className="w-16 h-16 mx-auto text-white/50 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <div className="text-center py-16 rounded-[24px]" style={{ background: '#fff', border: `1px solid ${T.border}` }}>
+                                    <svg className="w-16 h-16 mx-auto mb-4" fill="none" stroke={T.muted} viewBox="0 0 24 24">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                                     </svg>
-                                    <p className="text-white font-bold text-lg mb-2 drop-shadow-sm" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                    <p className="font-bold text-lg mb-2" style={{ fontFamily: FONT_SERIF, fontWeight: 500, color: T.text }}>
                                         {view === 'upcoming'
                                             ? 'No upcoming sessions scheduled'
                                             : 'No past sessions found'}
                                     </p>
-                                    <p className="text-white/70 text-sm font-bold" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                    <p className="text-sm" style={{ fontFamily: FONT_SANS, color: T.text2 }}>
                                         {view === 'upcoming'
                                             ? 'Book a new session to get started'
                                             : selectedDate
@@ -613,14 +646,16 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                 </div>
 
                 {/* Footer Actions */}
-                <div className="flex justify-end gap-4 p-6 sm:px-8 border-t border-white/10 shrink-0">
+                <div className="flex justify-end gap-4 p-6 sm:px-8 shrink-0" style={{ borderTop: `1px solid ${T.border}` }}>
                     <button
                         onClick={() => {
                             onClose();
                             navigate('/choose-professional');
                         }}
-                        className="px-10 py-3.5 text-[#867EB5] bg-white rounded-full font-bold hover:shadow-[0_8px_30px_rgba(255,255,255,0.6)] hover:-translate-y-0.5 active:scale-95 transition-all duration-300 ease-out shadow-lg text-sm uppercase tracking-wider"
-                        style={{ fontFamily: 'Inter, sans-serif' }}
+                        className="px-10 py-3.5 rounded-full font-bold hover:-translate-y-0.5 active:scale-95 transition-all duration-300 ease-out text-sm uppercase tracking-wider"
+                        style={{ fontFamily: FONT_SANS, background: T.teal, color: '#fff' }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = T.tealHover; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLButtonElement).style.background = T.teal; }}
                     >
                         Book New Session
                     </button>

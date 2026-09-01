@@ -7,6 +7,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { SOCKET_URL } from '../config/api';
+import { getAuthToken } from '../utils/authToken';
 
 interface UseDataSocketReturn {
     socket: Socket | null;
@@ -32,7 +33,7 @@ export const useDataSocket = (): UseDataSocketReturn => {
 
         // Create socket connection to /data namespace
         // Using token fallback in auth option if cookies are blocked
-        const token = localStorage.getItem('token');
+        const token = getAuthToken();
         const newSocket = io(`${SOCKET_URL}/data`, {
             auth: {
                 token: token

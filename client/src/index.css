@@ -68,12 +68,14 @@ html {
   scroll-behavior: smooth;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior-x: none;
 }
 
 body {
   background: var(--bg);
   color: var(--text);
   font-family: var(--font-body);
+  overscroll-behavior-x: none;
 }
 
 ::-webkit-scrollbar { display: none; }

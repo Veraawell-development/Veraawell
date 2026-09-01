@@ -3,10 +3,12 @@ import { Helmet } from 'react-helmet-async';
 import { useLocation, useNavigate, useParams, Link } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../config/api';
+import { getAuthToken } from '../utils/authToken';
 import { useAuth } from '../context/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { isToday, parseTime } from '../utils/dateUtils';
-import { FiVideo, FiPhone, FiZap } from 'react-icons/fi';
+import { FiVideo, FiPhone, FiRadio, FiCheck } from 'react-icons/fi';
+import { getDoctorAccentColor } from '../utils/doctorColor';
 
 interface BookingState {
   mode: 'video' | 'voice';
@@ -216,7 +218,7 @@ const DoctorProfilePage: React.FC = () => {
 
   const bookSessionMutation = useMutation({
     mutationFn: async (requestBody: any) => {
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const headers: HeadersInit = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
 
@@ -254,7 +256,7 @@ const DoctorProfilePage: React.FC = () => {
                 method: 'POST',
                 headers: {
                   'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${localStorage.getItem('token')}`
+                  'Authorization': `Bearer ${getAuthToken()}`
                 },
                 body: JSON.stringify({
                   razorpay_order_id: response.razorpay_order_id,
@@ -401,16 +403,6 @@ const DoctorProfilePage: React.FC = () => {
   const rating = doctorProfile.rating.average;
   const fullStars = Math.floor(rating);
 
-  const getDoctorBgColor = (id: string) => {
-    const colors = ['#ABA5D1', '#7DA9A8', '#6DBEDF', '#A8D5BA'];
-    let hash = 0;
-    for (let i = 0; i < id.length; i++) {
-      hash = id.charCodeAt(i) + ((hash << 5) - hash);
-    }
-    const index = Math.abs(hash) % colors.length;
-    return colors[index];
-  };
-
   const hexToRgba = (hex: string, alpha: number) => {
     const r = parseInt(hex.slice(1, 3), 16);
     const g = parseInt(hex.slice(3, 5), 16);
@@ -418,16 +410,24 @@ const DoctorProfilePage: React.FC = () => {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
   };
 
-  const doctorColor = getDoctorBgColor(doctorProfile.userId._id);
+  const doctorColor = getDoctorAccentColor(doctorProfile.userId._id);
   const lightBgColor = hexToRgba(doctorColor, 0.15); // 15% opacity for background sections
 
   // Shared pill styling for the booking section — solid fill when selected,
-  // soft tint (with a slightly deeper tint on hover) when not.
-  const pillStyle = (active: boolean) => (
-    active
+  // soft tint (with a slightly deeper tint on hover) when not. Also strips the
+  // default browser/mobile tap-highlight and focus outline these buttons got.
+  const pillBase: React.CSSProperties = {
+    border: 'none',
+    outline: 'none',
+    cursor: 'pointer',
+    WebkitTapHighlightColor: 'transparent',
+  };
+  const pillStyle = (active: boolean): React.CSSProperties => ({
+    ...pillBase,
+    ...(active
       ? { backgroundColor: doctorColor, color: '#fff', boxShadow: `0 4px 12px ${doctorColor}40` }
-      : { backgroundColor: `${doctorColor}12`, color: doctorColor }
-  );
+      : { backgroundColor: `${doctorColor}12`, color: doctorColor }),
+  });
   const pillHoverHandlers = (active: boolean) => (
     active ? {} : {
       onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.backgroundColor = `${doctorColor}22`; },
@@ -551,7 +551,8 @@ const DoctorProfilePage: React.FC = () => {
                     navigator.clipboard.writeText(window.location.href);
                     toast.success('Profile link copied!');
                   }}
-                  className="flex items-center gap-2 px-4 py-2 rounded-full border border-gray-200 bg-white text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-all shadow-sm"
+                  className="flex items-center gap-2 px-4 py-2 rounded-full border border-gray-200 bg-white text-gray-700 font-semibold text-sm hover:bg-gray-50 transition-all shadow-sm outline-none"
+                  style={{ WebkitTapHighlightColor: 'transparent' }}
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z" />
@@ -562,8 +563,8 @@ const DoctorProfilePage: React.FC = () => {
                   onClick={() => {
                     document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth' });
                   }}
-                  className="flex items-center gap-2 px-6 py-2 rounded-full text-white font-semibold text-sm transition-all shadow-sm hover:shadow-md hover:-translate-y-0.5"
-                  style={{ backgroundColor: doctorColor }}
+                  className="flex items-center gap-2 px-6 py-2 rounded-full text-white font-semibold text-sm transition-all shadow-sm hover:shadow-md hover:-translate-y-0.5 outline-none"
+                  style={{ backgroundColor: doctorColor, WebkitTapHighlightColor: 'transparent' }}
                 >
                   Book Appointment
                 </button>
@@ -609,8 +610,32 @@ const DoctorProfilePage: React.FC = () => {
         </div>
       </div>
 
+      {/* ── Color-themed section group — decorative blobs give the glass panels below something to frost ── */}
+      <div className="relative overflow-hidden">
+        <div
+          className="absolute -top-20 -left-20 w-[420px] h-[420px] rounded-full pointer-events-none"
+          style={{ background: `radial-gradient(circle, ${doctorColor}30, transparent 70%)`, filter: 'blur(70px)' }}
+        />
+        <div
+          className="absolute top-1/3 -right-24 w-[380px] h-[380px] rounded-full pointer-events-none"
+          style={{ background: `radial-gradient(circle, ${doctorColor}28, transparent 70%)`, filter: 'blur(80px)' }}
+        />
+        <div
+          className="absolute bottom-0 left-1/3 w-[320px] h-[320px] rounded-full pointer-events-none"
+          style={{ background: `radial-gradient(circle, ${doctorColor}20, transparent 70%)`, filter: 'blur(70px)' }}
+        />
+
       {/* Quote and About Section */}
-      <div className="mt-12 md:mt-16 py-10 md:py-16 px-4" style={{ backgroundColor: lightBgColor }}>
+      <div
+        className="mt-12 md:mt-16 py-10 md:py-16 px-4 relative"
+        style={{
+          background: `linear-gradient(135deg, ${doctorColor}16, ${doctorColor}05)`,
+          backdropFilter: 'blur(20px) saturate(120%)',
+          WebkitBackdropFilter: 'blur(20px) saturate(120%)',
+          borderTop: `1px solid ${doctorColor}22`,
+          borderBottom: `1px solid ${doctorColor}22`,
+        }}
+      >
         <div className="max-w-4xl mx-auto text-center">
           <div className="mb-8 md:mb-10">
             <h2 className="text-2xl sm:text-3xl font-semibold italic leading-snug" style={{ color: doctorColor }}>
@@ -634,15 +659,21 @@ const DoctorProfilePage: React.FC = () => {
       </div>
 
       {/* Booking Section */}
-      <div id="booking-section" className="py-12 md:py-16 px-4 bg-white">
+      <div id="booking-section" className="py-12 md:py-16 px-4 relative">
         <div className="max-w-6xl mx-auto">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Left Card */}
             <div
-              className="rounded-3xl p-8 shadow-sm hover:shadow-md transition-shadow duration-300 relative overflow-hidden border"
-              style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}
+              className="rounded-[20px] p-6 md:p-7 transition-shadow duration-300 relative overflow-hidden"
+              style={{
+                background: `linear-gradient(135deg, ${doctorColor}12, ${doctorColor}03)`,
+                backdropFilter: 'blur(20px) saturate(120%)',
+                WebkitBackdropFilter: 'blur(20px) saturate(120%)',
+                border: `1px solid ${doctorColor}25`,
+                boxShadow: '0 12px 36px rgba(27,43,46,.08), inset 0 1px 0 rgba(255,255,255,.6)',
+              }}
             >
-              <div className="space-y-8 relative z-10">
+              <div className="space-y-6 relative z-10">
                 {/* Select Mode */}
                 <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 items-start sm:items-center">
                   <h3 className="font-bold text-base sm:text-lg w-auto sm:w-36 shrink-0" style={{ color: 'var(--text)' }}>Select Mode:</h3>
@@ -668,7 +699,7 @@ const DoctorProfilePage: React.FC = () => {
                   </div>
                 </div>
 
-                {/* Select Duration */}
+                {/* Select Duration — each pill is clickable and shows its own price, so there's no separate read-only price row to keep in sync */}
                 <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 items-start sm:items-center">
                   <h3 className="font-bold text-base sm:text-lg w-auto sm:w-36 shrink-0" style={{ color: 'var(--text)' }}>Select Duration:</h3>
                   <div className="flex flex-nowrap gap-2 w-full overflow-x-auto pb-1">
@@ -676,29 +707,13 @@ const DoctorProfilePage: React.FC = () => {
                       <button
                         key={dur}
                         onClick={() => handleDurationChange(dur)}
-                        className="font-semibold py-1.5 px-3 sm:py-2 sm:px-4 rounded-full transition-all duration-300 whitespace-nowrap text-sm sm:text-base"
+                        className="font-semibold py-1.5 px-3 sm:py-2 sm:px-4 rounded-2xl transition-all duration-300 flex flex-col items-center min-w-[75px] sm:min-w-[90px] whitespace-nowrap"
                         style={pillStyle(booking.duration === dur)}
                         {...pillHoverHandlers(booking.duration === dur)}
                       >
-                        {dur} Mins
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Price */}
-                <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 items-start sm:items-center">
-                  <h3 className="font-bold text-base sm:text-lg w-auto sm:w-36 shrink-0" style={{ color: 'var(--text)' }}>Price:</h3>
-                  <div className="flex flex-nowrap gap-2 w-full overflow-x-auto pb-1">
-                    {[20, 40, 55].map((dur) => (
-                      <div
-                        key={`price-${dur}`}
-                        className="font-semibold py-1.5 px-3 sm:py-2 sm:px-4 rounded-full transition-all duration-300 flex flex-col items-center min-w-[75px] sm:min-w-[90px] whitespace-nowrap"
-                        style={pillStyle(booking.duration === dur)}
-                      >
                         <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider opacity-80 mb-0.5">{dur} Mins</span>
                         <span className="text-xs sm:text-sm">Rs. {getPriceForDurationAndMode(dur, booking.mode)}</span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 </div>
@@ -713,36 +728,47 @@ const DoctorProfilePage: React.FC = () => {
 
             {/* Right Card */}
             <div
-              className="rounded-3xl p-8 shadow-sm hover:shadow-md transition-shadow duration-300 relative overflow-hidden border flex flex-col justify-between"
-              style={{ background: 'var(--surface)', borderColor: 'var(--border)' }}
+              className="rounded-[20px] p-6 md:p-7 transition-shadow duration-300 relative overflow-hidden flex flex-col justify-between"
+              style={{
+                background: `linear-gradient(135deg, ${doctorColor}12, ${doctorColor}03)`,
+                backdropFilter: 'blur(20px) saturate(120%)',
+                WebkitBackdropFilter: 'blur(20px) saturate(120%)',
+                border: `1px solid ${doctorColor}25`,
+                boxShadow: '0 12px 36px rgba(27,43,46,.08), inset 0 1px 0 rgba(255,255,255,.6)',
+              }}
             >
-              <div className="space-y-8 relative z-10 flex-1 flex flex-col justify-center">
+              <div className="space-y-6 relative z-10 flex-1 flex flex-col justify-center">
                 {/* Immediate booking: show instant session card. Scheduled: show date + slot picker. */}
                 {isImmediate ? (
-                  <div className="text-center">
-                    <div
-                      className="rounded-2xl p-8 mb-2"
-                      style={{ background: `${doctorColor}0d` }}
-                    >
-                      <div className="relative inline-flex mb-4">
-                        <div
-                          className="w-16 h-16 rounded-2xl flex items-center justify-center"
-                          style={{ backgroundColor: `${doctorColor}18` }}
-                        >
-                          <FiZap size={28} style={{ color: doctorColor }} />
-                        </div>
-                        <span className="absolute -top-1 -right-1 flex h-4 w-4">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75" style={{ backgroundColor: '#10B981' }} />
-                          <span className="relative inline-flex rounded-full h-4 w-4 border-2 border-white" style={{ backgroundColor: '#10B981' }} />
-                        </span>
+                  <div className="text-center py-2">
+                    {/* Icon */}
+                    <div className="relative inline-flex mb-6">
+                      <div
+                        className="w-20 h-20 rounded-[22px] flex items-center justify-center"
+                        style={{
+                          background: `linear-gradient(135deg, ${doctorColor}, ${doctorColor}CC)`,
+                          boxShadow: `0 12px 28px -8px ${doctorColor}80`,
+                        }}
+                      >
+                        <FiRadio size={30} style={{ color: '#fff' }} />
                       </div>
-                      <h3 className="text-2xl font-bold mb-2 tracking-tight" style={{ color: 'var(--text)' }}>Instant Session</h3>
-                      <p className="text-sm leading-relaxed max-w-sm mx-auto" style={{ color: 'var(--text-2)' }}>This doctor is available now. Click "Book Now" to start your session immediately!</p>
+                      {/* Online checkmark badge */}
+                      <span
+                        className="absolute -bottom-1.5 -right-1.5 w-7 h-7 rounded-full flex items-center justify-center"
+                        style={{ background: '#10B981', border: '3px solid var(--surface)' }}
+                      >
+                        <FiCheck size={13} style={{ color: '#fff' }} strokeWidth={3} />
+                      </span>
                     </div>
+
+                    <h3 className="text-[26px] font-bold mb-2.5 tracking-tight" style={{ color: 'var(--text)' }}>Instant Session</h3>
+                    <p className="text-sm leading-relaxed max-w-xs mx-auto" style={{ color: 'var(--text-2)' }}>
+                      This doctor is online right now. Book instantly and you'll be connected within minutes.
+                    </p>
                   </div>
                 ) : (
                   /* Scheduled booking — 14-day date strip + slot grid */
-                  <div className="space-y-8">
+                  <div className="space-y-6">
                     {/* Select Date */}
                     <div>
                       <h3 className="font-bold text-lg mb-4" style={{ color: 'var(--text)' }}>Select Date:</h3>
@@ -754,7 +780,7 @@ const DoctorProfilePage: React.FC = () => {
                           <button
                             key={dateObj.date}
                             onClick={() => handleDateChange(dateObj.date)}
-                            className="font-semibold py-3 px-3 rounded-2xl text-center flex-shrink-0 transition-all duration-300 flex flex-col items-center min-w-[64px]"
+                            className="font-semibold py-2.5 px-3 rounded-2xl text-center flex-shrink-0 transition-all duration-300 flex flex-col items-center min-w-[56px]"
                             style={pillStyle(booking.date === dateObj.date)}
                             {...pillHoverHandlers(booking.date === dateObj.date)}
                           >
@@ -792,25 +818,39 @@ const DoctorProfilePage: React.FC = () => {
               </div>
 
               {/* Book Button */}
-              <div className="mt-8 relative z-10 w-full">
+              <div className="mt-6 relative z-10 w-full">
                 {(() => {
                   const bookDisabled = isImmediate ? isBooking : (isBooking || !booking.date || !booking.timeSlot);
                   return (
                     <button
                       onClick={handleBookNow}
                       disabled={bookDisabled}
-                      className={`${bookDisabled ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'} font-bold py-4 px-10 rounded-full text-lg transition-all duration-300 w-full`}
-                      style={{
-                        border: `2px solid ${doctorColor}`,
-                        color: doctorColor,
-                        background: 'transparent',
-                      }}
+                      className={`${bookDisabled ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'} font-semibold py-3 px-8 rounded-full text-sm transition-all duration-300 w-full`}
+                      style={
+                        isImmediate
+                          ? {
+                              border: 'none',
+                              color: '#fff',
+                              background: `linear-gradient(135deg, ${doctorColor}, ${doctorColor}CC)`,
+                              boxShadow: `0 10px 24px -8px ${doctorColor}80`,
+                              outline: 'none',
+                              WebkitTapHighlightColor: 'transparent',
+                            }
+                          : {
+                              border: `1.5px solid ${doctorColor}`,
+                              color: doctorColor,
+                              background: 'transparent',
+                              outline: 'none',
+                              WebkitTapHighlightColor: 'transparent',
+                            }
+                      }
                       onMouseEnter={(e) => {
-                        if (bookDisabled) return;
+                        if (bookDisabled || isImmediate) return;
                         e.currentTarget.style.background = doctorColor;
                         e.currentTarget.style.color = '#fff';
                       }}
                       onMouseLeave={(e) => {
+                        if (isImmediate) return;
                         e.currentTarget.style.background = 'transparent';
                         e.currentTarget.style.color = doctorColor;
                       }}
@@ -826,7 +866,15 @@ const DoctorProfilePage: React.FC = () => {
       </div>
 
       {/* Reviews Section */}
-      <div className="py-12 md:py-16" style={{ backgroundColor: lightBgColor }}>
+      <div
+        className="py-12 md:py-16 relative"
+        style={{
+          background: `linear-gradient(135deg, ${doctorColor}14, ${doctorColor}04)`,
+          backdropFilter: 'blur(20px) saturate(120%)',
+          WebkitBackdropFilter: 'blur(20px) saturate(120%)',
+          borderTop: `1px solid ${doctorColor}22`,
+        }}
+      >
         <div className="max-w-7xl mx-auto px-4">
           <h2 className="text-3xl font-bold mb-8 text-center" style={{ color: doctorColor }}>
             Patient Reviews
@@ -876,6 +924,7 @@ const DoctorProfilePage: React.FC = () => {
             </div>
           )}
         </div>
+      </div>
       </div>
 
       {/* FAQ Accordion Section */}

@@ -41,23 +41,19 @@ const PendingTasksPage: React.FC = () => {
     queryKey: ['patient', 'tasks', user?.userId],
     queryFn: async () => {
       if (!user) return { pending: [], completed: [] };
-      const [pendingRes, completedRes] = await Promise.all([
-        fetch(`${API_CONFIG.BASE_URL}/session-tools/tasks/patient/${user.userId}?status=pending`, { credentials: 'include' }),
-        fetch(`${API_CONFIG.BASE_URL}/session-tools/tasks/patient/${user.userId}?status=completed`, { credentials: 'include' })
-      ]);
+      // Previously two round trips (one filtered by status=pending, one by
+      // status=completed) where fetching the full list once and partitioning
+      // client-side does the same job in a single request.
+      const res = await fetch(`${API_CONFIG.BASE_URL}/session-tools/tasks/patient/${user.userId}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch tasks');
 
-      if (!pendingRes.ok || !completedRes.ok) throw new Error('Failed to fetch tasks');
-
-      const pendingData = await pendingRes.json();
-      const completedData = await completedRes.json();
-
-      const sortTasks = (tasks: any[]) => Array.isArray(tasks)
-        ? tasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-        : [];
+      const data = await res.json();
+      const allTasks: any[] = Array.isArray(data.tasks) ? data.tasks : [];
+      const sortTasks = (tasks: any[]) => tasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
       return {
-        pending: sortTasks(pendingData.tasks || []),
-        completed: sortTasks(completedData.tasks || [])
+        pending: sortTasks(allTasks.filter((t) => t.status !== 'completed')),
+        completed: sortTasks(allTasks.filter((t) => t.status === 'completed'))
       };
     },
     enabled: !!user

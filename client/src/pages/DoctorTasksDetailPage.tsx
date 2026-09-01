@@ -4,6 +4,7 @@ import { FiCheckSquare, FiArrowLeft, FiCalendar, FiFlag } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { API_BASE_URL } from '../config/api';
+import { getAuthToken } from '../utils/authToken';
 
 interface Task {
   _id: string;
@@ -27,7 +28,7 @@ const DoctorTasksDetailPage: React.FC = () => {
   const { data: tasks = [], isLoading: loading } = useQuery<Task[]>({
     queryKey: ['doctor', 'tasks', 'patient', patientId],
     queryFn: async () => {
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
       const response = await fetch(`${API_BASE_URL}/session-tools/tasks/patient/${patientId}`, {
         credentials: 'include',

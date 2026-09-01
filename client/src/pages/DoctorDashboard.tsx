@@ -8,12 +8,64 @@ import SessionModal from '../components/SessionModal';
 import type { Session } from '../types';
 import { useDataSocket } from '../hooks/useDataSocket';
 import toast from 'react-hot-toast';
-import InstantRequestModal from '../components/InstantRequestModal';
 import PostSessionReportModal from '../components/PostSessionReportModal';
 import DoctorSidebar from '../components/DoctorSidebar';
 import { API_BASE_URL } from '../config/api';
+import { getAuthToken } from '../utils/authToken';
 import { getGreeting, getGreetingPunctuation } from '../utils/dateUtils';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
+
+// ── Design tokens (identical to the patient dashboard's design system) ──────
+const T = {
+  bg: '#f6f3ec',
+  border: 'rgba(27,43,46,.08)',
+  text: '#16262a',
+  text2: '#6b7573',
+  muted: '#8a938f',
+  teal: '#1f7a8c',
+  tealHover: '#155e6c',
+  green: '#2fae7a',
+  greenDeep: '#2b8a7a',
+  greenBg: '#eef6f0',
+  gold: '#c99a5b',
+  goldDeep: '#a97c3f',
+  goldBg: '#f7f1e8',
+  cancelled: '#c3c8c5',
+};
+const FONT_SERIF = "'Newsreader', Georgia, serif";
+const FONT_SANS = "'Public Sans', 'Inter', sans-serif";
+
+// Frosted-glass card treatment, per the Doctor Dashboard design spec.
+// Frosted-glass card treatment: a white glass base with a soft teal glow
+// anchored in the top-left corner — matches the fix applied to the patient
+// dashboard's identical cardStyle (previously had no white base at all, just
+// a ~2-7% opacity teal wash, so the blurred beige page background showed
+// straight through and the card read as uniformly beige).
+const cardStyle: React.CSSProperties = {
+  background: 'radial-gradient(120% 120% at 0% 0%, rgba(31,122,140,.16), rgba(31,122,140,0) 55%), rgba(255,255,255,.82)',
+  backdropFilter: 'blur(20px) saturate(110%)',
+  WebkitBackdropFilter: 'blur(20px) saturate(110%)',
+  border: '1px solid rgba(255,255,255,.7)',
+  boxShadow: '0 12px 36px rgba(27,43,46,.08), inset 0 1px 0 rgba(255,255,255,.6)',
+  borderRadius: 20,
+};
+
+// Lighter glass variant for nested metric tiles.
+const subCardStyle: React.CSSProperties = {
+  background: 'rgba(255,255,255,.5)',
+  backdropFilter: 'blur(8px)',
+  WebkitBackdropFilter: 'blur(8px)',
+  border: '1px solid rgba(255,255,255,.7)',
+  borderRadius: 14,
+};
+
+const getDrInitials = (firstName?: string, lastName?: string) =>
+  `${firstName?.[0] || ''}${lastName?.[0] || ''}`.toUpperCase() || 'D';
+
+const getNoteSnippet = (content?: string) => {
+  const text = content || '';
+  return text.length > 80 ? text.slice(0, 77) + '...' : text;
+};
 
 let sharedAudioCtx: any = null;
 
@@ -68,7 +120,6 @@ const DoctorDashboard: React.FC = () => {
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
   const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState<number>(0);
-  const [incomingRequest, setIncomingRequest] = useState<Session | null>(null);
   const [delayedSessions, setDelayedSessions] = useState<(Session & { delayedUntil: Date })[]>([]);
   const [showPostSessionReport, setShowPostSessionReport] = useState(false);
   const [pendingReportData, setPendingReportData] = useState<any>(null);
@@ -116,7 +167,7 @@ const DoctorDashboard: React.FC = () => {
       const res = await fetch(`${API_BASE_URL}/session-tools/tasks/doctor/${user?.userId}`, { credentials: 'include' });
       if (!res.ok) throw new Error('Failed to fetch tasks');
       const data = await res.json();
-      return (data.tasks || []).slice(0, 4);
+      return data.tasks || [];
     },
     enabled: !!user?.userId,
   });
@@ -323,90 +374,6 @@ const DoctorDashboard: React.FC = () => {
     setIsSessionModalOpen(true);
   };
 
-  //  NEW: Handle Instant Request Actions
-  const handleAcceptRequest = async (sessionId: string) => {
-    const token = localStorage.getItem('token');
-    const headers: HeadersInit = {};
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    console.log('[DoctorDashboard] Accepting request for session:', sessionId);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}/accept`, {
-        method: 'POST',
-        headers,
-        credentials: 'include'
-      });
-      if (response.ok) {
-        setIncomingRequest(null);
-        navigate(`/video-call/${sessionId}`);
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('[DoctorDashboard] Accept failed:', response.status, errorData);
-        toast.error(`Failed to accept: ${errorData.message || response.statusText || response.status}`);
-      }
-    } catch (error) {
-      console.error('Error accepting request:', error);
-      toast.error('Failed to accept request');
-    }
-  };
-
-  const handleDelayRequest = async (sessionId: string, minutes: number, note: string) => {
-    const token = localStorage.getItem('token');
-    const headers: HeadersInit = { 'Content-Type': 'application/json' };
-    if (token) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
-
-    console.log('[DoctorDashboard] Delaying request for session:', sessionId);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/sessions/${sessionId}/delay`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ delayMinutes: minutes, doctorNote: note }),
-        credentials: 'include'
-      });
-      if (response.ok) {
-        setDelayedSessions(prev => [
-          ...prev, 
-          { ...incomingRequest!, delayedUntil: new Date(Date.now() + minutes * 60000) }
-        ]);
-        setIncomingRequest(null);
-        toast.success(`Patient notified of ${minutes}m delay`);
-      } else {
-        const errorData = await response.json().catch(() => ({}));
-        console.error('[DoctorDashboard] Delay failed:', response.status, errorData);
-        toast.error(`Failed to delay: ${errorData.message || response.statusText || response.status}`);
-      }
-    } catch (error) {
-      console.error('Error delaying request:', error);
-      toast.error('Failed to delay request');
-    }
-  };
-
-  const handleMissedRequest = async (sessionId: string) => {
-    const token = localStorage.getItem('token');
-    const headers: HeadersInit = { 'Content-Type': 'application/json' };
-    if (token) headers['Authorization'] = `Bearer ${token}`;
-
-    console.log('[DoctorDashboard] Request missed for session:', sessionId);
-    setIncomingRequest(null);
-
-    try {
-      await fetch(`${API_BASE_URL}/sessions/${sessionId}/missed`, {
-        method: 'POST',
-        headers,
-        credentials: 'include'
-      });
-      toast.error('Session request timed out and was cancelled.');
-    } catch (error) {
-      console.error('Error handling missed request:', error);
-    }
-  };
-
   // Timer for delayed sessions
   const [currentTime, setCurrentTime] = useState(Date.now());
   useEffect(() => {
@@ -431,8 +398,23 @@ const DoctorDashboard: React.FC = () => {
     return () => clearInterval(interval);
   }, [delayedSessions]);
 
+  const openTasksCount = assignedTasks.filter((t: any) => t.status !== 'completed').length;
+  const visibleTasks = assignedTasks.slice(0, 4);
+  const visibleNotes = recentNotes.slice(0, 4);
+  const visibleReports = recentReports.slice(0, 3);
+  const monthLabel = new Date().toLocaleDateString('en-US', { month: 'long' });
+  const yearLabel = new Date().getFullYear();
+
   return (
-    <div className="h-screen pt-16 md:pt-[80px] overflow-hidden bg-[#F0F2F5] box-border relative">
+    <div
+      className="min-h-screen pt-16 md:pt-[80px] box-border relative overflow-x-hidden flex flex-col"
+      style={{ background: T.bg, fontFamily: FONT_SANS, color: T.text }}
+    >
+      {/* Decorative background blobs — these give the frosted cards their color, per the design spec */}
+      <div className="absolute pointer-events-none" style={{ top: -160, left: '10%', width: 520, height: 420, borderRadius: '50%', background: 'radial-gradient(circle at 35% 35%, rgba(31,122,140,.16), rgba(31,122,140,0) 70%)' }} />
+      <div className="absolute pointer-events-none" style={{ top: -120, right: '6%', width: 380, height: 380, borderRadius: '50%', background: 'radial-gradient(circle at 60% 40%, rgba(232,161,132,.18), rgba(232,161,132,0) 70%)' }} />
+      <div className="absolute pointer-events-none hidden lg:block" style={{ bottom: -140, right: -80, width: 340, height: 340, borderRadius: '48% 52% 55% 45%', background: T.teal, opacity: 0.14 }} />
+      <div className="absolute pointer-events-none hidden lg:block" style={{ top: 200, left: -100, width: 300, height: 300, borderRadius: '50%', background: T.gold, opacity: 0.08 }} />
       {/* Delayed Sessions Banner */}
       {delayedSessions.length > 0 && (
         <div className="fixed top-24 right-6 z-50 flex flex-col gap-3 w-80">
@@ -475,7 +457,7 @@ const DoctorDashboard: React.FC = () => {
                   <div className="flex gap-2">
                     <button
                       onClick={async () => {
-                        const token = localStorage.getItem('token');
+                        const token = getAuthToken();
                         await fetch(`${API_BASE_URL}/sessions/${session._id}/missed`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
                         setDelayedSessions(prev => prev.filter(s => s._id !== session._id));
                       }}
@@ -530,259 +512,272 @@ const DoctorDashboard: React.FC = () => {
         setSidebarOpen={setSidebarOpen} 
       />
 
-      {/* Top Navigation Bar */}
-      <nav className="bg-transparent border-none relative z-30 pt-2">
-        <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-16 transition-all duration-300">
-            {/* Left side - Hamburger Menu */}
-            <div className="flex justify-start shrink-0">
-              <button
-                onClick={() => setSidebarOpen(true)}
-                className="p-2.5 hover:bg-black/5 rounded-full transition-all duration-300 hover:scale-105 active:scale-95 z-10 relative"
-                type="button"
-                aria-label="Open menu"
-              >
-                <svg className="w-6 h-6 text-gray-700" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
-                </svg>
-              </button>
-            </div>
+      {/* Header */}
+      <header className="flex-none relative z-30 px-4 sm:px-6 lg:px-11 py-3" style={{ borderBottom: `1px solid ${T.border}` }}>
+        <div className="max-w-[1600px] mx-auto w-full flex items-start sm:items-center gap-4 sm:gap-6 flex-wrap lg:flex-nowrap">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            aria-label="Open menu"
+            className="flex-none flex items-center justify-center"
+            style={{ width: 40, height: 40, borderRadius: 12, border: '1px solid rgba(27,43,46,.12)', background: '#fff', cursor: 'pointer' }}
+          >
+            <svg width="18" height="14" viewBox="0 0 18 14" fill="none">
+              <rect width="18" height="2" rx="1" fill="#1b2b2e" />
+              <rect y="6" width="18" height="2" rx="1" fill="#1b2b2e" />
+              <rect y="12" width="18" height="2" rx="1" fill="#1b2b2e" />
+            </svg>
+          </button>
 
-            {/* Center - Greeting */}
-            <div className="text-center flex-1 flex justify-center px-2 sm:px-4 min-w-0">
-              <h1 className="text-sm sm:text-lg md:text-xl font-medium text-gray-800 tracking-wide truncate transition-all duration-300" style={{ fontFamily: 'Inter, sans-serif' }}>
-                <span className="hidden md:inline">{getGreeting()}, </span>
-                <span className="md:hidden">Welcome, </span>
-                Dr. {user?.firstName || user?.username || 'Doctor'}{getGreetingPunctuation()}
-              </h1>
-            </div>
+          <div className="flex-none flex items-center justify-center" style={{ width: 52, height: 52, borderRadius: '50%', background: T.teal, color: '#fff', fontFamily: FONT_SERIF, fontSize: 20, fontWeight: 600 }}>
+            {getDrInitials(user?.firstName, user?.lastName)}
+          </div>
 
-            {/* Right side - Chat and Active Toggle */}
-            <div className="flex items-center justify-end space-x-2 md:space-x-4 shrink-0">
-              {/* Chat Icon with Notification Badge */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 mb-1" style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.12em', color: T.teal, textTransform: 'uppercase' }}>
+              <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.green, display: 'inline-block' }} />
+              Practitioner Dashboard
+            </div>
+            <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 24, lineHeight: 1.15, color: T.text }}>
+              {getGreeting()}, <em style={{ fontStyle: 'italic', color: T.teal }}>Dr. {user?.firstName || user?.username || 'Doctor'}</em>{getGreetingPunctuation()}
+            </div>
+            <div className="flex items-center gap-3.5 mt-2 flex-wrap">
+              <span style={{ fontSize: 13, color: T.text2 }}>Availability</span>
+              <div className="flex gap-2">
+                <button
+                  onClick={isActive ? undefined : toggleOnlineStatus}
+                  disabled={isStatusLoading}
+                  style={{
+                    border: `1px solid ${isActive ? 'rgba(47,174,122,.45)' : 'rgba(27,43,46,.15)'}`,
+                    background: isActive ? T.greenBg : '#fff',
+                    color: isActive ? T.greenDeep : T.muted,
+                    borderRadius: 100, padding: '6px 14px',
+                    fontWeight: 600, fontSize: 11, letterSpacing: '.04em', textTransform: 'uppercase',
+                    cursor: isStatusLoading ? 'default' : 'pointer', opacity: isStatusLoading ? 0.6 : 1,
+                  }}
+                >
+                  Online
+                </button>
+                <button
+                  onClick={!isActive ? undefined : toggleOnlineStatus}
+                  disabled={isStatusLoading}
+                  style={{
+                    border: `1px solid ${!isActive ? 'rgba(31,122,140,.4)' : 'rgba(27,43,46,.15)'}`,
+                    background: !isActive ? '#eef4f4' : '#fff',
+                    color: !isActive ? T.teal : T.muted,
+                    borderRadius: 100, padding: '6px 14px',
+                    fontWeight: 600, fontSize: 11, letterSpacing: '.04em', textTransform: 'uppercase',
+                    cursor: isStatusLoading ? 'default' : 'pointer', opacity: isStatusLoading ? 0.6 : 1,
+                  }}
+                >
+                  Offline
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col items-start sm:items-end gap-1.5 flex-none w-full sm:w-auto sm:ml-auto mt-1 sm:mt-0">
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
               <button
                 onClick={() => navigate('/messages')}
-                className="relative p-2.5 hover:bg-black/5 rounded-full transition-all duration-300 hover:scale-105 active:scale-95"
+                aria-label="Messages"
+                className="flex items-center justify-center relative"
+                style={{ width: 40, height: 40, borderRadius: '50%', border: '1px solid rgba(27,43,46,.15)', background: '#fff', cursor: 'pointer' }}
               >
-                <svg className="w-5 h-5 text-gray-600 hover:text-gray-900" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.068.157 2.148.279 3.238.364.466.037.893.281 1.153.671L12 21l2.652-3.978c.26-.39.687-.634 1.153-.67 1.09-.086 2.17-.208 3.238-.365 1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1b2b2e" strokeWidth="2">
+                  <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path>
                 </svg>
                 {unreadCount > 0 && (
-                  <span className="absolute top-1.5 right-1.5 bg-red-500 text-white text-[10px] font-bold rounded-full w-4 h-4 flex items-center justify-center shadow-sm">
+                  <span style={{ position: 'absolute', top: -2, right: -2, background: '#e05d4c', color: '#fff', fontSize: 9, fontWeight: 700, borderRadius: '50%', minWidth: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>
                     {unreadCount}
                   </span>
                 )}
               </button>
-
-              {/* Settings Button */}
               <button
                 onClick={() => navigate('/doctor-settings')}
-                className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 sm:py-2.5 text-slate-700 bg-white border border-slate-200 rounded-full font-bold tracking-wide transition-all hover:shadow-md active:scale-95 text-[11px] sm:text-sm whitespace-nowrap"
-                style={{ fontFamily: 'Inter, sans-serif' }}
+                className="flex items-center gap-1.5"
+                style={{ border: '1px solid rgba(27,43,46,.15)', background: '#fff', color: T.text, borderRadius: 100, padding: '11px 20px', fontWeight: 600, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}
               >
-                <svg className="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.teal} strokeWidth="2">
+                  <circle cx="12" cy="12" r="10"></circle><path d="M12 7v10M9.5 9.5h5M9.5 14.5h5"></path>
                 </svg>
                 Pricing & Payouts
-              </button>
-
-              {/* Online Status Toggle Button */}
-              <button
-                onClick={toggleOnlineStatus}
-                disabled={isStatusLoading}
-                className={`flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2 sm:py-2.5 text-white rounded-full font-bold tracking-wide transition-all duration-300 hover:shadow-lg hover:-translate-y-0.5 active:scale-95 text-[11px] sm:text-sm whitespace-nowrap ${isStatusLoading ? 'cursor-not-allowed opacity-70' : ''}`}
-                style={{ backgroundColor: isActive ? '#10B981' : '#6B7280', fontFamily: 'Inter, sans-serif' }}
-              >
-                <div className={`w-2 h-2 rounded-full ${isActive ? 'bg-white animate-pulse' : 'bg-gray-300'}`}></div>
-                {isStatusLoading ? 'Switching...' : (isActive ? 'Online' : 'Offline')}
               </button>
             </div>
           </div>
         </div>
-      </nav>
+      </header>
 
       {/* Main Dashboard Content */}
-      <div className="h-[calc(100%-4rem)] overflow-y-auto px-4 py-4">
-        {/* 2x2 Grid Layout */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 pb-10">
+      <main className="flex-1 relative z-10 px-4 sm:px-6 lg:px-11 py-3 pb-8 grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-4 lg:gap-5 max-w-[1600px] mx-auto w-full">
+        {/* Left column */}
+        <div className="h-auto lg:h-full flex flex-col gap-3.5 min-w-0 lg:min-h-0">
 
-          {/* Session Notes Card */}
-          <div className="flex flex-col rounded-[24px] bg-gradient-to-br from-[#38ABAE] to-[#2A8285] shadow-[0_8px_30px_rgb(56,171,174,0.3)] border border-white/10 overflow-hidden min-h-[350px] lg:min-h-0 hover:shadow-[0_8px_30px_rgb(56,171,174,0.5)] transition-all duration-300">
-            <div className="px-6 py-4 shrink-0 flex items-center justify-between border-b border-white/10">
-              <h3 className="text-lg font-bold text-white font-sans tracking-wide drop-shadow-sm">Session Notes</h3>
+          {/* Session Notes */}
+          <div style={{ ...cardStyle, padding: '16px 20px 12px', position: 'relative', overflow: 'hidden' }}>
+            <div className="flex items-baseline justify-between mb-2.5">
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.teal, textTransform: 'uppercase', marginBottom: 5 }}>— Clinical Record</div>
+                <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, lineHeight: 1.2, color: T.text, whiteSpace: 'nowrap' }}>
+                  Session <em style={{ fontStyle: 'italic', color: T.teal }}>Notes</em>
+                </div>
+              </div>
             </div>
-            <div className="p-5 sm:p-6 space-y-3 flex-1 overflow-y-auto custom-scrollbar min-h-0 flex flex-col">
-              {recentNotes.length > 0 ? (
-                recentNotes.map((note: any) => (
-                  <div key={note._id} className="mb-3 cursor-pointer hover:shadow-lg bg-white/10 hover:bg-white/20 border border-white/10 p-4 sm:p-5 rounded-2xl transition-all shadow-sm backdrop-blur-md">
-                    <p className="text-sm text-white font-bold" style={{ fontFamily: 'Inter, sans-serif' }}>
-                      {formatDate(note.createdAt)} <span className="text-white/60 mx-1">•</span> {note.patientId.firstName} {note.patientId.lastName}
-                    </p>
+            <div className="flex flex-col">
+              {visibleNotes.length === 0 ? (
+                <div className="text-center py-6" style={{ fontSize: 12.5, color: T.muted }}>No session notes yet</div>
+              ) : (
+                visibleNotes.map((note: any) => (
+                  <div key={note._id} className="flex items-start gap-3" style={{ padding: '10px 4px', borderBottom: '1px solid rgba(31,122,140,.12)' }}>
+                    <div className="flex-none flex items-center justify-center" style={{ width: 30, height: 30, borderRadius: '50%', background: T.teal, color: '#fff', fontWeight: 600, fontSize: 11, marginTop: 1 }}>
+                      {getDrInitials(note.patientId?.firstName, note.patientId?.lastName)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div style={{ fontWeight: 600, fontSize: 12.5, color: T.text, whiteSpace: 'nowrap' }}>
+                        {note.patientId?.firstName} {note.patientId?.lastName}
+                      </div>
+                      <div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>{formatDate(note.createdAt)}</div>
+                      <div style={{ fontSize: 12.5, lineHeight: 1.35, color: T.text2 }}>{getNoteSnippet(note.content)}</div>
+                    </div>
                   </div>
                 ))
-              ) : (
-                <div className="flex-1 flex flex-col items-center justify-center text-center opacity-80">
-                  <p className="text-white font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>No session notes yet</p>
-                  <p className="text-white/70 text-sm mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>Add notes during video sessions</p>
-                </div>
               )}
             </div>
-            <div className="px-6 pb-6 pt-2 flex justify-center shrink-0">
+            <div className="mt-2 text-center">
               <button
                 onClick={() => navigate('/doctor-session-notes')}
-                className="px-5 py-1.5 text-xs font-bold bg-white/20 hover:bg-white/30 text-white transition-all rounded-full border border-white/20 backdrop-blur-sm uppercase tracking-wider shadow-sm"
-                style={{ fontFamily: 'Inter, sans-serif' }}
+                style={{ fontWeight: 600, fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase', border: '1px solid rgba(31,122,140,.3)', color: T.teal, borderRadius: 100, padding: '7px 16px', background: 'transparent', cursor: 'pointer' }}
               >
-                View All Notes
+                View All Notes →
               </button>
             </div>
           </div>
 
-          {/* Key Metrics Card */}
-          <div className="flex flex-col rounded-[24px] bg-gradient-to-br from-[#6DBEDF] to-[#4B9DBE] shadow-[0_8px_30px_rgb(109,190,223,0.3)] border border-white/10 overflow-hidden min-h-[350px] lg:min-h-0 hover:shadow-[0_8px_30px_rgb(109,190,223,0.5)] transition-all duration-300">
-            <div className="px-6 py-4 shrink-0 flex items-center justify-between border-b border-white/10">
-              <h3 className="text-lg font-bold text-white font-sans tracking-wide drop-shadow-sm">Key Metrics</h3>
-            </div>
-            <div className="p-5 sm:p-6 grid grid-cols-2 gap-4 flex-1 overflow-y-auto min-h-0 items-stretch">
-              {/* Metric 1 */}
-              <div className="bg-white/10 border border-white/10 p-4 sm:p-5 rounded-2xl flex flex-col justify-center items-center text-center backdrop-blur-md">
-                <p className="text-white/80 text-sm font-bold mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>Total Revenue</p>
-                <p className="text-white text-2xl font-bold">{stats.revenue.toLocaleString()}</p>
+          {/* Calendar */}
+          <div style={{ ...cardStyle, padding: '16px 20px', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+            <div className="flex items-start justify-between mb-2">
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.muted, textTransform: 'uppercase', marginBottom: 6 }}>— Schedule</div>
+                <div style={{ fontFamily: FONT_SERIF, fontSize: 22, lineHeight: 1.1, color: T.text }}>
+                  {monthLabel} <span style={{ fontSize: 14, color: T.muted, fontFamily: FONT_SANS }}>{yearLabel}</span>
+                </div>
               </div>
-              {/* Metric 2 */}
-              <div className="bg-white/10 border border-white/10 p-4 sm:p-5 rounded-2xl flex flex-col justify-center items-center text-center backdrop-blur-md">
-                <p className="text-white/80 text-sm font-bold mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>Total Sessions</p>
-                <p className="text-white text-2xl font-bold">{stats.sessions}</p>
-              </div>
-              {/* Metric 3 */}
-              <div className="bg-white/10 border border-white/10 p-4 sm:p-5 rounded-2xl flex flex-col justify-center items-center text-center backdrop-blur-md">
-                <p className="text-white/80 text-sm font-bold mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>Total Hours</p>
-                <p className="text-white text-2xl font-bold">{stats.hours}</p>
-              </div>
-              {/* Metric 4 */}
-              <div className="bg-white/10 border border-white/10 p-4 sm:p-5 rounded-2xl flex flex-col justify-center items-center text-center backdrop-blur-md hover:bg-white/20 transition-colors cursor-pointer">
-                <p className="text-white/80 text-sm font-bold mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>DLA- 20</p>
-                <p className="text-white text-lg font-bold">Take Test</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Calendar Card (Now bottom left) */}
-          <div className="flex flex-col rounded-[24px] bg-gradient-to-br from-[#ABA5D1] to-[#867EB5] shadow-[0_8px_30px_rgb(171,165,209,0.3)] border border-white/10 overflow-hidden min-h-[500px] hover:shadow-[0_8px_30px_rgb(171,165,209,0.5)] transition-all duration-300">
-            <div className="px-6 py-4 shrink-0 flex items-center justify-between border-b border-white/10">
-              <h3 className="text-lg font-bold text-white font-sans tracking-wide drop-shadow-sm">Calendar</h3>
               <button
                 onClick={() => navigate('/manage-calendar')}
-                className="bg-white text-[#867EB5] px-4 py-1.5 text-xs font-bold hover:bg-gray-50 transition-all rounded-full shadow-lg flex items-center gap-2"
-                style={{ fontFamily: 'Inter, sans-serif' }}
+                className="flex items-center gap-1.5"
+                style={{ border: '1px solid rgba(27,43,46,.15)', background: '#fff', borderRadius: 100, padding: '9px 16px', fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1b2b2e" strokeWidth="2">
+                  <rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path>
                 </svg>
                 Manage
               </button>
             </div>
-            <div className="p-4 sm:p-6 flex-1 min-h-0 flex flex-col text-white">
-              <style>{`
-                /* Override Calendar styles for this specific container to make text white */
-                .calendar-container {
-                  color: white;
-                }
-                .calendar-container h3, 
-                .calendar-container h4, 
-                .calendar-container p, 
-                .calendar-container span, 
-                .calendar-container div {
-                  color: white;
-                  border-color: rgba(255, 255, 255, 0.2);
-                }
-                .calendar-container .bg-teal-50 {
-                  background-color: white !important;
-                }
-                .calendar-container .bg-teal-50 span {
-                  color: #867EB5 !important;
-                }
-                .calendar-container .hover\\:bg-gray-50:hover {
-                  background-color: rgba(255, 255, 255, 0.2) !important;
-                }
-                /* Fix for tooltip and other explicit white backgrounds */
-                .calendar-container .bg-white {
-                   background-color: rgba(255, 255, 255, 0.95) !important;
-                }
-                .calendar-container .bg-white span,
-                .calendar-container .bg-white div,
-                .calendar-container .bg-white h3,
-                .calendar-container .bg-white h4,
-                .calendar-container .bg-white p {
-                   color: #333 !important;
-                }
-                /* Specifically preserve the dot colors by NOT using * selector */
-              `}</style>
-              <div className="calendar-container h-full w-full">
-                <Calendar
-                  userRole="doctor"
-                  onSessionClick={handleSessionClick}
-                  refreshTrigger={calendarRefreshTrigger}
-                  hideTitle={true}
-                  hideManageButton={true}
-                />
+            <div className="flex-1 min-h-0">
+              <Calendar
+                userRole="doctor"
+                onSessionClick={handleSessionClick}
+                refreshTrigger={calendarRefreshTrigger}
+                hideTitle={true}
+                hideManageButton={true}
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Right column */}
+        <div className="h-auto lg:h-full flex flex-col gap-3.5 min-w-0 lg:min-h-0">
+
+          {/* Key Metrics */}
+          <div style={{ ...cardStyle, padding: '16px 20px', position: 'relative', overflow: 'hidden' }}>
+            <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.teal, textTransform: 'uppercase', marginBottom: 4 }}>— This Month</div>
+            <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 16, lineHeight: 1.2, color: T.text, marginBottom: 10 }}>Key Metrics</div>
+            <div className="grid grid-cols-2 gap-2">
+              <div style={{ ...subCardStyle, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ fontWeight: 600, fontSize: 9.5, letterSpacing: '.08em', color: T.muted, textTransform: 'uppercase' }}>Total Revenue</div>
+                <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 24, color: T.text }}>₹{stats.revenue.toLocaleString()}</div>
+              </div>
+              <div style={{ ...subCardStyle, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ fontWeight: 600, fontSize: 9.5, letterSpacing: '.08em', color: T.muted, textTransform: 'uppercase' }}>Total Sessions</div>
+                <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 24, color: T.text }}>{stats.sessions}</div>
+              </div>
+              <div style={{ ...subCardStyle, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ fontWeight: 600, fontSize: 9.5, letterSpacing: '.08em', color: T.muted, textTransform: 'uppercase' }}>Total Hours</div>
+                <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 24, color: T.text }}>{stats.hours}</div>
+              </div>
+              <div style={{ ...subCardStyle, padding: 14, display: 'flex', flexDirection: 'column', gap: 6, justifyContent: 'space-between' }}>
+                <div style={{ fontWeight: 600, fontSize: 9.5, letterSpacing: '.08em', color: T.muted, textTransform: 'uppercase' }}>Self-Assessment</div>
+                <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 18, color: T.text }}>DLA-20</div>
               </div>
             </div>
           </div>
 
-          {/* Tasks & Reports Card (Now bottom right) */}
-          <div className="flex flex-col rounded-[24px] bg-gradient-to-br from-[#78BE9F] to-[#579F80] shadow-[0_8px_30px_rgb(120,190,159,0.3)] border border-white/10 overflow-hidden min-h-[450px] hover:shadow-[0_8px_30px_rgb(120,190,159,0.5)] transition-all duration-300">
-            <div className="px-6 py-4 shrink-0 flex items-center justify-between border-b border-white/10">
-              <h3 className="text-lg font-bold text-white font-sans tracking-wide drop-shadow-sm">Tasks & Reports</h3>
-            </div>
-            <div className="p-5 sm:p-6 space-y-4 flex-1 overflow-y-auto custom-scrollbar min-h-0 flex flex-col">
+          {/* Tasks & Reports */}
+          <div style={{ ...cardStyle, padding: '16px 20px', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="flex items-baseline justify-between">
               <div>
-                <h4 className="text-white/80 text-xs font-bold uppercase tracking-wider mb-2">Recent Tasks</h4>
-                {assignedTasks.length > 0 ? (
-                  assignedTasks.slice(0, 2).map((task: any) => (
-                    <div key={task._id} className="mb-2 bg-white/10 border border-white/10 p-3 rounded-2xl backdrop-blur-md flex justify-between items-center text-sm text-white">
-                      <span className="font-medium truncate mr-2">{task.title}</span>
-                      <span className="text-white/70 whitespace-nowrap">{task.patientId.firstName}</span>
+                <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.muted, textTransform: 'uppercase', marginBottom: 4 }}>— Follow-Ups</div>
+                <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, lineHeight: 1.2, color: T.text }}>Tasks & Reports</div>
+              </div>
+              {openTasksCount > 0 && (
+                <div style={{ fontWeight: 600, fontSize: 10, color: T.gold, background: T.goldBg, borderRadius: 100, padding: '4px 9px', flex: 'none', whiteSpace: 'nowrap' }}>
+                  {openTasksCount} open
+                </div>
+              )}
+            </div>
+
+            <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3.5">
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.muted, textTransform: 'uppercase', marginBottom: 8 }}>Recent Tasks</div>
+                {visibleTasks.length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: T.muted, fontStyle: 'italic' }}>No tasks assigned</div>
+                ) : (
+                  visibleTasks.map((task: any) => (
+                    <div key={task._id} className="flex items-center justify-between gap-3" style={{ padding: '9px 0', borderBottom: '1px solid rgba(27,43,46,.06)' }}>
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span className="flex-none" style={{ width: 7, height: 7, borderRadius: '50%', background: T.gold }} />
+                        <span className="truncate" style={{ fontSize: 12.5, color: T.text }}>{task.title}</span>
+                      </div>
+                      <span style={{ fontSize: 12.5, color: T.text2, whiteSpace: 'nowrap' }}>{task.patientId?.firstName}</span>
                     </div>
                   ))
-                ) : (
-                  <p className="text-white/60 text-sm italic">No tasks assigned</p>
                 )}
               </div>
+
               <div>
-                <h4 className="text-white/80 text-xs font-bold uppercase tracking-wider mb-2 mt-2">Recent Reports</h4>
-                {recentReports.length > 0 ? (
-                  recentReports.slice(0, 2).map((report: any) => (
-                    <div key={report._id} className="mb-2 bg-white/10 border border-white/10 p-3 rounded-2xl backdrop-blur-md flex justify-between items-center text-sm text-white">
-                      <span className="font-medium truncate mr-2">{report.title}</span>
-                      <span className="text-white/70 whitespace-nowrap">{report.patientId.firstName}</span>
+                <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.muted, textTransform: 'uppercase', marginBottom: 8 }}>Recent Reports</div>
+                {visibleReports.length === 0 ? (
+                  <div style={{ fontSize: 12.5, color: T.muted, fontStyle: 'italic' }}>No reports created</div>
+                ) : (
+                  visibleReports.map((report: any) => (
+                    <div key={report._id} className="flex items-center justify-between gap-3" style={{ padding: '9px 0', borderBottom: '1px solid rgba(27,43,46,.06)' }}>
+                      <div className="min-w-0">
+                        <div style={{ fontWeight: 600, fontSize: 12.5, color: T.text, whiteSpace: 'nowrap' }}>{report.title}</div>
+                        <div style={{ fontSize: 11, color: T.muted }}>{formatDate(report.createdAt)}</div>
+                      </div>
+                      <span style={{ fontSize: 12.5, color: T.text2, whiteSpace: 'nowrap' }}>{report.patientId?.firstName}</span>
                     </div>
                   ))
-                ) : (
-                  <p className="text-white/60 text-sm italic">No reports created</p>
                 )}
               </div>
             </div>
-            <div className="px-6 pb-6 pt-2 flex justify-center gap-4 shrink-0">
+
+            <div className="flex gap-2.5" style={{ flex: 'none' }}>
               <button
                 onClick={() => navigate('/doctor-tasks')}
-                className="px-5 py-1.5 text-xs font-bold bg-white/20 hover:bg-white/30 text-white transition-all rounded-full border border-white/20 backdrop-blur-sm uppercase tracking-wider shadow-sm"
-                style={{ fontFamily: 'Inter, sans-serif' }}
+                style={{ flex: 1, textAlign: 'center', fontWeight: 600, fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase', border: '1px solid rgba(31,122,140,.3)', color: T.teal, borderRadius: 100, padding: 9, background: 'transparent', cursor: 'pointer' }}
               >
                 All Tasks
               </button>
               <button
                 onClick={() => navigate('/doctor-reports')}
-                className="px-5 py-1.5 text-xs font-bold bg-white/20 hover:bg-white/30 text-white transition-all rounded-full border border-white/20 backdrop-blur-sm uppercase tracking-wider shadow-sm"
-                style={{ fontFamily: 'Inter, sans-serif' }}
+                style={{ flex: 1, textAlign: 'center', fontWeight: 600, fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase', border: '1px solid rgba(31,122,140,.3)', color: T.teal, borderRadius: 100, padding: 9, background: 'transparent', cursor: 'pointer' }}
               >
                 All Reports
               </button>
             </div>
           </div>
-
         </div>
-      </div>
+      </main>
 
       {/* Session Modal */}
       <SessionModal

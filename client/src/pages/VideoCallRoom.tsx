@@ -7,6 +7,7 @@ import { toast } from 'react-hot-toast';
 import SessionToolsModal from '../components/SessionToolsModal';
 import SessionChat from '../components/SessionChat';
 import { API_BASE_URL, SOCKET_URL } from '../config/api';
+import { getAuthToken } from '../utils/authToken';
 import { useQuery } from '@tanstack/react-query';
 
 const VideoCallRoom: React.FC = () => {
@@ -164,7 +165,7 @@ const VideoCallRoom: React.FC = () => {
             setCountdown('00:00');
             if (user?.role === 'patient' && !autoCancelled.current) {
               autoCancelled.current = true;
-              const token = localStorage.getItem('token');
+              const token = getAuthToken();
               fetch(`${API_BASE_URL}/sessions/${sessionId}/missed`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } })
                 .then(() => toast.error('Session auto-cancelled as doctor is unreachable.'));
             }
@@ -180,7 +181,7 @@ const VideoCallRoom: React.FC = () => {
           if (now - startTime > 10 * 60 * 1000) { // 10 minutes timeout for immediate sessions
             if (user?.role === 'patient' && !autoCancelled.current) {
               autoCancelled.current = true;
-              const token = localStorage.getItem('token');
+              const token = getAuthToken();
               fetch(`${API_BASE_URL}/sessions/${sessionId}/missed`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } })
                 .then(() => toast.error('Session auto-cancelled as doctor is unreachable.'));
             }
@@ -527,7 +528,7 @@ const VideoCallRoom: React.FC = () => {
         toast.error(`${otherUser} has ended the session`, { duration: 4000 });
 
         // After 2 seconds, navigate to dashboard with appropriate state
-        setTimeout(() => {
+        setTimeout(async () => {
           cleanup();
 
           if (user?.role === 'doctor') {
@@ -542,11 +543,18 @@ const VideoCallRoom: React.FC = () => {
               }
             });
           } else {
-            // Patient Side: Mark complete and show rating on dashboard
-            fetch(`${API_BASE_URL}/sessions/${sessionId}/complete`, {
-              method: 'POST',
-              credentials: 'include'
-            }).catch(console.error);
+            // Patient Side: Mark complete BEFORE navigating, not fire-and-forget —
+            // the dashboard checks server-side status === 'completed' on mount to
+            // decide whether to show the rating modal, so navigating before this
+            // write lands means the modal silently never appears.
+            try {
+              await fetch(`${API_BASE_URL}/sessions/${sessionId}/complete`, {
+                method: 'POST',
+                credentials: 'include'
+              });
+            } catch (e) {
+              console.error('Error marking completion:', e);
+            }
             navigate('/patient-dashboard', { state: { showRating: true, sessionId } });
           }
         }, 2000);
@@ -971,11 +979,13 @@ const VideoCallRoom: React.FC = () => {
       return;
     }
 
-    // For patients: Mark session as completed (background) and navigate to dashboard
+    // For patients: Mark session as completed BEFORE navigating (must be awaited —
+    // see the identical fix/comment on the 'call-ended' socket handler above) and
+    // navigate to dashboard.
     if (user?.role === 'patient') {
       if (remoteUserJoined) {
         try {
-          fetch(`${API_BASE_URL}/sessions/${sessionId}/complete`, {
+          await fetch(`${API_BASE_URL}/sessions/${sessionId}/complete`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include'
@@ -1075,7 +1085,7 @@ const VideoCallRoom: React.FC = () => {
             {doctorNote && <p className="mt-2 text-slate-400 font-light italic">"{doctorNote}"</p>}
             {isGracePeriod && (
               <button onClick={() => {
-                const token = localStorage.getItem('token');
+                const token = getAuthToken();
                 fetch(`${API_BASE_URL}/sessions/${sessionId}/missed`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
               }} className="mt-4 px-4 py-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-full font-medium transition-colors text-xs">
                 Doctor is unreachable. Cancel & Refund
@@ -1317,7 +1327,7 @@ const VideoCallRoom: React.FC = () => {
                               {doctorNote && <p className="text-white/70 text-xs italic">"{doctorNote}"</p>}
                               {isGracePeriod && (
                                 <button onClick={() => {
-                                  const token = localStorage.getItem('token');
+                                  const token = getAuthToken();
                                   fetch(`${API_BASE_URL}/sessions/${sessionId}/missed`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
                                 }} className="mt-4 px-4 py-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-full font-medium transition-colors text-xs w-full">
                                   Doctor is unreachable. Cancel & Refund

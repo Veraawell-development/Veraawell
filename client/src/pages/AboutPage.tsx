@@ -42,6 +42,17 @@ const CountUp: React.FC<{ end: number; duration?: number }> = ({ end, duration =
   return <span ref={elementRef}>{count.toLocaleString()}+</span>;
 };
 
+const VALUES = [
+  'Compassion',
+  'Accessibility',
+  'Confidentiality',
+  'Evidence-Based Care',
+  'Judgment-Free Space',
+  'Verified Experts',
+  'Timely Support',
+  'Personalized Care',
+];
+
 const approach = [
   {
     title: 'Verified Experts',
@@ -71,6 +82,42 @@ const AboutPage: React.FC = () => {
   const approachRef = useScrollReveal<HTMLDivElement>();
   const founderRef = useScrollReveal<HTMLDivElement>();
   const ctaRef = useScrollReveal<HTMLDivElement>();
+
+  const sections = [
+    {
+      ref: card1Ref, num: '01', title: 'Who We Are', accent: 'var(--teal)',
+      img: '/about-01.svg', imgAlt: 'About illustration', imgBg: '#FFF9E680',
+      paragraphs: [
+        "At Veraawell, we believe mental wellness is not a luxury — it's a necessity. Our mission is simple: to make professional psychological support accessible, reliable, and timely for everyone who needs it.",
+        "We connect you with highly qualified and compassionate psychologists who specialize in understanding your unique needs. Whether you're seeking help for anxiety, depression, stress, relationship issues, or personal growth, our experts are here to guide you — right when you need them.",
+        "We know that mental health struggles can't always wait, so we ensure timely consultations, flexible scheduling, and a safe, judgment-free space for every individual.",
+      ],
+    },
+    {
+      ref: card2Ref, num: '02', title: 'Our Mission', accent: 'var(--warm)',
+      img: '/about-02.svg', imgAlt: 'Mission illustration', imgBg: '#FDECEE80',
+      paragraphs: [
+        'Our mission is to give mental health the place that it deserves in the Indian Society. We delve upon diversified topics such that of education, business, art, unemployment, politics and so on and so forth.',
+        "However, mental health is neither talked about nor healthy mental health practices are prevalent in India. With respect to it, our mission constitutes the recognition of mental health not as an issue but as a regular healthy practice to be followed, just as keeping a track of your physical health.",
+      ],
+    },
+    {
+      ref: card3Ref, num: '03', title: 'Our Vision', accent: 'var(--sage)',
+      img: '/about-03.svg', imgAlt: 'Vision illustration', imgBg: '#EAF1F880',
+      paragraphs: [
+        'Our vision speaks to the future of mental health. For the population of India, we want to boost accessibility to psychologists and quality mental healthcare. Subsequently, we aim to make it affordable for the common man.',
+        "Our vision runs parallel with encouraging the psychologists, current students of psychology and those interested in the field to view starting their practice online as a viable career option. We plan to induce 'ease of doing business' mindset in this field so as to encourage admission of more mental health professional in the industry.",
+      ],
+    },
+    {
+      ref: card4Ref, num: '04', title: 'Our Values', accent: 'var(--gold)',
+      img: '/about-04.svg', imgAlt: 'Values illustration', imgBg: '#F5F5F4',
+      paragraphs: [
+        'Our values are rooted in the Indian culture. Integrity, Honesty, Transparency and Compassion are pillars of Veraawell and they complement our working philosophy to the last mile.',
+        'These values help us to maintain a consumer-first approach and stay on the path of righteousness and revolution.',
+      ],
+    },
+  ];
 
   return (
     <div className="bg-[var(--bg)] min-h-screen relative overflow-hidden font-sans">
@@ -144,85 +191,71 @@ const AboutPage: React.FC = () => {
           </p>
         </div>
 
-        {/* ── Content Sections (Minimal Alternating Rows) ── */}
-        <div className="flex flex-col gap-24 md:gap-32 mb-40">
-          
-          {/* Who We Are */}
-          <div ref={card1Ref} data-reveal className="flex flex-col md:flex-row items-center gap-12 md:gap-20 bg-white border border-gray-100 rounded-[32px] p-6 md:p-10 shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all duration-500">
-            <div className="flex-1 order-2 md:order-1">
-              <span className="text-sm font-bold tracking-[0.2em] mb-4 block text-gray-400">
-                01
-              </span>
-              <h2 className="text-[32px] md:text-[40px] font-normal mb-6 leading-tight tracking-tight" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
-                Who We Are
-              </h2>
-              <div className="text-[17px] leading-relaxed space-y-5 text-gray-600">
-                <p>At Veraawell, we believe mental wellness is not a luxury — it's a necessity. Our mission is simple: to make professional psychological support accessible, reliable, and timely for everyone who needs it.</p>
-                <p>We connect you with highly qualified and compassionate psychologists who specialize in understanding your unique needs. Whether you're seeking help for anxiety, depression, stress, relationship issues, or personal growth, our experts are here to guide you — right when you need them.</p>
-                <p>We know that mental health struggles can't always wait, so we ensure timely consultations, flexible scheduling, and a safe, judgment-free space for every individual.</p>
+        {/* ── Values Marquee — a running strip of what we stand for ── */}
+        <div className="relative w-full overflow-hidden mb-32" style={{ borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
+          <div className="absolute inset-y-0 left-0 w-16 sm:w-32 z-10 pointer-events-none" style={{ background: 'linear-gradient(to right, var(--bg), transparent)' }} />
+          <div className="absolute inset-y-0 right-0 w-16 sm:w-32 z-10 pointer-events-none" style={{ background: 'linear-gradient(to left, var(--bg), transparent)' }} />
+          <div className="marquee-track">
+            {[...VALUES, ...VALUES].map((v, i) => (
+              <div key={i} className="flex items-center gap-4 sm:gap-6 py-5 flex-none">
+                <span
+                  className="uppercase whitespace-nowrap"
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 'clamp(13px, 1.4vw, 16px)', letterSpacing: '0.14em', color: 'var(--text-2)', fontWeight: 500 }}
+                >
+                  {v}
+                </span>
+                <span aria-hidden style={{ color: 'var(--teal)', fontSize: 16, lineHeight: 1 }}>✦</span>
               </div>
-            </div>
-            <div className="w-full md:w-1/2 order-1 md:order-2 bg-[#FFF9E6]/50 rounded-[32px] p-8 md:p-12 aspect-square flex items-center justify-center relative overflow-hidden group">
-               <img src="/about-01.svg" alt="About illustration" className="w-full h-full object-cover mix-blend-multiply opacity-90 transition-transform duration-700 group-hover:scale-105" />
-            </div>
+            ))}
           </div>
+        </div>
 
-          {/* Our Mission */}
-          <div ref={card2Ref} data-reveal className="flex flex-col md:flex-row-reverse items-center gap-12 md:gap-20 bg-white border border-gray-100 rounded-[32px] p-6 md:p-10 shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all duration-500">
-            <div className="flex-1 order-2 md:order-1">
-              <span className="text-sm font-bold tracking-[0.2em] mb-4 block text-gray-400">
-                02
-              </span>
-              <h2 className="text-[32px] md:text-[40px] font-normal mb-6 leading-tight tracking-tight" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
-                Our Mission
-              </h2>
-              <div className="text-[17px] leading-relaxed space-y-5 text-gray-600">
-                <p>Our mission is to give mental health the place that it deserves in the Indian Society. We delve upon diversified topics such that of education, business, art, unemployment, politics and so on and so forth.</p>
-                <p>However, mental health is neither talked about nor healthy mental health practices are prevalent in India. With respect to it, our mission constitutes the recognition of mental health not as an issue but as a regular healthy practice to be followed, just as keeping a track of your physical health.</p>
-              </div>
-            </div>
-            <div className="w-full md:w-1/2 order-1 md:order-2 bg-[#FDECEE]/50 rounded-[32px] p-8 md:p-12 aspect-square flex items-center justify-center relative overflow-hidden group">
-               <img src="/about-02.svg" alt="Mission illustration" className="w-full h-full object-cover mix-blend-multiply opacity-90 transition-transform duration-700 group-hover:scale-105" />
-            </div>
-          </div>
+        {/* ── Content Sections (varied editorial rows, one accent per idea) ── */}
+        <div className="flex flex-col gap-14 md:gap-16 mb-40">
+          {sections.map((s, i) => (
+            <div
+              key={s.num}
+              ref={s.ref}
+              data-reveal
+              className={`group relative overflow-hidden flex flex-col md:flex-row ${i % 2 === 1 ? 'md:flex-row-reverse' : ''} items-center gap-8 md:gap-14 rounded-[20px] p-6 md:p-9 border transition-all duration-500 hover:-translate-y-1`}
+              style={{ background: `linear-gradient(135deg, ${s.accent}0C, transparent 60%)`, borderColor: `${s.accent}22`, boxShadow: '0 4px 24px rgba(0,0,0,0.03)' }}
+            >
+              {/* Top accent line */}
+              <div
+                className="absolute top-0 left-8 right-8 md:left-10 md:right-10 h-[2px] rounded-full"
+                style={{ background: `linear-gradient(90deg, transparent, ${s.accent}, transparent)` }}
+              />
 
-          {/* Our Vision */}
-          <div ref={card3Ref} data-reveal className="flex flex-col md:flex-row items-center gap-12 md:gap-20 bg-white border border-gray-100 rounded-[32px] p-6 md:p-10 shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all duration-500">
-            <div className="flex-1 order-2 md:order-1">
-              <span className="text-sm font-bold tracking-[0.2em] mb-4 block text-gray-400">
-                03
-              </span>
-              <h2 className="text-[32px] md:text-[40px] font-normal mb-6 leading-tight tracking-tight" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
-                Our Vision
-              </h2>
-              <div className="text-[17px] leading-relaxed space-y-5 text-gray-600">
-                <p>Our vision speaks to the future of mental health. For the population of India, we want to boost accessibility to psychologists and quality mental healthcare. Subsequently, we aim to make it affordable for the common man.</p>
-                <p>Our vision runs parallel with encouraging the psychologists, current students of psychology and those interested in the field to view starting their practice online as a viable career option. We plan to induce 'ease of doing business' mindset in this field so as to encourage admission of more mental health professional in the industry.</p>
+              <div className="flex-1 order-2 md:order-1">
+                <div className="flex items-center gap-3 mb-5">
+                  <div
+                    className="w-11 h-11 rounded-full flex items-center justify-center text-[13px] font-bold flex-none transition-transform duration-500 group-hover:scale-110"
+                    style={{ background: `${s.accent}18`, color: s.accent, fontFamily: 'var(--font-display)' }}
+                  >
+                    {s.num}
+                  </div>
+                  <span aria-hidden style={{ color: s.accent, fontSize: 14 }}>✦</span>
+                </div>
+                <h2 className="text-[30px] md:text-[38px] font-normal mb-5 leading-tight tracking-tight" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
+                  {s.title}
+                </h2>
+                <div className="text-[16.5px] leading-relaxed space-y-4 text-gray-600">
+                  {s.paragraphs.map((p, pi) => <p key={pi}>{p}</p>)}
+                </div>
               </div>
-            </div>
-            <div className="w-full md:w-1/2 order-1 md:order-2 bg-[#EAF1F8]/50 rounded-[32px] p-8 md:p-12 aspect-square flex items-center justify-center relative overflow-hidden group">
-               <img src="/about-03.svg" alt="Vision illustration" className="w-full h-full object-cover mix-blend-multiply opacity-90 transition-transform duration-700 group-hover:scale-105" />
-            </div>
-          </div>
 
-          {/* Our Values */}
-          <div ref={card4Ref} data-reveal className="flex flex-col md:flex-row-reverse items-center gap-12 md:gap-20 bg-white border border-gray-100 rounded-[32px] p-6 md:p-10 shadow-[0_4px_20px_rgba(0,0,0,0.02)] hover:shadow-[0_8px_30px_rgba(0,0,0,0.04)] transition-all duration-500">
-            <div className="flex-1 order-2 md:order-1">
-              <span className="text-sm font-bold tracking-[0.2em] mb-4 block text-gray-400">
-                04
-              </span>
-              <h2 className="text-[32px] md:text-[40px] font-normal mb-6 leading-tight tracking-tight" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
-                Our Values
-              </h2>
-              <div className="text-[17px] leading-relaxed space-y-5 text-gray-600">
-                <p>Our values are rooted in the Indian culture. Integrity, Honesty, Transparency and Compassion are pillars of Veraawell and they complement our working philosophy to the last mile.</p>
-                <p>These values help us to maintain a consumer-first approach and stay on the path of righteousness and revolution.</p>
+              <div
+                className="w-full md:w-[42%] flex-none order-1 md:order-2 rounded-[18px] aspect-[16/10] relative overflow-hidden"
+                style={{ background: s.imgBg, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.05)' }}
+              >
+                <img src={s.img} alt={s.imgAlt} className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.06]" />
+                <div
+                  className="absolute inset-0 pointer-events-none"
+                  style={{ background: `linear-gradient(to top, ${s.accent}26, transparent 45%)` }}
+                />
               </div>
             </div>
-            <div className="w-full md:w-1/2 order-1 md:order-2 bg-[#F5F5F4] rounded-[32px] p-8 md:p-12 aspect-square flex items-center justify-center relative overflow-hidden group">
-               <img src="/about-04.svg" alt="Values illustration" className="w-full h-full object-cover mix-blend-multiply opacity-90 transition-transform duration-700 group-hover:scale-105" />
-            </div>
-          </div>
+          ))}
         </div>
 
         {/* ── By The Numbers ── */}

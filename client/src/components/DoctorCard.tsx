@@ -48,62 +48,61 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
 
   return (
     <div
-      className={`therapist-card rounded-2xl overflow-hidden cursor-pointer flex flex-col h-full transition-all duration-300 hover:-translate-y-1 hover:shadow-lg`}
+      className="therapist-card rounded-[24px] overflow-hidden cursor-pointer flex flex-col h-full transition-all duration-300 hover:-translate-y-1.5"
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border)',
         boxShadow: 'var(--shadow-sm)',
       }}
       onClick={onViewProfile}
+      onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = `var(--shadow-lg), 0 12px 32px -12px ${bgColor}40`; }}
+      onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.boxShadow = 'var(--shadow-sm)'; }}
     >
       {/* Card header with avatar */}
       <div
         className="px-6 pt-7 pb-5 relative"
         style={{
-          background: `linear-gradient(135deg, ${bgColor}10, ${bgColor}05)`,
+          background: `linear-gradient(135deg, ${bgColor}12, ${bgColor}04)`,
           borderBottom: '1px solid var(--border)',
         }}
       >
-        {startingPrice && (
-          <div className="absolute top-4 right-4 flex flex-col items-end leading-none">
-            <span
-              className="text-[9px] font-semibold tracking-widest uppercase"
-              style={{ color: bgColor, opacity: 0.75, fontFamily: 'var(--font-mono)' }}
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="flex items-center gap-4 min-w-0">
+            {/* Avatar */}
+            <div
+              className="w-14 h-14 rounded-[18px] flex items-center justify-center text-xl font-bold text-white flex-shrink-0"
+              style={{
+                background: imageSrc ? `url(${imageSrc}) center/cover no-repeat` : bgColor,
+                border: `2px solid ${bgColor}40`,
+                boxShadow: `0 4px 14px -4px ${bgColor}50`,
+              }}
             >
-              Starting at
-            </span>
-            <span className="text-sm font-bold mt-0.5" style={{ color: bgColor }}>
-              ₹{startingPrice}
-              <span className="text-[10px] font-medium" style={{ color: 'var(--text-3)' }}>/session</span>
-            </span>
+              {!imageSrc && name.charAt(4)} {/* Fallback initial assuming "Dr. X" */}
+            </div>
+            <div className="min-w-0">
+              <h3
+                className="text-[17px] font-semibold leading-tight mb-1 truncate tracking-tight"
+                style={{ color: 'var(--text)', fontFamily: 'var(--font-body)' }}
+              >
+                {name}
+              </h3>
+              <p
+                className="text-xs truncate"
+                style={{ color: 'var(--text-2)', fontFamily: 'var(--font-mono)' }}
+              >
+                {qualification}
+              </p>
+            </div>
           </div>
-        )}
 
-        <div className="flex items-center gap-4">
-          {/* Avatar */}
-          <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center text-xl font-bold text-white flex-shrink-0"
-            style={{ 
-              background: imageSrc ? `url(${imageSrc}) center/cover no-repeat` : bgColor,
-              border: `2px solid ${bgColor}40`,
-            }}
-          >
-            {!imageSrc && name.charAt(4)} {/* Fallback initial assuming "Dr. X" */}
-          </div>
-          <div>
-            <h3
-              className="text-base font-semibold leading-tight mb-0.5"
-              style={{ color: 'var(--text)' }}
+          {startingPrice && (
+            <span
+              className="flex-none rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap"
+              style={{ background: `${bgColor}12`, color: bgColor }}
             >
-              {name}
-            </h3>
-            <p
-              className="text-xs"
-              style={{ color: 'var(--text-2)', fontFamily: 'var(--font-mono)' }}
-            >
-              {qualification}
-            </p>
-          </div>
+              ₹{startingPrice}<span style={{ opacity: 0.7, fontWeight: 500 }}>/session</span>
+            </span>
+          )}
         </div>
       </div>
 
@@ -146,7 +145,7 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
 
         {/* Stats row */}
         <div
-          className="flex items-center justify-between mb-5 py-3 px-3 rounded-xl"
+          className="flex items-center justify-between mb-5 py-3 px-3 rounded-2xl"
           style={{ background: 'var(--bg-2)' }}
         >
           <div>
@@ -199,10 +198,15 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
               Status
             </div>
             <div className="flex items-center gap-1.5">
-              <span
-                className="w-1.5 h-1.5 rounded-full"
-                style={{ background: isOnline ? '#10B981' : '#F59E0B' }}
-              />
+              <span className="relative inline-flex" style={{ width: 6, height: 6 }}>
+                <span className="absolute inset-0 rounded-full" style={{ background: isOnline ? '#10B981' : '#F59E0B' }} />
+                {isOnline && (
+                  <span
+                    className="absolute inset-0 rounded-full"
+                    style={{ background: '#10B981', animation: 'pulse-ring 2s ease-out infinite' }}
+                  />
+                )}
+              </span>
               <span className="text-xs font-medium" style={{ color: 'var(--text)' }}>
                 {isOnline ? 'Available' : 'Busy'}
               </span>
@@ -217,7 +221,7 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
               e.stopPropagation();
               onBookSession ? onBookSession() : onViewProfile?.();
             }}
-            className="w-full py-2.5 rounded-xl text-sm font-semibold text-center"
+            className="w-full py-2.5 rounded-full text-sm font-semibold text-center"
             style={{
               border: `1.5px solid ${bgColor}`,
               color: bgColor,
@@ -227,10 +231,12 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
             onMouseEnter={e => {
               (e.currentTarget as HTMLButtonElement).style.background = bgColor;
               (e.currentTarget as HTMLButtonElement).style.color = 'white';
+              (e.currentTarget as HTMLButtonElement).style.boxShadow = `0 8px 20px -6px ${bgColor}70`;
             }}
             onMouseLeave={e => {
               (e.currentTarget as HTMLButtonElement).style.background = 'transparent';
               (e.currentTarget as HTMLButtonElement).style.color = bgColor;
+              (e.currentTarget as HTMLButtonElement).style.boxShadow = 'none';
             }}
           >
             {isPrevious ? 'Book Again →' : (onBookSession ? 'Book Session →' : 'View Profile →')}

@@ -5,6 +5,7 @@ import { Toaster, toast } from 'react-hot-toast';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config/api';
+import { getAuthToken } from '../utils/authToken';
 import { isToday, parseTime } from '../utils/dateUtils';
 
 interface TimeSlot { time: string; isBooked: boolean; sessionId?: string; }
@@ -65,7 +66,7 @@ const ManageCalendar: React.FC = () => {
   const { data: serverAvailability, isLoading: isAvailabilityLoading } = useQuery({
     queryKey: ['doctor', 'availability', user?.userId],
     queryFn: async () => {
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
       const res = await fetch(`${API_BASE_URL}/availability/doctor/current`, { headers, credentials: 'include' });
       if (!res.ok) throw new Error('Failed to load availability');
@@ -77,7 +78,7 @@ const ManageCalendar: React.FC = () => {
   const { data: fetchedUpcomingSessions = [], isLoading: isSessionsLoading } = useQuery({
     queryKey: ['doctor', 'upcomingSessions', user?.userId],
     queryFn: async () => {
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
       const res = await fetch(`${API_BASE_URL}/availability/upcoming-sessions`, { headers, credentials: 'include' });
       if (!res.ok) throw new Error('Failed to load sessions');
@@ -157,7 +158,7 @@ const ManageCalendar: React.FC = () => {
 
   const saveMutation = useMutation({
     mutationFn: async (payload: any) => {
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (token) headers['Authorization'] = `Bearer ${token}`;
       const res = await fetch(`${API_BASE_URL}/availability/save`, {
@@ -204,21 +205,32 @@ const ManageCalendar: React.FC = () => {
   const selectedDay = nextDays.find(d => d.dateStr === currentViewDate);
   const selectedCount = ALL_SLOTS.filter(s => isSlotSelected(s)).length;
 
+  // Design tokens — same system as the patient/doctor dashboard redesign.
   const C = {
-    brand: '#0ABAB5',
-    brandLight: '#F0FAFA',
-    brandSoft: '#CCEFEE',
-    bg: '#F7F8FA',
+    brand: '#1f7a8c',
+    brandLight: '#eef4f4',
+    brandSoft: 'rgba(31,122,140,.35)',
+    bg: '#f6f3ec',
     surface: '#FFFFFF',
-    border: '#E8EBF0',
-    borderStrong: '#D1D5DB',
-    text1: '#0F172A',
-    text2: '#475569',
-    text3: '#94A3B8',
-    text4: '#CBD5E1',
-    purple: '#7C3AED',
-    purpleLight: '#F5F3FF',
-    dark: '#1E293B',
+    border: 'rgba(27,43,46,.08)',
+    borderStrong: 'rgba(27,43,46,.16)',
+    text1: '#16262a',
+    text2: '#6b7573',
+    text3: '#8a938f',
+    text4: '#c7cfcd',
+    purple: '#c99a5b',
+    purpleLight: '#f7f1e8',
+    dark: '#16262a',
+  };
+  const FONT_SERIF = "'Newsreader', Georgia, serif";
+  // Same frosted-glass treatment as the patient/doctor dashboards.
+  const cardStyle: React.CSSProperties = {
+    background: 'linear-gradient(135deg, rgba(31,122,140,.07), rgba(31,122,140,.02))',
+    backdropFilter: 'blur(20px) saturate(110%)',
+    WebkitBackdropFilter: 'blur(20px) saturate(110%)',
+    border: '1px solid rgba(255,255,255,.55)',
+    boxShadow: '0 12px 36px rgba(27,43,46,.1), inset 0 1px 0 rgba(255,255,255,.5)',
+    borderRadius: 20,
   };
 
   const SlotGrid = ({ slots, label, icon }: { slots: string[], label: string, icon: React.ReactNode }) => (
@@ -244,7 +256,7 @@ const ManageCalendar: React.FC = () => {
           } else if (past) {
             Object.assign(style, { background: '#FAFAFA', color: C.text4, borderColor: C.border, opacity: 0.6 });
           } else if (sel) {
-            Object.assign(style, { background: C.brand, color: '#fff', borderColor: C.brand, boxShadow: '0 2px 12px rgba(10,186,181,0.3)' });
+            Object.assign(style, { background: C.brand, color: '#fff', borderColor: C.brand, boxShadow: '0 2px 12px rgba(31,122,140,0.3)' });
           } else if (isEditing) {
             Object.assign(style, { background: '#fff', color: C.text2, borderColor: C.border });
           } else {
@@ -255,7 +267,7 @@ const ManageCalendar: React.FC = () => {
               {booked ? (
                 <>
                   <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', fontWeight: 500 }}>{slot}</span>
-                  <span style={{ fontSize: 9, letterSpacing: '0.08em', fontWeight: 800, color: '#0ABAB5', textTransform: 'uppercase' }}>Booked</span>
+                  <span style={{ fontSize: 9, letterSpacing: '0.08em', fontWeight: 800, color: C.brand, textTransform: 'uppercase' }}>Booked</span>
                 </>
               ) : (
                 <span style={{ textDecoration: past ? 'line-through' : 'none' }}>{slot}</span>
@@ -268,28 +280,30 @@ const ManageCalendar: React.FC = () => {
   );
 
   return (
-    <div style={{ height: '100vh', width: '100%', overflow: 'hidden', display: 'flex', flexDirection: 'column', background: C.bg, fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif", paddingTop: 80, boxSizing: 'border-box' }}>
+    <div
+      className="min-h-screen w-full flex flex-col overflow-x-hidden pt-16 md:pt-20"
+      style={{ background: C.bg, fontFamily: "'Public Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif", boxSizing: 'border-box' }}
+    >
       <Toaster position="top-right" toastOptions={{ style: { fontFamily: 'Inter', fontSize: 13, borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: '0 4px 20px rgba(0,0,0,0.08)' } }} />
 
       {/* TOP NAV */}
-      <header style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 24px', flexShrink: 0, zIndex: 20 }}>
+      <header className="flex-none flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 lg:px-8 py-3" style={{ borderBottom: `1px solid ${C.border}`, zIndex: 20 }}>
         {/* Left */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <button onClick={() => navigate('/doctor-dashboard')} style={{ width: 32, height: 32, borderRadius: 8, background: C.bg, border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: C.text2, flexShrink: 0 }}>
-            <FiArrowLeft size={14} strokeWidth={2.5} />
+        <div className="flex items-center gap-3.5">
+          <button onClick={() => navigate('/doctor-dashboard')} style={{ width: 36, height: 36, borderRadius: 10, background: '#fff', border: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: C.text2, flexShrink: 0 }}>
+            <FiArrowLeft size={15} strokeWidth={2.5} />
           </button>
-          <div style={{ width: 1, height: 20, background: C.border }} />
           <div>
-            <p style={{ margin: 0, fontSize: 14, fontWeight: 700, color: C.text1, lineHeight: '1.2' }}>Availability</p>
-            <p style={{ margin: 0, fontSize: 11, color: C.text3, fontWeight: 500, marginTop: 1 }}>Manage your schedule</p>
+            <p style={{ margin: 0, fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 19, color: C.text1, lineHeight: '1.2' }}>Availability</p>
+            <p style={{ margin: 0, fontSize: 12, color: C.text3, fontWeight: 500, marginTop: 1 }}>Manage your schedule</p>
           </div>
         </div>
 
         {/* Center: Mode pill */}
         {isEditing && (
-          <div style={{ display: 'flex', alignItems: 'center', background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 3, gap: 2 }}>
+          <div className="flex items-center order-3 sm:order-2 w-full sm:w-auto" style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 3, gap: 2 }}>
             {([['same_slots', 'Weekly Default'], ['different_slots', 'Specific Day']] as const).map(([v, l]) => (
-              <button key={v} onClick={() => setAvailabilityType(v)} style={{ padding: '5px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', transition: 'all 0.15s', background: availabilityType === v ? '#fff' : 'transparent', color: availabilityType === v ? C.text1 : C.text3, boxShadow: availabilityType === v ? '0 1px 4px rgba(0,0,0,0.08)' : 'none' }}>
+              <button key={v} onClick={() => setAvailabilityType(v)} className="flex-1 sm:flex-none" style={{ padding: '6px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', transition: 'all 0.15s', background: availabilityType === v ? '#fff' : 'transparent', color: availabilityType === v ? C.text1 : C.text3, boxShadow: availabilityType === v ? '0 1px 4px rgba(0,0,0,0.08)' : 'none' }}>
                 {l}
               </button>
             ))}
@@ -297,19 +311,19 @@ const ManageCalendar: React.FC = () => {
         )}
 
         {/* Right: Actions */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="flex items-center gap-2 order-2 sm:order-3 ml-auto">
           {!isEditing ? (
-            <button onClick={() => setIsEditing(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 16px', background: C.brand, color: '#fff', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 1px 8px rgba(10,186,181,0.25)' }}>
+            <button onClick={() => setIsEditing(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', background: C.brand, color: '#fff', border: 'none', borderRadius: 100, fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 1px 8px rgba(31,122,140,0.25)', whiteSpace: 'nowrap' }}>
               <FiEdit2 size={13} strokeWidth={2.5} />
               Edit Schedule
             </button>
           ) : (
             <>
-              <button onClick={handleDiscard} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', background: 'transparent', color: C.text2, border: `1px solid ${C.border}`, borderRadius: 9, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              <button onClick={handleDiscard} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '9px 16px', background: 'transparent', color: C.text2, border: `1px solid ${C.border}`, borderRadius: 100, fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                 <FiX size={13} strokeWidth={2.5} />
                 Discard
               </button>
-              <button onClick={handleSave} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 16px', background: loading ? '#99dbd9' : C.brand, color: '#fff', border: 'none', borderRadius: 9, fontSize: 13, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', boxShadow: loading ? 'none' : '0 1px 8px rgba(10,186,181,0.25)', transition: 'all 0.15s' }}>
+              <button onClick={handleSave} disabled={loading} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', background: loading ? '#7fabb5' : C.brand, color: '#fff', border: 'none', borderRadius: 100, fontSize: 13, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', boxShadow: loading ? 'none' : '0 1px 8px rgba(31,122,140,0.25)', transition: 'all 0.15s', whiteSpace: 'nowrap' }}>
                 {loading ? <div style={{ width: 13, height: 13, border: '2px solid rgba(255,255,255,0.3)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} /> : <FiCheck size={13} strokeWidth={2.5} />}
                 Save
               </button>
@@ -319,7 +333,7 @@ const ManageCalendar: React.FC = () => {
       </header>
 
       {/* DATE STRIP */}
-      <div style={{ background: C.surface, borderBottom: `1px solid ${C.border}`, padding: '10px 24px', flexShrink: 0 }}>
+      <div className="flex-none px-4 sm:px-6 lg:px-8 py-2.5" style={{ borderBottom: `1px solid ${C.border}` }}>
         {isEditing && availabilityType === 'same_slots' && (
           <p style={{ fontSize: 11, color: C.text3, fontWeight: 500, margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 5, height: 5, borderRadius: '50%', background: C.brand, display: 'inline-block', flexShrink: 0 }} />
@@ -353,12 +367,12 @@ const ManageCalendar: React.FC = () => {
       </div>
 
       {/* MAIN CONTENT */}
-      <div style={{ flex: 1, minHeight: 0, display: 'flex', gap: 16, padding: '16px 24px' }}>
+      <main className="flex-1 flex flex-col lg:flex-row gap-4 lg:gap-5 px-4 sm:px-6 lg:px-8 py-4 pb-8">
 
         {/* TIME SLOTS PANEL */}
-        <div style={{ flex: 1, minWidth: 0, background: C.surface, borderRadius: 16, border: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div style={{ ...cardStyle, flex: 1, minWidth: 0 }} className="flex flex-col overflow-hidden">
           {/* Slot panel header */}
-          <div style={{ padding: '16px 20px 14px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+          <div style={{ padding: '16px 20px 14px', borderBottom: `1px solid ${C.border}` }} className="flex flex-wrap items-center justify-between gap-3 flex-none">
             <div>
               <p style={{ margin: 0, fontSize: 15, fontWeight: 700, color: C.text1 }}>
                 {selectedDay ? (selectedDay.isToday ? `Today — ${selectedDay.fullDay}` : `${selectedDay.fullDay}, ${selectedDay.shortMonth} ${selectedDay.dayNum}`) : 'Select a date'}
@@ -368,7 +382,7 @@ const ManageCalendar: React.FC = () => {
               </p>
             </div>
             {/* Slot-state legend */}
-            <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+            <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
               {[
                 { dot: C.brand, label: 'Available' },
                 { dot: C.dark, label: 'Booked' },
@@ -402,10 +416,10 @@ const ManageCalendar: React.FC = () => {
         </div>
 
         {/* SESSIONS SIDEBAR */}
-        <div style={{ width: 260, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div className="w-full lg:w-[260px] flex-none flex flex-col gap-3">
 
           {/* Stats card */}
-          <div style={{ background: C.surface, borderRadius: 16, border: `1px solid ${C.border}`, padding: '16px 16px 14px', flexShrink: 0 }}>
+          <div style={{ ...cardStyle, padding: '16px 16px 14px' }} className="flex-none">
             <p style={{ margin: '0 0 12px', fontSize: 11, fontWeight: 700, color: C.text3, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Overview</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               {[
@@ -413,7 +427,7 @@ const ManageCalendar: React.FC = () => {
                 { label: 'Active Days', val: activeDates.length + customAvailability.filter(d => d.slots.length > 0).length, color: C.purple, bg: C.purpleLight },
               ].map(({ label, val, color, bg }) => (
                 <div key={label} style={{ background: bg, borderRadius: 10, padding: '10px 12px' }}>
-                  <p style={{ margin: 0, fontSize: 22, fontWeight: 800, color, lineHeight: 1 }}>{val}</p>
+                  <p style={{ margin: 0, fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 24, color, lineHeight: 1 }}>{val}</p>
                   <p style={{ margin: '3px 0 0', fontSize: 11, color, fontWeight: 600, opacity: 0.75 }}>{label}</p>
                 </div>
               ))}
@@ -421,7 +435,7 @@ const ManageCalendar: React.FC = () => {
           </div>
 
           {/* Upcoming sessions */}
-          <div style={{ background: C.surface, borderRadius: 16, border: `1px solid ${C.border}`, display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+          <div style={{ ...cardStyle, flex: 1, minHeight: 300 }} className="flex flex-col overflow-hidden">
             <div style={{ padding: '14px 16px 10px', borderBottom: `1px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
               <p style={{ margin: 0, fontSize: 12, fontWeight: 700, color: C.text1 }}>Recent & Upcoming</p>
               {upcomingSessions.length > 0 && (
@@ -474,7 +488,7 @@ const ManageCalendar: React.FC = () => {
             </div>
           </div>
         </div>
-      </div>
+      </main>
 
       {/* Session Details Modal */}
       {selectedSession && (

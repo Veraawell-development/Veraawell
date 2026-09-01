@@ -25,7 +25,15 @@ export default function ForgotPasswordPage() {
       return data;
     },
     onSuccess: (data) => {
-      setMessage(data.resetUrl ? `${data.message} (For testing: ${data.resetUrl})` : data.message);
+      // The backend never includes resetUrl in this response today (it's
+      // correctly enumeration-safe — always the same generic message,
+      // regardless of whether the email exists), but this branch used to be
+      // ready to render one if it were ever added. A future "just for local
+      // testing" tweak to the response body would have silently reopened
+      // exactly the enumeration/account-takeover hole that design is meant to
+      // prevent, with no server-side change needed to trigger it. Removed so
+      // there's no client-side path that could ever surface a reset token.
+      setMessage(data.message);
     },
     onError: (err: any) => {
       let errorMsg = err.message || 'Failed to send reset email';

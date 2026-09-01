@@ -1,3 +1,5 @@
+import { getAuthToken } from '../utils/authToken';
+
 // API Configuration - Centralized
 export const API_CONFIG = {
   BASE_URL: window.location.hostname === 'localhost'
@@ -18,7 +20,7 @@ export const SOCKET_URL = API_CONFIG.SOCKET_URL;
 export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
   const url = `${API_CONFIG.BASE_URL}${endpoint}`;
 
-  const token = localStorage.getItem('token');
+  const token = getAuthToken();
 
   const config: RequestInit = {
     ...options,

@@ -4,6 +4,7 @@ import { FiDownload, FiArrowLeft, FiFile } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
 import { useQuery } from '@tanstack/react-query';
 import { API_BASE_URL } from '../config/api';
+import { getAuthToken } from '../utils/authToken';
 
 interface Report {
   _id: string;
@@ -26,7 +27,7 @@ const DoctorReportsDetailPage: React.FC = () => {
   const { data: reports = [], isLoading: loading } = useQuery<Report[]>({
     queryKey: ['doctor', 'reports', 'patient', patientId],
     queryFn: async () => {
-      const token = localStorage.getItem('token');
+      const token = getAuthToken();
       const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
       const response = await fetch(`${API_BASE_URL}/session-tools/reports/patient/${patientId}`, {
         credentials: 'include',

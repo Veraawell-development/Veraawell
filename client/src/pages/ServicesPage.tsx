@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   FiCloudRain, FiWind, FiShield, FiBookOpen, FiHeart,
   FiSmile, FiUsers, FiLink, FiUnlock
@@ -12,66 +13,79 @@ import RippleDecor from '../components/ui/RippleDecor';
 import WaveDecor from '../components/ui/WaveDecor';
 import { useScrollReveal } from '../hooks/useScrollReveal';
 
-const services = [
+const CATEGORIES = ['All', 'Emotional Health', 'Relationships', 'Life Stages', 'Identity & Growth'] as const;
+type Category = typeof CATEGORIES[number];
+
+const services: { title: string; description: string; accent: string; icon: React.ReactNode; category: Exclude<Category, 'All'> }[] = [
   {
     title: 'Depression',
     description: 'Specialized therapy to help you overcome depressive episodes, manage symptoms, and rediscover joy and motivation in your daily life.',
     accent: 'var(--sage)',
-    icon: <FiCloudRain size={20} />
+    icon: <FiCloudRain size={20} />,
+    category: 'Emotional Health',
   },
   {
     title: 'Anxiety',
     description: 'Learn effective coping mechanisms and cognitive strategies to manage generalized anxiety, panic attacks, and social anxiety.',
     accent: 'var(--teal)',
-    icon: <FiWind size={20} />
+    icon: <FiWind size={20} />,
+    category: 'Emotional Health',
   },
   {
     title: 'Trauma',
     description: 'A safe, supportive environment to process past traumatic experiences using evidence-based approaches like EMDR and TF-CBT.',
     accent: 'var(--warm)',
-    icon: <FiShield size={20} />
+    icon: <FiShield size={20} />,
+    category: 'Emotional Health',
   },
   {
     title: 'Student Wellbeing',
     description: 'Navigate academic pressure, transition anxiety, and social challenges with specialized support designed specifically for students.',
     accent: 'var(--teal)',
-    icon: <FiBookOpen size={20} />
+    icon: <FiBookOpen size={20} />,
+    category: 'Life Stages',
   },
   {
     title: 'Marriage & Couples',
     description: 'Strengthen communication, rebuild trust, and resolve conflicts through guided couple therapy and relationship counseling.',
     accent: 'var(--warm)',
-    icon: <FiHeart size={20} />
+    icon: <FiHeart size={20} />,
+    category: 'Relationships',
   },
   {
     title: 'Child Therapy',
     description: 'Child-friendly therapeutic approaches to help younger patients process emotions, manage behavior, and build resilience.',
     accent: 'var(--sage)',
-    icon: <FiSmile size={20} />
+    icon: <FiSmile size={20} />,
+    category: 'Life Stages',
   },
   {
     title: 'Gender & Identity',
     description: 'Affirming care and support for exploring gender identity, sexual orientation, and navigating social transitions.',
     accent: 'var(--warm)',
-    icon: <FiUsers size={20} />
+    icon: <FiUsers size={20} />,
+    category: 'Identity & Growth',
   },
   {
     title: 'Relationship',
     description: 'Individual counseling focused on attachment patterns, boundary setting, and building healthier interpersonal connections.',
     accent: 'var(--sage)',
-    icon: <FiLink size={20} />
+    icon: <FiLink size={20} />,
+    category: 'Relationships',
   },
   {
     title: 'Addiction Recovery',
     description: 'Compassionate, non-judgmental support to understand triggers and develop sustainable strategies for long-term recovery.',
     accent: 'var(--teal)',
-    icon: <FiUnlock size={20} />
+    icon: <FiUnlock size={20} />,
+    category: 'Identity & Growth',
   }
 ];
 
 const ServicesPage: React.FC = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedService, setSelectedService] = useState('General');
+  const [activeCategory, setActiveCategory] = useState<Category>('All');
   const headerRef = useScrollReveal<HTMLDivElement>();
   const gridRef = useScrollReveal<HTMLDivElement>();
 
@@ -79,6 +93,11 @@ const ServicesPage: React.FC = () => {
     setSelectedService(serviceType);
     setIsModalOpen(true);
   };
+
+  const filteredServices = useMemo(
+    () => activeCategory === 'All' ? services : services.filter(s => s.category === activeCategory),
+    [activeCategory]
+  );
 
   return (
     <div className="bg-[var(--bg)] min-h-screen relative overflow-hidden font-sans">
@@ -213,19 +232,77 @@ const ServicesPage: React.FC = () => {
           </p>
         </div>
 
-        {/* Services Bento-style Grid */}
+        {/* Specialties Marquee — minimal, matches About/Career pages */}
+        <div className="relative w-full overflow-hidden mb-14" style={{ borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)' }}>
+          <div className="absolute inset-y-0 left-0 w-16 sm:w-32 z-10 pointer-events-none" style={{ background: 'linear-gradient(to right, var(--bg), transparent)' }} />
+          <div className="absolute inset-y-0 right-0 w-16 sm:w-32 z-10 pointer-events-none" style={{ background: 'linear-gradient(to left, var(--bg), transparent)' }} />
+          <div className="marquee-track">
+            {[...services, ...services].map((s, i) => (
+              <div key={i} className="flex items-center gap-4 sm:gap-6 py-4 flex-none">
+                <span
+                  className="uppercase whitespace-nowrap"
+                  style={{ fontFamily: 'var(--font-mono)', fontSize: 'clamp(13px, 1.4vw, 16px)', letterSpacing: '0.14em', color: 'var(--text-2)', fontWeight: 500 }}
+                >
+                  {s.title}
+                </span>
+                <span aria-hidden style={{ color: s.accent, fontSize: 15, lineHeight: 1 }}>✦</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Category Filter */}
+        <div className="flex flex-col items-center gap-4 mb-14">
+          <div className="flex flex-wrap justify-center gap-2 md:gap-3">
+            {CATEGORIES.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setActiveCategory(cat)}
+                className="px-5 py-2.5 rounded-full font-medium text-[14px] transition-all duration-300"
+                style={
+                  activeCategory === cat
+                    ? { background: 'var(--teal)', color: '#fff', boxShadow: 'var(--shadow-teal)' }
+                    : { background: 'transparent', color: 'var(--text-2)', border: '1px solid var(--border)' }
+                }
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+          <span
+            key={filteredServices.length}
+            className="text-xs font-medium tracking-widest uppercase"
+            style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)', animation: 'fade-up 0.35s var(--ease-spring)' }}
+          >
+            {filteredServices.length} {filteredServices.length === 1 ? 'specialty' : 'specialties'}
+            {activeCategory !== 'All' ? ` in ${activeCategory}` : ' available'}
+          </span>
+        </div>
+
+        {/* Services Bento-style Grid — animated on filter change */}
         <div ref={gridRef} className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
-          {services.map((service, index) => (
-            <ServiceCard
-              key={index}
-              index={index}
-              title={service.title}
-              description={service.description}
-              accent={service.accent}
-              icon={service.icon}
-              onClick={() => handleViewTherapist(service.title)}
-            />
-          ))}
+          <AnimatePresence mode="popLayout">
+            {filteredServices.map((service, index) => (
+              <motion.div
+                key={service.title}
+                layout
+                initial={{ opacity: 0, scale: 0.92, y: 12 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.92, y: -8 }}
+                transition={{ duration: 0.35, delay: (index % 6) * 0.04, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <ServiceCard
+                  index={index}
+                  title={service.title}
+                  description={service.description}
+                  accent={service.accent}
+                  icon={service.icon}
+                  reveal={false}
+                  onClick={() => handleViewTherapist(service.title)}
+                />
+              </motion.div>
+            ))}
+          </AnimatePresence>
         </div>
 
       </div>

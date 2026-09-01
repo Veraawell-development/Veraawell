@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import { IndianRupee, Video, Mic, Landmark, Clock, Mail, CheckCircle, XCircle, BarChart3, ArrowLeft, Lightbulb } from 'lucide-react';
+import { getAuthToken } from '../utils/authToken';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
@@ -53,7 +54,7 @@ const DoctorSettingsPage: React.FC = () => {
   const [earnings, setEarnings] = useState<EarningsStats | null>(null);
 
 
-  const token = localStorage.getItem('token');
+  const token = getAuthToken();
 
   // ── Load current pricing & onboarding status on mount ──────────────────────
   useEffect(() => {

@@ -1,7 +1,7 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
+import toast from 'react-hot-toast';
 import ImageCropModal from './ImageCropModal';
-import Toast from './Toast';
-import { API_CONFIG } from '../config/api';
+import { useImageUploadWithCrop } from '../hooks/useImageUploadWithCrop';
 
 interface ProfileImageUploadProps {
     currentImage?: string;
@@ -16,106 +16,25 @@ const ProfileImageUpload: React.FC<ProfileImageUploadProps> = ({
     onImageRemove,
     defaultImage = '/male.png'
 }) => {
-    const [selectedFile, setSelectedFile] = useState<string | null>(null);
-    const [isUploading, setIsUploading] = useState(false);
-    const [isCropModalOpen, setIsCropModalOpen] = useState(false);
     const [imageError, setImageError] = useState(false);
-    const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
+    const {
+        selectedFile,
+        isUploading,
+        isCropModalOpen,
+        fileInputRef,
+        handleFileSelect,
+        handleCropComplete: uploadCroppedImage,
+        handleClick,
+        handleCloseCropModal
+    } = useImageUploadWithCrop('/upload/profile-image', 'profile', onImageUpdate);
 
-    const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (file) {
-            // Validate file type
-            if (!file.type.startsWith('image/')) {
-                setToast({ message: 'Please select an image file', type: 'error' });
-                return;
-            }
-
-            // Validate file size (5MB)
-            if (file.size > 5 * 1024 * 1024) {
-                setToast({ message: 'Image size should be less than 5MB', type: 'error' });
-                return;
-            }
-
-            // Read file and open crop modal
-            const reader = new FileReader();
-            reader.onload = () => {
-                setSelectedFile(reader.result as string);
-                setIsCropModalOpen(true);
-            };
-            reader.readAsDataURL(file);
-        }
-    };
-
-    const handleCropComplete = async (croppedImage: Blob) => {
-        setIsUploading(true);
-        setIsCropModalOpen(false);
-
-        try {
-            console.log('[UPLOAD] Starting upload...', { size: croppedImage.size, type: croppedImage.type });
-
-            // Create form data
-            const formData = new FormData();
-            formData.append('image', croppedImage, 'profile.jpg');
-
-            console.log('[UPLOAD] Sending to:', `${API_CONFIG.BASE_URL}/upload/profile-image`);
-
-            // Upload to server
-            const response = await fetch(`${API_CONFIG.BASE_URL}/upload/profile-image`, {
-                method: 'POST',
-                credentials: 'include',
-                body: formData
-            });
-
-            console.log('[UPLOAD] Response status:', response.status);
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                console.error('[UPLOAD] Upload failed:', errorText);
-                throw new Error(`Upload failed: ${response.status} - ${errorText}`);
-            }
-
-            const data = await response.json();
-            console.log('[UPLOAD] Upload successful!', data);
-
-            // Update parent component with new image URL
-            onImageUpdate(data.imageUrl);
-
-            // Reset selected file
-            setSelectedFile(null);
-
-            setToast({ message: 'Image uploaded successfully!', type: 'success' });
-        } catch (error) {
-            console.error('[UPLOAD] Upload error:', error);
-            setToast({
-                message: `Failed to upload image: ${error instanceof Error ? error.message : 'Unknown error'}`,
-                type: 'error'
-            });
-        } finally {
-            setIsUploading(false);
-        }
-    };
-
-    const handleClick = () => {
-        fileInputRef.current?.click();
-    };
+    const handleCropComplete = (croppedImage: Blob) => uploadCroppedImage(croppedImage, 'Image uploaded successfully!');
 
     const handleRemove = (e: React.MouseEvent) => {
         e.stopPropagation(); // Prevent triggering upload
-        // Show confirmation via toast
         if (window.confirm('Remove profile image? You will use the default placeholder instead.')) {
             onImageRemove?.();
-            setToast({ message: 'Profile image removed', type: 'info' });
-        }
-    };
-
-    const handleCloseCropModal = () => {
-        setIsCropModalOpen(false);
-        setSelectedFile(null);
-        // Reset file input
-        if (fileInputRef.current) {
-            fileInputRef.current.value = '';
+            toast('Profile image removed');
         }
     };
 
@@ -227,15 +146,6 @@ const ProfileImageUpload: React.FC<ProfileImageUploadProps> = ({
                     imageSrc={selectedFile}
                     onClose={handleCloseCropModal}
                     onCropComplete={handleCropComplete}
-                />
-            )}
-
-            {/* Toast Notification */}
-            {toast && (
-                <Toast
-                    message={toast.message}
-                    type={toast.type}
-                    onClose={() => setToast(null)}
                 />
             )}
         </>

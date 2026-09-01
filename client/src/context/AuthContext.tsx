@@ -2,6 +2,7 @@ import React, { createContext, useState, useContext, useCallback } from 'react';
 import type { ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { API_BASE_URL } from '../config/api';
+import { getAuthToken, setAuthTokenInMemory } from '../utils/authToken';
 
 interface User {
   userId: string;
@@ -33,14 +34,17 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(null); // Removed localStorage - using cookies only
+  // The session is authenticated primarily via the httpOnly cookie the
+  // backend sets on login — this token is only an in-memory fallback (see
+  // utils/authToken.ts for why it's not persisted to localStorage).
+  const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
   const queryClient = useQueryClient();
 
   const setAuthToken = useCallback((newToken: string) => {
     setToken(newToken);
-    localStorage.setItem('token', newToken);
+    setAuthTokenInMemory(newToken);
   }, []);
 
   const checkAuth = useCallback(async () => {
@@ -53,7 +57,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         console.warn('[Auth] Cookies appear to be disabled in this browser.');
       }
 
-      const storedToken = localStorage.getItem('token');
+      const storedToken = getAuthToken();
 
       // Use queryClient.fetchQuery to deduplicate concurrent requests and cache the session
       const sessionData = await queryClient.fetchQuery({
@@ -107,10 +111,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         profileCompleted: sessionData.profileCompleted
       });
 
-      // Store token in state only for WebSocket auth (temporary)
+      // Keep the in-memory token in sync — used as a fallback for Socket.IO
+      // handshakes and the rare cookie-blocked (Safari ITP) case.
       if (sessionData.token) {
         setToken(sessionData.token);
-        localStorage.setItem('token', sessionData.token); // Update localStorage if backend returns a new one
+        setAuthTokenInMemory(sessionData.token);
       } else if (storedToken) {
         setToken(storedToken);
       }
@@ -120,10 +125,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setIsLoggedIn(false);
         setUser(null);
         setToken(null);
-        localStorage.removeItem('token'); // Clear if auth explicitly fails
+        setAuthTokenInMemory(null); // Clear if auth explicitly fails
       } else {
         console.warn('[Auth] Server returned non-401 error or network error:', error);
-        // DO NOT clear localStorage or state here, they might still be valid when server wakes up
+        // DO NOT clear the in-memory token or state here — they might still be valid when server wakes up
       }
     } finally {
       setLoading(false);
@@ -135,7 +140,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsLoggedIn(false);
     setUser(null);
     setToken(null);
-    localStorage.removeItem('token');
+    setAuthTokenInMemory(null);
     queryClient.removeQueries({ queryKey: ['session'] });
   }, [queryClient]);
 
