@@ -6,6 +6,7 @@
 const mongoose = require('mongoose');
 const MongoStore = require('connect-mongo');
 const { getEnv, isProduction } = require('./environment');
+const { getSessionSecret } = require('./auth');
 const { createLogger } = require('../utils/logger');
 const User = require('../models/user');
 
@@ -169,10 +170,13 @@ async function connectDatabase() {
  */
 function createSessionStore() {
   const mongoUri = getEnv('MONGO_URI', 'mongodb://localhost:27017/veraawell');
-  const sessionSecret = getEnv('SESSION_SECRET');
 
-  // If no session secret, generate one (should not happen after validation, but safe fallback)
-  const secret = sessionSecret || require('crypto').randomBytes(64).toString('hex');
+  // Second copy of the SESSION_SECRET fallback removed. It duplicated the
+  // logic in config/auth.js getSessionSecret(), which meant the two could
+  // (and did) disagree about whether an absent secret is fatal — this one
+  // silently minted its own random key. One source of truth: getSessionSecret()
+  // fails closed in production and warns in development.
+  const secret = getSessionSecret();
 
   return MongoStore.create({
     mongoUrl: mongoUri,

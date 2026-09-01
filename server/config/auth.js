@@ -57,11 +57,23 @@ function getSessionSecret() {
 
   if (!secret) {
     if (isProduction()) {
-      // Generate random secret in production if not set (not ideal but better than crash)
-      logger.warn('SESSION_SECRET not set, generating random secret');
-      return crypto.randomBytes(64).toString('hex');
+      // This used to generate a random secret and continue with only a warning.
+      // That is not "better than a crash" — it is a crash deferred and made
+      // invisible:
+      //   - every process restart invalidates every existing session, so users
+      //     are silently logged out on each deploy;
+      //   - two instances generate two different keys, so a session created on
+      //     one is undecryptable on the other (connect-mongo encrypts session
+      //     payloads with this secret) — it makes horizontal scaling
+      //     impossible in a way that presents as random logouts;
+      //   - the failure is indistinguishable from correct operation in logs.
+      // A missing signing key is a configuration error. Fail closed.
+      logger.error('SESSION_SECRET is required in production!');
+      process.exit(1);
     }
-    // Generate random secret in development
+    // Development only: an ephemeral secret is fine, and the warning explains
+    // why sessions do not survive a restart locally.
+    logger.warn('SESSION_SECRET not set, using an ephemeral development secret (sessions will not survive a restart)');
     return crypto.randomBytes(64).toString('hex');
   }
 
