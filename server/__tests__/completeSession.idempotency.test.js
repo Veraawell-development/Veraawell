@@ -90,7 +90,11 @@ test('completing an already-cancelled session is rejected, not silently allowed'
 
   // Now try to complete the already-cancelled session
   const completeRes = await request(app).post(`/sessions/${session._id}/complete`).set('Authorization', auth);
-  expect(completeRes.status).toBe(400);
+  // 409, not 400: the lifecycle table (services/sessionState.js) now rejects
+  // this as a state CONFLICT rather than a malformed request, which is the
+  // accurate status. Deliberate change — verified the client branches on
+  // response.ok and the message, never on the status code.
+  expect(completeRes.status).toBe(409);
 
   const afterComplete = await Session.findById(session._id);
   expect(afterComplete.status).toBe('cancelled'); // unchanged — NOT flipped to 'completed'

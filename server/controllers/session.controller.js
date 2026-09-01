@@ -20,6 +20,8 @@ const { resolveStartsAt, hoursUntilStart } = require('../services/sessionTime');
 const { zonedToUtc, slotKey } = require('../utils/zonedTime');
 const { PLATFORM_TIMEZONE } = require('../config/time');
 const { asyncHandler } = require('../middleware/error.middleware');
+const { applyTransition } = require('../services/sessionTransition');
+const { EVENT, ACTOR } = require('../services/sessionState');
 const { sealedFilter } = require('../authz');
 const { NotFoundError, AuthorizationError } = require('../utils/errors');
 const { getRazorpay } = require('../services/razorpay.client');
@@ -661,17 +663,25 @@ const joinSession = asyncHandler(async (req, res) => {
 const completeSession = asyncHandler(async (req, res) => {
   const { sessionId } = req.params;
   const session = req.authz.resource;
-  if (session.status === 'completed') return res.json({ success: true, message: 'Session already marked as completed', session: { status: session.status } });
-  // Mirrors the guard added to cancelSession (which now rejects completing an
-  // already-cancelled session) — without this, a stale/replayed/racing
-  // /complete request could silently un-cancel a session that was already
-  // refunded, leaving status='completed' with no record it was ever cancelled.
-  if (session.status === 'cancelled') {
-    return res.status(400).json({ success: false, message: 'Cannot complete a session that has already been cancelled' });
+
+  // The transition table owns the rules now: 'completed' from 'completed' is
+  // an accepted no-op, from 'cancelled' is rejected, and — the fix for a
+  // verified bug — from 'scheduled' requires that the session has actually
+  // started. A doctor could previously complete a booking a week in the
+  // future, which permanently blocked the patient's refund because cancel
+  // rejects completed sessions.
+  const result = await applyTransition(session, {
+    event: EVENT.COMPLETE,
+    actor: req.actor.role === 'doctor' ? ACTOR.DOCTOR : ACTOR.PATIENT,
+    extraSet: session.callStatus !== 'completed'
+      ? { callStatus: 'completed', callEndTime: session.callEndTime || new Date() }
+      : {}
+  });
+
+  if (!result.changed) {
+    return res.json({ success: true, message: 'Session already marked as completed', session: { status: session.status } });
   }
-  session.status = 'completed';
-  if (session.callStatus !== 'completed') { session.callStatus = 'completed'; session.callEndTime = session.callEndTime || new Date(); }
-  await session.save();
+  Object.assign(session, { status: result.session.status });
 
   // Send doctor earnings summary email
   try {
