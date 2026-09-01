@@ -87,6 +87,32 @@ const getReportsByDoctor = asyncHandler(async (req, res) => {
 });
 
 /**
+ * GET /api/session-tools/reports/session/:sessionId
+ * Get all reports for a specific session — used by the patient-facing
+ * SessionReportsModal, which previously (incorrectly) read from the separate,
+ * disconnected /api/session-reports system that nothing ever wrote to.
+ */
+const getReportsBySession = asyncHandler(async (req, res) => {
+  const { sessionId } = req.params;
+  const userId = req.user._id.toString();
+
+  const session = await Session.findById(sessionId);
+  if (!session) throw new NotFoundError('Session');
+  if (session.patientId.toString() !== userId && session.doctorId.toString() !== userId) {
+    throw new AuthorizationError('Unauthorized access');
+  }
+
+  const query = { sessionId };
+  if (req.user.role === 'patient') query.isSharedWithPatient = true;
+
+  const reports = await Report.find(query)
+    .populate('doctorId', 'firstName lastName')
+    .sort({ createdAt: -1 });
+
+  res.json({ success: true, reports });
+});
+
+/**
  * PUT /api/session-tools/reports/:reportId/view
  * Mark a report as viewed by patient
  */
@@ -106,4 +132,4 @@ const markReportViewed = asyncHandler(async (req, res) => {
   res.json({ success: true, message: 'Report marked as viewed', report });
 });
 
-module.exports = { createReport, getReportsByPatient, getReportsByDoctor, markReportViewed };
+module.exports = { createReport, getReportsByPatient, getReportsByDoctor, getReportsBySession, markReportViewed };

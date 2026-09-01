@@ -13,9 +13,11 @@ const pendingUserSchema = new mongoose.Schema({
   approvalStatus: { type: String },
   doctorDetails: { type: mongoose.Schema.Types.Mixed },
   
-  // OTP Verification
+  // OTP Verification — `otp` stores a bcrypt hash (see server/utils/otpGenerator.js),
+  // never the plaintext code. `attempts` caps brute-force guessing.
   otp: { type: String, required: true },
-  
+  attempts: { type: Number, default: 0 },
+
   // Automatically delete unverified accounts after 15 minutes (900 seconds)
   createdAt: { type: Date, default: Date.now, expires: 900 }
 });

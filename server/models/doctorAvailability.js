@@ -99,28 +99,37 @@ doctorAvailabilitySchema.methods.isSlotAvailable = function (dateStr, timeStr) {
 };
 
 // Method to book a slot
+//
+// This used to be a plain read-check-push-save: check `this.bookedSlots` in
+// memory, push if not already there, then `.save()`. That's a classic
+// read-modify-write race — two concurrent bookings for the same doctor+
+// date+time can both pass the in-memory check before either has saved,
+// double-booking the slot, and the README's "Atomic Insert Session" claim
+// didn't actually hold. This now does the check-and-set as a single atomic
+// MongoDB operation: the update only applies if no existing array element
+// already matches this date+time, so a losing concurrent call gets a clean
+// `false` back instead of racing.
 doctorAvailabilitySchema.methods.bookSlot = async function (dateStr, timeStr, sessionId) {
-  // Check if slot exists in configured availability first
+  // Check if slot exists in configured availability first — this isn't
+  // concurrency-sensitive (a doctor's configured slots don't change mid-race).
   const slots = this.getAvailableSlotsForDate(dateStr);
   const slotExists = slots.some(s => s.time === timeStr);
-
   if (!slotExists) return false;
 
-  // Check if already booked
-  const isAlreadyBooked = this.bookedSlots.some(
-    booking => booking.date === dateStr && booking.time === timeStr
+  const updated = await this.constructor.findOneAndUpdate(
+    {
+      _id: this._id,
+      bookedSlots: { $not: { $elemMatch: { date: dateStr, time: timeStr } } }
+    },
+    { $push: { bookedSlots: { date: dateStr, time: timeStr, sessionId } } },
+    { new: true }
   );
 
-  if (isAlreadyBooked) return false;
+  if (!updated) return false; // already booked by a concurrent request
 
-  // Add to bookedSlots
-  this.bookedSlots.push({
-    date: dateStr,
-    time: timeStr,
-    sessionId
-  });
-
-  await this.save();
+  // Keep the in-memory document consistent for any code that reads `this`
+  // (e.g. the same instance) after calling bookSlot.
+  this.bookedSlots = updated.bookedSlots;
   return true;
 };
 

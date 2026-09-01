@@ -8,6 +8,7 @@ const MentalHealthAssessment = require('../models/mentalHealthAssessment');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { NotFoundError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
+const { computeScore } = require('../utils/assessmentScoring');
 
 const logger = createLogger('ASSESSMENT-CTRL');
 
@@ -15,11 +16,29 @@ const VALID_TEST_TYPES = ['depression', 'anxiety', 'adhd', 'dla20', 'ptsd', 'add
 
 /** POST /api/assessments — Save an assessment result */
 const saveAssessment = asyncHandler(async (req, res) => {
-  const { testType, responses, scores } = req.body;
+  const { testType, responses, scores: clientScores } = req.body;
   const userId = req.user._id;
 
-  if (!testType || !responses || !scores) return res.status(400).json({ success: false, message: 'Missing required fields: testType, responses, and scores are required' });
+  if (!testType || !responses || !clientScores) return res.status(400).json({ success: false, message: 'Missing required fields: testType, responses, and scores are required' });
   if (!VALID_TEST_TYPES.includes(testType)) return res.status(400).json({ success: false, message: `Invalid test type. Valid types: ${VALID_TEST_TYPES.join(', ')}` });
+
+  // Recompute severity/total/percentage server-side from the raw responses
+  // instead of trusting the client-supplied scores verbatim — this is a
+  // clinical value a doctor relies on, not just a UI label. Falls back to the
+  // client-supplied scores only for test types not yet covered by the shared
+  // scoring table (see assessmentScoring.js).
+  const serverScores = computeScore(testType, responses);
+  if (serverScores) {
+    if (serverScores.severity !== clientScores.severity || serverScores.total !== clientScores.total) {
+      logger.warn('Client/server assessment score mismatch — using server-computed value', {
+        userId: userId.toString().substring(0, 8),
+        testType,
+        client: clientScores,
+        server: serverScores
+      });
+    }
+  }
+  const scores = serverScores || clientScores;
 
   const assessment = new MentalHealthAssessment({ userId, testType, responses, scores, completedAt: new Date() });
   await assessment.save();

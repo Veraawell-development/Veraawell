@@ -32,7 +32,14 @@ const submitReview = asyncHandler(async (req, res) => {
 
   if (req.user.role !== 'patient') throw new AuthorizationError('Only patients can submit reviews');
   if (!sessionId || !rating || !feedback) return res.status(400).json({ success: false, message: 'Session ID, rating, and feedback are required' });
-  if (rating < 1 || rating > 5) return res.status(400).json({ success: false, message: 'Rating must be between 1 and 5' });
+  // A non-numeric rating (e.g. the string "abc") used to slip past both
+  // range checks below silently — "abc" < 1 and "abc" > 5 both evaluate to
+  // false in JS, so neither branch rejected it, and it would have been
+  // persisted as-is.
+  const numericRating = Number(rating);
+  if (!Number.isFinite(numericRating) || numericRating < 1 || numericRating > 5) {
+    return res.status(400).json({ success: false, message: 'Rating must be a number between 1 and 5' });
+  }
   if (reviewType && !['doctor', 'platform'].includes(reviewType)) return res.status(400).json({ success: false, message: 'Review type must be either "doctor" or "platform"' });
 
   const session = await Session.findById(sessionId);
@@ -45,7 +52,7 @@ const submitReview = asyncHandler(async (req, res) => {
 
   const effectiveType = reviewType || 'doctor';
   const review = new Review({
-    sessionId, patientId, doctorId: session.doctorId, rating, feedback,
+    sessionId, patientId, doctorId: session.doctorId, rating: numericRating, feedback,
     positives: positives || '', improvements: improvements || '',
     wouldRecommend: wouldRecommend !== undefined ? wouldRecommend : true,
     reviewType: effectiveType,
@@ -56,7 +63,7 @@ const submitReview = asyncHandler(async (req, res) => {
 
   if (effectiveType === 'doctor') {
     try {
-      await Session.findByIdAndUpdate(sessionId, { rating: { score: rating, review: feedback, ratedAt: new Date() } });
+      await Session.findByIdAndUpdate(sessionId, { rating: { score: numericRating, review: feedback, ratedAt: new Date() } });
       await _syncDoctorRating(session.doctorId);
     } catch (syncError) {
       logger.warn('Error syncing session rating after review', { error: syncError.message });
@@ -135,7 +142,37 @@ const adminGetAllReviews = asyncHandler(async (req, res) => {
 /** GET /api/reviews/admin/doctor-performance — Doctor performance summary (Admin) */
 const adminGetDoctorPerformance = asyncHandler(async (req, res) => {
   const doctors = await User.find({ role: 'doctor' }).select('firstName lastName email');
-  const performance = await Promise.all(doctors.map(async d => ({ doctorId: d._id, doctorName: `${d.firstName} ${d.lastName}`, email: d.email, ...(await Review.getDoctorStats(d._id)) })));
+  const doctorIds = doctors.map(d => d._id);
+
+  // Previously one Review.getDoctorStats() aggregation per doctor (N+1) —
+  // fine at current scale, would not stay fine past ~1000 doctors. This is
+  // the same aggregation, run once across all doctors and grouped by
+  // doctorId, then merged with doctor info in memory.
+  const statsRows = await Review.aggregate([
+    { $match: { doctorId: { $in: doctorIds } } },
+    {
+      $group: {
+        _id: '$doctorId',
+        averageRating: { $avg: '$rating' },
+        totalReviews: { $sum: 1 },
+        fiveStars: { $sum: { $cond: [{ $eq: ['$rating', 5] }, 1, 0] } },
+        fourStars: { $sum: { $cond: [{ $eq: ['$rating', 4] }, 1, 0] } },
+        threeStars: { $sum: { $cond: [{ $eq: ['$rating', 3] }, 1, 0] } },
+        twoStars: { $sum: { $cond: [{ $eq: ['$rating', 2] }, 1, 0] } },
+        oneStar: { $sum: { $cond: [{ $eq: ['$rating', 1] }, 1, 0] } },
+        recommendCount: { $sum: { $cond: ['$wouldRecommend', 1, 0] } }
+      }
+    }
+  ]);
+  const statsByDoctor = new Map(statsRows.map(s => [s._id.toString(), s]));
+  const emptyStats = { averageRating: 0, totalReviews: 0, fiveStars: 0, fourStars: 0, threeStars: 0, twoStars: 0, oneStar: 0, recommendCount: 0 };
+
+  const performance = doctors.map(d => ({
+    doctorId: d._id,
+    doctorName: `${d.firstName} ${d.lastName}`,
+    email: d.email,
+    ...(statsByDoctor.get(d._id.toString()) || emptyStats)
+  }));
   performance.sort((a, b) => b.averageRating - a.averageRating);
   res.json({ success: true, performance });
 });

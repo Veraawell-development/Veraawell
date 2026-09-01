@@ -94,7 +94,6 @@ const uploadBannerImage = async (req, res) => {
     logger.info('Banner image uploaded and saved', { userId: req.user._id.toString().substring(0, 8) });
     res.json({ success: true, imageUrl: result.secure_url, publicId: result.public_id });
   } catch (error) {
-    console.error('Banner image upload error (full):', error);
     logger.error('Banner image upload error', { error: error.message || error });
     res.status(500).json({ success: false, message: 'Failed to upload banner image', error: error.message || 'Unknown error' });
   }

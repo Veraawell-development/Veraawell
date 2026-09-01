@@ -58,8 +58,27 @@ const passwordResetLimiter = rateLimit({
   }
 });
 
+/**
+ * Public document-upload rate limiter — see PUBLIC_UPLOAD in config/constants.js
+ * for why these routes can't simply require verifyToken.
+ */
+const publicUploadLimiter = rateLimit({
+  windowMs: RATE_LIMITS.PUBLIC_UPLOAD.windowMs,
+  max: isProduction()
+    ? RATE_LIMITS.PUBLIC_UPLOAD.max.production
+    : RATE_LIMITS.PUBLIC_UPLOAD.max.development,
+  message: 'Too many upload attempts from this IP, please try again later.',
+  skip: (req) => req.method === 'OPTIONS',
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    throw new RateLimitError('Too many upload attempts, please try again later.');
+  }
+});
+
 module.exports = {
   generalLimiter,
   authLimiter,
-  passwordResetLimiter
+  passwordResetLimiter,
+  publicUploadLimiter
 };

@@ -5,9 +5,8 @@
  */
 // Socket.IO handler for WebRTC video calling with comprehensive logging
 const Session = require('../models/session');
-const jwt = require('jsonwebtoken');
-const { getJWTSecret } = require('../config/auth');
 const { createLogger } = require('../utils/logger');
+const { createSocketAuthMiddleware } = require('./authMiddleware');
 
 const logger = createLogger('SOCKET-HANDLER');
 
@@ -15,38 +14,8 @@ const logger = createLogger('SOCKET-HANDLER');
 const activeRooms = new Map(); // roomId -> { users: Map<userId, {role, socketId}>, createdAt: Date }
 const userSockets = new Map(); // userId -> socketId
 
-// JWT verification middleware for Socket.IO
-const authenticateSocket = (socket, next) => {
-  const token = socket.handshake.auth.token;
-  
-  logger.debug('Authentication attempt', {
-    hasToken: !!token,
-    socketId: socket.id
-  });
-  
-  if (!token) {
-    logger.error('No token provided');
-    return next(new Error('Authentication error: No token provided'));
-  }
-
-  try {
-    const JWT_SECRET = getJWTSecret(); // Use config module - no hardcoded fallback
-    const decoded = jwt.verify(token, JWT_SECRET);
-    socket.user = {
-      id: decoded.userId,
-      role: decoded.role,
-      username: decoded.username
-    };
-    logger.debug('Authentication successful', {
-      userId: decoded.userId?.substring(0, 8) + '...',
-      role: decoded.role
-    });
-    next();
-  } catch (error) {
-    logger.error('Token verification failed', { error: error.message });
-    next(new Error('Authentication error: Invalid token'));
-  }
-};
+// JWT verification middleware for Socket.IO — see socket/authMiddleware.js
+const authenticateSocket = createSocketAuthMiddleware('VIDEO-AUTH');
 
 // Use existing logger
 const log = logger;
@@ -148,19 +117,10 @@ module.exports = (io) => {
           return socket.emit('error', { message: 'Session not found' });
         }
 
-        // Update call tracking - mark call as started or resumed
-        // Handle undefined/null callStatus from old sessions
-        if (!session.callStatus || session.callStatus === 'not-started' || session.callStatus === 'paused') {
-          session.callStatus = 'in-progress';
-          session.callStartTime = new Date();
-          await session.save();
-          log.info('Call started or resumed', { sessionId: sessionId.substring(0, 8) });
-        }
-
         // Verify user authorization
         const patientId = session.patientId?.toString();
         const doctorId = session.doctorId?.toString();
-        
+
         // Debug: Full ID comparison for authorization check
         logger.debug('Authorization check', {
           userId: userId?.substring(0, 8),
@@ -168,18 +128,19 @@ module.exports = (io) => {
           doctorId: doctorId?.substring(0, 8),
           sessionType: session.sessionType
         });
-        
-        // For immediate sessions, allow if user is patient OR if doctorId is null (self-session)
+
         const isPatient = userId === patientId;
         const isDoctor = doctorId && userId === doctorId;
-        // For immediate sessions, allow anyone to join (open session)
-        const isImmediateSession = session.sessionType === 'immediate';
-        
+        // Immediate sessions only bypass identity checks when no doctor has been assigned yet
+        // (a genuine self-session case) — a normal instant booking always has a doctorId, so
+        // this must never be used to let an arbitrary authenticated user into someone else's call.
+        const isImmediateSession = session.sessionType === 'immediate' && !doctorId;
+
         const isAuthorized = isPatient || isDoctor || isImmediateSession;
 
         if (!isAuthorized) {
-          log.error('Unauthorized join attempt', { 
-            userId: userId.substring(0, 8), 
+          log.error('Unauthorized join attempt', {
+            userId: userId.substring(0, 8),
             patientId: patientId?.substring(0, 8) || 'null',
             doctorId: doctorId?.substring(0, 8) || 'null',
             sessionId: sessionId.substring(0, 8),
@@ -188,12 +149,48 @@ module.exports = (io) => {
           socket.emit('error', { message: 'Not authorized to join this session' });
           return;
         }
-        
+
+        // A session that hasn't actually been paid for (or explicitly marked
+        // not_required, e.g. a free/mock session) must not be joinable — the
+        // call itself is the paid product, not just booking the slot.
+        if (!['paid', 'not_required'].includes(session.paymentStatus)) {
+          log.error('Join attempt on unpaid session', {
+            userId: userId.substring(0, 8),
+            sessionId: sessionId.substring(0, 8),
+            paymentStatus: session.paymentStatus
+          });
+          socket.emit('error', { message: 'This session has not been paid for yet.' });
+          return;
+        }
+
         log.info('User authorized for video call', {
           userId: userId.substring(0, 8),
           role: isPatient ? 'patient' : (isDoctor ? 'doctor' : 'self-session'),
           sessionType: session.sessionType
         });
+
+        // Update call tracking - mark call as started or resumed, and record which
+        // side (doctor/patient) has actually joined so no-show detection is accurate.
+        let needsSave = false;
+        if (!session.callStatus || session.callStatus === 'not-started' || session.callStatus === 'paused') {
+          session.callStatus = 'in-progress';
+          session.callStartTime = new Date();
+          needsSave = true;
+        }
+        if (isDoctor && !session.doctorJoined) {
+          session.doctorJoined = true;
+          session.doctorJoinedAt = new Date();
+          needsSave = true;
+        }
+        if (isPatient && !session.patientJoined) {
+          session.patientJoined = true;
+          session.patientJoinedAt = new Date();
+          needsSave = true;
+        }
+        if (needsSave) {
+          await session.save();
+          log.info('Call/join state updated', { sessionId: sessionId.substring(0, 8), isDoctor, isPatient });
+        }
 
         // Leave any existing room
         if (socket.roomId) {
@@ -262,7 +259,8 @@ module.exports = (io) => {
             // Auto-cut when time is up
             if (currentRoom.remainingSeconds <= 0) {
               clearInterval(currentRoom.timerInterval);
-              
+              currentRoom.timerInterval = null;
+
               // Force database update to complete session
               try {
                 const endingSession = await Session.findById(sessionId);
@@ -327,12 +325,12 @@ module.exports = (io) => {
 
     // WebRTC Signaling: Send offer
     socket.on('request-end-session', ({ sessionId, requestedByRole }) => {
-      console.log('[VIDEO-SOCKET] Request end session', { sessionId, requestedByRole });
+      log.info('Request end session', { sessionId: sessionId?.substring(0, 8), requestedByRole });
       socket.to(sessionId).emit('request-end-session', { requestedByRole });
     });
 
     socket.on('confirm-end-session', ({ sessionId, agree, confirmedByRole }) => {
-      console.log('[VIDEO-SOCKET] Confirm end session', { sessionId, agree, confirmedByRole });
+      log.info('Confirm end session', { sessionId: sessionId?.substring(0, 8), agree, confirmedByRole });
       socket.to(sessionId).emit('confirm-end-session', { agree, confirmedByRole });
     });
 
@@ -344,11 +342,24 @@ module.exports = (io) => {
       // Mark session as completed in DB if it hasn't been already
       try {
         const session = await Session.findById(sessionId);
-        if (session && !['completed', 'cancelled', 'missed'].includes(session.status)) {
+        if (session && !['completed', 'cancelled', 'no-show'].includes(session.status)) {
           session.status = 'completed';
+          // Also flip callStatus to a terminal value here. If we don't, the
+          // disconnect handler that fires moments later (this same socket is
+          // about to disconnect) still sees callStatus === 'in-progress' and
+          // runs its own "figure out what happened" logic, which can overwrite
+          // status back to 'scheduled' for any call shorter than the full
+          // booked duration — silently undoing the 'completed' we just set.
+          session.callStatus = 'completed';
           session.callEndTime = new Date();
+          if (!session.actualDuration) {
+            const sessionDurationInMinutes = session.duration || 60;
+            session.actualDuration = session.callStartTime
+              ? Math.max(1, Math.round((session.callEndTime - session.callStartTime) / 60000))
+              : sessionDurationInMinutes;
+          }
           await session.save();
-          log.info('Session marked as completed from call-ended event', { sessionId });
+          log.info('Session marked as completed from call-ended event', { sessionId, actualDuration: session.actualDuration });
         }
       } catch (err) {
         log.error('Error updating session on call-ended', { error: err.message, sessionId });
@@ -373,6 +384,10 @@ module.exports = (io) => {
         if (uniqueUsers < 2 && room.timerInterval) {
           clearInterval(room.timerInterval);
           room.timerInterval = null;
+        }
+        if (uniqueUsers === 0) {
+          activeRooms.delete(sessionId);
+          log.info('Room closed (empty)', { sessionId: sessionId.substring(0, 8) });
         }
       }
       socket.leave(sessionId);
@@ -446,43 +461,11 @@ module.exports = (io) => {
       });
     });
 
-    // User leaving room
-    socket.on('leave-room', ({ sessionId, userId, role }) => {
-      handleUserLeave(socket, sessionId, userId, role);
-    });
-
+    // Note: leave-room is handled once, above — it used to be registered a second
+    // time here with a userId-keyed lookup that never matched (room.users is keyed
+    // by socket.id), causing a duplicate 'user-left' broadcast on every leave.
     // Note: Main disconnect handler is above (lines 73-118)
-    // This duplicate handler has been removed to prevent conflicts
   });
-
-  // Helper function to handle user leaving
-  function handleUserLeave(socket, sessionId, userId, role) {
-    const room = activeRooms.get(sessionId);
-    if (room) {
-      room.users.delete(userId);
-      
-      log.info('User left room', { userId, role, sessionId });
-      log.info(`Remaining users in room ${sessionId?.substring(0, 8) || 'unknown'}:`, {
-        count: room.users.size
-      });
-
-      // Notify others
-      socket.to(sessionId).emit('user-left', {
-        userId,
-        role,
-        timestamp: new Date().toISOString()
-      });
-
-      // Clean up empty rooms
-      if (room.users.size === 0) {
-        activeRooms.delete(sessionId);
-        log.info('Room closed (empty)', { sessionId: sessionId.substring(0, 8) });
-      }
-    }
-
-    socket.leave(sessionId);
-    userSockets.delete(userId);
-  }
 
   // Log active rooms every 30 seconds
   setInterval(() => {

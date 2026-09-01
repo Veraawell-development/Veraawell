@@ -359,8 +359,15 @@ exports.updateArticle = asyncHandler(async (req, res) => {
             });
         }
 
-        // Update fields
-        Object.keys(updateData).forEach(key => {
+        // Only these fields are settable via this endpoint — the previous
+        // `Object.keys(updateData).forEach(...)` loop wrote ANY key present in
+        // the request body onto the document (views, likes, slug, authorId,
+        // createdAt, etc.), bypassing the schema entirely. This route is
+        // Super Admin-gated so the practical exposure was limited, but an
+        // explicit allowlist is the correct fix rather than trusting whatever
+        // the client happens to send.
+        const UPDATABLE_FIELDS = ['title', 'description', 'content', 'category', 'tags', 'author', 'image', 'featured', 'status'];
+        UPDATABLE_FIELDS.forEach(key => {
             if (updateData[key] !== undefined) {
                 article[key] = updateData[key];
             }

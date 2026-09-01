@@ -6,15 +6,17 @@ const User = require('../models/user');
 const PlatformSettings = require('../models/platformSettings');
 const SocketEmitter = require('../utils/socketEmitter');
 const emailService = require('../services/email.service');
+const { verifyWebhookSignature } = require('../utils/webhookSignature');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('PAYMENT');
 
 function _emitToUsers(req, event, data, userIds) {
   const io = req.app.get('io');
-  console.log(`[PaymentVerify] _emitToUsers called for event ${event} to users ${userIds}`);
   if (io) {
-    console.log(`[PaymentVerify] Socket.io instance found, emitting...`);
     new SocketEmitter(io).emitToUsers(userIds, event, data);
   } else {
-    console.warn(`[PaymentVerify] Socket.io instance NOT found on req.app`);
+    logger.warn('_emitToUsers called but no Socket.io instance found on req.app', { event });
   }
 }
 
@@ -22,6 +24,61 @@ const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
+
+/**
+ * Shared by verifyPayment (client-triggered) and razorpayWebhook (server-triggered) so
+ * that whichever one runs first, the doctor is notified and confirmation emails go out —
+ * previously only verifyPayment did this, so a payment confirmed solely by the webhook
+ * (e.g. the client's browser closed right after the Razorpay checkout) never rang the
+ * doctor or emailed either party even though the DB correctly showed paid.
+ */
+async function _markSessionPaidAndNotify(req, session, paymentId) {
+  session.paymentStatus = 'paid';
+  session.paymentId = paymentId;
+  session.status = session.sessionType === 'immediate' ? 'active' : 'scheduled';
+  await session.save();
+
+  const populated = await Session.findById(session._id)
+    .populate('patientId', 'firstName lastName email')
+    .populate('doctorId', 'firstName lastName email');
+
+  _emitToUsers(req, 'session:booked', {
+    session: populated,
+    patientId: session.patientId.toString(),
+    doctorId: session.doctorId.toString(),
+    sessionId: session._id.toString(),
+    timestamp: new Date()
+  }, [session.patientId.toString(), session.doctorId.toString()]);
+
+  try {
+    const sessionDate = new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    if (populated.patientId?.email) {
+      await emailService.sendBookingConfirmationEmail(populated.patientId.email, {
+        date: sessionDate,
+        time: session.sessionTime,
+        type: session.sessionType === 'immediate' ? 'Immediate' : 'Regular',
+        doctorName: `${populated.doctorId.firstName} ${populated.doctorId.lastName}`,
+        duration: session.duration,
+        price: session.price
+      });
+    }
+    if (populated.doctorId?.email) {
+      await emailService.sendDoctorNewBookingEmail(populated.doctorId.email, {
+        doctorName: `${populated.doctorId.firstName} ${populated.doctorId.lastName}`,
+        patientName: `${populated.patientId.firstName} ${populated.patientId.lastName}`,
+        date: sessionDate,
+        time: session.sessionTime,
+        duration: session.duration,
+        type: session.sessionType === 'immediate' ? 'Immediate' : 'Regular',
+        doctorEarnings: session.doctorEarnings
+      });
+    }
+  } catch (emailErr) {
+    logger.warn('Booking confirmation email failed', { error: emailErr.message });
+  }
+
+  return populated;
+}
 
 /**
  * POST /api/payments/request-onboarding
@@ -61,7 +118,7 @@ exports.requestOnboarding = async (req, res) => {
     doctorProfile.razorpayKYCRejectionReason = null;
     await doctorProfile.save();
 
-    console.log(`[Onboarding] Dr. ${req.user.firstName} requested payout setup.`);
+    logger.info('Doctor requested payout setup', { firstName: req.user.firstName });
 
     res.json({
       success: true,
@@ -70,7 +127,7 @@ exports.requestOnboarding = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error in requestOnboarding:', error);
+    logger.error('Error in requestOnboarding', { error: error.message });
     res.status(500).json({ message: 'Failed to submit onboarding request' });
   }
 };
@@ -109,7 +166,7 @@ exports.getOnboardingStatus = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error in getOnboardingStatus:', error);
+    logger.error('Error in getOnboardingStatus', { error: error.message });
     res.status(500).json({ message: 'Failed to fetch onboarding status' });
   }
 };
@@ -134,8 +191,12 @@ exports.verifyPayment = async (req, res) => {
       .update(body)
       .digest('hex');
 
-    if (expectedSignature !== razorpay_signature) {
-      console.warn('[PaymentVerify] Signature mismatch', { orderId: razorpay_order_id });
+    const expectedBuf = Buffer.from(expectedSignature, 'utf8');
+    const suppliedBuf = Buffer.from(razorpay_signature, 'utf8');
+    const isValidSignature = expectedBuf.length === suppliedBuf.length && crypto.timingSafeEqual(expectedBuf, suppliedBuf);
+
+    if (!isValidSignature) {
+      logger.warn('Payment signature mismatch', { orderId: razorpay_order_id });
       return res.status(400).json({ success: false, message: 'Payment verification failed. Invalid signature.' });
     }
 
@@ -167,60 +228,14 @@ exports.verifyPayment = async (req, res) => {
       return res.json({ success: true, message: 'Payment already confirmed.', session: populated });
     }
 
-    session.paymentStatus = 'paid';
-    session.paymentId = razorpay_payment_id;
-    session.status = session.sessionType === 'immediate' ? 'active' : 'scheduled';
-    await session.save();
+    const populated = await _markSessionPaidAndNotify(req, session, razorpay_payment_id);
 
-    const populated = await Session.findById(session._id)
-      .populate('patientId', 'firstName lastName email')
-      .populate('doctorId', 'firstName lastName email');
-
-    // Notify doctor about the booking ONLY AFTER payment verification
-    _emitToUsers(req, 'session:booked', { 
-      session: populated, 
-      patientId: session.patientId.toString(), 
-      doctorId: session.doctorId.toString(), 
-      sessionId: session._id.toString(), 
-      timestamp: new Date() 
-    }, [session.patientId.toString(), session.doctorId.toString()]);
-
-    // Send emails
-    try {
-      const sessionDate = new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-      // Email patient
-      if (populated.patientId && populated.patientId.email) {
-        await emailService.sendBookingConfirmationEmail(populated.patientId.email, {
-          date: sessionDate,
-          time: session.sessionTime,
-          type: session.sessionType === 'immediate' ? 'Immediate' : 'Regular',
-          doctorName: `${populated.doctorId.firstName} ${populated.doctorId.lastName}`,
-          duration: session.duration,
-          price: session.price
-        });
-      }
-      // Email doctor about new booking
-      if (populated.doctorId && populated.doctorId.email) {
-        await emailService.sendDoctorNewBookingEmail(populated.doctorId.email, {
-          doctorName: `${populated.doctorId.firstName} ${populated.doctorId.lastName}`,
-          patientName: `${populated.patientId.firstName} ${populated.patientId.lastName}`,
-          date: sessionDate,
-          time: session.sessionTime,
-          duration: session.duration,
-          type: session.sessionType === 'immediate' ? 'Immediate' : 'Regular',
-          doctorEarnings: session.doctorEarnings
-        });
-      }
-    } catch (emailErr) {
-      console.warn('[PaymentVerify] Email send failed:', emailErr.message);
-    }
-
-    console.log(`[PaymentVerify] Session ${session._id} payment confirmed.`);
+    logger.info('Payment confirmed', { sessionId: session._id.toString().substring(0, 8) });
 
     res.json({ success: true, message: 'Payment verified. Your session is confirmed!', session: populated });
 
   } catch (error) {
-    console.error('Error in verifyPayment:', error);
+    logger.error('Error in verifyPayment', { error: error.message });
     res.status(500).json({ success: false, message: 'Payment verification failed' });
   }
 };
@@ -234,13 +249,31 @@ exports.razorpayWebhook = async (req, res) => {
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
     const signature = req.headers['x-razorpay-signature'];
 
-    const expectedSignature = crypto
-      .createHmac('sha256', secret)
-      .update(JSON.stringify(req.body))
-      .digest('hex');
+    // Verify against the raw request bytes (req.rawBody, captured by the
+    // express.json() `verify` hook in app.js) — Razorpay signs the exact bytes
+    // it sent, and JSON.stringify(req.body) is not guaranteed to reproduce
+    // those bytes.
+    //
+    // This used to fall back to Buffer.from(JSON.stringify(req.body)) if
+    // req.rawBody was ever missing — but that fallback is exactly the
+    // byte-mismatch-prone comparison this verification exists to avoid. A
+    // security-critical check should fail closed, not silently downgrade to
+    // a weaker method with no logging when its strong path isn't available.
+    // Razorpay retries webhook delivery on a non-2xx response, so rejecting
+    // here is safe (it just delays processing) — accepting under weaker
+    // scrutiny is not.
+    if (!req.rawBody) {
+      logger.error('Webhook received without req.rawBody — check body-parser/middleware order', {
+        path: req.path,
+        contentType: req.headers['content-type']
+      });
+      return res.status(400).json({ message: 'Unable to verify webhook signature' });
+    }
 
-    if (expectedSignature !== signature) {
-      console.warn('[Webhook] Invalid signature received');
+    const isValidSignature = verifyWebhookSignature(req.rawBody, signature, secret);
+
+    if (!isValidSignature) {
+      logger.warn('Webhook signature verification failed');
       return res.status(400).json({ message: 'Invalid signature' });
     }
 
@@ -263,7 +296,7 @@ exports.razorpayWebhook = async (req, res) => {
     const event = req.body.event;
     const payload = req.body.payload;
 
-    console.log(`[Webhook] Received event: ${event}`);
+    logger.info('Webhook event received', { event });
 
     // ── payment.captured ─────────────────────────────────────────────────────
     if (event === 'payment.captured') {
@@ -271,11 +304,8 @@ exports.razorpayWebhook = async (req, res) => {
       if (payment) {
         const session = await Session.findOne({ razorpayOrderId: payment.order_id });
         if (session && session.paymentStatus !== 'paid') {
-          session.paymentStatus = 'paid';
-          session.paymentId = payment.id;
-          session.status = session.sessionType === 'immediate' ? 'active' : 'scheduled';
-          await session.save();
-          console.log(`[Webhook] Session ${session._id} marked as paid via webhook.`);
+          await _markSessionPaidAndNotify(req, session, payment.id);
+          logger.info('Session marked as paid via webhook', { sessionId: session._id.toString().substring(0, 8) });
         }
       }
     }
@@ -290,7 +320,7 @@ exports.razorpayWebhook = async (req, res) => {
         if (session && session.paymentStatus === 'pending') {
           session.paymentStatus = 'failed';
           await session.save();
-          console.log(`[Webhook] Session ${session._id} payment failed.`);
+          logger.info('Session payment failed', { sessionId: session._id.toString().substring(0, 8) });
           // Notify patient
           if (session.patientId && session.patientId.email) {
             try {
@@ -299,7 +329,7 @@ exports.razorpayWebhook = async (req, res) => {
                 doctorName: session.doctorId ? `${session.doctorId.firstName} ${session.doctorId.lastName}` : 'your doctor',
                 amount: session.price
               });
-            } catch (e) { console.warn('[Webhook] Payment failed email error:', e.message); }
+            } catch (e) { logger.warn('Payment failed email error', { error: e.message }); }
           }
         }
       }
@@ -316,7 +346,7 @@ exports.razorpayWebhook = async (req, res) => {
           doctorProfile.razorpayOnboardingStatus = 'active';
           doctorProfile.razorpayActivatedAt = new Date();
           await doctorProfile.save();
-          console.log(`[Webhook] Doctor ${referenceId} payout account activated.`);
+          logger.info('Doctor payout account activated', { doctorId: referenceId.toString().substring(0, 8) });
 
           // Email doctor
           const doctor = await User.findById(referenceId);
@@ -324,7 +354,7 @@ exports.razorpayWebhook = async (req, res) => {
             try {
               const emailService = require('../services/email.service');
               await emailService.sendPayoutActivatedEmail(doctor.email, doctor.firstName);
-            } catch (e) { console.warn('[Webhook] Activation email failed:', e.message); }
+            } catch (e) { logger.warn('Activation email failed', { error: e.message }); }
           }
         }
       }
@@ -342,7 +372,7 @@ exports.razorpayWebhook = async (req, res) => {
           doctorProfile.razorpayKYCRejectionReason = 'KYC rejected by Razorpay';
           doctorProfile.payoutSetupCompleted = false;
           await doctorProfile.save();
-          console.log(`[Webhook] Doctor ${referenceId} payout account rejected.`);
+          logger.info('Doctor payout account rejected', { doctorId: referenceId.toString().substring(0, 8) });
           
           const doctor = await User.findById(referenceId);
           if (doctor) {
@@ -351,7 +381,7 @@ exports.razorpayWebhook = async (req, res) => {
               await emailService.sendPayoutOnboardingRejectedEmail(
                 doctor.email, doctor.firstName, 'Your KYC was not approved by Razorpay. Please contact support.'
               );
-            } catch (e) { console.warn('Rejection email failed:', e.message); }
+            } catch (e) { logger.warn('Rejection email failed', { error: e.message }); }
           }
         }
       }
@@ -366,7 +396,7 @@ exports.razorpayWebhook = async (req, res) => {
         if (session && !session.razorpayTransferId) {
           session.razorpayTransferId = transfer.id;
           await session.save();
-          console.log(`[Webhook] Transfer ${transfer.id} saved for session ${session._id}`);
+          logger.info('Transfer saved for session', { sessionId: session._id.toString().substring(0, 8) });
         }
       }
     }
@@ -383,7 +413,7 @@ exports.razorpayWebhook = async (req, res) => {
           if (!session.refundedAt) session.refundedAt = new Date(refund.created_at * 1000);
           if (!session.refundAmount) session.refundAmount = refund.amount / 100;
           await session.save();
-          console.log(`[Webhook] Refund ${refund.id} confirmed for session ${session._id}`);
+          logger.info('Refund confirmed for session', { sessionId: session._id.toString().substring(0, 8) });
           // Email patient with confirmation
           if (session.patientId && session.patientId.email) {
             try {
@@ -393,7 +423,7 @@ exports.razorpayWebhook = async (req, res) => {
                 refundId: refund.id,
                 date: new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
               });
-            } catch (e) { console.warn('[Webhook] Refund confirmed email error:', e.message); }
+            } catch (e) { logger.warn('Refund confirmed email error', { error: e.message }); }
           }
         }
       }
@@ -401,7 +431,7 @@ exports.razorpayWebhook = async (req, res) => {
 
     res.status(200).json({ status: 'ok' });
   } catch (error) {
-    console.error('[Webhook] Error:', error);
+    logger.error('Webhook processing error', { error: error.message });
     res.status(500).json({ message: 'Webhook processing failed' });
   }
 };

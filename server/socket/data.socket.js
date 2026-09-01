@@ -4,61 +4,13 @@
  * Separate from video call and chat namespaces
  */
 
-const jwt = require('jsonwebtoken');
-const { getJWTSecret } = require('../config/auth');
 const { createLogger } = require('../utils/logger');
+const { createSocketAuthMiddleware } = require('./authMiddleware');
 
 const logger = createLogger('DATA-SOCKET');
 
-// Authenticate socket connections
-const authenticateSocket = (socket, next) => {
-    // 1. Try to get token from handshake auth (fallback for blocked cookies)
-    let token = socket.handshake.auth && socket.handshake.auth.token;
-    
-    if (token) {
-        logger.debug('Token extracted from handshake auth');
-    } else {
-        // 2. Try to get token from cookies
-        const cookies = socket.handshake.headers.cookie;
-        
-        logger.debug('Data socket authentication attempt', {
-            hasCookies: !!cookies,
-            socketId: socket.id
-        });
-
-        if (cookies) {
-            const tokenMatch = cookies.match(/token=([^;]+)/);
-            token = tokenMatch ? tokenMatch[1] : null;
-            if (token) {
-                logger.debug('Token extracted from cookie');
-            }
-        }
-    }
-
-    if (!token) {
-        logger.error('No auth token found in handshake auth or cookies');
-        return next(new Error('Authentication error: No token provided'));
-    }
-
-    try {
-        const JWT_SECRET = getJWTSecret();
-        const decoded = jwt.verify(token, JWT_SECRET);
-
-        socket.userId = decoded.userId;
-        socket.userRole = decoded.role;
-        socket.username = decoded.username;
-
-        logger.debug('Data socket authentication successful', {
-            userId: decoded.userId?.substring(0, 8) + '...',
-            role: decoded.role
-        });
-
-        next();
-    } catch (error) {
-        logger.error('Data socket token verification failed', { error: error.message });
-        next(new Error('Authentication error: Invalid token'));
-    }
-};
+// Authenticate socket connections — see socket/authMiddleware.js
+const authenticateSocket = createSocketAuthMiddleware('DATA-AUTH');
 
 // Track active doctor connections to prevent accidental offline status
 // userId -> Set of socket IDs

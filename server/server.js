@@ -101,7 +101,7 @@ async function startServer() {
 
         // Start scheduler (session reminders, status updates)
         const { startScheduler } = require('./services/scheduler');
-        startScheduler();
+        startScheduler(io);
 
       } catch (dbError) {
         logger.error('Failed to connect to database or initialize services', { error: dbError.message });

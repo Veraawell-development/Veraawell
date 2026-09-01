@@ -37,8 +37,16 @@ const getEntriesByPatient = asyncHandler(async (req, res) => {
 
   if (userId !== patientId) throw new AuthorizationError('Unauthorized');
 
-  const journals = await Journal.find({ patientId }).sort({ createdAt: -1 });
-  res.json({ success: true, journals });
+  // Unbounded before this — a long-term patient journaling regularly for
+  // years returned their entire history on every page load. The supporting
+  // index ({patientId:1, createdAt:-1}) was already in place, just unused.
+  const page = Math.max(parseInt(req.query.page) || 1, 1);
+  const limit = Math.min(parseInt(req.query.limit) || 20, 50);
+  const journals = await Journal.find({ patientId })
+    .sort({ createdAt: -1 })
+    .skip((page - 1) * limit)
+    .limit(limit);
+  res.json({ success: true, journals, page, limit });
 });
 
 /**

@@ -5,6 +5,11 @@ const User = require('../../models/user');
 const { verifyAdminToken, verifySuperAdmin } = require('../../middleware/auth.middleware');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
+const { authLimiter } = require('../../middleware/rateLimit.middleware');
+const { isProduction } = require('../../config/environment');
+const { createLogger } = require('../../utils/logger');
+
+const logger = createLogger('ADMIN-AUTH');
 
 // Email configuration
 const transporter = nodemailer.createTransport({
@@ -28,11 +33,24 @@ const checkFirstTimeSetup = async (req, res, next) => {
   }
 };
 
-router.post('/setup', checkFirstTimeSetup, async (req, res) => {
+router.post('/setup', authLimiter, checkFirstTimeSetup, async (req, res) => {
   try {
+    const email = process.env.INITIAL_ADMIN_EMAIL;
+    if (!email) {
+      return res.status(500).json({ message: 'INITIAL_ADMIN_EMAIL must be set in the environment to run first-time setup' });
+    }
+    // A hardcoded password here (there used to be one, 'Admin@123') would be
+    // committed to source control and publicly known — anyone who can reach
+    // this endpoint before an admin exists (fresh deploy, DB reset, staging)
+    // would get a fully privileged account with a published password. Use an
+    // explicit env-provided password if set, otherwise generate a one-time
+    // random password and surface it only in the server log, never in the
+    // HTTP response.
+    const tempPassword = process.env.INITIAL_ADMIN_PASSWORD || crypto.randomBytes(12).toString('hex');
+
     const adminData = {
-      email: 'development.veraawell@gmail.com',
-      password: 'Admin@123',
+      email,
+      password: tempPassword,
       firstName: 'Super',
       lastName: 'Admin'
     };
@@ -40,12 +58,19 @@ router.post('/setup', checkFirstTimeSetup, async (req, res) => {
     const admin = await User.createFirstAdmin(adminData);
     await admin.logActivity('account_created', { isFirstAdmin: true });
 
+    if (!process.env.INITIAL_ADMIN_PASSWORD) {
+      logger.warn('First super admin created with a generated one-time password — rotate it immediately after first login', {
+        email: admin.email,
+        tempPassword
+      });
+    }
+
     res.json({
       message: 'Super admin account created successfully',
       email: admin.email
     });
   } catch (error) {
-    console.error('Setup error:', error);
+    logger.error('Setup error', { error: error.message });
     res.status(500).json({ message: 'Failed to create super admin account' });
   }
 });
@@ -108,16 +133,17 @@ router.post('/forgot-password', async (req, res) => {
     await transporter.sendMail(mailOptions);
     await admin.logActivity('password_reset_requested', { timestamp: new Date() });
 
-    // Log for debugging
-    console.log(`Reset token generated for admin ${admin.email}:`, resetToken);
-    console.log('Reset token expiry:', admin.resetTokenExpiry);
+    // The reset token used to be logged in full and returned in the response
+    // body whenever NODE_ENV === 'development'. If NODE_ENV is ever
+    // misconfigured in a shared/staging environment (an easy real-world
+    // mistake), that handed out account-takeover tokens directly through the
+    // API response and server logs. The token is delivered exclusively via
+    // the emailed link now.
+    logger.info('Password reset requested for admin', { email: admin.email });
 
-    res.json({
-      message: 'Password reset instructions sent to your email',
-      debug: process.env.NODE_ENV === 'development' ? { resetToken } : undefined
-    });
+    res.json({ message: 'Password reset instructions sent to your email' });
   } catch (error) {
-    console.error('Forgot password error:', error);
+    logger.error('Forgot password error', { error: error.message });
     res.status(500).json({ message: 'Failed to process password reset request' });
   }
 });
@@ -152,22 +178,38 @@ router.post('/reset-password/:token', async (req, res) => {
     await admin.logActivity('password_reset_completed', { timestamp: new Date() });
 
     // Log for debugging
-    console.log(`Password reset completed for admin ${admin.email}`);
+    logger.info('Password reset completed for admin', { email: admin.email });
 
     res.json({ message: 'Password reset successful' });
   } catch (error) {
-    console.error('Reset password error:', error);
+    logger.error('Reset password error', { error: error.message });
     res.status(500).json({ message: 'Failed to reset password' });
   }
 });
 
-// Admin login route
-router.post('/login', async (req, res) => {
+// Admin login route — this is the most privileged login path in the app
+// (super-admin master password + regular admin login), so it gets the auth
+// rate limiter applied directly rather than relying on any outer wiring.
+router.post('/login', authLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
-    // SUPER ADMIN LOGIN (from ENV)
-    if (email.toLowerCase() === process.env.ADMIN_ID && password === process.env.ADMIN_PASSWORD) {
+    // SUPER ADMIN LOGIN (from ENV) — constant-time comparison. A plain `===`
+    // string comparison short-circuits on the first differing byte, which is
+    // a measurable timing side-channel on the single most privileged
+    // credential in the system.
+    const suppliedIdBuf = Buffer.from((email || '').toLowerCase());
+    const expectedIdBuf = Buffer.from(process.env.ADMIN_ID || '');
+    const suppliedPwBuf = Buffer.from(password || '');
+    const expectedPwBuf = Buffer.from(process.env.ADMIN_PASSWORD || '');
+    const idMatches = !!process.env.ADMIN_ID
+      && suppliedIdBuf.length === expectedIdBuf.length
+      && crypto.timingSafeEqual(suppliedIdBuf, expectedIdBuf);
+    const pwMatches = !!process.env.ADMIN_PASSWORD
+      && suppliedPwBuf.length === expectedPwBuf.length
+      && crypto.timingSafeEqual(suppliedPwBuf, expectedPwBuf);
+
+    if (idMatches && pwMatches) {
       // Check if super admin exists in database
       let superAdmin = await User.findOne({ email: process.env.ADMIN_ID, role: 'super_admin' });
 
@@ -184,7 +226,7 @@ router.post('/login', async (req, res) => {
           profileCompleted: true
         });
         await superAdmin.save();
-        console.log('Super admin created automatically');
+        logger.info('Super admin created automatically');
       }
 
       // Create token for super admin
@@ -194,8 +236,7 @@ router.post('/login', async (req, res) => {
         { expiresIn: '8h' }
       );
 
-      console.log('[ADMIN LOGIN] Super admin token generated:', token.substring(0, 30) + '...');
-      console.log('[ADMIN LOGIN] Token will be sent in response body and cookie');
+      logger.info('Super admin token generated');
 
       // Set cookie
       res.cookie('adminToken', token, {
@@ -204,8 +245,6 @@ router.post('/login', async (req, res) => {
         sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
         maxAge: 28800000 // 8 hours
       });
-
-      console.log('[ADMIN LOGIN] Cookie set successfully');
 
       return res.json({
         message: 'Super admin login successful',
@@ -222,28 +261,28 @@ router.post('/login', async (req, res) => {
     }
 
     // Find admin
-    console.log('[ADMIN LOGIN] Attempting login for email:', email.toLowerCase());
+    logger.info('Admin login attempt', { email: email.toLowerCase() });
     const admin = await User.findOne({ email: email.toLowerCase(), role: { $in: ['admin', 'super_admin'] } });
     
     if (!admin) {
-      console.log('[ADMIN LOGIN] Admin not found with email:', email.toLowerCase());
+      logger.warn('Admin not found', { email: email.toLowerCase() });
       
       // Check if user exists with a different role to give better feedback
       const anyUser = await User.findOne({ email: email.toLowerCase() });
       if (anyUser) {
-        console.log('[ADMIN LOGIN] User found with a different role:', anyUser.role);
+        logger.warn('User found with a different role', { role: anyUser.role });
         return res.status(403).json({ message: `Account found but it is registered as a ${anyUser.role}, not an admin.` });
       }
       
       return res.status(404).json({ message: 'Account not found. Please register as an admin first.' });
     }
 
-    console.log('[ADMIN LOGIN] Admin found. Role:', admin.role, 'Approval status:', admin.approvalStatus);
+    logger.info('Admin found', { role: admin.role, approvalStatus: admin.approvalStatus });
 
     // Check if admin is approved (only for regular admins, not super_admin)
     // We check this BEFORE password to give better feedback to pending admins as requested
     if (admin.role === 'admin' && admin.approvalStatus !== 'approved') {
-      console.log('[ADMIN LOGIN] Admin not approved. Status:', admin.approvalStatus);
+      logger.warn('Admin not approved', { approvalStatus: admin.approvalStatus });
       if (admin.approvalStatus === 'pending') {
         return res.status(403).json({ message: 'Your account is pending approval. Please wait for super admin to approve your request.' });
       } else if (admin.approvalStatus === 'rejected') {
@@ -252,18 +291,18 @@ router.post('/login', async (req, res) => {
     }
 
     // Check password
-    console.log('[ADMIN LOGIN] Checking password for email:', email.toLowerCase());
+    logger.debug('Checking admin password', { email: email.toLowerCase() });
     const isMatch = await admin.comparePassword(password);
     if (!isMatch) {
-      console.log('[ADMIN LOGIN] Password mismatch for email:', email.toLowerCase());
+      logger.warn('Admin password mismatch', { email: email.toLowerCase() });
       return res.status(401).json({ message: 'Invalid password' });
     }
 
-    console.log('[ADMIN LOGIN] Password match successful');
+    logger.info('Admin password match successful');
 
     // Check if admin is active
     if (admin.status !== 'active') {
-      console.log('[ADMIN LOGIN] Account suspended for email:', email.toLowerCase());
+      logger.warn('Admin account suspended', { email: email.toLowerCase() });
       return res.status(403).json({ message: 'Account is suspended' });
     }
 
@@ -302,7 +341,7 @@ router.post('/login', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Admin login error:', error);
+    logger.error('Admin login error', { error: error.message });
     res.status(500).json({ message: 'Login failed' });
   }
 });
@@ -329,7 +368,7 @@ router.post('/change-password', verifyAdminToken, async (req, res) => {
 
     res.json({ message: 'Password updated successfully' });
   } catch (error) {
-    console.error('Password change error:', error);
+    logger.error('Password change error', { error: error.message });
     res.status(500).json({ message: 'Failed to update password' });
   }
 });
@@ -376,7 +415,7 @@ router.post('/create', verifyAdminToken, verifySuperAdmin, async (req, res) => {
       message: 'Admin created successfully. Credentials sent via email.'
     });
   } catch (error) {
-    console.error('Create admin error:', error);
+    logger.error('Create admin error', { error: error.message });
     res.status(500).json({ message: 'Failed to create admin account' });
   }
 });
@@ -395,7 +434,7 @@ router.post('/logout', verifyAdminToken, async (req, res) => {
 
     res.json({ message: 'Logged out successfully' });
   } catch (error) {
-    console.error('Logout error:', error);
+    logger.error('Logout error', { error: error.message });
     res.status(500).json({ message: 'Logout failed' });
   }
 });
@@ -415,7 +454,7 @@ router.get('/status', verifyAdminToken, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Status check error:', error);
+    logger.error('Status check error', { error: error.message });
     res.status(500).json({ message: 'Server error' });
   }
 });

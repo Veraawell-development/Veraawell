@@ -49,7 +49,6 @@ const sessionToolsRoutes = require('./routes/sessionTools');
 const doctorStatusRoutes = require('./routes/doctor-status');
 const mentalHealthAssessmentRoutes = require('./routes/mentalHealthAssessment');
 const uploadRoutes = require('./routes/upload');
-const ratingsRoutes = require('./routes/ratings');
 const sessionReportsRoutes = require('./routes/sessionReports');
 
 const app = express();
@@ -101,20 +100,13 @@ app.use(cors({
   optionsSuccessStatus: 204
 }));
 
-// Handle preflight OPTIONS requests explicitly for all routes
-// Using /.* instead of * to avoid path-to-regexp parse error
-app.options(/.*/, (req, res) => {
-  appLogger.debug('CORS: Handling OPTIONS preflight request', {
-    origin: req.headers.origin,
-    method: req.method,
-    path: req.path
-  });
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.sendStatus(204);
-});
+// Note: a manual `app.options(/.*/, ...)` preflight handler used to live here,
+// unconditionally reflecting `req.headers.origin` regardless of the whitelist
+// above. With `preflightContinue: false` set on cors() (line 99), the cors()
+// middleware already fully handles OPTIONS preflight requests itself and does
+// not call next() for them — so that second handler was both unreachable
+// under normal operation and, if it were ever reached, a real whitelist
+// bypass. Removed rather than left as dead-but-wrong policy.
 
 // Security: Helmet for security headers
 app.use(helmet({
@@ -139,6 +131,9 @@ if (isProduction()) {
   app.use('/api/auth/login', authLimiter);
   app.use('/api/auth/register', authLimiter);
   app.use('/api/auth/forgot-password', passwordResetLimiter);
+  // Signup OTP verification previously had no rate limit at all — a 6-digit
+  // code with unlimited guesses is brute-forceable in well under a minute.
+  app.use('/api/auth/verify-signup', authLimiter);
 }
 
 // Request timeout middleware (60 seconds)
@@ -154,9 +149,68 @@ app.use((req, res, next) => {
 
 // Body parsing middleware
 // 1mb is sufficient for JSON payloads. Upload routes handle their own multipart limits.
-app.use(express.json({ limit: '1mb' }));
+// `verify` stashes the raw request bytes on req.rawBody — the Razorpay webhook
+// handler needs to HMAC-verify against the exact bytes Razorpay signed, not a
+// JSON.stringify(req.body) reconstruction, which isn't guaranteed byte-identical
+// (key order, numeric formatting, unicode escaping can all differ) and can cause
+// legitimate webhooks to intermittently fail signature verification.
+app.use(express.json({
+  limit: '1mb',
+  verify: (req, res, buf) => { req.rawBody = buf; }
+}));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(cookieParser());
+
+// ── CSRF protection (double-submit cookie) ──────────────────────────────────
+// See middleware/csrf.middleware.js for the full rationale. issueCsrfToken
+// runs on every request so any page load hands the browser a token before it
+// ever needs to submit one; verifyCSRF then requires that token to be echoed
+// back in a header on state-changing (non-GET/HEAD/OPTIONS) requests.
+//
+// Excluded from verification, deliberately:
+//  - /api/payments/webhook: authenticated via Razorpay's HMAC signature, not
+//    cookies — Razorpay's servers cannot supply a CSRF token, and don't need to.
+//  - /api/auth/* and /api/admin/auth/*: pre-session bootstrap (login/register/
+//    verify-signup/forgot-password/reset-password) — there is no authenticated
+//    session yet for a cross-site request to ride along on, so the CSRF threat
+//    model this protects against doesn't apply here the way it does to
+//    already-authenticated actions (booking, cancelling, profile changes, etc).
+//  - /api/upload/doctor-document(s): intentionally public, unauthenticated
+//    endpoints (a career-page applicant uploads documents before they have an
+//    account or any session cookie — see the note in routes/upload.js).
+const { issueCsrfToken, verifyCSRF } = require('./middleware/csrf.middleware');
+// NOTE: req.path inside `app.use('/api', ...)` is relative to the '/api'
+// mount point (Express strips the matched prefix, same as it does for a
+// Router) — these must NOT include the leading '/api' or they will never match.
+const CSRF_EXEMPT_PREFIXES = [
+  '/payments/webhook',
+  '/auth/',
+  '/admin/auth/',
+  '/upload/doctor-document'
+];
+app.use(issueCsrfToken);
+app.use('/api', (req, res, next) => {
+  if (CSRF_EXEMPT_PREFIXES.some(p => req.path.startsWith(p))) return next();
+  return verifyCSRF(req, res, next);
+});
+
+// The frontend and API are on different origins in production
+// (veraawell.vercel.app vs api.veraawell.com) — client-side JS on the
+// frontend's page cannot read a cookie that was set for the API's domain via
+// document.cookie (cookies are only readable by script running on the same
+// origin that set them), even though the browser will still attach that
+// cookie automatically on requests to the API (SameSite=None allows that).
+// So the client can't self-serve the token value out of document.cookie the
+// way a same-origin double-submit-cookie setup normally would; instead it
+// fetches the value once from this endpoint's response body (readable
+// cross-origin here because the server's CORS policy explicitly allows the
+// whitelisted frontend origin to read it — an attacker's origin is not
+// whitelisted, so their page can't read this response even if they trigger
+// the request) and echoes that value back as the X-CSRF-Token header on
+// subsequent mutating requests. See client/src/utils/csrfToken.ts.
+app.get('/api/csrf-token', (req, res) => {
+  res.json({ csrfToken: req.cookies.csrfToken });
+});
 
 // HTTP request logging (development only)
 if (!isProduction()) {
@@ -381,7 +435,12 @@ app.use('/api/session-tools', sessionToolsRoutes);
 app.use('/api/doctor-status', doctorStatusRoutes);
 app.use('/api/assessments', mentalHealthAssessmentRoutes);
 app.use('/api/upload', uploadRoutes);
-app.use('/api/ratings', ratingsRoutes);
+// /api/ratings (rating.controller.js) was removed: it was a fully separate,
+// fully unused rating system — the live RatingModal posts to /reviews/submit
+// instead, and this one had zero references anywhere in the client. It also
+// independently reimplemented the same doctor-rating-average recalculation
+// logic that review.controller.js already does, which is exactly the kind of
+// duplicate-but-dead code that's a landmine for whoever edits the wrong copy.
 app.use('/api/session-reports', sessionReportsRoutes);
 
 // Article routes

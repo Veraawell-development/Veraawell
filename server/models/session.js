@@ -271,7 +271,8 @@ sessionSchema.statics.getAvailableSlots = async function (doctorId, date) {
 // Compound Indexes for Performance Optimization
 sessionSchema.index({ patientId: 1, sessionDate: -1, sessionTime: -1 });
 sessionSchema.index({ doctorId: 1, status: 1, sessionDate: -1 });
-sessionSchema.index({ status: 1, callStatus: 1 });
+// { status: 1, callStatus: 1 } was declared twice (also at line ~204) — Mongoose
+// warns on the duplicate at startup; removed the redundant second copy.
 
 module.exports = mongoose.model('Session', sessionSchema);
 

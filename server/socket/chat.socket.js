@@ -6,100 +6,19 @@
  * This ensures consistent authentication across all socket namespaces.
  */
 
-const jwt = require('jsonwebtoken');
 const Conversation = require('../models/conversation');
 const Message = require('../models/message');
-const { getJWTSecret } = require('../config/auth');
-const SocketEmitter = require('../utils/socketEmitter');
+const { sendMessageAndNotify } = require('../services/chat.service');
+const { createSocketAuthMiddleware } = require('./authMiddleware');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('CHAT-SOCKET');
 
 // Store active users and their socket IDs
-const activeUsers = new Map(); // userId -> socketId
+const activeUsers = new Map(); // userId -> Set<socketId>
 
-// Socket.IO middleware for authentication
-const socketAuthMiddleware = (socket, next) => {
-  try {
-    console.log('\n========================================');
-    console.log('[CHAT AUTH] NEW AUTHENTICATION ATTEMPT');
-    console.log('========================================');
-    console.log('[CHAT AUTH] Socket ID:', socket.id);
-    console.log('[CHAT AUTH] Timestamp:', new Date().toISOString());
-
-    // Check auth token
-    const authToken = socket.handshake.auth.token;
-    console.log('[CHAT AUTH] Auth token from handshake:', authToken ? 'Present' : 'Missing');
-    if (authToken) {
-      console.log('[CHAT AUTH] Auth token length:', authToken.length);
-      console.log('[CHAT AUTH] Auth token preview:', authToken.substring(0, 30) + '...');
-    }
-
-    // Check cookies
-    const cookies = socket.handshake.headers.cookie;
-    console.log('[CHAT AUTH] Cookies header:', cookies ? 'Present' : 'Missing');
-    if (cookies) {
-      console.log('[CHAT AUTH] Cookies:', cookies);
-    }
-
-    // Try to get token from auth or cookies
-    let token = authToken;
-
-    if (!token && cookies) {
-      console.log('[CHAT AUTH] Trying to extract token from cookies...');
-      const cookieArray = cookies.split('; ');
-      console.log('[CHAT AUTH] Cookie array:', cookieArray);
-      const tokenCookie = cookieArray.find(c => c.startsWith('token='));
-      if (tokenCookie) {
-        token = tokenCookie.split('=')[1];
-        console.log('[CHAT AUTH] Token extracted from cookie, length:', token.length);
-        console.log('[CHAT AUTH] Token preview:', token.substring(0, 30) + '...');
-      } else {
-        console.log('[CHAT AUTH] No token cookie found');
-      }
-    }
-
-    if (!token) {
-      console.error('[CHAT AUTH] FAILED: No token found in auth or cookies');
-      console.log('========================================\n');
-      return next(new Error('Authentication error: No token provided'));
-    }
-
-    console.log('[CHAT AUTH] Token found, attempting verification...');
-    console.log('[CHAT AUTH] Using centralized JWT secret from config/auth.js');
-
-    const decoded = jwt.verify(token, getJWTSecret());
-
-    console.log('[CHAT AUTH] Token verified successfully!');
-    console.log('[CHAT AUTH] Decoded token:', {
-      userId: decoded.userId,
-      username: decoded.username,
-      role: decoded.role,
-      iat: new Date(decoded.iat * 1000).toISOString(),
-      exp: new Date(decoded.exp * 1000).toISOString()
-    });
-
-    socket.userId = decoded.userId;
-    socket.userRole = decoded.role;
-
-    console.log('[CHAT AUTH] Authentication successful for user:', socket.userId);
-    console.log('========================================\n');
-    next();
-  } catch (error) {
-    console.error('[CHAT AUTH] AUTHENTICATION FAILED');
-    console.error('[CHAT AUTH] Error type:', error.name);
-    console.error('[CHAT AUTH] Error message:', error.message);
-    if (error.name === 'JsonWebTokenError') {
-      console.error('[CHAT AUTH] This is a JWT verification error');
-      console.error('[CHAT AUTH] Possible causes:');
-      console.error('[CHAT AUTH]   1. Token signed with different secret');
-      console.error('[CHAT AUTH]   2. Token format is invalid');
-      console.error('[CHAT AUTH]   3. Token is corrupted');
-    } else if (error.name === 'TokenExpiredError') {
-      console.error('[CHAT AUTH] Token has expired');
-      console.error('[CHAT AUTH] Expired at:', new Date(error.expiredAt).toISOString());
-    }
-    console.log('========================================\n');
-    next(new Error('Authentication error: Invalid token'));
-  }
-};
+// Socket.IO middleware for authentication — see socket/authMiddleware.js
+const socketAuthMiddleware = createSocketAuthMiddleware('CHAT-AUTH');
 
 // Initialize Socket.IO handlers
 const initializeChatSocket = (io) => {
@@ -110,13 +29,16 @@ const initializeChatSocket = (io) => {
   chatNamespace.use(socketAuthMiddleware);
 
   chatNamespace.on('connection', (socket) => {
-    console.log(`[CHAT] User connected: ${socket.userId} (${socket.userRole})`);
+    logger.info('User connected', { userId: socket.userId?.substring(0, 8), role: socket.userRole });
 
-    // Store user's socket ID
-    activeUsers.set(socket.userId, socket.id);
-
-    // Emit online status to all users
-    socket.broadcast.emit('user:online', { userId: socket.userId });
+    // Track this connection. activeUsers is userId -> Set<socketId> (not a
+    // single socketId) so a user with two tabs/devices open doesn't lose
+    // presence when the OLDER tab disconnects — a single-value map meant the
+    // older tab's disconnect handler would delete the entry that now pointed
+    // at the still-live newer tab, silently killing message:notification for
+    // that user until a full reconnect.
+    if (!activeUsers.has(socket.userId)) activeUsers.set(socket.userId, new Set());
+    activeUsers.get(socket.userId).add(socket.id);
 
     // Join user to their personal room
     socket.join(`user:${socket.userId}`);
@@ -142,7 +64,7 @@ const initializeChatSocket = (io) => {
 
         // Join the conversation room
         socket.join(`conversation:${conversationId}`);
-        console.log(`User ${socket.userId} joined conversation ${conversationId}`);
+        logger.info('User joined conversation', { userId: socket.userId?.substring(0, 8), conversationId: conversationId?.substring(0, 8) });
 
         // Mark messages as read
         await Message.markAsRead(conversationId, socket.userId);
@@ -153,7 +75,7 @@ const initializeChatSocket = (io) => {
           userId: socket.userId
         });
       } catch (error) {
-        console.error('Error joining conversation:', error);
+        logger.error('Error joining conversation', { error: error.message });
         socket.emit('error', { message: 'Failed to join conversation' });
       }
     });
@@ -161,7 +83,7 @@ const initializeChatSocket = (io) => {
     // Handle leaving a conversation room
     socket.on('conversation:leave', (conversationId) => {
       socket.leave(`conversation:${conversationId}`);
-      console.log(`User ${socket.userId} left conversation ${conversationId}`);
+      logger.info('User left conversation', { userId: socket.userId?.substring(0, 8), conversationId: conversationId?.substring(0, 8) });
     });
 
     // Handle sending a message
@@ -175,100 +97,22 @@ const initializeChatSocket = (io) => {
           return;
         }
 
-        // Verify conversation and get receiver
-        const conversation = await Conversation.findById(conversationId);
-        if (!conversation) {
-          socket.emit('error', { message: 'Conversation not found' });
-          return;
-        }
+        // Persistence + fan-out is shared with the REST fallback in
+        // chat.controller.js (see chat.service.js) so the two entry points
+        // can't drift into different real-time behavior again.
+        const { formattedMessage } = await sendMessageAndNotify(io, chatNamespace, { conversationId, senderId, text });
 
-        const isParticipant = conversation.participants.some(
-          p => p.userId.toString() === senderId
-        );
-
-        if (!isParticipant) {
-          socket.emit('error', { message: 'Access denied' });
-          return;
-        }
-
-        // Find receiver
-        const receiver = conversation.participants.find(
-          p => p.userId.toString() !== senderId
-        );
-
-        // Create message in database
-        const message = await Message.create({
-          conversationId,
-          senderId,
-          receiverId: receiver.userId,
-          text,
-          isDelivered: true,
-          deliveredAt: new Date()
-        });
-
-        // Populate sender info
-        await message.populate('senderId', 'firstName lastName email role');
-
-        // Update conversation's last message
-        await Conversation.findByIdAndUpdate(conversationId, {
-          lastMessage: {
-            text,
-            senderId,
-            timestamp: message.createdAt
-          },
-          updatedAt: new Date()
-        });
-
-        // Format message for frontend
-        const formattedMessage = {
-          _id: message._id,
-          text: message.text,
-          timestamp: new Date(message.createdAt).toLocaleTimeString('en-US', {
-            hour: '2-digit',
-            minute: '2-digit',
-            hour12: true
-          }),
-          senderId: message.senderId._id,
-          senderName: `${message.senderId.firstName} ${message.senderId.lastName}`,
-          createdAt: message.createdAt
-        };
-
-        // Emit to sender
+        // Emit to sender — the shared helper only fans out to the receiver's
+        // side, since the sender needs their own echo to reconcile the
+        // client's optimistic UI update against the real, persisted message.
         socket.emit('message:receive', {
           ...formattedMessage,
           isSentByMe: true
         });
 
-        // Emit to receiver in conversation room
-        socket.to(`conversation:${conversationId}`).emit('message:receive', {
-          ...formattedMessage,
-          isSentByMe: false,
-          conversationId
-        });
-
-        // Emit to receiver's personal room (for notification if not in conversation)
-        const receiverSocketId = activeUsers.get(receiver.userId.toString());
-        if (receiverSocketId) {
-          chatNamespace.to(`user:${receiver.userId}`).emit('message:notification', {
-            conversationId,
-            message: formattedMessage,
-            senderName: formattedMessage.senderName
-          });
-        }
-        
-        // NEW: Broadcast to the /data namespace so dashboards can show real-time notifications
-        if (io) {
-          const socketEmitter = new SocketEmitter(io);
-          socketEmitter.emitToUser(receiver.userId.toString(), 'chat:new-message', {
-            conversationId,
-            message: formattedMessage,
-            senderName: formattedMessage.senderName
-          });
-        }
-
-        console.log(`Message sent in conversation ${conversationId} from ${senderId}`);
+        logger.info('Message sent', { conversationId: conversationId?.substring(0, 8), senderId: senderId?.substring(0, 8) });
       } catch (error) {
-        console.error('Error sending message:', error);
+        logger.error('Error sending message', { error: error.message });
         socket.emit('error', { message: 'Failed to send message', error: error.message });
       }
     });
@@ -290,49 +134,26 @@ const initializeChatSocket = (io) => {
       });
     });
 
-    // Handle message read receipt
-    socket.on('message:read', async (data) => {
-      try {
-        const { conversationId } = data;
-
-        // Mark messages as read
-        await Message.markAsRead(conversationId, socket.userId);
-
-        // Update conversation
-        await Conversation.findByIdAndUpdate(
-          conversationId,
-          {
-            $set: {
-              'participants.$[elem].lastReadAt': new Date()
-            }
-          },
-          {
-            arrayFilters: [{ 'elem.userId': socket.userId }]
-          }
-        );
-
-        // Notify other participants
-        socket.to(`conversation:${conversationId}`).emit('messages:read', {
-          conversationId,
-          userId: socket.userId,
-          readAt: new Date()
-        });
-      } catch (error) {
-        console.error('Error marking messages as read:', error);
-      }
-    });
+    // Note: a message:read / messages:read handler used to live here — a
+    // complete, correct read-receipt broadcast that neither SessionChat.tsx
+    // nor MessagesPage.tsx ever emitted or listened for. Read state is
+    // actually derived elsewhere (as a side effect of GET /chat/messages/:id
+    // and the conversation:join handler below), which is what drives unread
+    // badge counts today. Removed rather than left as dead, unreachable API
+    // surface that looked like a supported feature.
 
     // Handle disconnection
     socket.on('disconnect', () => {
-      console.log(`[CHAT] User disconnected: ${socket.userId}`);
-      activeUsers.delete(socket.userId);
-
-      // Emit offline status
-      socket.broadcast.emit('user:offline', { userId: socket.userId });
+      logger.info('User disconnected', { userId: socket.userId?.substring(0, 8) });
+      const sockets = activeUsers.get(socket.userId);
+      if (sockets) {
+        sockets.delete(socket.id);
+        if (sockets.size === 0) activeUsers.delete(socket.userId);
+      }
     });
   });
 
-  console.log('[CHAT] Chat Socket.IO namespace initialized on /chat');
+  logger.info('Chat Socket.IO namespace initialized on /chat');
   return chatNamespace;
 };
 

@@ -21,8 +21,9 @@ const todayIST = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkat
 const getToday = asyncHandler(async (req, res) => {
   if (req.user.role !== 'patient') throw new AuthorizationError('Only patients have a mood check-in');
 
-  const entry = await MoodEntry.findOne({ patientId: req.user._id, date: todayIST() });
-  res.json({ success: true, hasLoggedToday: !!entry, entry: entry || null });
+  const date = todayIST();
+  const entry = await MoodEntry.findOne({ patientId: req.user._id, date });
+  res.json({ success: true, hasLoggedToday: !!entry, entry: entry || null, date });
 });
 
 /**
@@ -42,9 +43,11 @@ const createEntry = asyncHandler(async (req, res) => {
   const date = todayIST();
   const label = MoodEntry.MOOD_LABELS[moodValue - 1];
 
+  // Allow correcting today's entry (e.g. re-opened from the dashboard) rather than
+  // silently ignoring the new value once today's row already exists.
   const entry = await MoodEntry.findOneAndUpdate(
     { patientId: req.user._id, date },
-    { $setOnInsert: { patientId: req.user._id, date, mood: moodValue, label, note: note || '' } },
+    { $set: { mood: moodValue, label, note: note || '' }, $setOnInsert: { patientId: req.user._id, date } },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
 

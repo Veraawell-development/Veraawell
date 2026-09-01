@@ -10,6 +10,7 @@ const { getJWTSecret, getCookieConfig } = require('../config/auth');
 const { TOKEN_EXPIRY } = require('../config/constants');
 const { AuthenticationError, AuthorizationError, NotFoundError, ConflictError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
+const { generateOTP, hashOTP } = require('../utils/otpGenerator');
 
 const logger = createLogger('AUTH-SERVICE');
 
@@ -125,9 +126,11 @@ async function registerUser(userData) {
     newUserData.approvalStatus = 'approved';
   }
 
-  // Generate 6-digit OTP for email verification
-  const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  newUserData.otp = otp;
+  // Generate 6-digit OTP for email verification. Only the bcrypt hash is
+  // persisted — the plaintext is returned alongside the document so the
+  // caller can email it, but it is never written to the database.
+  const otp = generateOTP();
+  newUserData.otp = await hashOTP(otp);
   
   // Format doctorDetails object if there are any
   if (role === 'doctor' || role === 'admin') {
@@ -158,6 +161,9 @@ async function registerUser(userData) {
     role: pendingUser.role
   });
 
+  // Attach the plaintext OTP as a transient, non-persisted property so the
+  // controller can email it without it ever having been written to the DB.
+  pendingUser.plainOtp = otp;
   return pendingUser;
 }
 
@@ -190,34 +196,40 @@ async function authenticateUser(username, password, requestedRole = null) {
     );
   }
 
-  // Check doctor approval status BEFORE password check
-  if (user.role === 'doctor' && user.approvalStatus !== 'approved') {
-    logger.warn('Doctor login blocked - not approved', {
+  // Check approval status BEFORE password check. Admin self-registration
+  // (AdminSignupPage.tsx) sets approvalStatus: 'pending' exactly like doctor
+  // registration does — this check used to only cover role === 'doctor', so a
+  // self-registered, still-pending admin could authenticate via the regular
+  // login while a pending doctor could not. Not exploitable today (nothing
+  // currently branches admin-only behavior off a regular verifyToken session —
+  // real admin routes require the separate verifyAdminToken/ADMIN_JWT_SECRET
+  // path), but it's an approval workflow that should actually hold regardless.
+  const requiresApproval = user.role === 'doctor' || user.role === 'admin';
+  if (requiresApproval && user.approvalStatus !== 'approved') {
+    logger.warn(`${user.role} login blocked - not approved`, {
       userId: user._id.toString().substring(0, 8),
       email: user.email,
-      approvalStatus: user.approvalStatus,
-      approvalStatusType: typeof user.approvalStatus,
-      isApproved: user.approvalStatus === 'approved',
-      strictCheck: user.approvalStatus !== 'approved'
+      role: user.role,
+      approvalStatus: user.approvalStatus
     });
 
     if (user.approvalStatus === 'pending') {
       throw new AuthorizationError(
-        'Your doctor account is pending approval. An admin will review your application soon.',
+        `Your ${user.role} account is pending approval. An admin will review your application soon.`,
         403
       );
     } else if (user.approvalStatus === 'rejected') {
       throw new AuthorizationError(
-        `Your doctor account has been rejected. Reason: ${user.rejectionReason || 'No reason provided'}`,
+        `Your ${user.role} account has been rejected. Reason: ${user.rejectionReason || 'No reason provided'}`,
         403
       );
     }
-    throw new AuthorizationError('Your doctor account requires approval before you can login.', 403);
+    throw new AuthorizationError(`Your ${user.role} account requires approval before you can login.`, 403);
   }
 
-  // Log successful approval check for doctors
-  if (user.role === 'doctor') {
-    logger.info('Doctor approval check passed', {
+  // Log successful approval check
+  if (requiresApproval) {
+    logger.info(`${user.role} approval check passed`, {
       userId: user._id.toString().substring(0, 8),
       email: user.email,
       approvalStatus: user.approvalStatus
@@ -230,16 +242,16 @@ async function authenticateUser(username, password, requestedRole = null) {
     throw new AuthenticationError('Invalid credentials');
   }
 
-  // Double-check approval status for doctors (redundant but safe)
-  if (user.role === 'doctor' && user.approvalStatus !== 'approved') {
+  // Double-check approval status (redundant but safe)
+  if (requiresApproval && user.approvalStatus !== 'approved') {
     if (user.approvalStatus === 'pending') {
       throw new AuthorizationError(
-        'Your doctor account is pending approval. An admin will review your application soon.',
+        `Your ${user.role} account is pending approval. An admin will review your application soon.`,
         403
       );
     } else if (user.approvalStatus === 'rejected') {
       throw new AuthorizationError(
-        `Your doctor account has been rejected. Reason: ${user.rejectionReason || 'No reason provided'}`,
+        `Your ${user.role} account has been rejected. Reason: ${user.rejectionReason || 'No reason provided'}`,
         403
       );
     }
@@ -364,6 +376,18 @@ async function deleteAccount(userId) {
   const Message = require('../models/message');
   const DoctorProfile = require('../models/doctorProfile');
   const Review = require('../models/review');
+  // These five were previously NOT cascade-deleted — journal entries, mood
+  // history, task records, doctor-authored reports, session notes, and mental
+  // health assessment results all survived account deletion indefinitely.
+  // For a mental-health platform, that's exactly the category of data a user
+  // deleting their account most expects to actually be gone.
+  const Journal = require('../models/journal');
+  const MoodEntry = require('../models/moodEntry');
+  const Task = require('../models/task');
+  const Report = require('../models/report');
+  const SessionReport = require('../models/sessionReport');
+  const SessionNote = require('../models/sessionNote');
+  const MentalHealthAssessment = require('../models/mentalHealthAssessment');
 
   // Cascade delete all associated data in parallel
   await Promise.all([
@@ -372,6 +396,13 @@ async function deleteAccount(userId) {
     Message.deleteMany({ $or: [{ senderId: userId }, { receiverId: userId }] }),
     DoctorProfile.deleteOne({ userId }),
     Review.deleteMany({ $or: [{ patientId: userId }, { doctorId: userId }] }),
+    Journal.deleteMany({ patientId: userId }),
+    MoodEntry.deleteMany({ patientId: userId }),
+    Task.deleteMany({ $or: [{ patientId: userId }, { doctorId: userId }] }),
+    Report.deleteMany({ $or: [{ patientId: userId }, { doctorId: userId }] }),
+    SessionReport.deleteMany({ $or: [{ patientId: userId }, { doctorId: userId }] }),
+    SessionNote.deleteMany({ $or: [{ patientId: userId }, { doctorId: userId }] }),
+    MentalHealthAssessment.deleteMany({ userId }),
     User.findByIdAndDelete(userId)
   ]);
 

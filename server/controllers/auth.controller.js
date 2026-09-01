@@ -9,6 +9,9 @@ const oauthService = require('../services/oauth.service');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { NotFoundError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
+const { generateOTP, hashOTP, verifyOTP } = require('../utils/otpGenerator');
+
+const MAX_SIGNUP_OTP_ATTEMPTS = 5;
 
 const logger = createLogger('AUTH-CONTROLLER');
 
@@ -18,8 +21,9 @@ const logger = createLogger('AUTH-CONTROLLER');
 const register = asyncHandler(async (req, res) => {
   const pendingUser = await authService.registerUser(req.body);
 
-  // Send OTP Email via Resend
-  await emailService.sendOTPEmail(pendingUser.email, pendingUser.otp, pendingUser.role);
+  // Send OTP Email via Resend — pendingUser.otp is now a bcrypt hash, never the
+  // real code; the plaintext is only ever available transiently right here.
+  await emailService.sendOTPEmail(pendingUser.email, pendingUser.plainOtp, pendingUser.role);
 
   res.status(201).json({
     success: true,
@@ -44,13 +48,15 @@ const login = asyncHandler(async (req, res) => {
       // Check if they are in pending state
       const pendingUser = await PendingUser.findOne({ $or: [{ email: username.toLowerCase() }, { username: username.toLowerCase() }] });
       if (pendingUser) {
-        // Generate new OTP
-        const otp = Math.floor(100000 + Math.random() * 900000).toString();
-        pendingUser.otp = otp;
+        // Generate new OTP — store only its hash, reset the attempt counter
+        // since this is a fresh code.
+        const otp = generateOTP();
+        pendingUser.otp = await hashOTP(otp);
+        pendingUser.attempts = 0;
         // TTL extends automatically if we save? Wait, createdAt is what TTL uses. We should update createdAt.
         pendingUser.createdAt = new Date();
         await pendingUser.save();
-        
+
         await emailService.sendOTPEmail(pendingUser.email, otp, pendingUser.role);
         
         return res.status(403).json({
@@ -77,7 +83,7 @@ const login = asyncHandler(async (req, res) => {
       role: user.role,
       firstName: user.firstName,
       lastName: user.lastName,
-      emergencyContact: user.emergencyContact || { name: null, phone: null }
+      emergencyContact: user.emergencyContact || { name: null, phone: null, relationship: null }
     },
     token // Send token to client for WebSocket auth (stored in memory)
   });
@@ -106,8 +112,20 @@ const verifySignup = asyncHandler(async (req, res) => {
     return res.status(404).json({ success: false, message: 'OTP expired or user not found. Please register again.' });
   }
 
-  if (pendingUser.otp !== otp) {
-    return res.status(400).json({ success: false, message: 'Invalid verification code' });
+  if (pendingUser.attempts >= MAX_SIGNUP_OTP_ATTEMPTS) {
+    return res.status(429).json({
+      success: false,
+      message: 'Too many incorrect attempts. Please register again to receive a new code.',
+      maxAttemptsReached: true
+    });
+  }
+
+  const isValid = await verifyOTP(otp, pendingUser.otp);
+  if (!isValid) {
+    pendingUser.attempts += 1;
+    await pendingUser.save();
+    const attemptsLeft = MAX_SIGNUP_OTP_ATTEMPTS - pendingUser.attempts;
+    return res.status(400).json({ success: false, message: 'Invalid verification code', attemptsLeft: Math.max(0, attemptsLeft) });
   }
 
   // Verified successfully - Transfer to real User
@@ -141,7 +159,7 @@ const verifySignup = asyncHandler(async (req, res) => {
       role: newUser.role,
       firstName: newUser.firstName,
       lastName: newUser.lastName,
-      emergencyContact: { name: null, phone: null }
+      emergencyContact: { name: null, phone: null, relationship: null }
     },
     token
   });
@@ -284,7 +302,7 @@ const getProtected = asyncHandler(async (req, res) => {
       role: user.role,
       firstName: user.firstName,
       lastName: user.lastName,
-      emergencyContact: user.emergencyContact || { name: null, phone: null }
+      emergencyContact: user.emergencyContact || { name: null, phone: null, relationship: null }
     },
     // Send token to client for WebSocket auth (stored in memory)
     token: req.cookies.token || null

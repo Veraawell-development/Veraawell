@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const articleController = require('../controllers/article.controller');
 const { verifyAdminToken, verifySuperAdmin } = require('../middleware/auth.middleware');
+const { validateObjectIdParam } = require('../middleware/validation.middleware');
 const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = require('express-rate-limit');
 
@@ -62,7 +63,7 @@ router.get('/admin/all', verifyAdminToken, verifySuperAdmin, articleController.g
 // @route   GET /api/articles/admin/:id
 // @desc    Get single article by ID for admin
 // @access  Super Admin
-router.get('/admin/:id', verifyAdminToken, verifySuperAdmin, articleController.getArticleById);
+router.get('/admin/:id', verifyAdminToken, verifySuperAdmin, validateObjectIdParam('id'), articleController.getArticleById);
 
 // @route   POST /api/articles/admin
 // @desc    Create new article
@@ -72,22 +73,22 @@ router.post('/admin', verifyAdminToken, verifySuperAdmin, articleController.crea
 // @route   PUT /api/articles/admin/:id
 // @desc    Update article
 // @access  Super Admin
-router.put('/admin/:id', verifyAdminToken, verifySuperAdmin, articleController.updateArticle);
+router.put('/admin/:id', verifyAdminToken, verifySuperAdmin, validateObjectIdParam('id'), articleController.updateArticle);
 
 // @route   DELETE /api/articles/admin/:id
 // @desc    Delete article
 // @access  Super Admin
-router.delete('/admin/:id', verifyAdminToken, verifySuperAdmin, articleController.deleteArticle);
+router.delete('/admin/:id', verifyAdminToken, verifySuperAdmin, validateObjectIdParam('id'), articleController.deleteArticle);
 
 // @route   POST /api/articles/admin/:id/publish
 // @desc    Publish article (change status to published)
 // @access  Super Admin
-router.post('/admin/:id/publish', verifyAdminToken, verifySuperAdmin, articleController.publishArticle);
+router.post('/admin/:id/publish', verifyAdminToken, verifySuperAdmin, validateObjectIdParam('id'), articleController.publishArticle);
 
 // @route   POST /api/articles/admin/:id/feature
 // @desc    Toggle featured status
 // @access  Super Admin
-router.post('/admin/:id/feature', verifyAdminToken, verifySuperAdmin, articleController.toggleFeatured);
+router.post('/admin/:id/feature', verifyAdminToken, verifySuperAdmin, validateObjectIdParam('id'), articleController.toggleFeatured);
 
 // ============= PUBLIC ROUTES =============
 
@@ -99,12 +100,12 @@ router.get('/', articlesListLimiter, searchLimiter, articleController.getPublish
 // @route   POST /api/articles/:id/view
 // @desc    Increment article view count
 // @access  Public
-router.post('/:id/view', interactionLimiter, articleController.incrementViews);
+router.post('/:id/view', interactionLimiter, validateObjectIdParam('id'), articleController.incrementViews);
 
 // @route   POST /api/articles/:id/like
 // @desc    Increment article like count
 // @access  Public
-router.post('/:id/like', interactionLimiter, articleController.incrementLikes);
+router.post('/:id/like', interactionLimiter, validateObjectIdParam('id'), articleController.incrementLikes);
 
 // @route   GET /api/articles/:slug
 // @desc    Get single article by slug

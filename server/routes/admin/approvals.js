@@ -523,8 +523,14 @@ router.delete('/admins/:adminId', verifyAdminToken, verifySuperAdmin, async (req
     const { adminId } = req.params;
     const superAdminId = req.admin._id;
 
-    // Prevent self-deletion
-    if (adminId === superAdminId) {
+    // Prevent self-deletion. `adminId` is a route-param string and
+    // `req.admin._id` is a Mongoose ObjectId — a plain `===` compare between
+    // them is always false in JS, so this guard never actually fired on its
+    // own; it happened to be masked by the `role !== 'admin'` check below
+    // (a super admin's own role is 'super_admin', which that check already
+    // rejects), which in turn made the "Cannot remove super admin" check
+    // after it unreachable dead code. Comparing as strings fixes both.
+    if (String(adminId) === String(superAdminId)) {
       return res.status(400).json({ message: 'You cannot remove yourself' });
     }
 
@@ -534,7 +540,7 @@ router.delete('/admins/:adminId', verifyAdminToken, verifySuperAdmin, async (req
       return res.status(404).json({ message: 'Admin not found' });
     }
 
-    if (admin.role !== 'admin') {
+    if (!['admin', 'super_admin'].includes(admin.role)) {
       return res.status(400).json({ message: 'User is not an admin' });
     }
 

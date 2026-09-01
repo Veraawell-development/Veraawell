@@ -3,8 +3,48 @@
  * Request validation utilities
  */
 
+const mongoose = require('mongoose');
 const { ValidationError } = require('../utils/errors');
 const { VALID_ROLES, PASSWORD_POLICY } = require('../config/constants');
+
+/**
+ * `joi` is a declared dependency but was never actually used anywhere in this
+ * codebase — validation.middleware.js was only ever wired for
+ * register/login/reset-password, and none of the 17 route files under
+ * server/routes/ import it. Rolling out full joi schemas for every route is
+ * a large, separate undertaking; these are the highest-value, lowest-risk
+ * additions: format-validating IDs before they reach a Mongoose query.
+ * Without this, a malformed ObjectId (e.g. a client bug, a crafted request,
+ * or literally the string "undefined" from a broken frontend call) throws an
+ * uncaught Mongoose CastError that surfaces as a generic 500 instead of a
+ * clean 400 — and the hand-rolled style already established in this file
+ * (errors object + ValidationError) is what these follow, rather than
+ * introducing joi's schema syntax as a second, inconsistent validation
+ * pattern alongside it.
+ */
+function isValidObjectId(value) {
+  return typeof value === 'string' && mongoose.Types.ObjectId.isValid(value);
+}
+
+/** Validates a route param is a well-formed Mongo ObjectId, e.g. router.get('/:sessionId', validateObjectIdParam('sessionId'), ...) */
+function validateObjectIdParam(paramName) {
+  return (req, res, next) => {
+    if (!isValidObjectId(req.params[paramName])) {
+      throw new ValidationError('Validation failed', { [paramName]: `${paramName} must be a valid ID` });
+    }
+    next();
+  };
+}
+
+/** Validates a required body field is a well-formed Mongo ObjectId. */
+function validateObjectIdBody(fieldName) {
+  return (req, res, next) => {
+    if (!isValidObjectId(req.body[fieldName])) {
+      throw new ValidationError('Validation failed', { [fieldName]: `${fieldName} must be a valid ID` });
+    }
+    next();
+  };
+}
 
 /**
  * Validate email format
@@ -152,6 +192,9 @@ module.exports = {
   isValidEmail,
   isValidPassword,
   isValidRole,
+  isValidObjectId,
+  validateObjectIdParam,
+  validateObjectIdBody,
   validateRegistration,
   validateLogin,
   validatePasswordReset

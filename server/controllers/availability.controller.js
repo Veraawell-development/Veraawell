@@ -6,7 +6,7 @@
 const DoctorAvailability = require('../models/doctorAvailability');
 const Session = require('../models/session');
 const { asyncHandler } = require('../middleware/error.middleware');
-const { NotFoundError, AuthorizationError } = require('../utils/errors');
+const { AuthorizationError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('AVAILABILITY-CTRL');
@@ -63,29 +63,6 @@ const getSlots = asyncHandler(async (req, res) => {
   res.json({ slots: slots.filter(s => !s.isBooked) });
 });
 
-/** POST /api/availability/book-slot — Book a slot during session booking */
-const bookSlot = asyncHandler(async (req, res) => {
-  const { doctorId, date, time, sessionId } = req.body;
-  const availability = await DoctorAvailability.findOne({ doctorId });
-  if (!availability) throw new NotFoundError('Doctor availability');
-
-  if (!availability.isSlotAvailable(date, time)) {
-    return res.status(400).json({ success: false, message: 'Slot is not available' });
-  }
-  const booked = await availability.bookSlot(date, time, sessionId);
-  if (booked) res.json({ success: true, message: 'Slot booked successfully' });
-  else res.status(400).json({ success: false, message: 'Failed to book slot' });
-});
-
-/** POST /api/availability/release-slot — Release a slot (cancellation) */
-const releaseSlot = asyncHandler(async (req, res) => {
-  const { doctorId, date, time } = req.body;
-  const availability = await DoctorAvailability.findOne({ doctorId });
-  if (!availability) throw new NotFoundError('Doctor availability');
-  const released = await availability.releaseSlot(date, time);
-  res.json({ success: true, message: released ? 'Slot released successfully' : 'Slot release not needed or already released' });
-});
-
 /** GET /api/availability/upcoming-sessions — Upcoming sessions for calendar (Doctor only) */
 const getUpcomingSessions = asyncHandler(async (req, res) => {
   if (req.user.role !== 'doctor') throw new AuthorizationError('Only doctors can access this');
@@ -101,4 +78,4 @@ const getUpcomingSessions = asyncHandler(async (req, res) => {
   res.json(upcomingSessions);
 });
 
-module.exports = { getCurrentDoctorAvailability, getDoctorAvailabilityById, saveAvailability, getSlots, bookSlot, releaseSlot, getUpcomingSessions };
+module.exports = { getCurrentDoctorAvailability, getDoctorAvailabilityById, saveAvailability, getSlots, getUpcomingSessions };

@@ -99,6 +99,14 @@ const updateTask = asyncHandler(async (req, res) => {
   }
 
   if (status) {
+    // Patients can toggle a task between pending/completed (the real UI
+    // feature in PendingTasksPage.tsx — checking/unchecking a task), but
+    // 'in-progress' is a doctor/clinical-workflow state no patient-facing UI
+    // ever sends today; there was no server-side check stopping a crafted
+    // request from setting it anyway.
+    if (req.user.role === 'patient' && !['pending', 'completed'].includes(status)) {
+      throw new AuthorizationError("Patients can only set a task's status to pending or completed");
+    }
     task.status = status;
     if (status === 'completed') task.completedAt = new Date();
   }

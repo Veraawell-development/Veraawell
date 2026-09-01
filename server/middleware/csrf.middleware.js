@@ -1,109 +1,74 @@
 /**
- * CSRF Protection Middleware
- * Implements CSRF token generation and verification
- * 
- * Note: Requires 'csrf' package to be installed:
- * npm install csrf
+ * CSRF Protection Middleware — double-submit cookie pattern.
+ *
+ * This file used to be a fully commented-out placeholder (verifyCSRF just
+ * called next()), and was never imported by any route. Meanwhile both the
+ * session cookie and the auth cookie use SameSite=None in production
+ * (required for the cross-origin frontend/backend split) — the specific
+ * cookie configuration that most needs CSRF protection, since SameSite=
+ * Strict/Lax is what normally provides *implicit* CSRF protection for
+ * cookie-based auth. With cookie-based credentials and no CSRF token, there
+ * was zero CSRF protection on any state-changing endpoint.
+ *
+ * No new dependency: uses only Node's built-in crypto, not the commented-out
+ * `csrf` package this file used to reference.
+ *
+ * Pattern: issueCsrfToken sets a non-httpOnly cookie the client can read;
+ * the client echoes it back in an X-CSRF-Token header on state-changing
+ * requests (see client/src/main.tsx's fetch interceptor); verifyCSRF checks
+ * the two match. A cross-origin attacker's page can trigger a request that
+ * carries the cookie automatically, but cannot read the cookie's value to
+ * put it in the header (same-origin policy), so it can't produce a match.
  */
 
-// Uncomment when package is installed
-// const csrf = require('csrf');
-// const tokens = new csrf();
-// const { getSessionSecret } = require('../config/auth');
+const crypto = require('crypto');
+const { isProduction } = require('../config/environment');
 
-/**
- * Generate CSRF token for requests
- * Adds token to res.locals for use in templates/API responses
- */
-function generateCSRFToken(req, res, next) {
-  // Uncomment when package is installed
-  // try {
-  //   const secret = req.session.csrfSecret || tokens.secretSync();
-  //   req.session.csrfSecret = secret;
-  //   res.locals.csrfToken = tokens.create(secret);
-  //   next();
-  // } catch (error) {
-  //   next(error);
-  // }
-  
-  // Placeholder - remove when implementing
+const CSRF_COOKIE_NAME = 'csrfToken';
+const CSRF_HEADER_NAME = 'x-csrf-token';
+const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+function issueCsrfToken(req, res, next) {
+  if (!req.cookies || !req.cookies[CSRF_COOKIE_NAME]) {
+    const token = crypto.randomBytes(32).toString('hex');
+    res.cookie(CSRF_COOKIE_NAME, token, {
+      httpOnly: false, // must be readable by client JS to echo back in a header
+      secure: isProduction(),
+      sameSite: isProduction() ? 'none' : 'lax',
+      maxAge: 24 * 60 * 60 * 1000 // 24h
+    });
+    // Make the token available to this same request too, in case verifyCSRF
+    // runs later in the same request chain before the response is sent.
+    req.cookies = req.cookies || {};
+    req.cookies[CSRF_COOKIE_NAME] = token;
+  }
   next();
 }
 
-/**
- * Verify CSRF token for state-changing operations
- * Checks token from body or header
- */
 function verifyCSRF(req, res, next) {
-  // Uncomment when package is installed
-  // try {
-  //   const secret = req.session.csrfSecret;
-  //   const token = req.body._csrf || req.headers['x-csrf-token'];
-  //   
-  //   if (!secret) {
-  //     return res.status(403).json({ 
-  //       success: false,
-  //       message: 'CSRF secret not found. Please refresh the page.' 
-  //     });
-  //   }
-  //   
-  //   if (!token) {
-  //     return res.status(403).json({ 
-  //       success: false,
-  //       message: 'CSRF token missing. Please include X-CSRF-Token header.' 
-  //     });
-  //   }
-  //   
-  //   if (!tokens.verify(secret, token)) {
-  //     return res.status(403).json({ 
-  //       success: false,
-  //       message: 'Invalid CSRF token. Please refresh the page.' 
-  //     });
-  //   }
-  //   
-  //   next();
-  // } catch (error) {
-  //   return res.status(500).json({ 
-  //     success: false,
-  //     message: 'CSRF verification error' 
-  //   });
-  // }
-  
-  // Placeholder - remove when implementing
-  next();
-}
+  if (SAFE_METHODS.has(req.method)) return next();
 
-/**
- * Get CSRF token endpoint handler
- * Returns CSRF token for frontend to use
- */
-function getCSRFToken(req, res) {
-  // Uncomment when package is installed
-  // try {
-  //   const secret = req.session.csrfSecret || tokens.secretSync();
-  //   req.session.csrfSecret = secret;
-  //   const token = tokens.create(secret);
-  //   
-  //   res.json({
-  //     success: true,
-  //     csrfToken: token
-  //   });
-  // } catch (error) {
-  //   res.status(500).json({
-  //     success: false,
-  //     message: 'Failed to generate CSRF token'
-  //   });
-  // }
-  
-  // Placeholder - remove when implementing
-  res.json({
-    success: true,
-    message: 'CSRF protection not yet implemented. Install "csrf" package to enable.'
-  });
+  const cookieToken = req.cookies && req.cookies[CSRF_COOKIE_NAME];
+  const headerToken = req.headers[CSRF_HEADER_NAME];
+
+  if (!cookieToken || !headerToken) {
+    return res.status(403).json({ success: false, message: 'CSRF token missing. Please refresh the page and try again.' });
+  }
+
+  const cookieBuf = Buffer.from(String(cookieToken));
+  const headerBuf = Buffer.from(String(headerToken));
+  const isValid = cookieBuf.length === headerBuf.length && crypto.timingSafeEqual(cookieBuf, headerBuf);
+
+  if (!isValid) {
+    return res.status(403).json({ success: false, message: 'Invalid CSRF token. Please refresh the page and try again.' });
+  }
+
+  next();
 }
 
 module.exports = {
-  generateCSRFToken,
+  issueCsrfToken,
   verifyCSRF,
-  getCSRFToken
+  CSRF_COOKIE_NAME,
+  CSRF_HEADER_NAME
 };

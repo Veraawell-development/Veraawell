@@ -20,6 +20,8 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 const { calculateSessionPrice, getOrCreateAvailability, getGenderBasedImage } = require('../services/session.service');
+const { calculateRefund, describeRefundPolicy } = require('../services/refundPolicy');
+const { parseTime } = require('../utils/timeUtils');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { NotFoundError, AuthorizationError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
@@ -33,6 +35,28 @@ const CALL_MODE_MAP = { video: 'Video Calling', voice: 'Voice Calling' };
 function _emitToUsers(req, event, data, userIds) {
   const io = req.app.get('io');
   if (io) new SocketEmitter(io).emitToUsers(userIds, event, data);
+}
+
+/**
+ * Shared by both the explicit doctor-cancellation path (cancelSession) and the
+ * auto-cancel-on-no-show path (_autoCancelUnacceptedSession) — previously each
+ * had its own copy-pasted copy of this increment-and-warn logic.
+ */
+async function _incrementDoctorCancellationCount(doctorId, warnMessageOnFailure) {
+  try {
+    const docProfile = await DoctorProfile.findOne({ userId: doctorId });
+    if (docProfile) {
+      docProfile.cancellationCount = (docProfile.cancellationCount || 0) + 1;
+      docProfile.lastCancellationDate = new Date();
+      if (docProfile.cancellationCount >= 3) {
+        docProfile.cancellationWarningIssued = true;
+        logger.warn(`Doctor ${doctorId} has reached ${docProfile.cancellationCount} cancellations.`);
+      }
+      await docProfile.save();
+    }
+  } catch (err) {
+    logger.warn(warnMessageOnFailure, { error: err.message });
+  }
 }
 
 /** GET /api/sessions/stats — Doctor session statistics + earnings breakdown */
@@ -321,10 +345,7 @@ const bookSession = asyncHandler(async (req, res) => {
   }
 
   // Validate slot is in the future
-  const [timeVal, period] = sessionTime.split(' ');
-  let [h, m] = timeVal.split(':').map(Number);
-  if (period === 'PM' && h !== 12) h += 12;
-  if (period === 'AM' && h === 12) h = 0;
+  const [h, m] = parseTime(sessionTime);
   const requestedDT = new Date(sessionDate);
   requestedDT.setHours(h, m, 0, 0);
   if (requestedDT < new Date()) return res.status(400).json({ success: false, message: 'Cannot book a time slot in the past' });
@@ -567,6 +588,13 @@ const completeSession = asyncHandler(async (req, res) => {
   if (!session) throw new NotFoundError('Session');
   if (session.patientId?._id?.toString() !== userId && session.doctorId?._id?.toString() !== userId) throw new AuthorizationError('Unauthorized');
   if (session.status === 'completed') return res.json({ success: true, message: 'Session already marked as completed', session: { status: session.status } });
+  // Mirrors the guard added to cancelSession (which now rejects completing an
+  // already-cancelled session) — without this, a stale/replayed/racing
+  // /complete request could silently un-cancel a session that was already
+  // refunded, leaving status='completed' with no record it was ever cancelled.
+  if (session.status === 'cancelled') {
+    return res.status(400).json({ success: false, message: 'Cannot complete a session that has already been cancelled' });
+  }
   session.status = 'completed';
   if (session.callStatus !== 'completed') { session.callStatus = 'completed'; session.callEndTime = session.callEndTime || new Date(); }
   await session.save();
@@ -604,12 +632,35 @@ const cancelSession = asyncHandler(async (req, res) => {
     throw new AuthorizationError('Not authorized to cancel this session');
   }
 
+  // Idempotency guard — completeSession has an equivalent check (line ~590)
+  // but cancelSession never had one. Without it, a duplicate request (double
+  // click before the button disables, a network retry, a replayed request)
+  // recomputes hoursUntil/refundAmount from the CURRENT time on every call,
+  // not from the outcome of the first call. Concretely: call 1 refunds ₹500
+  // via Razorpay and sets paymentStatus='refunded'; if call 2 arrives after
+  // the refund window has since crossed into the 0%-refund tier, its
+  // `refundAmount === 0` branch fires and overwrites paymentStatus back to
+  // 'paid' — even though the ₹500 refund already happened for real on
+  // Razorpay's side. The DB now silently disagrees with reality, and every
+  // downstream consumer of paymentStatus (payout calc, admin refund tooling,
+  // doctor earnings) inherits the corrupted record. A cancelled session also
+  // can't sensibly be cancelled again, and a completed one shouldn't be
+  // cancellable either (completeSession and cancelSession could otherwise
+  // race on the same session).
+  if (session.status === 'cancelled') {
+    return res.json({
+      success: true,
+      message: 'Session already cancelled',
+      refundAmount: session.refundAmount || 0,
+      refundPolicy: describeRefundPolicy(session.refundAmount || 0, session.price)
+    });
+  }
+  if (session.status === 'completed') {
+    return res.status(400).json({ success: false, message: 'Cannot cancel a session that has already been completed' });
+  }
+
   const sessionDT = new Date(session.sessionDate);
-  let [ch, cm] = session.sessionTime.split(':');
-  let hours = Number(ch);
-  const min = parseInt(cm);
-  if (cm.includes('PM') && hours < 12) hours += 12;
-  if (cm.includes('AM') && hours === 12) hours = 0;
+  const [hours, min] = parseTime(session.sessionTime);
   sessionDT.setHours(hours, min, 0, 0);
 
   if (sessionDT.getTime() < Date.now()) {
@@ -617,22 +668,10 @@ const cancelSession = asyncHandler(async (req, res) => {
   }
 
   const cancellerRole = req.user.role; // 'patient' or 'doctor'
-  
+
   // ── REFUND POLICY ─────────────────────────────────────────────────────────
   const hoursUntil = (sessionDT.getTime() - Date.now()) / (1000 * 60 * 60);
-  
-  let refundAmount = 0;
-  if (cancellerRole === 'doctor') {
-    refundAmount = session.price; // Doctor cancels → 100% refund always
-  } else if (cancellerRole === 'patient') {
-    if (hoursUntil > 24) {
-      refundAmount = session.price;                         // >24h → 100%
-    } else if (hoursUntil > 4) {
-      refundAmount = Math.round(session.price * 0.5);      // 4-24h → 50%
-    } else {
-      refundAmount = 0;                                     // <4h → 0%
-    }
-  }
+  const refundAmount = calculateRefund(session.price, hoursUntil, cancellerRole);
 
   session.status = 'cancelled';
   session.cancelledBy = cancellerRole;
@@ -664,25 +703,18 @@ const cancelSession = asyncHandler(async (req, res) => {
     session.paymentStatus = 'paid'; // No refund owed, payment stays as-is
   } else {
     session.paymentStatus = 'refunded'; // Mock/immediate payments — mark refunded
-    session.refundAmount = session.price;
+    // Persist the tiered amount, not the full price — this used to always
+    // write session.price here even when the response body (and the patient)
+    // were told they'd get a 50% or partial refund, so the persisted record
+    // silently disagreed with what was actually communicated.
+    session.refundAmount = refundAmount;
   }
 
   await session.save();
 
   // Track doctor cancellations
   if (cancellerRole === 'doctor') {
-    try {
-      const docProfile = await DoctorProfile.findOne({ userId: session.doctorId });
-      if (docProfile) {
-        docProfile.cancellationCount = (docProfile.cancellationCount || 0) + 1;
-        docProfile.lastCancellationDate = new Date();
-        if (docProfile.cancellationCount >= 3) {
-          docProfile.cancellationWarningIssued = true;
-          logger.warn(`Doctor ${session.doctorId} has reached ${docProfile.cancellationCount} cancellations.`);
-        }
-        await docProfile.save();
-      }
-    } catch (err) { logger.warn('Failed to update doctor cancellation tracking', { error: err.message }); }
+    await _incrementDoctorCancellationCount(session.doctorId, 'Failed to update doctor cancellation tracking');
   }
 
   // Release the slot
@@ -743,9 +775,7 @@ const cancelSession = asyncHandler(async (req, res) => {
     success: true,
     message: 'Session cancelled successfully',
     refundAmount,
-    refundPolicy: refundAmount === session.price ? '100% refund' : 
-                  refundAmount === 0 ? 'No refund (cancelled <4h before session)' :
-                  '50% refund (cancelled 4-24h before session)'
+    refundPolicy: describeRefundPolicy(refundAmount, session.price)
   });
 });
 
@@ -813,7 +843,9 @@ const acceptSession = asyncHandler(async (req, res) => {
   if (!session) throw new NotFoundError('Session');
   if (session.doctorId._id.toString() !== userId) throw new AuthorizationError('You are not assigned to this session');
   session.acceptanceStatus = 'accepted';
-  session.status = 'scheduled';
+  // Payment verification already set status to 'active' for immediate sessions —
+  // don't downgrade it back to 'scheduled' once the doctor accepts.
+  if (session.sessionType !== 'immediate') session.status = 'scheduled';
   await session.save();
   const updateData = { sessionId, acceptanceStatus: 'accepted', message: 'Doctor has accepted the request and is joining.' };
   _emitToUsers(req, 'session:status-update', updateData, [session.patientId._id.toString(), userId]);
@@ -843,16 +875,14 @@ const delaySession = asyncHandler(async (req, res) => {
   res.json({ success: true, message: 'Session delayed successfully', session });
 });
 
-/** POST /api/sessions/:sessionId/missed — Handle when doctor misses the ring or delay timeout */
-const missedSession = asyncHandler(async (req, res) => {
-  const { sessionId } = req.params;
-  const session = await Session.findById(sessionId).populate('patientId', 'firstName lastName').populate('doctorId', 'firstName lastName');
-  if (!session) throw new NotFoundError('Session');
-  
-  if (session.acceptanceStatus === 'accepted') {
-    return res.json({ success: false, message: 'Session already accepted' });
-  }
-
+/**
+ * Core logic for auto-cancelling + refunding a session the doctor never accepted —
+ * shared between the manual REST endpoint below and the scheduled sweep
+ * (sweepStuckUnacceptedSessions) that catches paid instant sessions the patient
+ * never followed up on (e.g. closed the tab before their own client-side timer fired),
+ * which previously had no server-side resolution at all.
+ */
+async function _autoCancelUnacceptedSession(session, io) {
   session.status = 'cancelled';
   session.acceptanceStatus = 'pending';
 
@@ -866,7 +896,7 @@ const missedSession = asyncHandler(async (req, res) => {
       session.paymentStatus = 'refunded';
       session.refundAmount = session.price;
     } catch (err) {
-      logger.error('Razorpay refund failed in missedSession', { error: err.message, paymentId: session.paymentId });
+      logger.error('Razorpay refund failed in auto-cancel', { error: err.message, paymentId: session.paymentId });
       session.paymentStatus = 'refund_failed';
     }
   } else {
@@ -875,9 +905,12 @@ const missedSession = asyncHandler(async (req, res) => {
 
   await session.save();
 
-  // Notify patient about missed session & refund via email
+  // Track doctor no-shows the same way explicit doctor cancellations are tracked —
+  // otherwise a doctor who repeatedly just never answers accrues no accountability at all.
+  await _incrementDoctorCancellationCount(session.doctorId, 'Failed to update doctor cancellation tracking on missed session');
+
   try {
-    const populatedMissed = await Session.findById(sessionId).populate('patientId', 'firstName lastName email');
+    const populatedMissed = await Session.findById(session._id).populate('patientId', 'firstName lastName email');
     if (populatedMissed.patientId?.email) {
       await emailService.sendCancellationEmail(populatedMissed.patientId.email, {
         recipientName: populatedMissed.patientId.firstName,
@@ -890,13 +923,54 @@ const missedSession = asyncHandler(async (req, res) => {
     }
   } catch (e) { logger.warn('Missed session email failed', { error: e.message }); }
 
-  const updateData = { sessionId, status: 'cancelled', cancelledBy: 'system', message: 'Doctor is unavailable. Session cancelled and refunded.' };
-  _emitToUsers(req, 'session:cancelled', updateData, [session.patientId._id.toString(), session.doctorId._id.toString()]);
-  const io = req.app.get('io');
-  if (io) io.to(sessionId).emit('session:cancelled', updateData);
-  
+  const updateData = { sessionId: session._id.toString(), status: 'cancelled', cancelledBy: 'system', message: 'Doctor is unavailable. Session cancelled and refunded.' };
+  if (io) {
+    new SocketEmitter(io).emitToUsers([session.patientId._id.toString(), session.doctorId._id.toString()], 'session:cancelled', updateData);
+    io.to(session._id.toString()).emit('session:cancelled', updateData);
+  }
+}
+
+/** POST /api/sessions/:sessionId/missed — Handle when doctor misses the ring or delay timeout */
+const missedSession = asyncHandler(async (req, res) => {
+  const { sessionId } = req.params;
+  const session = await Session.findById(sessionId).populate('patientId', 'firstName lastName').populate('doctorId', 'firstName lastName');
+  if (!session) throw new NotFoundError('Session');
+
+  if (session.acceptanceStatus === 'accepted') {
+    return res.json({ success: false, message: 'Session already accepted' });
+  }
+
+  await _autoCancelUnacceptedSession(session, req.app.get('io'));
+
   res.json({ success: true, message: 'Session marked as missed', session });
 });
+
+/**
+ * Scheduled sweep (called from services/scheduler.js): a paid instant session the
+ * doctor never accepted has no resolution path if the patient closes the app before
+ * their own client-side 10-minute timer fires /missed — this catches those and
+ * refunds/cancels them the same way, so nothing paid can get stuck forever.
+ */
+const sweepStuckUnacceptedSessions = async (io) => {
+  const cutoff = new Date(Date.now() - 10 * 60 * 1000);
+  const stuck = await Session.find({
+    sessionType: 'immediate',
+    acceptanceStatus: 'pending',
+    paymentStatus: 'paid',
+    status: { $nin: ['cancelled', 'completed'] },
+    createdAt: { $lte: cutoff }
+  }).populate('patientId', 'firstName lastName').populate('doctorId', 'firstName lastName');
+
+  for (const session of stuck) {
+    try {
+      await _autoCancelUnacceptedSession(session, io);
+      logger.info('Auto-cancelled stuck unaccepted instant session', { sessionId: session._id.toString() });
+    } catch (err) {
+      logger.error('Failed to auto-cancel stuck session', { sessionId: session._id.toString(), error: err.message });
+    }
+  }
+  return stuck.length;
+};
 
 /** GET /api/sessions/delayed — Get all active delayed sessions for a doctor */
 const getDelayedSessions = asyncHandler(async (req, res) => {
@@ -944,4 +1018,4 @@ const getTurnCredentials = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { getStats, getMyDoctors, getPendingFeedback, getCallHistory, getDoctorSlots, bookImmediate, bookSession, getMySessions, getUpcoming, getAllDoctors, getDoctorById, getSessionById, joinSession, completeSession, cancelSession, getCalendar, getPatientEmergencyContact, getMyTherapists, acceptSession, delaySession, getTurnCredentials, missedSession, getDelayedSessions };
+module.exports = { getStats, getMyDoctors, getPendingFeedback, getCallHistory, getDoctorSlots, bookImmediate, bookSession, getMySessions, getUpcoming, getAllDoctors, getDoctorById, getSessionById, joinSession, completeSession, cancelSession, getCalendar, getPatientEmergencyContact, getMyTherapists, acceptSession, delaySession, getTurnCredentials, missedSession, getDelayedSessions, sweepStuckUnacceptedSessions };

@@ -10,6 +10,7 @@ const Session = require('../models/session');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { NotFoundError, AuthorizationError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
+const { sendMessageAndNotify } = require('../services/chat.service');
 
 const logger = createLogger('CHAT-CTRL');
 
@@ -93,16 +94,23 @@ const sendMessage = asyncHandler(async (req, res) => {
   const senderId = req.user._id.toString();
   if (!conversationId || !text) return res.status(400).json({ success: false, message: 'Conversation ID and text are required' });
 
-  const conversation = await Conversation.findById(conversationId);
-  if (!conversation) throw new NotFoundError('Conversation');
-  if (!conversation.participants.some(p => p.userId && p.userId.toString() === senderId)) throw new AuthorizationError('Access denied');
+  // Shared with the socket 'message:send' handler (server/socket/chat.socket.js)
+  // via chat.service.js — this used to persist the message but skip all
+  // real-time fan-out (conversation room, receiver's personal room, /data
+  // namespace), so a receiver got no live notification if this fallback path
+  // was ever actually used, only a stale conversation list until they reloaded.
+  let formattedMessage;
+  try {
+    const io = req.app.get('io');
+    const chatNamespace = io ? io.of('/chat') : null;
+    ({ formattedMessage } = await sendMessageAndNotify(io, chatNamespace, { conversationId, senderId, text }));
+  } catch (err) {
+    if (err.code === 'CONVERSATION_NOT_FOUND') throw new NotFoundError('Conversation');
+    if (err.code === 'ACCESS_DENIED') throw new AuthorizationError('Access denied');
+    throw err;
+  }
 
-  const receiver = conversation.participants.find(p => p.userId && p.userId.toString() !== senderId);
-  const message = await Message.create({ conversationId, senderId, receiverId: receiver.userId, text, isDelivered: true, deliveredAt: new Date() });
-  await Conversation.findByIdAndUpdate(conversationId, { lastMessage: { text, senderId, timestamp: message.createdAt }, updatedAt: new Date() });
-  await message.populate('senderId', 'firstName lastName email role');
-
-  res.json({ success: true, _id: message._id, text: message.text, timestamp: new Date(message.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }), senderId: message.senderId._id, senderName: `${message.senderId.firstName} ${message.senderId.lastName}`, isSentByMe: true, createdAt: message.createdAt });
+  res.json({ success: true, ...formattedMessage, isSentByMe: true });
 });
 
 /** PUT /api/chat/conversation/:conversationId/read — Mark conversation as read */

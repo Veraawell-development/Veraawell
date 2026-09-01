@@ -31,6 +31,17 @@ const RATE_LIMITS = {
       development: 1000
     },
     skipSuccessfulRequests: true
+  },
+  // The doctor-document upload endpoints are intentionally public (a career-page
+  // applicant uploads verification documents before they have an account), so
+  // they can't be gated behind verifyToken like other upload routes — this
+  // limiter is the actual abuse guard for that public surface.
+  PUBLIC_UPLOAD: {
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: {
+      production: 20,
+      development: 1000
+    }
   }
 };
 

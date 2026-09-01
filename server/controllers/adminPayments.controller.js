@@ -8,6 +8,11 @@ const User = require('../models/user');
 const Session = require('../models/session');
 const PlatformSettings = require('../models/platformSettings');
 const Razorpay = require('razorpay');
+const { calculateRefund } = require('../services/refundPolicy');
+const { parseTime } = require('../utils/timeUtils');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('ADMIN-PAYMENTS');
 
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID,
@@ -32,7 +37,7 @@ exports.getPaymentSettings = async (req, res) => {
       updatedBy: settings.updatedBy
     });
   } catch (error) {
-    console.error('[Admin] getPaymentSettings error:', error);
+    logger.error('[Admin] getPaymentSettings error:', { error: error.message });
     res.status(500).json({ message: 'Failed to fetch settings' });
   }
 };
@@ -60,7 +65,7 @@ exports.updatePlatformFee = async (req, res) => {
     settings.lastUpdated = new Date();
     await settings.save();
 
-    console.log(`[Admin] Platform fee updated to ${fee}% by admin`);
+    logger.info(`[Admin] Platform fee updated to ${fee}% by admin`);
 
     res.json({
       success: true,
@@ -68,7 +73,7 @@ exports.updatePlatformFee = async (req, res) => {
       defaultPlatformFeePercentage: fee
     });
   } catch (error) {
-    console.error('[Admin] updatePlatformFee error:', error);
+    logger.error('[Admin] updatePlatformFee error:', { error: error.message });
     res.status(500).json({ message: 'Failed to update platform fee' });
   }
 };
@@ -110,7 +115,7 @@ exports.updateDoctorFee = async (req, res) => {
       effectiveFee: doctorProfile.customFeePercentage ?? settings.defaultPlatformFeePercentage
     });
   } catch (error) {
-    console.error('[Admin] updateDoctorFee error:', error);
+    logger.error('[Admin] updateDoctorFee error:', { error: error.message });
     res.status(500).json({ message: 'Failed to update doctor fee' });
   }
 };
@@ -157,7 +162,7 @@ exports.getOnboardingRequests = async (req, res) => {
 
     res.json({ success: true, count: result.length, doctors: result });
   } catch (error) {
-    console.error('[Admin] getOnboardingRequests error:', error);
+    logger.error('[Admin] getOnboardingRequests error:', { error: error.message });
     res.status(500).json({ message: 'Failed to fetch onboarding requests' });
   }
 };
@@ -221,10 +226,10 @@ exports.approveOnboarding = async (req, res) => {
 
       razorpayAccountId = account.id;
       accountCreated = true;
-      console.log(`[Admin] Razorpay account created: ${razorpayAccountId} for doctor ${doctorId}`);
+      logger.info(`[Admin] Razorpay account created: ${razorpayAccountId} for doctor ${doctorId}`);
     } catch (rzpError) {
       // In test mode Razorpay Route may not be fully enabled — use mock
-      console.warn('[Admin] Razorpay account creation failed, using mock:', rzpError.message);
+      logger.warn('[Admin] Razorpay account creation failed, using mock:', { error: rzpError.message });
       const crypto = require('crypto');
       razorpayAccountId = `acc_mock_${crypto.randomBytes(4).toString('hex')}`;
       accountCreated = false;
@@ -247,7 +252,7 @@ exports.approveOnboarding = async (req, res) => {
         await emailService.sendOnboardingApprovedEmail(doctor.email, doctor.firstName);
       }
     } catch (e) {
-      console.warn('[Admin] Onboarding approval email failed:', e.message);
+      logger.warn('[Admin] Onboarding approval email failed:', { error: e.message });
     }
 
     res.json({
@@ -259,7 +264,7 @@ exports.approveOnboarding = async (req, res) => {
       status: (!accountCreated || razorpayAccountId.startsWith('acc_mock_')) ? 'active' : 'submitted_to_razorpay'
     });
   } catch (error) {
-    console.error('[Admin] approveOnboarding error:', error);
+    logger.error('[Admin] approveOnboarding error:', { error: error.message });
     res.status(500).json({ message: 'Failed to approve onboarding' });
   }
 };
@@ -293,7 +298,7 @@ exports.rejectOnboarding = async (req, res) => {
         );
       }
     } catch (e) {
-      console.warn('[Admin] Rejection email failed:', e.message);
+      logger.warn('[Admin] Rejection email failed:', { error: e.message });
     }
 
     res.json({
@@ -302,7 +307,7 @@ exports.rejectOnboarding = async (req, res) => {
       status: 'rejected'
     });
   } catch (error) {
-    console.error('[Admin] rejectOnboarding error:', error);
+    logger.error('[Admin] rejectOnboarding error:', { error: error.message });
     res.status(500).json({ message: 'Failed to reject onboarding' });
   }
 };
@@ -318,7 +323,14 @@ exports.rejectOnboarding = async (req, res) => {
 exports.adminRefundSession = async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const { reason = 'Admin initiated refund' } = req.body;
+    // Admins can pass an explicit override amount (goodwill/support refunds), but by
+    // default this now applies the SAME tiered policy the patient-facing cancellation
+    // flow uses (server/services/refundPolicy.js), rather than always refunding the
+    // full price regardless of how close to the session it is — that inconsistency
+    // meant a session cancelled 2 hours out (0% tier) still got refunded in full when
+    // an admin processed it, which is a real financial-policy disagreement between
+    // the two paths, not just a hypothetical one.
+    const { reason = 'Admin initiated refund', refundAmount: overrideAmount } = req.body;
 
     const session = await Session.findById(sessionId)
       .populate('patientId', 'firstName lastName email')
@@ -338,32 +350,55 @@ exports.adminRefundSession = async (req, res) => {
       return res.status(400).json({ message: 'No payment ID on record. Cannot process refund.' });
     }
 
+    let refundAmount;
+    if (typeof overrideAmount === 'number' && overrideAmount >= 0 && overrideAmount <= session.price) {
+      refundAmount = overrideAmount;
+      logger.warn('Admin override refund amount used', {
+        sessionId: sessionId.toString().substring(0, 8),
+        overrideAmount,
+        adminId: req.admin?._id?.toString().substring(0, 8)
+      });
+    } else {
+      const [hours, min] = parseTime(session.sessionTime);
+      const sessionDT = new Date(session.sessionDate);
+      sessionDT.setHours(hours, min, 0, 0);
+      const hoursUntil = (sessionDT.getTime() - Date.now()) / (1000 * 60 * 60);
+      // An admin manually processing a refund is standing in for whichever side
+      // actually triggered/deserves the cancellation; since that context isn't
+      // captured here, use the patient-tier calculation — the more common case
+      // for this tool (resolving a stuck/failed refund) inherits the same tiers
+      // the patient was already shown at cancellation time.
+      refundAmount = calculateRefund(session.price, hoursUntil, 'patient');
+    }
+
     // Skip mock payments
     if (session.paymentId.startsWith('mock_') || session.paymentId.startsWith('immediate_')) {
       session.paymentStatus = 'refunded';
       session.status = 'cancelled';
       session.refundId = `refund_mock_${Date.now()}`;
       session.refundedAt = new Date();
-      session.refundAmount = session.price;
+      session.refundAmount = refundAmount;
       await session.save();
-      return res.json({ success: true, message: 'Mock refund processed.', refundId: session.refundId });
+      return res.json({ success: true, message: 'Mock refund processed.', refundId: session.refundId, amount: refundAmount });
     }
 
     // Real Razorpay refund
-    const refund = await razorpay.payments.refund(session.paymentId, {
-      amount: session.price * 100, // paise
-      speed: 'normal',
-      notes: { reason, sessionId: sessionId.toString(), adminId: req.admin?._id?.toString() }
-    });
+    const refund = refundAmount > 0
+      ? await razorpay.payments.refund(session.paymentId, {
+          amount: refundAmount * 100, // paise
+          speed: 'normal',
+          notes: { reason, sessionId: sessionId.toString(), adminId: req.admin?._id?.toString() }
+        })
+      : null;
 
     session.paymentStatus = 'refunded';
     session.status = 'cancelled';
-    session.refundId = refund.id;
+    session.refundId = refund ? refund.id : `refund_zero_${Date.now()}`;
     session.refundedAt = new Date();
-    session.refundAmount = session.price;
+    session.refundAmount = refundAmount;
     await session.save();
 
-    console.log(`[Admin] Refund ${refund.id} issued for session ${sessionId}`);
+    logger.info('Admin refund issued', { refundId: session.refundId, sessionId: sessionId.toString().substring(0, 8), amount: refundAmount });
 
     // Send refund email to patient
     try {
@@ -371,22 +406,22 @@ exports.adminRefundSession = async (req, res) => {
       if (session.patientId?.email) {
         await emailService.sendRefundInitiatedEmail(session.patientId.email, {
           patientName: session.patientId.firstName,
-          amount: session.price,
-          refundId: refund.id,
+          amount: refundAmount,
+          refundId: session.refundId,
           date: new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
         });
       }
-    } catch (e) { console.warn('[Admin] Refund email failed:', e.message); }
+    } catch (e) { logger.warn('Refund email failed', { error: e.message }); }
 
     res.json({
       success: true,
-      message: `Refund of ₹${session.price} initiated successfully.`,
-      refundId: refund.id,
-      amount: session.price,
-      status: refund.status
+      message: `Refund of ₹${refundAmount} initiated successfully.`,
+      refundId: session.refundId,
+      amount: refundAmount,
+      status: refund ? refund.status : 'not_applicable'
     });
   } catch (error) {
-    console.error('[Admin] adminRefundSession error:', error);
+    logger.error('adminRefundSession error', { error: error.message });
     res.status(500).json({ message: 'Failed to process refund', error: error.message });
   }
 };
@@ -420,7 +455,7 @@ exports.getFailedRefunds = async (req, res) => {
       }))
     });
   } catch (error) {
-    console.error('[Admin] getFailedRefunds error:', error);
+    logger.error('[Admin] getFailedRefunds error:', { error: error.message });
     res.status(500).json({ message: 'Failed to fetch failed refunds' });
   }
 };
@@ -472,12 +507,12 @@ exports.retryRefund = async (req, res) => {
           date: new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
         });
       }
-    } catch (e) { console.warn('[Admin] Retry refund email failed:', e.message); }
+    } catch (e) { logger.warn('[Admin] Retry refund email failed:', { error: e.message }); }
 
-    console.log(`[Admin] Retry refund ${refund.id} for session ${sessionId}`);
+    logger.info(`[Admin] Retry refund ${refund.id} for session ${sessionId}`);
     res.json({ success: true, message: `Refund retried successfully. Refund ID: ${refund.id}`, refundId: refund.id });
   } catch (error) {
-    console.error('[Admin] retryRefund error:', error);
+    logger.error('[Admin] retryRefund error:', { error: error.message });
     res.status(500).json({ message: 'Refund retry failed', error: error.message });
   }
 };
@@ -585,7 +620,7 @@ exports.getRevenueAnalytics = async (req, res) => {
       topDoctors
     });
   } catch (error) {
-    console.error('[Admin] getRevenueAnalytics error:', error);
+    logger.error('[Admin] getRevenueAnalytics error:', { error: error.message });
     res.status(500).json({ message: 'Failed to fetch revenue analytics' });
   }
 };

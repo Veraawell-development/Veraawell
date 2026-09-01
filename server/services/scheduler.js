@@ -10,6 +10,16 @@ const logger = createLogger('SCHEDULER');
 let notificationTask = null;
 let statusUpdateTask = null;
 let paymentCleanupTask = null;
+let stuckSessionTask = null;
+
+// node-cron does not skip an overlapping run by default — if a job ever
+// takes longer than its own interval (a slow DB moment, a spike in session
+// volume), two overlapping runs could process the same rows concurrently.
+// These flags make each job a no-op re-entry instead.
+let statusSweepRunning = false;
+let notificationSweepRunning = false;
+let stuckSessionSweepRunning = false;
+let paymentCleanupRunning = false;
 
 /**
  * Sweep past sessions and mark them completed/no-show.
@@ -58,7 +68,7 @@ const runSessionStatusUpdate = async () => {
  * Start the notification scheduler (every minute for reminders)
  * and the session status sweep (every 5 minutes)
  */
-const startScheduler = () => {
+const startScheduler = (io) => {
     if (notificationTask && statusUpdateTask) {
         logger.info('Scheduler already running.');
         return;
@@ -68,11 +78,19 @@ const startScheduler = () => {
 
     // --- Session Status Sweep: every 5 minutes ---
     statusUpdateTask = cron.schedule('*/5 * * * *', async () => {
-        await runSessionStatusUpdate();
+        if (statusSweepRunning) return;
+        statusSweepRunning = true;
+        try {
+            await runSessionStatusUpdate();
+        } finally {
+            statusSweepRunning = false;
+        }
     });
 
     // --- Notification Reminder: every minute ---
     notificationTask = cron.schedule('* * * * *', async () => {
+        if (notificationSweepRunning) return;
+        notificationSweepRunning = true;
         try {
             const now = new Date();
 
@@ -136,15 +154,37 @@ const startScheduler = () => {
             }
         } catch (error) {
             logger.error('Error in notification scheduler', { error: error.message });
+        } finally {
+            notificationSweepRunning = false;
         }
     });
 
-    logger.info('All schedulers started successfully (notifications: 1min, status-sweep: 5min, payment-cleanup: 30min)');
+    // --- Stuck unaccepted instant sessions: every 2 minutes ---
+    // A paid instant session the doctor never accepted has no resolution path if the
+    // patient closes the app before their own client-side 10-minute timer fires
+    // /missed — this is the server-side backstop so nothing paid stays stuck forever.
+    stuckSessionTask = cron.schedule('*/2 * * * *', async () => {
+        if (stuckSessionSweepRunning) return;
+        stuckSessionSweepRunning = true;
+        try {
+            const { sweepStuckUnacceptedSessions } = require('../controllers/session.controller');
+            const count = await sweepStuckUnacceptedSessions(io);
+            if (count > 0) logger.info('Stuck unaccepted session sweep complete', { cancelled: count });
+        } catch (error) {
+            logger.error('Error in stuck unaccepted session sweep', { error: error.message });
+        } finally {
+            stuckSessionSweepRunning = false;
+        }
+    });
+
+    logger.info('All schedulers started successfully (notifications: 1min, status-sweep: 5min, payment-cleanup: 30min, stuck-sessions: 2min)');
 
     // ── Phase 9: Expired Payment Cleanup (every 30 minutes) ──────────────────
     // Sessions where the patient opened Razorpay but didn't pay within 30 mins.
     // Mark them 'failed' and release the booked slot.
     paymentCleanupTask = cron.schedule('*/30 * * * *', async () => {
+        if (paymentCleanupRunning) return;
+        paymentCleanupRunning = true;
         try {
             const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
 
@@ -186,6 +226,8 @@ const startScheduler = () => {
             }
         } catch (error) {
             logger.error('Error in payment cleanup job', { error: error.message });
+        } finally {
+            paymentCleanupRunning = false;
         }
     });
 };
@@ -205,6 +247,10 @@ const stopScheduler = () => {
     if (paymentCleanupTask) {
         paymentCleanupTask.stop();
         paymentCleanupTask = null;
+    }
+    if (stuckSessionTask) {
+        stuckSessionTask.stop();
+        stuckSessionTask = null;
     }
     logger.info('All schedulers stopped');
 };
