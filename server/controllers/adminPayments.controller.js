@@ -7,17 +7,13 @@ const DoctorProfile = require('../models/doctorProfile');
 const User = require('../models/user');
 const Session = require('../models/session');
 const PlatformSettings = require('../models/platformSettings');
-const Razorpay = require('razorpay');
 const { calculateRefund } = require('../services/refundPolicy');
 const { parseTime } = require('../utils/timeUtils');
+const { getRazorpay } = require('../services/razorpay.client');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('ADMIN-PAYMENTS');
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
 
 // ═══════════════════════════════════════════════════════════════════════
 // PHASE 2 — PLATFORM FEE MANAGEMENT
@@ -198,7 +194,7 @@ exports.approveOnboarding = async (req, res) => {
 
     try {
       // Create Razorpay Route Linked Account
-      const account = await razorpay.accounts.create({
+      const account = await getRazorpay().accounts.create({
         email: doctor.email,
         profile: {
           category: 'healthcare',
@@ -384,7 +380,7 @@ exports.adminRefundSession = async (req, res) => {
 
     // Real Razorpay refund
     const refund = refundAmount > 0
-      ? await razorpay.payments.refund(session.paymentId, {
+      ? await getRazorpay().payments.refund(session.paymentId, {
           amount: refundAmount * 100, // paise
           speed: 'normal',
           notes: { reason, sessionId: sessionId.toString(), adminId: req.admin?._id?.toString() }
@@ -484,7 +480,7 @@ exports.retryRefund = async (req, res) => {
       return res.json({ success: true, message: 'Mock refund marked as complete.' });
     }
 
-    const refund = await razorpay.payments.refund(session.paymentId, {
+    const refund = await getRazorpay().payments.refund(session.paymentId, {
       amount: (session.refundAmount || session.price) * 100,
       speed: 'normal',
       notes: { reason: 'Admin retry refund', sessionId: sessionId.toString() }

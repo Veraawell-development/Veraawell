@@ -12,18 +12,15 @@ const DoctorProfile = require('../models/doctorProfile');
 const DoctorAvailability = require('../models/doctorAvailability');
 const Review = require('../models/review');
 const PlatformSettings = require('../models/platformSettings');
-const Razorpay = require('razorpay');
 const SocketEmitter = require('../utils/socketEmitter');
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
 const { calculateSessionPrice, getOrCreateAvailability, getGenderBasedImage } = require('../services/session.service');
 const { calculateRefund, describeRefundPolicy } = require('../services/refundPolicy');
 const { parseTime } = require('../utils/timeUtils');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { NotFoundError, AuthorizationError } = require('../utils/errors');
+const { getRazorpay } = require('../services/razorpay.client');
+const { isStubMode, isSyntheticAccountId } = require('../config/payments');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('SESSION-CTRL');
@@ -35,6 +32,96 @@ const CALL_MODE_MAP = { video: 'Video Calling', voice: 'Voice Calling' };
 function _emitToUsers(req, event, data, userIds) {
   const io = req.app.get('io');
   if (io) new SocketEmitter(io).emitToUsers(userIds, event, data);
+}
+
+/**
+ * Decide the payment state a new booking starts in, and create the Razorpay
+ * order when one is owed.
+ *
+ * Shared by bookSession and bookImmediate, which previously had two copies of
+ * this logic that both ended in the same defect: on any failure to create an
+ * order they fell through to `paymentStatus: 'paid'` with a synthetic
+ * `mock_payment_<ts>` id, producing a confirmed session for ₹0.
+ *
+ * The states this can return, and why 'paid' is not among them:
+ *   - not_required : nothing is owed (a free session, or stub payments mode).
+ *                    Honest about the fact that no money moved, which matters
+ *                    because a later cancellation of a 'paid' session with no
+ *                    real paymentId is what let a refund be fabricated.
+ *   - pending      : an order exists and the patient must complete checkout.
+ *                    Only a verified signature (POST /api/payments/verify) or
+ *                    the Razorpay webhook may promote this to 'paid'.
+ * Anything else is a failed request.
+ *
+ * @returns {Promise<{ok:true, paymentStatus:string, status:string, paymentId:string|null, razorpayOrderId:string|null}
+ *                  | {ok:false, httpStatus:number, message:string}>}
+ */
+async function resolveBookingPaymentState({ doctorProfile, finalPrice, doctorEarnings, receiptPrefix, immediate = false }) {
+  const scheduledStatus = immediate ? 'active' : 'scheduled';
+
+  // Genuinely free (e.g. a discovery call priced at 0). Nothing to collect.
+  if (!finalPrice || finalPrice <= 0) {
+    return { ok: true, paymentStatus: 'not_required', status: scheduledStatus, paymentId: null, razorpayOrderId: null };
+  }
+
+  if (isStubMode()) {
+    logger.warn('STUB PAYMENTS: creating a not_required session — this mode is refused in production', {
+      price: finalPrice
+    });
+    return {
+      ok: true,
+      paymentStatus: 'not_required',
+      status: scheduledStatus,
+      paymentId: `stub_${crypto.randomBytes(8).toString('hex')}`,
+      razorpayOrderId: null
+    };
+  }
+
+  // ── Live mode. Both branches below are explicit failures, never a downgrade.
+  const accountId = doctorProfile && doctorProfile.razorpayAccountId;
+  if (!accountId || isSyntheticAccountId(accountId)) {
+    logger.error('Booking rejected: doctor has no usable payout account', {
+      hasAccount: !!accountId,
+      synthetic: isSyntheticAccountId(accountId)
+    });
+    return {
+      ok: false,
+      httpStatus: 409,
+      message: 'This therapist is not yet set up to receive payments. Please choose another therapist or try again later.'
+    };
+  }
+
+  const orderPayload = {
+    amount: Math.round(finalPrice * 100),
+    currency: 'INR',
+    receipt: `${receiptPrefix}_${Date.now()}`,
+    transfers: [{
+      account: accountId,
+      amount: Math.round(doctorEarnings * 100),
+      currency: 'INR',
+      notes: { branch: 'Veraawell Session' }
+    }]
+  };
+
+  try {
+    const order = await getRazorpay().orders.create(orderPayload);
+    return {
+      ok: true,
+      paymentStatus: 'pending',
+      status: 'payment_pending',
+      paymentId: null,
+      razorpayOrderId: order.id
+    };
+  } catch (err) {
+    // Previously a logger.warn followed by a free session. A gateway outage
+    // must not silently become free therapy.
+    logger.error('Razorpay order creation failed — booking rejected', { error: err.message });
+    return {
+      ok: false,
+      httpStatus: 502,
+      message: 'Payment gateway is temporarily unavailable. Please try again in a moment.'
+    };
+  }
 }
 
 /**
@@ -238,58 +325,50 @@ const bookImmediate = asyncHandler(async (req, res) => {
   const sessionTime = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
   const finalPrice = await calculateSessionPrice(doctorId, mode, duration, price);
 
-  let razorpayOrderId = null;
   let platformFee = 0;
   let doctorEarnings = 0;
-  
-  if (doctorId !== patientId) {
-    const doctorProfile = await DoctorProfile.findOne({ userId: doctorId });
+  let doctorProfile = null;
+
+  const isSelfSession = doctorId === patientId;
+  if (!isSelfSession) {
+    doctorProfile = await DoctorProfile.findOne({ userId: doctorId });
     if (doctorProfile) {
       const platformSettings = await PlatformSettings.getSettings();
       const feePercentage = doctorProfile.customFeePercentage !== null ? doctorProfile.customFeePercentage : platformSettings.defaultPlatformFeePercentage;
       platformFee = Math.round((finalPrice * feePercentage) / 100);
       doctorEarnings = finalPrice - platformFee;
-      
-      if (doctorProfile.razorpayAccountId) {
-        try {
-          const orderPayload = {
-            amount: finalPrice * 100,
-            currency: 'INR',
-            receipt: `rcpt_imm_${Date.now()}`
-          };
-
-          if (!doctorProfile.razorpayAccountId.startsWith('acc_mock')) {
-            orderPayload.transfers = [{
-              account: doctorProfile.razorpayAccountId,
-              amount: doctorEarnings * 100,
-              currency: 'INR',
-              notes: { branch: "Veraawell Immediate" }
-            }];
-          }
-
-          const order = await razorpay.orders.create(orderPayload);
-          razorpayOrderId = order.id;
-        } catch (err) {
-          logger.warn('Razorpay immediate order creation failed', { error: err });
-        }
-      }
     }
   }
 
-  const session = new Session({ 
-    patientId, 
-    doctorId, 
-    sessionDate: now, 
-    sessionTime, 
-    sessionType: 'immediate', 
-    duration: duration || 20, 
+  // Same fail-closed rule as bookSession — see resolveBookingPaymentState.
+  // A self-session (doctorId === patientId, reachable via the 'test-doctor-id'
+  // sentinel) owes nothing, so it resolves to not_required rather than being
+  // dressed up as a completed payment.
+  const paymentState = isSelfSession
+    ? { ok: true, paymentStatus: 'not_required', status: 'active', paymentId: null, razorpayOrderId: null }
+    : await resolveBookingPaymentState({
+        doctorProfile, finalPrice, doctorEarnings, receiptPrefix: 'rcpt_imm', immediate: true
+      });
+
+  if (!paymentState.ok) {
+    return res.status(paymentState.httpStatus).json({ success: false, message: paymentState.message });
+  }
+  const razorpayOrderId = paymentState.razorpayOrderId;
+
+  const session = new Session({
+    patientId,
+    doctorId,
+    sessionDate: now,
+    sessionTime,
+    sessionType: 'immediate',
+    duration: duration || 20,
     price: finalPrice,
     platformFee,
-    doctorEarnings, 
-    paymentStatus: razorpayOrderId ? 'pending' : 'paid',
-    status: razorpayOrderId ? 'payment_pending' : 'scheduled',
-    paymentId: razorpayOrderId ? null : `immediate_${Date.now()}`,
-    razorpayOrderId, 
+    doctorEarnings,
+    paymentStatus: paymentState.paymentStatus,
+    status: paymentState.status,
+    paymentId: paymentState.paymentId,
+    razorpayOrderId,
     callMode: CALL_MODE_MAP[mode] || 'Video Calling' 
   });
   const saved = await session.save();
@@ -368,32 +447,22 @@ const bookSession = asyncHandler(async (req, res) => {
   const platformFee = Math.round((finalPrice * feePercentage) / 100);
   const doctorEarnings = finalPrice - platformFee;
 
-  let razorpayOrderId = null;
-  if (doctorProfile.razorpayAccountId) {
-    try {
-      const orderPayload = {
-        amount: finalPrice * 100,
-        currency: 'INR',
-        receipt: `rcpt_${Date.now()}`
-      };
-
-      // Only add transfers if it's a real Razorpay account, otherwise it will fail in test mode
-      if (!doctorProfile.razorpayAccountId.startsWith('acc_mock')) {
-        orderPayload.transfers = [{
-          account: doctorProfile.razorpayAccountId,
-          amount: doctorEarnings * 100,
-          currency: 'INR',
-          notes: {
-            branch: "Veraawell Session"
-          }
-        }];
-      }
-
-      const order = await razorpay.orders.create(orderPayload);
-      razorpayOrderId = order.id;
-    } catch (err) {
-      logger.warn('Razorpay order creation failed', { error: err });
-    }
+  // ── PAYMENT STATE ─────────────────────────────────────────────────────────
+  // This block used to fall through to `paymentStatus: 'paid'` with a
+  // fabricated `mock_payment_<ts>` id in three situations: the doctor had no
+  // razorpayAccountId, the account id was a fake `acc_mock_...` (which
+  // approveOnboarding writes whenever the Razorpay SDK errors), or order
+  // creation threw and was swallowed by a `logger.warn`. Any of those handed
+  // the patient a confirmed, joinable session for ₹0 while the doctor's
+  // earnings ledger booked revenue that never arrived.
+  //
+  // Payment failure is now a failed request. The only way to get a session
+  // that owes nothing is for it to genuinely owe nothing.
+  const paymentState = await resolveBookingPaymentState({
+    doctorProfile, finalPrice, doctorEarnings, receiptPrefix: 'rcpt'
+  });
+  if (!paymentState.ok) {
+    return res.status(paymentState.httpStatus).json({ success: false, message: paymentState.message });
   }
 
   const meetingLink = `/video-call/${crypto.randomBytes(16).toString('hex')}`;
@@ -401,13 +470,14 @@ const bookSession = asyncHandler(async (req, res) => {
     patientId, doctorId, sessionDate: new Date(sessionDate), sessionTime,
     sessionType: SESSION_TYPE_MAP[sessionType] || 'regular', duration: duration || 60,
     price: finalPrice, platformFee, doctorEarnings,
-    paymentStatus: razorpayOrderId ? 'pending' : 'paid',
-    status: razorpayOrderId ? 'payment_pending' : 'scheduled',
-    paymentId: razorpayOrderId ? null : `mock_payment_${Date.now()}`,
-    razorpayOrderId,
+    paymentStatus: paymentState.paymentStatus,
+    status: paymentState.status,
+    paymentId: paymentState.paymentId,
+    razorpayOrderId: paymentState.razorpayOrderId,
     meetingLink, sessionNotes: `Service Type: ${serviceType || 'General'}`,
     callMode: CALL_MODE_MAP[mode] || 'Video Calling'
   });
+  const razorpayOrderId = paymentState.razorpayOrderId;
 
   const booked = await availability.bookSlot(sessionDate, sessionTime, session._id);
   if (!booked) return res.status(400).json({ success: false, message: 'Failed to book slot. It may have just been taken.' });
@@ -686,7 +756,7 @@ const cancelSession = asyncHandler(async (req, res) => {
     await session.save(); // Save pending state first
     
     try {
-      const refund = await razorpay.payments.refund(session.paymentId, {
+      const refund = await getRazorpay().payments.refund(session.paymentId, {
         amount: refundAmount * 100, // In paise
         speed: 'normal',
         notes: { reason: `Cancelled by ${cancellerRole}`, sessionId: sessionId }
@@ -699,6 +769,22 @@ const cancelSession = asyncHandler(async (req, res) => {
       logger.error('Razorpay refund failed', { error: err.message, paymentId: session.paymentId });
       session.paymentStatus = 'refund_failed';
     }
+  } else if (session.paymentStatus === 'not_required') {
+    // Nothing was ever charged (a free session, or stub payments mode), so
+    // there is nothing to refund and nothing to "keep". Both branches below
+    // would lie about this session's money: the first by claiming it was
+    // paid, the second by claiming a refund was issued. Leave it alone.
+    session.refundAmount = 0;
+  } else if (session.paymentStatus === 'pending' || session.paymentStatus === 'failed') {
+    // The patient opened checkout but never completed it, so no money was
+    // ever captured. The final `else` below used to catch this case and write
+    // paymentStatus='refunded' with a non-zero refundAmount — inventing a
+    // refund of money that was never collected, which then flows into the
+    // admin refund tooling, revenue analytics and the patient's own history.
+    // (Verified: cancelling a payment_pending ₹1500 session recorded
+    // refundAmount=1500 against paymentId=null.)
+    session.paymentStatus = 'failed';
+    session.refundAmount = 0;
   } else if (refundAmount === 0) {
     session.paymentStatus = 'paid'; // No refund owed, payment stays as-is
   } else {
@@ -888,7 +974,7 @@ async function _autoCancelUnacceptedSession(session, io) {
 
   if (session.paymentStatus === 'paid' && session.paymentId && !session.paymentId.startsWith('mock_') && !session.paymentId.startsWith('immediate_')) {
     try {
-      await razorpay.payments.refund(session.paymentId, {
+      await getRazorpay().payments.refund(session.paymentId, {
         amount: session.price * 100,
         speed: 'normal',
         notes: { reason: 'Doctor missed session — auto refund' }

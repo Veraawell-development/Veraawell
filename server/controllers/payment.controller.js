@@ -1,4 +1,3 @@
-const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const Session = require('../models/session');
 const DoctorProfile = require('../models/doctorProfile');
@@ -20,10 +19,6 @@ function _emitToUsers(req, event, data, userIds) {
   }
 }
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
 
 /**
  * Shared by verifyPayment (client-triggered) and razorpayWebhook (server-triggered) so
