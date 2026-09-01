@@ -16,7 +16,9 @@ const SocketEmitter = require('../utils/socketEmitter');
 
 const { calculateSessionPrice, getOrCreateAvailability, getGenderBasedImage } = require('../services/session.service');
 const { calculateRefund, describeRefundPolicy } = require('../services/refundPolicy');
-const { parseTime } = require('../utils/timeUtils');
+const { resolveStartsAt, hoursUntilStart } = require('../services/sessionTime');
+const { zonedToUtc, slotKey } = require('../utils/zonedTime');
+const { PLATFORM_TIMEZONE } = require('../config/time');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { sealedFilter } = require('../authz');
 const { NotFoundError, AuthorizationError } = require('../utils/errors');
@@ -320,7 +322,12 @@ const bookImmediate = asyncHandler(async (req, res) => {
   if (!doctorId || doctorId === 'test-doctor-id') doctorId = patientId;
 
   const now = new Date();
-  const sessionTime = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
+  // sessionTime used to be built from getUTCHours(), producing a bare 24-hour
+  // string ('14:30') that no other producer emitted — so it could never match
+  // a slot in the 12-hour availability grid, and releaseSlot was a guaranteed
+  // no-op for immediate sessions. The model now derives every representation
+  // from `startsAt`; this literal is only a placeholder for the required field.
+  const sessionTime = '12:00 AM';
   const finalPrice = await calculateSessionPrice(doctorId, mode, duration, price);
 
   let platformFee = 0;
@@ -356,6 +363,8 @@ const bookImmediate = asyncHandler(async (req, res) => {
   const session = new Session({
     patientId,
     doctorId,
+    startsAt: now,
+    timezone: PLATFORM_TIMEZONE,
     sessionDate: now,
     sessionTime,
     sessionType: 'immediate',
@@ -421,11 +430,19 @@ const bookSession = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Missing required fields' });
   }
 
-  // Validate slot is in the future
-  const [h, m] = parseTime(sessionTime);
-  const requestedDT = new Date(sessionDate);
-  requestedDT.setHours(h, m, 0, 0);
-  if (requestedDT < new Date()) return res.status(400).json({ success: false, message: 'Cannot book a time slot in the past' });
+  // Validate the slot is in the future.
+  //
+  // This used to be `new Date(sessionDate).setHours(h, m)`, which applies the
+  // SERVER's offset to a UTC-midnight date. On a UTC host that read a 9:00 AM
+  // IST slot as 09:00Z — 2:30 PM IST — so slots up to 5h30m in the past were
+  // bookable and genuinely-available early slots were rejected.
+  let requestedStartsAt;
+  try {
+    requestedStartsAt = zonedToUtc(sessionDate, sessionTime, PLATFORM_TIMEZONE);
+  } catch (err) {
+    return res.status(400).json({ success: false, message: 'Invalid session date or time' });
+  }
+  if (requestedStartsAt < new Date()) return res.status(400).json({ success: false, message: 'Cannot book a time slot in the past' });
 
   const existing = await Session.findOne({ doctorId, sessionDate: new Date(sessionDate), sessionTime, status: { $ne: 'cancelled' } });
   if (existing) return res.status(400).json({ success: false, message: 'This time slot is no longer available' });
@@ -465,7 +482,11 @@ const bookSession = asyncHandler(async (req, res) => {
 
   const meetingLink = `/video-call/${crypto.randomBytes(16).toString('hex')}`;
   const session = new Session({
-    patientId, doctorId, sessionDate: new Date(sessionDate), sessionTime,
+    patientId, doctorId,
+    // The instant is authoritative; the model derives sessionDate/sessionTime/
+    // localDate/localTime/endsAt from it.
+    startsAt: requestedStartsAt, timezone: PLATFORM_TIMEZONE,
+    sessionDate: new Date(sessionDate), sessionTime,
     sessionType: SESSION_TYPE_MAP[sessionType] || 'regular', duration: duration || 60,
     price: finalPrice, platformFee, doctorEarnings,
     paymentStatus: paymentState.paymentStatus,
@@ -708,9 +729,7 @@ const cancelSession = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Cannot cancel a session that has already been completed' });
   }
 
-  const sessionDT = new Date(session.sessionDate);
-  const [hours, min] = parseTime(session.sessionTime);
-  sessionDT.setHours(hours, min, 0, 0);
+  const sessionDT = resolveStartsAt(session);
 
   if (sessionDT.getTime() < Date.now()) {
     return res.status(400).json({ success: false, message: 'Cannot cancel a session that has already started' });
@@ -719,7 +738,10 @@ const cancelSession = asyncHandler(async (req, res) => {
   const cancellerRole = req.actor.role; // 'patient' or 'doctor'
 
   // ── REFUND POLICY ─────────────────────────────────────────────────────────
-  const hoursUntil = (sessionDT.getTime() - Date.now()) / (1000 * 60 * 60);
+  // The refund TIER depends on this number, so the old server-local
+  // reinterpretation was a money bug: a cancellation 25h out could be charged
+  // the 4-24h 50% rate, or vice versa, depending on the server's offset.
+  const hoursUntil = hoursUntilStart(session);
   const refundAmount = calculateRefund(session.price, hoursUntil, cancellerRole);
 
   session.status = 'cancelled';
@@ -785,7 +807,16 @@ const cancelSession = asyncHandler(async (req, res) => {
   // Release the slot
   try {
     const avail = await DoctorAvailability.findOne({ doctorId: session.doctorId });
-    if (avail) await avail.releaseSlot(session.sessionDate.toISOString().split('T')[0], session.sessionTime);
+    // localDate/localTime, not toISOString() — a 00:30 IST session has a UTC
+    // date of the PREVIOUS day, so the old key could never match the booked
+    // slot and the slot leaked permanently.
+    if (avail) {
+      const released = await avail.releaseSlot(session.localDate, session.localTime, session._id);
+      if (!released) logger.warn('Slot release did not match any booked slot', {
+        sessionId: session._id.toString().substring(0, 8),
+        slot: slotKey(session.localDate, session.localTime)
+      });
+    }
   } catch (e) { logger.warn('Slot release failed', { error: e.message }); }
 
   // Notify both parties via socket

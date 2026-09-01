@@ -7,6 +7,8 @@ const DoctorAvailability = require('../models/doctorAvailability');
 const Session = require('../models/session');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { AuthorizationError } = require('../utils/errors');
+const { zonedToUtc, utcToZoned } = require('../utils/zonedTime');
+const { PLATFORM_TIMEZONE } = require('../config/time');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('AVAILABILITY-CTRL');
@@ -67,12 +69,15 @@ const getSlots = asyncHandler(async (req, res) => {
 const getUpcomingSessions = asyncHandler(async (req, res) => {
   if (req.user.role !== 'doctor') throw new AuthorizationError('Only doctors can access this');
   const userId = req.user._id.toString();
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // This compared a Date-typed field against a 'YYYY-MM-DD' STRING, and used
+  // server-local midnight to build it. Query the instant instead.
+  const startOfTodayLocal = zonedToUtc(
+    utcToZoned(new Date(), PLATFORM_TIMEZONE).localDate, '00:00', PLATFORM_TIMEZONE
+  );
 
-  const upcomingSessions = await Session.find({ doctorId: userId, sessionDate: { $gte: today.toISOString().split('T')[0] } })
+  const upcomingSessions = await Session.find({ doctorId: userId, startsAt: { $gte: startOfTodayLocal } })
     .populate('patientId', 'firstName lastName email')
-    .sort({ sessionDate: 1, sessionTime: 1 })
+    .sort({ startsAt: 1 })
     .limit(50);
 
   res.json(upcomingSessions);

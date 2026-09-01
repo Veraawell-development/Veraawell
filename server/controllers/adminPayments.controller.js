@@ -8,7 +8,7 @@ const User = require('../models/user');
 const Session = require('../models/session');
 const PlatformSettings = require('../models/platformSettings');
 const { calculateRefund } = require('../services/refundPolicy');
-const { parseTime } = require('../utils/timeUtils');
+const { hoursUntilStart } = require('../services/sessionTime');
 const { getRazorpay } = require('../services/razorpay.client');
 const { createLogger } = require('../utils/logger');
 
@@ -355,10 +355,9 @@ exports.adminRefundSession = async (req, res) => {
         adminId: req.admin?._id?.toString().substring(0, 8)
       });
     } else {
-      const [hours, min] = parseTime(session.sessionTime);
-      const sessionDT = new Date(session.sessionDate);
-      sessionDT.setHours(hours, min, 0, 0);
-      const hoursUntil = (sessionDT.getTime() - Date.now()) / (1000 * 60 * 60);
+      // Same tier calculation the patient-facing cancel path uses, from the
+      // same authoritative instant — the two used to compute it separately.
+      const hoursUntil = hoursUntilStart(session);
       // An admin manually processing a refund is standing in for whichever side
       // actually triggered/deserves the cancellation; since that context isn't
       // captured here, use the patient-tier calculation — the more common case

@@ -1,5 +1,5 @@
 const mongoose = require('mongoose');
-const { parseTime } = require('../utils/timeUtils');
+const { PLATFORM_TIMEZONE } = require('../config/time');
 
 const sessionSchema = new mongoose.Schema({
   patientId: {
@@ -12,6 +12,59 @@ const sessionSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  // ── Time ───────────────────────────────────────────────────────────────
+  //
+  // `startsAt` is the authoritative instant. Everything time-dependent —
+  // refund tiers, the join window, the no-show sweep, reminders — is computed
+  // from it via services/sessionTime.js.
+  //
+  // It exists because (sessionDate, sessionTime) could not answer "when is
+  // this, exactly": sessionDate was a UTC midnight and sessionTime a bare
+  // string in two different formats, so every consumer re-derived an instant
+  // with `setHours`, which applies the SERVER's offset. On a UTC host that put
+  // every IST booking 5h30m out.
+  //
+  // `localDate`/`localTime` are kept alongside because they, not the instant,
+  // are the identity of a slot in DoctorAvailability, and because they
+  // preserve the booking's intent independently of any tz-database revision.
+  startsAt: {
+    type: Date,
+    index: true
+  },
+  endsAt: {
+    type: Date,
+    index: true
+  },
+  /** IANA zone the slot was published in — the doctor's, not the patient's. */
+  timezone: {
+    type: String,
+    default: PLATFORM_TIMEZONE
+  },
+  /** 'YYYY-MM-DD' in `timezone`. */
+  localDate: {
+    type: String,
+    index: true
+  },
+  /** 'HH:mm' (24h) in `timezone`. */
+  localTime: {
+    type: String
+  },
+  /**
+   * How confident the backfill was about this row's instant, for rows that
+   * predate `startsAt`. 'low' means the time string was unparseable and the
+   * stored date was used as-is — those rows are terminal (completed/cancelled/
+   * no-show), never live, because the migration refuses to guess a live
+   * session's time. Set only by migrations/backfillSessionStartsAt.js.
+   */
+  dateBackfillConfidence: {
+    type: String,
+    enum: ['high', 'medium', 'low', null],
+    default: null
+  },
+
+  // Legacy display fields. Derived from startsAt by the pre-save hook below
+  // and kept for one release so old clients keep working; do not read them in
+  // new code.
   sessionDate: {
     type: Date,
     required: true
@@ -205,68 +258,60 @@ sessionSchema.index({ status: 1, callStatus: 1 }); // Status-based queries
 sessionSchema.index({ doctorId: 1, status: 1 }); // Doctor active sessions
 sessionSchema.index({ patientId: 1, status: 1 }); // Patient active sessions
 sessionSchema.index({ createdAt: -1 }); // Recent sessions
+// The sweeps query by instant, not by calendar day: "every live session whose
+// end time has passed" is one indexed range scan instead of loading a day's
+// worth of rows and re-deriving each one's end time in JavaScript.
+sessionSchema.index({ status: 1, endsAt: 1 });
+sessionSchema.index({ startsAt: 1, status: 1 });
+sessionSchema.index({ doctorId: 1, startsAt: 1 });
 
-// Virtual for session end time
-sessionSchema.virtual('sessionEndTime').get(function () {
-  const [hours, minutes] = parseTime(this.sessionTime);
-  const startTime = new Date(this.sessionDate);
-  startTime.setHours(hours, minutes, 0, 0);
-
-  const endTime = new Date(startTime.getTime() + (this.duration * 60000));
-  return endTime.toTimeString().slice(0, 5);
+/**
+ * Keep every time representation derived from the one authoritative instant.
+ *
+ * Without this the fields drift: bookImmediate wrote a 24-hour sessionTime
+ * from getUTCHours() while the availability grid used 12-hour strings, so a
+ * slot booked by one path could never be matched — and released — by the
+ * other.
+ */
+sessionSchema.pre('validate', function deriveTimeFields(next) {
+  const { deriveFields, resolveStartsAt } = require('../services/sessionTime');
+  try {
+    // If startsAt is absent (a legacy document, or a caller still writing the
+    // old fields), derive it once from what is there.
+    const startsAt = this.startsAt || resolveStartsAt(this);
+    Object.assign(this, deriveFields(startsAt, this.duration || 60, this.timezone || PLATFORM_TIMEZONE));
+    next();
+  } catch (err) {
+    next(err);
+  }
 });
 
-// Method to check if session is upcoming
+/** Displayed end time, in the session's own zone. */
+sessionSchema.virtual('sessionEndTime').get(function () {
+  const { resolveEndsAt } = require('../services/sessionTime');
+  const { formatTimeForDisplay } = require('../utils/zonedTime');
+  return formatTimeForDisplay(resolveEndsAt(this), this.timezone || PLATFORM_TIMEZONE);
+});
+
 sessionSchema.methods.isUpcoming = function () {
-  const now = new Date();
-  const sessionDateTime = new Date(this.sessionDate);
-  const [hours, minutes] = parseTime(this.sessionTime);
-  sessionDateTime.setHours(hours, minutes, 0, 0);
-
-  return sessionDateTime > now && this.status === 'scheduled';
+  const { resolveStartsAt } = require('../services/sessionTime');
+  return resolveStartsAt(this) > new Date() && this.status === 'scheduled';
 };
 
-// Method to check if session can be joined (within 15 minutes of start time)
+/**
+ * Joinable from JOIN_LEAD_MINUTES before the start until JOIN_GRACE_MINUTES
+ * after the end. The 15/-60 minute literals used to live here, applied to a
+ * server-local reinterpretation of the stored date.
+ */
 sessionSchema.methods.canJoin = function () {
-  const now = new Date();
-  const sessionDateTime = new Date(this.sessionDate);
-  const [hours, minutes] = parseTime(this.sessionTime);
-  sessionDateTime.setHours(hours, minutes, 0, 0);
-
-  const timeDiff = sessionDateTime.getTime() - now.getTime();
-  const minutesDiff = timeDiff / (1000 * 60);
-
-  return minutesDiff <= 15 && minutesDiff >= -60 && this.status === 'scheduled';
+  const { isWithinJoinWindow } = require('../services/sessionTime');
+  return isWithinJoinWindow(this) && ['scheduled', 'active'].includes(this.status);
 };
 
-// Static method to get available slots for a doctor on a specific date
-sessionSchema.statics.getAvailableSlots = async function (doctorId, date) {
-  const startOfDay = new Date(date);
-  startOfDay.setHours(0, 0, 0, 0);
-
-  const endOfDay = new Date(date);
-  endOfDay.setHours(23, 59, 59, 999);
-
-  const bookedSessions = await this.find({
-    doctorId,
-    sessionDate: {
-      $gte: startOfDay,
-      $lte: endOfDay
-    },
-    status: { $ne: 'cancelled' }
-  }).select('sessionTime duration');
-
-  // Default available slots (9 AM to 6 PM)
-  const allSlots = [
-    '09:00', '10:00', '11:00', '12:00', '13:00', '14:00',
-    '15:00', '16:00', '17:00', '18:00'
-  ];
-
-  const bookedTimes = bookedSessions.map(session => session.sessionTime);
-  const availableSlots = allSlots.filter(slot => !bookedTimes.includes(slot));
-
-  return availableSlots;
-};
+// Removed: a `getAvailableSlots` static that hardcoded a 24-hour slot list
+// ('09:00'...'18:00'). It had no callers anywhere in the codebase and its
+// format contradicted the 12-hour grid DoctorAvailability actually uses, so
+// anything that did adopt it would have produced slots that never matched.
 
 // Compound Indexes for Performance Optimization
 sessionSchema.index({ patientId: 1, sessionDate: -1, sessionTime: -1 });

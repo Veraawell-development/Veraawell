@@ -3,7 +3,7 @@ const Session = require('../models/session');
 const DoctorAvailability = require('../models/doctorAvailability');
 const { sendSessionReminderEmail } = require('./email.service');
 const { createLogger } = require('../utils/logger');
-const { parseTime } = require('../utils/timeUtils');
+const { resolveStartsAt, resolveEndsAt } = require('../services/sessionTime');
 
 const logger = createLogger('SCHEDULER');
 
@@ -29,24 +29,23 @@ let paymentCleanupRunning = false;
 const runSessionStatusUpdate = async () => {
     try {
         const now = new Date();
-        // Only look at sessions that could have ended since the last sweep (sessions from the past 24h that are still 'scheduled')
         const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
+        // "Every live session whose end time has passed" is now one indexed
+        // range scan on endsAt. It used to load every scheduled session from a
+        // 24-hour window and re-derive each end time in JavaScript with
+        // setHours — which applied the server's offset, so on a UTC host an
+        // IST session was swept 5h30m early or late.
         const scheduledSessions = await Session.find({
-            status: 'scheduled',
-            sessionDate: { $gte: cutoff, $lte: now }
+            status: { $in: ['scheduled', 'active'] },
+            endsAt: { $gte: cutoff, $lte: now }
         });
 
         if (scheduledSessions.length === 0) return 0;
 
         let updatedCount = 0;
         for (const session of scheduledSessions) {
-            const [hours, minutes] = parseTime(session.sessionTime);
-            const sessionStart = new Date(session.sessionDate);
-            sessionStart.setHours(hours, minutes, 0, 0);
-            const sessionEnd = new Date(sessionStart.getTime() + (session.duration * 60000));
-
-            if (sessionEnd < now) {
+            if (resolveEndsAt(session) < now) {
                 session.status = (session.doctorJoined && session.patientJoined) ? 'completed' : 'no-show';
                 if (session.status === 'completed') session.callStatus = 'completed';
                 await session.save();
@@ -99,12 +98,13 @@ const startScheduler = (io) => {
             const windowStart = new Date(now.getTime() - 10 * 60 * 1000);  // 10 mins ago
             const windowEnd = new Date(now.getTime() + 16 * 60 * 1000);    // 16 mins ahead
 
+            // Query the instant range directly. The old form bounded by the
+            // UTC calendar day while comparing against a server-local
+            // setHours, so IST sessions between 00:00 and 05:30 fell outside
+            // the queried day entirely and never received a reminder at all.
             const sessions = await Session.find({
                 status: 'scheduled',
-                sessionDate: {
-                    $gte: new Date(now.toISOString().split('T')[0]), // today
-                    $lte: new Date(now.toISOString().split('T')[0] + 'T23:59:59.999Z')
-                },
+                startsAt: { $gte: windowStart, $lte: windowEnd },
                 $or: [
                     { 'notificationStatus.reminderSent': false },
                     { 'notificationStatus.startSent': false },
@@ -120,10 +120,7 @@ const startScheduler = (io) => {
                     continue;
                 }
 
-                const [hours, minutes] = parseTime(session.sessionTime);
-                const sessionDateTime = new Date(session.sessionDate);
-                sessionDateTime.setHours(hours, minutes, 0, 0);
-
+                const sessionDateTime = resolveStartsAt(session);
                 const diffMs = sessionDateTime.getTime() - now.getTime();
                 const diffMinutes = diffMs / (1000 * 60);
 
@@ -205,14 +202,17 @@ const startScheduler = (io) => {
                     session.status = 'cancelled';
                     await session.save();
 
-                    // Release the doctor's slot
-                    const dateStr = session.sessionDate instanceof Date
-                        ? session.sessionDate.toISOString().split('T')[0]
-                        : new Date(session.sessionDate).toISOString().split('T')[0];
-
+                    // Release by the session's own local slot key. Deriving a
+                    // date with toISOString() put a 00:30 IST session on the
+                    // previous day, so the release silently matched nothing.
                     const avail = await DoctorAvailability.findOne({ doctorId: session.doctorId });
-                    if (avail && session.sessionTime) {
-                        await avail.releaseSlot(dateStr, session.sessionTime);
+                    if (avail && session.localDate && session.localTime) {
+                        const released = await avail.releaseSlot(session.localDate, session.localTime, session._id);
+                        if (!released) {
+                            logger.warn('Expired-checkout slot release matched nothing', {
+                                sessionId: String(session._id).substring(0, 8)
+                            });
+                        }
                     }
 
                     cleaned++;
