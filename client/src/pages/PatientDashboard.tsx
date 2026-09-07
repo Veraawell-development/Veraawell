@@ -847,7 +847,8 @@ const PatientDashboard: React.FC = () => {
           <div style={{ ...cardStyle, padding: '16px 20px', position: 'relative', overflow: 'hidden', flex: 'none' }}>
             <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.teal, textTransform: 'uppercase', marginBottom: 4 }}>— Self-Assessment</div>
             <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 16, lineHeight: 1.2, color: T.text, marginBottom: 10 }}>Mental Health Screening</div>
-            <div className="grid grid-cols-2 gap-2">
+            {/* auto-rows-fr so both rows share one track height. */}
+            <div className="grid grid-cols-2 auto-rows-fr gap-2" data-testid="patient-screening-tiles">
               {testsToRender.map((testId) => {
                 const testDef = MENTAL_HEALTH_TESTS[testId];
                 let testName = testDef ? testDef.name : testId;
@@ -867,11 +868,25 @@ const PatientDashboard: React.FC = () => {
                   <div key={testId} style={{ ...subCardStyle, padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 9 }}>
                     <div className="flex items-center gap-2.5">
                       <div className="flex-none flex items-center justify-center" style={{ width: 36, height: 36, borderRadius: '50%', background: `conic-gradient(${T.teal} ${pct}%, #eee7d8 0)`, padding: 3 }}>
-                        <div className="flex items-center justify-center" style={{ width: '100%', height: '100%', borderRadius: '50%', background: '#fff', fontFamily: FONT_SERIF, fontWeight: 600, fontSize: 12, color: T.teal }}>
+                        <div data-metric-value className="flex items-center justify-center" style={{ width: '100%', height: '100%', borderRadius: '50%', background: '#fff', fontFamily: FONT_SERIF, fontWeight: 600, fontSize: 12, color: T.teal }}>
                           {hasScore ? score : '–'}
                         </div>
                       </div>
-                      <div className="min-w-0 flex items-center" style={{ fontWeight: 600, fontSize: 11, color: T.text, minHeight: 28 }}>{testName}</div>
+                      {/*
+                        Reserve two lines. minHeight: 28 alone was not enough:
+                        at 11px with a 1.5 line-height a single line is 16.5px
+                        (padded to 28) but a wrapped name — 'Post-Partum Test',
+                        'Social Anxiety Test' — is 33px and overflowed, pushing
+                        that one tile's SEVERITY row down. Whether a name wraps
+                        depends on viewport width, which is why the
+                        misalignment appeared and disappeared on resize.
+                      */}
+                      <div
+                        className="min-w-0 flex items-center"
+                        style={{ fontWeight: 600, fontSize: 11, lineHeight: 1.25, color: T.text, height: 28 }}
+                      >
+                        {testName}
+                      </div>
                     </div>
                     <div className="flex items-center justify-between" style={{ paddingTop: 8, borderTop: '1px solid rgba(27,43,46,.07)' }}>
                       <div>
@@ -885,7 +900,10 @@ const PatientDashboard: React.FC = () => {
                     </div>
                     <button
                       onClick={() => navigate(`/mental-health/${testId}`)}
-                      style={{ textAlign: 'center', fontWeight: 600, fontSize: 10.5, letterSpacing: '.03em', textTransform: 'uppercase', color: T.teal, border: '1px solid rgba(31,122,140,.35)', borderRadius: 100, padding: 6, background: 'transparent', cursor: 'pointer' }}
+                      // marginTop: 'auto' so a tile stretched by a taller
+                      // sibling collects its slack ABOVE the button rather
+                      // than below it, keeping all four buttons on one line.
+                      style={{ marginTop: 'auto', textAlign: 'center', fontWeight: 600, fontSize: 10.5, letterSpacing: '.03em', textTransform: 'uppercase', color: T.teal, border: '1px solid rgba(31,122,140,.35)', borderRadius: 100, padding: 6, background: 'transparent', cursor: 'pointer' }}
                     >
                       {hasScore ? 'Retest →' : 'Take Test →'}
                     </button>
@@ -897,17 +915,46 @@ const PatientDashboard: React.FC = () => {
 
           {/* My Journal */}
           <div style={{ ...cardStyle, padding: '14px 20px', flex: '0 1 auto', maxHeight: '26%', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-            <div className="flex-none" style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 16, lineHeight: 1.2, color: T.text, marginBottom: 6 }}>My Journal</div>
+            {/*
+              This was the only panel on the page with no eyebrow and no way
+              in — every sibling has both (— Care Notes + VIEW ALL, — Schedule
+              + Manage). The pill goes in the heading row rather than a footer
+              because the card is maxHeight: '26%', so a flex-none footer would
+              eat the scroll area instead of growing the card.
+            */}
+            <div className="flex-none flex items-start justify-between" style={{ marginBottom: 6 }}>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.muted, textTransform: 'uppercase', marginBottom: 4 }}>— Reflections</div>
+                <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 16, lineHeight: 1.2, color: T.text }}>My Journal</div>
+              </div>
+              <button
+                onClick={() => navigate('/my-journal')}
+                style={{ fontWeight: 600, fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase', border: '1px solid rgba(31,122,140,.3)', color: T.teal, borderRadius: 100, padding: '7px 16px', background: 'transparent', cursor: 'pointer', flex: 'none' }}
+              >
+                View All →
+              </button>
+            </div>
             <div className="flex-none flex justify-between" style={{ padding: '0 4px 6px', fontWeight: 600, fontSize: 9.5, letterSpacing: '.06em', color: T.muted, textTransform: 'uppercase', borderBottom: `1px solid ${T.border}` }}>
               <span>Date</span>
               <span>Subject</span>
             </div>
             <div className="flex flex-col gap-0.5 flex-1 min-h-0 overflow-y-auto">
               {recentJournal.length === 0 ? (
-                <div className="text-center py-4" style={{ fontSize: 12.5, color: T.muted }}>No journal entries yet</div>
+                <div
+                  onClick={() => navigate('/my-journal')}
+                  className="text-center py-4 cursor-pointer"
+                  style={{ fontSize: 12.5, color: T.muted }}
+                >
+                  No journal entries yet — start writing →
+                </div>
               ) : (
                 recentJournal.map((j) => (
-                  <div key={j._id} className="flex items-center justify-between" style={{ padding: '7px 4px', borderBottom: '1px solid rgba(27,43,46,.06)' }}>
+                  <div
+                    key={j._id}
+                    onClick={() => navigate('/my-journal')}
+                    className="flex items-center justify-between cursor-pointer"
+                    style={{ padding: '7px 4px', borderBottom: '1px solid rgba(27,43,46,.06)' }}
+                  >
                     <span style={{ fontSize: 12.5, color: T.text, whiteSpace: 'nowrap' }}>{formatDate(j.createdAt)}</span>
                     <span style={{ fontSize: 12.5, color: T.text2, marginLeft: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{j.title}</span>
                   </div>

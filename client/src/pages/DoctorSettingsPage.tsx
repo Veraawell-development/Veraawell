@@ -2,10 +2,60 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
-import { IndianRupee, Video, Mic, Landmark, Clock, Mail, CheckCircle, XCircle, BarChart3, ArrowLeft, Lightbulb } from 'lucide-react';
+import { IndianRupee, Video, Mic, Landmark, Clock, Mail, CheckCircle, XCircle, BarChart3, ArrowLeft, Lightbulb, Check, RotateCcw } from 'lucide-react';
 import { getAuthToken } from '../utils/authToken';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+
+/*
+ * Design tokens, identical to the doctor and patient dashboards. This page is
+ * entered from the dashboard's "Pricing & Payouts" button, so it should look
+ * like the dashboard — it was the only file in client/src using Instrument
+ * Serif, and its root set no font at all, so everything but four headings fell
+ * back to Inter. That is why it read as flat sans.
+ *
+ * Note the Tailwind `font-serif` / `font-mono` utilities are NOT usable here:
+ * there is no tailwind.config and no @theme block, so they resolve to
+ * Tailwind's stock stacks rather than the app's faces. The family has to be
+ * set explicitly, exactly as the dashboards do.
+ */
+const T = {
+  bg: '#f6f3ec',
+  border: 'rgba(27,43,46,.08)',
+  text: '#16262a',
+  text2: '#6b7573',
+  muted: '#8a938f',
+  teal: '#1f7a8c',
+  tealSoft: 'rgba(31,122,140,.10)',
+};
+const FONT_SERIF = "'Newsreader', Georgia, serif";
+const FONT_SANS = "'Public Sans', 'Inter', sans-serif";
+
+const cardStyle: React.CSSProperties = {
+  background: 'radial-gradient(120% 120% at 0% 0%, rgba(31,122,140,.16), rgba(31,122,140,0) 55%), rgba(255,255,255,.82)',
+  backdropFilter: 'blur(20px) saturate(110%)',
+  WebkitBackdropFilter: 'blur(20px) saturate(110%)',
+  border: '1px solid rgba(255,255,255,.7)',
+  boxShadow: '0 12px 36px rgba(27,43,46,.08), inset 0 1px 0 rgba(255,255,255,.6)',
+  borderRadius: 20,
+};
+
+/** Uppercase micro-label, the dashboard's eyebrow treatment. */
+const eyebrow: React.CSSProperties = {
+  fontWeight: 600,
+  fontSize: 9.5,
+  letterSpacing: '.08em',
+  textTransform: 'uppercase',
+  color: T.muted,
+};
+
+/** Money. Serif at the dashboard's metric weight, with aligned digits. */
+const figure: React.CSSProperties = {
+  fontFamily: FONT_SERIF,
+  fontWeight: 500,
+  color: T.text,
+  fontVariantNumeric: 'tabular-nums',
+};
 
 interface PricingState {
   session20: string;
@@ -183,8 +233,8 @@ const DoctorSettingsPage: React.FC = () => {
 
   if (profileLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: '#f8fafc' }}>
-        <div className="w-8 h-8 border-4 border-teal-400 border-t-transparent rounded-full animate-spin" />
+      <div className="min-h-screen pt-[64px] md:pt-[80px] box-border flex items-center justify-center" style={{ background: '#f8fafc' }}>
+        <div className="w-8 h-8 border-4 border-t-transparent rounded-full animate-spin" style={{ borderColor: T.teal, borderTopColor: 'transparent' }} />
       </div>
     );
   }
@@ -195,37 +245,46 @@ const DoctorSettingsPage: React.FC = () => {
     { key: 'session55' as const, label: '55 Minutes' },
   ];
 
+  // The Navbar is position: fixed, so a full-height page has to reserve its
+  // height or its own header renders behind the nav links. This is the same
+  // offset DoctorReportsPage, DoctorTasksPage and PatientDetailsPage use;
+  // box-border keeps h-screen from overflowing once the padding is added.
   return (
-    <div className="h-screen overflow-hidden bg-[#FAFAF8] flex flex-col">
+    <div className="h-screen pt-[64px] md:pt-[80px] box-border overflow-hidden flex flex-col" style={{ background: T.bg, fontFamily: FONT_SANS }}>
       {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <div className="px-4 py-6 border-b border-gray-200 bg-white shadow-sm flex-shrink-0">
-        <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-3">
-              <button onClick={() => navigate('/doctor-dashboard')} className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-700">
-                <ArrowLeft className="w-5 h-5" />
-              </button>
-              <h1 className="text-3xl text-gray-900" style={{ fontFamily: 'Instrument Serif, serif' }}>Pricing & Payouts</h1>
+      <div className="px-4 py-5 flex-shrink-0" style={{ borderBottom: `1px solid ${T.border}`, background: 'rgba(255,255,255,.7)', backdropFilter: 'blur(20px)' }}>
+        <div className="max-w-3xl mx-auto flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate('/doctor-dashboard')}
+              className="p-2 rounded-full transition-colors"
+              style={{ color: T.text2 }}
+              aria-label="Back to dashboard"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <div style={{ ...eyebrow, fontSize: 10, letterSpacing: '.1em', color: T.teal, marginBottom: 2 }}>— Your Practice</div>
+              <h1 style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 24, lineHeight: 1.15, color: T.text }}>Pricing &amp; Payouts</h1>
             </div>
-            <p className="text-sm text-gray-500 ml-12 mt-1">Manage your pricing & payout setup</p>
           </div>
-          
-          <div className="text-sm font-medium text-gray-500">
+
+          <div style={{ ...eyebrow, fontSize: 10, letterSpacing: '.1em' }}>
             Step {currentStep} of {totalSteps}
           </div>
         </div>
       </div>
 
-      <div className="max-w-2xl mx-auto px-4 py-8 space-y-6 flex-1 w-full overflow-y-auto">
+      <div className="max-w-3xl mx-auto px-4 py-8 space-y-6 flex-1 w-full overflow-y-auto">
 
         {/* ── SESSION PRICING CARD (STEP 1) ───────────────────────────────────────────── */}
         {currentStep === 1 && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-6 py-5 border-b border-gray-50" style={{ background: 'linear-gradient(135deg, #F0F8F9 0%, #F5FBFC 100%)' }}>
-            <h2 className="text-lg text-gray-800 flex items-center gap-2" style={{ fontFamily: 'Instrument Serif, serif' }}>
-              <IndianRupee className="w-5 h-5 text-teal-600" /> Session Pricing
+        <div style={{ ...cardStyle, overflow: 'hidden' }}>
+          <div className="px-6 py-5" style={{ borderBottom: `1px solid ${T.border}` }}>
+            <h2 className="flex items-center gap-2" style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, lineHeight: 1.2, color: T.text }}>
+              <IndianRupee className="w-[18px] h-[18px]" style={{ color: T.teal }} /> Session Pricing
             </h2>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="mt-1" style={{ fontSize: 12.5, color: T.text2 }}>
               Changes apply to future bookings only. Existing sessions are not affected.
             </p>
           </div>
@@ -234,28 +293,31 @@ const DoctorSettingsPage: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
               {/* Video Pricing */}
               <div>
-              <h3 className="text-[11px] font-bold text-teal-700 tracking-wider mb-4 flex items-center gap-2 uppercase">
-                <Video className="w-4 h-4" /> Video Sessions
+              <h3 className="mb-4 flex items-center gap-2" style={{ ...eyebrow, color: T.teal }}>
+                <Video className="w-3.5 h-3.5" /> Video Sessions
               </h3>
               <div className="space-y-3">
                 {videoSlots.map(({ key, label }) => (
                   <div key={key} className="flex items-center gap-3">
-                    <label className="text-sm font-medium text-gray-600 w-28 shrink-0">{label}</label>
+                    <label className="w-24 shrink-0" style={{ fontSize: 12.5, fontWeight: 500, color: T.text2 }}>{label}</label>
                     <div className="flex items-center gap-2 flex-1">
-                      <div className="relative flex-1 max-w-36">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">₹</span>
+                      {/* minWidth so a four-digit price is never clipped —
+                          this row previously rendered ₹800 as "₹ 8". */}
+                      <div className="relative flex-1" style={{ minWidth: 104, maxWidth: 144 }}>
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2" style={{ ...figure, fontSize: 15, color: T.muted }}>₹</span>
                         <input
                           type="number"
                           min="0"
                           max="10000"
                           value={pricing[key]}
                           onChange={e => setPricing(p => ({ ...p, [key]: e.target.value }))}
-                          className="w-full pl-7 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-400 focus:border-transparent transition-all"
+                          className="w-full pl-7 pr-3 py-2.5 rounded-xl focus:outline-none focus:ring-2 transition-all"
+                          style={{ ...figure, fontSize: 17, border: `1px solid ${T.border}`, background: 'rgba(255,255,255,.6)' }}
                           placeholder="0"
                         />
                       </div>
-                      <span className="text-xs text-gray-400 shrink-0">
-                        You earn: <span className="text-teal-600 font-semibold">{doctorEarns(pricing[key])}</span>
+                      <span className="shrink-0" style={{ fontSize: 11.5, color: T.muted }}>
+                        You earn: <span style={{ ...figure, fontSize: 13.5, color: T.teal }}>{doctorEarns(pricing[key])}</span>
                       </span>
                     </div>
                   </div>
@@ -265,28 +327,33 @@ const DoctorSettingsPage: React.FC = () => {
 
             {/* Audio Pricing */}
             <div>
-              <h3 className="text-[11px] font-bold text-blue-700 tracking-wider mb-4 flex items-center gap-2 uppercase">
-                <Mic className="w-4 h-4" /> Audio Sessions
+              {/* One accent, not two. Teal for both; audio is distinguished by
+                  the icon, not by a second brand-adjacent blue. */}
+              <h3 className="mb-4 flex items-center gap-2" style={{ ...eyebrow, color: T.teal }}>
+                <Mic className="w-3.5 h-3.5" /> Audio Sessions
               </h3>
               <div className="space-y-3">
                 {videoSlots.map(({ key, label }) => (
                   <div key={key} className="flex items-center gap-3">
-                    <label className="text-sm font-medium text-gray-600 w-28 shrink-0">{label}</label>
+                    <label className="w-24 shrink-0" style={{ fontSize: 12.5, fontWeight: 500, color: T.text2 }}>{label}</label>
                     <div className="flex items-center gap-2 flex-1">
-                      <div className="relative flex-1 max-w-36">
-                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm font-medium">₹</span>
+                      {/* minWidth so a four-digit price is never clipped —
+                          this row previously rendered ₹800 as "₹ 8". */}
+                      <div className="relative flex-1" style={{ minWidth: 104, maxWidth: 144 }}>
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2" style={{ ...figure, fontSize: 15, color: T.muted }}>₹</span>
                         <input
                           type="number"
                           min="0"
                           max="10000"
                           value={pricing.audio[key]}
                           onChange={e => setPricing(p => ({ ...p, audio: { ...p.audio, [key]: e.target.value } }))}
-                          className="w-full pl-7 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 focus:border-transparent transition-all"
+                          className="w-full pl-7 pr-3 py-2.5 rounded-xl focus:outline-none focus:ring-2 transition-all"
+                          style={{ ...figure, fontSize: 17, border: `1px solid ${T.border}`, background: 'rgba(255,255,255,.6)' }}
                           placeholder="0"
                         />
                       </div>
-                      <span className="text-xs text-gray-400 shrink-0">
-                        You earn: <span className="text-blue-600 font-semibold">{doctorEarns(pricing.audio[key])}</span>
+                      <span className="shrink-0" style={{ fontSize: 11.5, color: T.muted }}>
+                        You earn: <span style={{ ...figure, fontSize: 13.5, color: T.teal }}>{doctorEarns(pricing.audio[key])}</span>
                       </span>
                     </div>
                   </div>
@@ -296,9 +363,9 @@ const DoctorSettingsPage: React.FC = () => {
             </div>
 
             {/* Info banner */}
-            <div className="bg-teal-50/50 rounded-xl p-4 mt-auto flex items-start gap-3 border border-teal-100/50">
-              <Lightbulb className="w-5 h-5 text-teal-600 shrink-0 mt-0.5" />
-              <p className="text-xs text-teal-800 leading-relaxed">
+            <div className="rounded-xl p-4 mt-auto flex items-start gap-3" style={{ background: T.tealSoft, border: `1px solid ${T.border}` }}>
+              <Lightbulb className="w-5 h-5 shrink-0 mt-0.5" style={{ color: T.teal }} />
+              <p className="leading-relaxed" style={{ fontSize: 12, color: T.text2 }}>
                 Platform fee: <strong className="font-semibold">{platformFeePercent}%</strong>. The "You earn" amount is transferred to your bank account within 3 business days after each completed session.
               </p>
             </div>
@@ -306,8 +373,8 @@ const DoctorSettingsPage: React.FC = () => {
             <button
               onClick={handleSavePricing}
               disabled={isSavingPricing}
-              className="w-full py-3 rounded-xl font-bold text-sm text-white transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-60"
-              style={{ background: 'linear-gradient(135deg, #0d9488, #0891b2)' }}
+              className="w-full py-3 rounded-full transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-60"
+              style={{ background: T.teal, color: '#fff', fontWeight: 600, fontSize: 13, letterSpacing: '.04em', textTransform: 'uppercase', border: 'none' }}
             >
               {isSavingPricing ? (
                 <>
@@ -315,7 +382,7 @@ const DoctorSettingsPage: React.FC = () => {
                   Saving...
                 </>
               ) : (
-                <>✓ Save Pricing</>
+                <><Check className="w-4 h-4" /> Save Pricing</>
               )}
             </button>
           </div>
@@ -324,25 +391,25 @@ const DoctorSettingsPage: React.FC = () => {
 
         {/* ── PAYOUT SETUP CARD (STEP 2) ──────────────────────────────────────────────── */}
         {currentStep === 2 && (
-        <div className="bg-white rounded-[24px] shadow-sm border border-gray-100 overflow-hidden">
-          <div className="px-6 py-5 border-b border-gray-50" style={{ background: 'linear-gradient(135deg, #FEF8F3 0%, #fff 100%)' }}>
-            <h2 className="text-lg text-gray-800 flex items-center gap-2" style={{ fontFamily: 'Instrument Serif, serif' }}>
-              <Landmark className="w-5 h-5 text-orange-600" /> Payout Setup
+        <div style={{ ...cardStyle, overflow: 'hidden' }}>
+          <div className="px-6 py-5" style={{ borderBottom: `1px solid ${T.border}` }}>
+            <h2 className="flex items-center gap-2" style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, lineHeight: 1.2, color: T.text }}>
+              <Landmark className="w-[18px] h-[18px]" style={{ color: T.teal }} /> Payout Setup
             </h2>
-            <p className="text-xs text-gray-500 mt-1">
+            <p className="mt-1" style={{ fontSize: 12.5, color: T.text2 }}>
               Set up your bank account to receive earnings after sessions.
             </p>
           </div>
 
           <div className="p-6">
             {!onboardingStatus ? (
-              <div className="flex items-center gap-3 text-gray-400">
-                <div className="w-4 h-4 border-2 border-gray-300 border-t-transparent rounded-full animate-spin" />
+              <div className="flex items-center gap-3" style={{ color: T.muted }}>
+                <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: T.muted, borderTopColor: 'transparent' }} />
                 <span className="text-sm">Loading status...</span>
               </div>
             ) : onboardingStatus.status === 'not_requested' ? (
               <div>
-                <p className="text-sm text-gray-600 mb-4 leading-relaxed">
+                <p className="mb-4 leading-relaxed" style={{ fontSize: 13, color: T.text2 }}>
                   Set up payouts to receive your earnings automatically. Once active, earnings are transferred within <strong>3 business days</strong> after each completed session.
                 </p>
                 <button
@@ -412,9 +479,10 @@ const DoctorSettingsPage: React.FC = () => {
                 <button
                   onClick={handleRequestOnboarding}
                   disabled={isRequestingOnboarding}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm text-white bg-gray-700 hover:bg-gray-800 transition-all disabled:opacity-60"
+                  className="flex items-center gap-2 px-5 py-2.5 rounded-full transition-all disabled:opacity-60"
+                  style={{ background: 'transparent', color: T.teal, border: '1px solid rgba(31,122,140,.35)', fontWeight: 600, fontSize: 12.5, letterSpacing: '.04em', textTransform: 'uppercase' }}
                 >
-                  {isRequestingOnboarding ? 'Submitting...' : '↩ Re-apply'}
+                  {isRequestingOnboarding ? 'Submitting...' : <><RotateCcw className="w-4 h-4" /> Re-apply</>}
                 </button>
               </div>
             ) : null}
@@ -424,33 +492,35 @@ const DoctorSettingsPage: React.FC = () => {
 
         {/* ── EARNINGS SUMMARY CARD (STEP 3) ─────────────────────────────────────── */}
         {currentStep === 3 && earnings !== null && (
-          <div className="bg-white rounded-[24px] shadow-sm border border-gray-100 overflow-hidden">
-            <div className="px-6 py-5 border-b border-gray-50" style={{ background: 'linear-gradient(135deg, #F0FBFC 0%, #fff 100%)' }}>
-              <h2 className="text-lg text-gray-800 flex items-center gap-2" style={{ fontFamily: 'Instrument Serif, serif' }}>
-                <BarChart3 className="w-5 h-5 text-blue-600" /> Earnings Summary
+          <div style={{ ...cardStyle, overflow: 'hidden' }}>
+            <div className="px-6 py-5" style={{ borderBottom: `1px solid ${T.border}` }}>
+              <h2 className="flex items-center gap-2" style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, lineHeight: 1.2, color: T.text }}>
+                <BarChart3 className="w-[18px] h-[18px]" style={{ color: T.teal }} /> Earnings Summary
               </h2>
-              <p className="text-xs text-gray-500 mt-1">All-time stats from completed sessions</p>
+              <p className="mt-1" style={{ fontSize: 12.5, color: T.text2 }}>All-time stats from completed sessions</p>
             </div>
-            <div className="p-6 grid grid-cols-2 gap-4">
-              <div className="bg-teal-50 rounded-xl p-4">
-                <p className="text-xs text-teal-600 font-medium mb-1">Total Earned</p>
-                <p className="text-2xl font-bold text-teal-700">
-                  ₹{earnings.totalDoctorEarnings.toLocaleString('en-IN')}
-                </p>
-                <p className="text-xs text-gray-400 mt-1">after platform fee</p>
-              </div>
-              <div className="bg-blue-50 rounded-xl p-4">
-                <p className="text-xs text-blue-600 font-medium mb-1">Pending Payout</p>
-                <p className="text-2xl font-bold text-blue-700">
-                  ₹{earnings.pendingPayout.toLocaleString('en-IN')}
-                </p>
-                <p className="text-xs text-gray-400 mt-1">processing within 3 days</p>
-              </div>
-              <div className="bg-gray-50 rounded-xl p-4 col-span-2">
-                <p className="text-xs text-gray-500 font-medium mb-1">Total Sessions Completed</p>
-                <p className="text-xl font-bold text-gray-700">{earnings.totalSessions} sessions</p>
-                <p className="text-xs text-gray-400 mt-1">Gross collected: ₹{earnings.totalGross.toLocaleString('en-IN')}</p>
-              </div>
+            {/*
+              Same shape as the dashboard's Key Metrics: one array, one tile
+              renderer, auto-rows-fr so every tile is the same size and every
+              figure sits on the same line. Values are serif with tabular
+              numerals so the rupee columns align digit-for-digit.
+            */}
+            <div className="p-6 grid grid-cols-2 auto-rows-fr gap-3">
+              {[
+                { label: 'Total Earned', value: `₹${earnings.totalDoctorEarnings.toLocaleString('en-IN')}`, note: 'after platform fee', span: false },
+                { label: 'Pending Payout', value: `₹${earnings.pendingPayout.toLocaleString('en-IN')}`, note: 'processing within 3 days', span: false },
+                { label: 'Sessions Completed', value: `${earnings.totalSessions}`, note: `Gross collected: ₹${earnings.totalGross.toLocaleString('en-IN')}`, span: true },
+              ].map((m) => (
+                <div
+                  key={m.label}
+                  className={m.span ? 'col-span-2' : ''}
+                  style={{ background: 'rgba(255,255,255,.5)', border: `1px solid ${T.border}`, borderRadius: 14, padding: 16, display: 'flex', flexDirection: 'column', gap: 6 }}
+                >
+                  <div style={eyebrow}>{m.label}</div>
+                  <div style={{ ...figure, fontSize: 24, lineHeight: 1.2 }}>{m.value}</div>
+                  <div style={{ fontSize: 11.5, color: T.muted, marginTop: 'auto' }}>{m.note}</div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -463,7 +533,7 @@ const DoctorSettingsPage: React.FC = () => {
             className={`px-6 py-2.5 rounded-xl font-medium text-sm transition-all ${
               currentStep === 1 
                 ? 'opacity-0 pointer-events-none' 
-                : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300'
+                : 'hover:opacity-80'
             }`}
           >
             Previous
@@ -474,7 +544,8 @@ const DoctorSettingsPage: React.FC = () => {
               if (currentStep < totalSteps) setCurrentStep(prev => prev + 1);
               else navigate('/doctor-dashboard');
             }}
-            className="px-6 py-2.5 rounded-xl font-bold text-sm text-white transition-all bg-teal-700 hover:bg-teal-800"
+            className="px-6 py-2.5 rounded-full transition-all hover:opacity-90"
+            style={{ background: T.teal, color: '#fff', fontWeight: 600, fontSize: 12.5, letterSpacing: '.04em', textTransform: 'uppercase', border: 'none' }}
           >
             {currentStep === totalSteps ? 'Done' : 'Next'}
           </button>

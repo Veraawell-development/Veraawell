@@ -691,23 +691,33 @@ const DoctorDashboard: React.FC = () => {
           <div style={{ ...cardStyle, padding: '16px 20px', position: 'relative', overflow: 'hidden' }}>
             <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.teal, textTransform: 'uppercase', marginBottom: 4 }}>— This Month</div>
             <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 16, lineHeight: 1.2, color: T.text, marginBottom: 10 }}>Key Metrics</div>
-            <div className="grid grid-cols-2 gap-2">
-              <div style={{ ...subCardStyle, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <div style={{ fontWeight: 600, fontSize: 9.5, letterSpacing: '.08em', color: T.muted, textTransform: 'uppercase' }}>Total Revenue</div>
-                <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 24, color: T.text }}>₹{stats.revenue.toLocaleString()}</div>
-              </div>
-              <div style={{ ...subCardStyle, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <div style={{ fontWeight: 600, fontSize: 9.5, letterSpacing: '.08em', color: T.muted, textTransform: 'uppercase' }}>Total Sessions</div>
-                <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 24, color: T.text }}>{stats.sessions}</div>
-              </div>
-              <div style={{ ...subCardStyle, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                <div style={{ fontWeight: 600, fontSize: 9.5, letterSpacing: '.08em', color: T.muted, textTransform: 'uppercase' }}>Total Hours</div>
-                <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 24, color: T.text }}>{stats.hours}</div>
-              </div>
-              <div style={{ ...subCardStyle, padding: 14, display: 'flex', flexDirection: 'column', gap: 6, justifyContent: 'space-between' }}>
-                <div style={{ fontWeight: 600, fontSize: 9.5, letterSpacing: '.08em', color: T.muted, textTransform: 'uppercase' }}>Self-Assessment</div>
-                <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 18, color: T.text }}>DLA-20</div>
-              </div>
+            {/*
+              One data array, one renderer. These were four hand-written copies
+              and the fourth had drifted twice — fontSize 18 against 24, and a
+              stray justifyContent: 'space-between' that pushed its value to
+              the bottom of the stretched row while the other three sat at the
+              top. That is why "DLA-20" rendered below "15".
+
+              auto-rows-fr makes both rows share one track height, so all four
+              tiles are the same size regardless of which value is longest.
+            */}
+            <div className="grid grid-cols-2 auto-rows-fr gap-2" data-testid="doctor-key-metrics">
+              {[
+                { label: 'Total Revenue', value: `₹${stats.revenue.toLocaleString()}` },
+                { label: 'Total Sessions', value: String(stats.sessions) },
+                { label: 'Total Hours', value: String(stats.hours) },
+                { label: 'Self-Assessment', value: 'DLA-20' },
+              ].map((m) => (
+                <div key={m.label} style={{ ...subCardStyle, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div style={{ fontWeight: 600, fontSize: 9.5, letterSpacing: '.08em', color: T.muted, textTransform: 'uppercase' }}>{m.label}</div>
+                  <div
+                    data-metric-value
+                    style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 22, lineHeight: 1.2, color: T.text, fontVariantNumeric: 'tabular-nums' }}
+                  >
+                    {m.value}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
 

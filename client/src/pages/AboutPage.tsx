@@ -211,13 +211,24 @@ const AboutPage: React.FC = () => {
         </div>
 
         {/* ── Content Sections (varied editorial rows, one accent per idea) ── */}
+        {/*
+          md:min-h-[420px] gives every card the same height. They are stacked
+          full-width rows, not a grid, so there is no shared row track to
+          equalise them — height was purely a function of body copy (card 01
+          has three paragraphs, the rest two, and 03's are the longest). The
+          image column was already uniform at md:w-[42%] aspect-[16/10].
+          items-center keeps the shorter cards' content optically centred.
+
+          Mirrored in AboutPage.tsx and CareerPage.tsx, which carry identical
+          copies of this block.
+        */}
         <div className="flex flex-col gap-14 md:gap-16 mb-40">
           {sections.map((s, i) => (
             <div
               key={s.num}
               ref={s.ref}
               data-reveal
-              className={`group relative overflow-hidden flex flex-col md:flex-row ${i % 2 === 1 ? 'md:flex-row-reverse' : ''} items-center gap-8 md:gap-14 rounded-[20px] p-6 md:p-9 border transition-all duration-500 hover:-translate-y-1`}
+              className={`group relative overflow-hidden flex flex-col md:flex-row ${i % 2 === 1 ? 'md:flex-row-reverse' : ''} items-center gap-8 md:gap-14 rounded-[20px] p-6 md:p-9 border transition-all duration-500 hover:-translate-y-1 md:min-h-[420px]`}
               style={{ background: `linear-gradient(135deg, ${s.accent}0C, transparent 60%)`, borderColor: `${s.accent}22`, boxShadow: '0 4px 24px rgba(0,0,0,0.03)' }}
             >
               {/* Top accent line */}
