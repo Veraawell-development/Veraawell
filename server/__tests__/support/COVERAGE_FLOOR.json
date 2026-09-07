@@ -1,0 +1,398 @@
+{
+  "_comment": "A RATCHET, not a target. Regenerate with: node scripts/check-coverage.js --update. Values may only rise; a drop fails npm run test:coverage.",
+  "_recorded": "2026-09-06",
+  "_total": {
+    "statements": 69.55,
+    "branches": 58.04
+  },
+  "files": {
+    "authz/actor.js": {
+      "statements": 71.42,
+      "branches": 55.17
+    },
+    "authz/audit.js": {
+      "statements": 97.43,
+      "branches": 72.72
+    },
+    "authz/authorize.js": {
+      "statements": 92.1,
+      "branches": 71.42
+    },
+    "authz/can.js": {
+      "statements": 82.6,
+      "branches": 47.05
+    },
+    "authz/index.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "authz/registry.js": {
+      "statements": 69.49,
+      "branches": 69.23
+    },
+    "authz/scope.js": {
+      "statements": 75,
+      "branches": 55.55
+    },
+    "authz/socket.js": {
+      "statements": 90,
+      "branches": 69.04
+    },
+    "authz/policies/clinicalRecords.policy.js": {
+      "statements": 68,
+      "branches": 38.77
+    },
+    "authz/policies/journal.policy.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "authz/policies/session.policy.js": {
+      "statements": 90.62,
+      "branches": 73.52
+    },
+    "config/auth.js": {
+      "statements": 55.88,
+      "branches": 50
+    },
+    "config/cloudinary.js": {
+      "statements": 83.33,
+      "branches": 75
+    },
+    "config/constants.js": {
+      "statements": 93.33,
+      "branches": 75
+    },
+    "config/database.js": {
+      "statements": 28.16,
+      "branches": 4.16
+    },
+    "config/environment.js": {
+      "statements": 30.76,
+      "branches": 15.38
+    },
+    "config/payments.js": {
+      "statements": 61.11,
+      "branches": 56.25
+    },
+    "controllers/admin.controller.js": {
+      "statements": 45.94,
+      "branches": 20
+    },
+    "controllers/adminPayments.controller.js": {
+      "statements": 44.39,
+      "branches": 39.81
+    },
+    "controllers/article.controller.js": {
+      "statements": 65.55,
+      "branches": 56.73
+    },
+    "controllers/assessment.controller.js": {
+      "statements": 78.18,
+      "branches": 65.21
+    },
+    "controllers/auth.controller.js": {
+      "statements": 76.57,
+      "branches": 56.81
+    },
+    "controllers/availability.controller.js": {
+      "statements": 77.77,
+      "branches": 42.3
+    },
+    "controllers/chat.controller.js": {
+      "statements": 70.45,
+      "branches": 58.13
+    },
+    "controllers/doctorStatus.controller.js": {
+      "statements": 35.48,
+      "branches": 0
+    },
+    "controllers/enquiry.controller.js": {
+      "statements": 100,
+      "branches": 97.36
+    },
+    "controllers/journal.controller.js": {
+      "statements": 94.87,
+      "branches": 71.42
+    },
+    "controllers/moodEntry.controller.js": {
+      "statements": 96.15,
+      "branches": 72.72
+    },
+    "controllers/note.controller.js": {
+      "statements": 84,
+      "branches": 100
+    },
+    "controllers/otp.controller.js": {
+      "statements": 57.69,
+      "branches": 60
+    },
+    "controllers/patient.controller.js": {
+      "statements": 81.81,
+      "branches": 59.25
+    },
+    "controllers/payment.controller.js": {
+      "statements": 51.03,
+      "branches": 38.09
+    },
+    "controllers/profile.controller.js": {
+      "statements": 88.67,
+      "branches": 61.78
+    },
+    "controllers/report.controller.js": {
+      "statements": 71.05,
+      "branches": 25
+    },
+    "controllers/review.controller.js": {
+      "statements": 45.66,
+      "branches": 39.02
+    },
+    "controllers/session.controller.js": {
+      "statements": 84.24,
+      "branches": 68.7
+    },
+    "controllers/sessionReport.controller.js": {
+      "statements": 48.14,
+      "branches": 0
+    },
+    "controllers/task.controller.js": {
+      "statements": 80.48,
+      "branches": 50
+    },
+    "controllers/upload.controller.js": {
+      "statements": 64.44,
+      "branches": 36.11
+    },
+    "middleware/auth.middleware.js": {
+      "statements": 72.44,
+      "branches": 55.76
+    },
+    "middleware/csrf.middleware.js": {
+      "statements": 100,
+      "branches": 95
+    },
+    "middleware/error.middleware.js": {
+      "statements": 91.3,
+      "branches": 92.3
+    },
+    "middleware/rateLimit.middleware.js": {
+      "statements": 82.6,
+      "branches": 100
+    },
+    "middleware/rateLimiter.js": {
+      "statements": 88.88,
+      "branches": 33.33
+    },
+    "middleware/validation.middleware.js": {
+      "statements": 74.07,
+      "branches": 75.43
+    },
+    "models/article.js": {
+      "statements": 92.3,
+      "branches": 78.57
+    },
+    "models/conversation.js": {
+      "statements": 68,
+      "branches": 46.15
+    },
+    "models/doctorAvailability.js": {
+      "statements": 82.89,
+      "branches": 52.17
+    },
+    "models/doctorProfile.js": {
+      "statements": 64.28,
+      "branches": 100
+    },
+    "models/mentalHealthAssessment.js": {
+      "statements": 80,
+      "branches": 40
+    },
+    "models/message.js": {
+      "statements": 86.66,
+      "branches": 0
+    },
+    "models/otp.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "models/pendingUser.js": {
+      "statements": 91.66,
+      "branches": 100
+    },
+    "models/platformSettings.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "models/review.js": {
+      "statements": 100,
+      "branches": 50
+    },
+    "models/session.js": {
+      "statements": 81.81,
+      "branches": 50
+    },
+    "models/sessionReport.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "models/user.js": {
+      "statements": 66,
+      "branches": 80
+    },
+    "routes/adminPayments.routes.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "routes/articles.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "routes/availability.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "routes/chat.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "routes/doctor-status.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "routes/enquiries.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "routes/mentalHealthAssessment.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "routes/otp.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "routes/patients.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "routes/payment.routes.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "routes/reviews.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "routes/seo.js": {
+      "statements": 72.09,
+      "branches": 33.33
+    },
+    "routes/sessionReports.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "routes/sessionTools.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "routes/sessions.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "routes/upload.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "routes/admin/approvals.js": {
+      "statements": 38.74,
+      "branches": 24.07
+    },
+    "routes/admin/auth.js": {
+      "statements": 36.02,
+      "branches": 38.57
+    },
+    "services/auth.service.js": {
+      "statements": 83.7,
+      "branches": 62.5
+    },
+    "services/cache.service.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "services/chat.service.js": {
+      "statements": 89.28,
+      "branches": 91.66
+    },
+    "services/doctorStatus.service.js": {
+      "statements": 21.73,
+      "branches": 0
+    },
+    "services/email.service.js": {
+      "statements": 5.29,
+      "branches": 0
+    },
+    "services/oauth.service.js": {
+      "statements": 23.07,
+      "branches": 12.12
+    },
+    "services/razorpay.client.js": {
+      "statements": 85.71,
+      "branches": 73.68
+    },
+    "services/refundPolicy.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "services/scheduler.js": {
+      "statements": 92.53,
+      "branches": 86.76
+    },
+    "services/session.service.js": {
+      "statements": 62.16,
+      "branches": 33.33
+    },
+    "services/sessionState.js": {
+      "statements": 92.59,
+      "branches": 86.66
+    },
+    "services/sessionTime.js": {
+      "statements": 72.5,
+      "branches": 56.09
+    },
+    "services/sessionTransition.js": {
+      "statements": 84.37,
+      "branches": 83.33
+    },
+    "utils/assessmentScoring.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "utils/errors.js": {
+      "statements": 100,
+      "branches": 11.11
+    },
+    "utils/logger.js": {
+      "statements": 100,
+      "branches": 76.66
+    },
+    "utils/otpGenerator.js": {
+      "statements": 92.3,
+      "branches": 100
+    },
+    "utils/socketEmitter.js": {
+      "statements": 60,
+      "branches": 41.66
+    },
+    "utils/timeUtils.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "utils/webhookSignature.js": {
+      "statements": 100,
+      "branches": 100
+    },
+    "utils/zonedTime.js": {
+      "statements": 87.14,
+      "branches": 68.62
+    }
+  }
+}

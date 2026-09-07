@@ -23,5 +23,9 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // Test files are typechecked and run by vitest, not by the production build.
+  // They import the server's CommonJS modules via require(), which needs Node
+  // types this config deliberately does not pull in.
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx"]
 }

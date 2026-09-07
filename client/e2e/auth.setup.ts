@@ -1,56 +1,50 @@
 /**
- * Authentication Setup
- * Runs ONCE before all other tests.
- * Logs in as Patient & Doctor and saves the browser storage state (cookies/localStorage)
- * so subsequent tests can skip the login step entirely.
+ * Creates the signed-in storage states the patient and doctor projects reuse.
  *
- * Requirements: The test accounts must already exist in the database.
- * Use the seeder script: `node e2e/seed-test-users.js` to create them.
+ * This replaces the previous setup, which could never have worked: it relied on
+ * `npm run seed:e2e` calling POST /api/auth/register and then logging in, but
+ * registration creates a PendingUser carrying a bcrypt-hashed OTP rather than a
+ * User, so the login always returned 403 requiresVerification. (The script it
+ * shelled out to, server/scripts/approve-e2e-doctor.js, also required a module
+ * that does not exist.) Accounts now come from the stack's Mongoose-level seed.
+ *
+ * Selectors are exact-name role queries because `button:has-text("Patient")`
+ * matches both the role pill and the "Sign In as Patient" submit button.
  */
 
-import { test as setup, expect } from '@playwright/test';
+import { test as setup, expect, Page } from '@playwright/test';
+import fs from 'fs';
 import path from 'path';
-import { TEST_PATIENT, TEST_DOCTOR } from './helpers';
+import { fixtures } from './fixtures';
 
-const PATIENT_AUTH_FILE = path.join(process.cwd(), 'e2e/.auth/patient.json');
-const DOCTOR_AUTH_FILE  = path.join(process.cwd(), 'e2e/.auth/doctor.json');
+const AUTH_DIR = path.join(process.cwd(), 'e2e/.auth');
 
-setup('Authenticate as Patient', async ({ page }) => {
+async function signIn(page: Page, role: 'Patient' | 'Doctor', email: string, password: string) {
   await page.goto('/login');
-  await page.waitForLoadState('networkidle');
 
-  // Ensure Patient role selected (default)
-  const patientBtn = page.locator('button:has-text("Patient")');
-  if (await patientBtn.count() > 0) {
-    await patientBtn.click();
-  }
+  // The navbar renders skeleton placeholders until AuthContext resolves.
+  await expect(page.getByRole('heading', { name: 'Welcome back' })).toBeVisible();
 
-  await page.fill('input[placeholder*="email"]', TEST_PATIENT.email);
-  await page.fill('input[type="password"]', TEST_PATIENT.password);
-  await page.click('button[type="submit"]');
+  await page.getByRole('button', { name: role, exact: true }).click();
+  await page.getByPlaceholder(/email/i).fill(email);
+  await page.getByPlaceholder(/password/i).first().fill(password);
+  await page.getByRole('button', { name: `Sign In as ${role}` }).click();
+}
 
-  await page.waitForURL('**/patient-dashboard', { timeout: 20000 });
-  await expect(page).toHaveURL(/patient-dashboard/);
+setup('sign in as a patient', async ({ page }) => {
+  const { users } = fixtures();
+  await signIn(page, 'Patient', users.patientA.email, users.patientA.password);
 
-  // Save storage state
-  await page.context().storageState({ path: PATIENT_AUTH_FILE });
-  console.log('✅ Patient auth state saved');
+  await page.waitForURL('**/patient-dashboard', { timeout: 20_000 });
+  fs.mkdirSync(AUTH_DIR, { recursive: true });
+  await page.context().storageState({ path: path.join(AUTH_DIR, 'patient.json') });
 });
 
-setup('Authenticate as Doctor', async ({ page }) => {
-  await page.goto('/login');
-  await page.waitForLoadState('networkidle');
+setup('sign in as a doctor', async ({ page }) => {
+  const { users } = fixtures();
+  await signIn(page, 'Doctor', users.doctorA.email, users.doctorA.password);
 
-  // Select Doctor role
-  await page.click('button:has-text("Doctor")');
-  await page.fill('input[placeholder*="email"]', TEST_DOCTOR.email);
-  await page.fill('input[type="password"]', TEST_DOCTOR.password);
-  await page.click('button[type="submit"]');
-
-  await page.waitForURL('**/doctor-dashboard', { timeout: 20000 });
-  await expect(page).toHaveURL(/doctor-dashboard/);
-
-  // Save storage state
-  await page.context().storageState({ path: DOCTOR_AUTH_FILE });
-  console.log('✅ Doctor auth state saved');
+  await page.waitForURL('**/doctor-dashboard', { timeout: 20_000 });
+  fs.mkdirSync(AUTH_DIR, { recursive: true });
+  await page.context().storageState({ path: path.join(AUTH_DIR, 'doctor.json') });
 });

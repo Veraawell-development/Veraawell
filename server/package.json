@@ -7,7 +7,9 @@
     "dev": "nodemon server.js",
     "test": "TZ=UTC jest --runInBand --forceExit",
     "test:tz": "TZ=America/Los_Angeles jest --runInBand --forceExit",
-    "test:all": "npm run test && npm run test:tz"
+    "test:all": "npm run test && npm run test:tz",
+    "test:coverage": "TZ=UTC jest --coverage --runInBand --forceExit --collectCoverageFrom='controllers/**/*.js' --collectCoverageFrom='services/**/*.js' --collectCoverageFrom='routes/**/*.js' --collectCoverageFrom='middleware/**/*.js' --collectCoverageFrom='models/**/*.js' --collectCoverageFrom='authz/**/*.js' --collectCoverageFrom='utils/**/*.js' --collectCoverageFrom='config/**/*.js' --coverageReporters=json-summary --coverageReporters=text-summary && node scripts/check-coverage.js",
+    "coverage:record": "node scripts/check-coverage.js --update"
   },
   "jest": {
     "testEnvironment": "node",
@@ -15,8 +17,11 @@
       "<rootDir>/__tests__/**/*.test.js"
     ],
     "testPathIgnorePatterns": [
-      "/node_modules/"
-    ]
+      "/node_modules/",
+      "<rootDir>/__tests__/support/"
+    ],
+    "globalSetup": "<rootDir>/__tests__/support/globalSetup.js",
+    "globalTeardown": "<rootDir>/__tests__/support/globalTeardown.js"
   },
   "keywords": [],
   "author": "abhigyan",
@@ -68,6 +73,7 @@
   },
   "devDependencies": {
     "axios": "^1.18.1",
+    "fast-check": "^4.9.0",
     "jest": "^30.4.2",
     "mongodb-memory-server": "^11.2.0",
     "nodemon": "^3.1.10",
