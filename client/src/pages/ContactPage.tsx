@@ -4,6 +4,7 @@ import { FiUser, FiMail, FiMessageSquare, FiPhone, FiMapPin, FiSend, FiArrowLeft
 import { useNavigate } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import LeafDecor from '../components/ui/LeafDecor';
+import { useSubmitEnquiry, EnquiryError } from '../hooks/useEnquiry';
 
 const fadeUp = {
   initial: { opacity: 0, y: 30 },
@@ -17,23 +18,44 @@ export default function ContactPage() {
   const [email, setEmail] = useState('');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
-  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const submitEnquiry = useSubmitEnquiry();
+  const loading = submitEnquiry.isPending;
+
+  /**
+   * This used to be a 1-second setTimeout that cleared the fields and reported
+   * success without making any request — every message typed here was lost.
+   * It now posts to the same endpoint as the two careers enquiry tabs, and
+   * only reports success on a real 2xx.
+   */
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !email || !message) {
+    if (!name.trim() || !email.trim() || !message.trim()) {
       toast.error('Please fill in all required fields');
       return;
     }
-    setLoading(true);
-    setTimeout(() => {
+
+    try {
+      await submitEnquiry.mutateAsync({
+        type: 'contact',
+        name: name.trim(),
+        email: email.trim(),
+        message: message.trim(),
+        ...(subject.trim() ? { subject: subject.trim() } : {}),
+      });
       toast.success('Thank you! Your message has been sent successfully.');
       setName('');
       setEmail('');
       setSubject('');
       setMessage('');
-      setLoading(false);
-    }, 1000);
+    } catch (err) {
+      // Surface the server's own field message where it gave one, so a
+      // rejected email address does not read as a network failure.
+      const detail = err instanceof EnquiryError
+        ? Object.values(err.fieldErrors)[0] || err.message
+        : 'We could not send that just now. Please try again in a moment.';
+      toast.error(detail);
+    }
   };
 
   return (

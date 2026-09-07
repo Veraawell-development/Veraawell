@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
-import { FiMenu, FiLogOut, FiUsers, FiUserCheck, FiClock, FiFileText, FiActivity, FiX, FiCheck, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
+import { FiMenu, FiLogOut, FiUsers, FiUserCheck, FiClock, FiFileText, FiActivity, FiX, FiCheck, FiChevronLeft, FiChevronRight, FiInbox, FiMail } from 'react-icons/fi';
 import { LuStethoscope } from 'react-icons/lu';
 import { Plus, Search, Filter, Eye, CheckCircle, Clock, Edit, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -101,6 +101,35 @@ interface PaginationData {
   pages: number;
 }
 
+/** An inbound enquiry from the careers page or /contact. See server/models/enquiry.js. */
+interface Enquiry {
+  _id: string;
+  type: 'partner' | 'other' | 'contact';
+  name: string;
+  email: string;
+  phone?: string;
+  organisation?: string;
+  subject?: string;
+  message: string;
+  status: 'new' | 'in_progress' | 'closed';
+  adminNotes?: string;
+  handledBy?: { _id: string; name?: string; email?: string } | null;
+  handledAt?: string | null;
+  createdAt: string;
+}
+
+const ENQUIRY_TYPE_LABEL: Record<Enquiry['type'], string> = {
+  partner: 'Partnership',
+  other: 'Careers page query',
+  contact: 'Contact form',
+};
+
+const ENQUIRY_STATUS_STYLE: Record<Enquiry['status'], string> = {
+  new: 'bg-amber-50 text-amber-700 border-amber-200',
+  in_progress: 'bg-sky-50 text-sky-700 border-sky-200',
+  closed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+};
+
 const SuperAdminDashboard: React.FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false); // Mobile drawer
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // Desktop collapse
@@ -108,7 +137,9 @@ const SuperAdminDashboard: React.FC = () => {
   const [adminViewMode, setAdminViewMode] = useState<'pending' | 'all'>('pending');
   const [payoutViewMode, setPayoutViewMode] = useState<'pending' | 'active'>('pending');
   const location = useLocation();
-  const [activeTab, setActiveTab] = useState<'analytics' | 'doctors' | 'admins' | 'articles' | 'payouts' | 'revenue'>(() => {
+  const [enquiryStatusFilter, setEnquiryStatusFilter] = useState<'all' | Enquiry['status']>('new');
+  const [expandedEnquiry, setExpandedEnquiry] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'analytics' | 'doctors' | 'admins' | 'articles' | 'payouts' | 'revenue' | 'enquiries'>(() => {
     const locState = location.state as { tab?: string } | null;
     return (locState?.tab as any) || 'analytics';
   });
@@ -216,10 +247,44 @@ const SuperAdminDashboard: React.FC = () => {
     enabled: !!admin && activeTab === 'articles',
   });
 
+  const { data: enquiriesData, isLoading: enquiriesLoading } = useQuery<{ success: boolean; data: { enquiries: Enquiry[]; newCount: number } }>({
+    queryKey: ['admin', 'enquiries', enquiryStatusFilter],
+    queryFn: () => fetchAndParse(
+      `${API_BASE_URL}/enquiries${enquiryStatusFilter === 'all' ? '' : `?status=${enquiryStatusFilter}`}`
+    ),
+    // Not gated on the active tab, unlike the articles query: the sidebar
+    // badge is the point of `newCount`, and a badge that only appears once you
+    // open the tab tells you nothing you did not already know.
+    enabled: !!admin && admin.role === 'super_admin',
+  });
+
+  const enquiries: Enquiry[] = enquiriesData?.data?.enquiries || [];
+  const newEnquiryCount = enquiriesData?.data?.newCount || 0;
+
+  const updateEnquiryMutation = useMutation({
+    mutationFn: async ({ id, status }: { id: string; status: Enquiry['status'] }) => {
+      const res = await fetch(`${API_BASE_URL}/enquiries/${id}`, {
+        method: 'PATCH',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) throw new Error('Failed to update enquiry');
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['admin', 'enquiries'] });
+      toast.success('Enquiry updated');
+    },
+    onError: (err: Error) => toast.error(err.message || 'Failed to update enquiry'),
+  });
+
   const articles: Article[] = Array.isArray(articlesData) ? articlesData : (articlesData?.articles || []);
   const pagination: PaginationData | null = Array.isArray(articlesData) ? null : (articlesData?.pagination || null);
 
-  const loading = activeTab !== 'articles' && activeTab !== 'payouts' && (
+  // 'enquiries' is excluded for the same reason as 'articles' and 'payouts':
+  // this expression gates the whole page on the analytics queries, which this
+  // tab does not use, and the page would render "Loading dashboard..." forever.
+  const loading = activeTab !== 'articles' && activeTab !== 'payouts' && activeTab !== 'enquiries' && (
     statsLoading || analyticsLoading || pendingDoctorsLoading || allDoctorsLoading || 
     (admin?.role === 'super_admin' && (pendingAdminsLoading || allAdminsLoading))
   );
@@ -594,6 +659,33 @@ const SuperAdminDashboard: React.FC = () => {
               </button>
             )}
             
+            {admin?.role === 'super_admin' && (
+              <button
+                onClick={() => setActiveTab('enquiries')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors relative ${activeTab === 'enquiries' ? 'bg-[#0097b2] text-white' : 'text-[#fff3db]/70 hover:bg-[#fff3db]/5 hover:text-[#fff3db]'} ${sidebarCollapsed ? 'justify-center' : ''}`}
+                title={sidebarCollapsed ? "Enquiries" : ""}
+              >
+                {sidebarCollapsed ? (
+                  <div className={`w-2 h-2 rounded-full ${activeTab === 'enquiries' ? 'bg-white' : 'bg-[#fff3db]/40'}`} />
+                ) : (
+                  <FiInbox size={16} />
+                )}
+                {!sidebarCollapsed && (
+                  <>
+                    <span>Enquiries</span>
+                    {newEnquiryCount > 0 && (
+                      <span className="ml-auto bg-[#fff3db] text-[#001e24] text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                        {newEnquiryCount}
+                      </span>
+                    )}
+                  </>
+                )}
+                {sidebarCollapsed && newEnquiryCount > 0 && (
+                  <div className="absolute top-1 right-1 w-2 h-2 bg-[#fff3db] rounded-full" />
+                )}
+              </button>
+            )}
+
             <button
               onClick={() => setActiveTab('articles')}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors ${activeTab === 'articles' ? 'bg-[#0097b2] text-white' : 'text-[#fff3db]/70 hover:bg-[#fff3db]/5 hover:text-[#fff3db]'} ${sidebarCollapsed ? 'justify-center' : ''}`}
@@ -643,7 +735,7 @@ const SuperAdminDashboard: React.FC = () => {
               <FiMenu size={18} />
             </button>
             <h1 className="text-base font-semibold text-neutral-800 flex items-center gap-2">
-              {activeTab === 'analytics' ? 'Dashboard Overview' : activeTab === 'doctors' ? 'Doctor Approvals' : activeTab === 'admins' ? 'Admin Approvals' : activeTab === 'payouts' ? 'Payout Approvals' : activeTab === 'revenue' ? 'Platform Revenue' : 'Manage Articles'}
+              {activeTab === 'analytics' ? 'Dashboard Overview' : activeTab === 'doctors' ? 'Doctor Approvals' : activeTab === 'admins' ? 'Admin Approvals' : activeTab === 'payouts' ? 'Payout Approvals' : activeTab === 'revenue' ? 'Platform Revenue' : activeTab === 'enquiries' ? 'Enquiries' : 'Manage Articles'}
             </h1>
           </div>
           {/* Removed non-functional search bar to keep it minimal */}
@@ -1074,6 +1166,139 @@ const SuperAdminDashboard: React.FC = () => {
                         )}
                       </div>
                     ))}
+                  </div>
+                )}
+              </motion.div>
+            )}
+
+            {/* ── Enquiries Tab ──────────────────────────────────────────── */}
+            {activeTab === 'enquiries' && admin?.role === 'super_admin' && (
+              <motion.div key="enquiries" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
+
+                {/* Status filter. Defaults to 'new' so the queue opens on what needs attention. */}
+                <div className="flex gap-2 mb-4 flex-wrap">
+                  {([
+                    { key: 'new', label: 'New' },
+                    { key: 'in_progress', label: 'In Progress' },
+                    { key: 'closed', label: 'Closed' },
+                    { key: 'all', label: 'All' },
+                  ] as const).map((f) => (
+                    <button
+                      key={f.key}
+                      onClick={() => setEnquiryStatusFilter(f.key)}
+                      className={`px-4 py-2 text-xs font-semibold rounded-xl transition-colors ${enquiryStatusFilter === f.key ? 'bg-[#0097b2] text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+
+                {enquiriesLoading ? (
+                  <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm p-12 text-center">
+                    <p className="text-sm font-medium text-neutral-400">Loading enquiries…</p>
+                  </div>
+                ) : enquiries.length === 0 ? (
+                  <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm p-12 text-center">
+                    <FiInbox size={28} className="text-neutral-300 mx-auto mb-3" />
+                    <p className="text-sm font-medium text-neutral-500">
+                      {enquiryStatusFilter === 'all' ? 'No enquiries yet' : `No ${enquiryStatusFilter.replace('_', ' ')} enquiries`}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {enquiries.map((enquiry) => {
+                      const expanded = expandedEnquiry === enquiry._id;
+                      // Long messages are clamped to three lines with a toggle,
+                      // so one essay does not push the rest of the queue off
+                      // screen. Rendered as text, never as HTML.
+                      return (
+                        <div key={enquiry._id} data-enquiry-card={enquiry._id} className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-sm hover:shadow-md transition-shadow">
+                          <div className="flex flex-col md:flex-row items-start justify-between gap-4">
+                            <div className="space-y-1.5 min-w-0 md:max-w-2xl">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="text-sm font-semibold text-neutral-900">{enquiry.name}</h3>
+                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${ENQUIRY_STATUS_STYLE[enquiry.status]}`}>
+                                  {enquiry.status.replace('_', ' ')}
+                                </span>
+                                <span className="inline-flex items-center px-1.5 py-0.5 bg-neutral-50 text-neutral-600 rounded-full text-[10px] font-medium border border-neutral-200">
+                                  {ENQUIRY_TYPE_LABEL[enquiry.type]}
+                                </span>
+                              </div>
+
+                              <a href={`mailto:${enquiry.email}`} className="text-xs text-[#0097b2] hover:underline inline-flex items-center gap-1.5">
+                                <FiMail size={11} />
+                                {enquiry.email}
+                              </a>
+
+                              {enquiry.organisation && (
+                                <p className="text-[11px] text-neutral-600">
+                                  <span className="font-medium text-neutral-400">Organisation:</span> {enquiry.organisation}
+                                </p>
+                              )}
+                              {enquiry.phone && (
+                                <p className="text-[11px] text-neutral-600">
+                                  <span className="font-medium text-neutral-400">Phone:</span> {enquiry.phone}
+                                </p>
+                              )}
+                              {enquiry.subject && (
+                                <p className="text-[11px] text-neutral-600">
+                                  <span className="font-medium text-neutral-400">Subject:</span> {enquiry.subject}
+                                </p>
+                              )}
+
+                              <p className={`text-xs text-neutral-700 pt-1 whitespace-pre-wrap break-words ${expanded ? '' : 'line-clamp-3'}`}>
+                                {enquiry.message}
+                              </p>
+                              {enquiry.message.length > 180 && (
+                                <button
+                                  onClick={() => setExpandedEnquiry(expanded ? null : enquiry._id)}
+                                  className="text-[11px] font-semibold text-[#0097b2] hover:underline"
+                                >
+                                  {expanded ? 'Show less' : 'Show full message'}
+                                </button>
+                              )}
+
+                              <p className="text-[11px] text-neutral-400 pt-1">
+                                Received {formatDate(enquiry.createdAt)}
+                                {enquiry.handledAt && ` · last updated ${formatDate(enquiry.handledAt)}`}
+                              </p>
+                            </div>
+
+                            <div className="flex md:flex-col justify-end gap-2 flex-shrink-0">
+                              {enquiry.status !== 'in_progress' && (
+                                <button
+                                  onClick={() => updateEnquiryMutation.mutate({ id: enquiry._id, status: 'in_progress' })}
+                                  disabled={updateEnquiryMutation.isPending}
+                                  className="px-4 py-2 bg-[#0097b2] hover:bg-[#007c93] text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 whitespace-nowrap"
+                                >
+                                  <FiClock size={14} />
+                                  In Progress
+                                </button>
+                              )}
+                              {enquiry.status !== 'closed' && (
+                                <button
+                                  onClick={() => updateEnquiryMutation.mutate({ id: enquiry._id, status: 'closed' })}
+                                  disabled={updateEnquiryMutation.isPending}
+                                  className="px-4 py-2 border border-neutral-200 text-neutral-600 hover:bg-neutral-50 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 whitespace-nowrap"
+                                >
+                                  <FiCheck size={14} />
+                                  Close
+                                </button>
+                              )}
+                              {enquiry.status === 'closed' && (
+                                <button
+                                  onClick={() => updateEnquiryMutation.mutate({ id: enquiry._id, status: 'new' })}
+                                  disabled={updateEnquiryMutation.isPending}
+                                  className="px-4 py-2 border border-neutral-200 text-neutral-600 hover:bg-neutral-50 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 whitespace-nowrap"
+                                >
+                                  Reopen
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </motion.div>

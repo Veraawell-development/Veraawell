@@ -188,6 +188,55 @@ function validatePasswordReset(req, res, next) {
   next();
 }
 
+/**
+ * Validate a public enquiry submission.
+ *
+ * Required fields vary by type, so the shape is checked per type rather than
+ * with one flat list. Deliberately rejects an empty body before the controller
+ * writes anything — the anonymous route sweep in
+ * __tests__/e2e/authz.sweep.test.js posts `{}` to every route and asserts the
+ * database is unchanged afterwards.
+ */
+function validateEnquiry(req, res, next) {
+  const { type, name, email, message, subject, organisation, phone } = req.body || {};
+  const errors = {};
+
+  const VALID_TYPES = ['partner', 'other', 'contact'];
+  if (!type) errors.type = 'Enquiry type is required';
+  else if (!VALID_TYPES.includes(type)) errors.type = `Type must be one of: ${VALID_TYPES.join(', ')}`;
+
+  if (!name || !String(name).trim()) errors.name = 'Name is required';
+  else if (String(name).trim().length > 120) errors.name = 'Name must be 120 characters or fewer';
+
+  if (!email || !String(email).trim()) errors.email = 'Email is required';
+  else if (!isValidEmail(email)) errors.email = 'Invalid email format';
+
+  if (!message || !String(message).trim()) errors.message = 'Message is required';
+  else if (String(message).trim().length > 4000) errors.message = 'Message must be 4000 characters or fewer';
+
+  // Type-specific requirements.
+  if (type === 'partner' && (!organisation || !String(organisation).trim())) {
+    errors.organisation = 'Organisation is required for a partnership enquiry';
+  }
+  if (type === 'other' && (!subject || !String(subject).trim())) {
+    errors.subject = 'Subject is required';
+  }
+
+  // Length ceilings on the optional fields, so a caller cannot use them to
+  // store arbitrarily large blobs.
+  if (organisation && String(organisation).trim().length > 160) errors.organisation = 'Organisation must be 160 characters or fewer';
+  if (subject && String(subject).trim().length > 200) errors.subject = 'Subject must be 200 characters or fewer';
+  if (phone && String(phone).trim().length > 32) errors.phone = 'Phone number is too long';
+
+  if (Object.keys(errors).length > 0) {
+    const { createLogger } = require('../utils/logger');
+    createLogger('VALIDATION').warn('Enquiry validation failed', { fields: Object.keys(errors) });
+    throw new ValidationError('Validation failed', errors);
+  }
+
+  next();
+}
+
 module.exports = {
   isValidEmail,
   isValidPassword,
@@ -197,5 +246,6 @@ module.exports = {
   validateObjectIdBody,
   validateRegistration,
   validateLogin,
-  validatePasswordReset
+  validatePasswordReset,
+  validateEnquiry
 };

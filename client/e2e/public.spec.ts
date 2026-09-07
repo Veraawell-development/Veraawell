@@ -119,3 +119,73 @@ test.describe('Contact Form Validation', () => {
     await expect(page).toHaveURL(/contact/);
   });
 });
+
+/**
+ * The /contact form used to be a 1-second setTimeout that cleared the fields
+ * and claimed success without making any request — every message typed there
+ * was silently discarded. These assert it now reaches the API and that success
+ * is reported only on a real 2xx.
+ */
+test.describe('Contact form', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.context().clearCookies();
+    await page.goto('/contact');
+    await page.waitForLoadState('networkidle');
+  });
+
+  const fill = async (page: import('@playwright/test').Page, message: string) => {
+    await page.getByPlaceholder('Jane Doe').fill('E2E Contact');
+    await page.getByPlaceholder('jane@example.com').fill(`e2e.contact.${Date.now()}@veraawell.test`);
+    await page.getByPlaceholder('How can we help you?').fill(message);
+  };
+
+  test('a message reaches POST /api/enquiries and clears the form', async ({ page }) => {
+    await fill(page, 'Do you offer sessions in Kannada?');
+
+    const posted = page.waitForResponse((res) =>
+      res.url().includes('/api/enquiries') && res.request().method() === 'POST');
+
+    await page.getByRole('button', { name: /Send Message/i }).click();
+
+    const response = await posted;
+    expect(response.status()).toBe(201);
+    expect((await response.json()).data.type).toBe('contact');
+
+    await expect(page.getByText(/sent successfully/i)).toBeVisible();
+    await expect(page.getByPlaceholder('How can we help you?')).toHaveValue('');
+  });
+
+  test('a server rejection is surfaced as an error, not a false success', async ({ page }) => {
+    await page.route('**/api/enquiries', (route) => route.fulfill({
+      status: 400,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: false, message: 'Validation failed', errors: { email: 'Invalid email format' } }),
+    }));
+
+    await fill(page, 'This should not report success.');
+    await page.getByRole('button', { name: /Send Message/i }).click();
+
+    await expect(page.getByText('Invalid email format')).toBeVisible();
+    await expect(page.getByText(/sent successfully/i)).toHaveCount(0);
+    // The old implementation cleared the fields regardless of outcome.
+    await expect(page.getByPlaceholder('How can we help you?')).toHaveValue('This should not report success.');
+  });
+
+  test('blank required fields never reach the API', async ({ page }) => {
+    // Name, email and message all carry the HTML5 `required` attribute, so the
+    // browser blocks submission before handleSubmit runs. The guard inside
+    // handleSubmit is the second line of defence, not the first — what matters
+    // here is that nothing is posted and the page does not claim success.
+    let requests = 0;
+    page.on('request', (req) => {
+      if (req.url().includes('/api/enquiries') && req.method() === 'POST') requests += 1;
+    });
+
+    await page.getByRole('button', { name: /Send Message/i }).click();
+    await page.waitForTimeout(1500);
+
+    expect(requests).toBe(0);
+    await expect(page.getByText(/sent successfully/i)).toHaveCount(0);
+    await expect(page.getByPlaceholder('Jane Doe')).toHaveJSProperty('validity.valid', false);
+  });
+});

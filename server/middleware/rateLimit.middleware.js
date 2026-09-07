@@ -4,6 +4,7 @@
  */
 
 const rateLimit = require('express-rate-limit');
+const { ipKeyGenerator } = require('express-rate-limit');
 const { RATE_LIMITS } = require('../config/constants');
 const { isProduction } = require('../config/environment');
 const { RateLimitError } = require('../utils/errors');
@@ -76,9 +77,34 @@ const publicUploadLimiter = rateLimit({
   }
 });
 
+/**
+ * Public enquiry-form limiter — see ENQUIRY in config/constants.js.
+ *
+ * Keyed on the submitted email address where there is one, so a shared office
+ * NAT does not lock out a whole building, with the IP as the fallback. Same
+ * shape as the OTP limiters in middleware/rateLimiter.js.
+ */
+const enquiryLimiter = rateLimit({
+  windowMs: RATE_LIMITS.ENQUIRY.windowMs,
+  max: isProduction()
+    ? RATE_LIMITS.ENQUIRY.max.production
+    : RATE_LIMITS.ENQUIRY.max.development,
+  skip: (req) => req.method === 'OPTIONS',
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const email = req.body && typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    return email || ipKeyGenerator(req);
+  },
+  handler: () => {
+    throw new RateLimitError('Too many enquiries from this address, please try again later.');
+  }
+});
+
 module.exports = {
   generalLimiter,
   authLimiter,
   passwordResetLimiter,
-  publicUploadLimiter
+  publicUploadLimiter,
+  enquiryLimiter
 };

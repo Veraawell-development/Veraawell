@@ -42,6 +42,16 @@ const RATE_LIMITS = {
       production: 20,
       development: 1000
     }
+  },
+  // The enquiry form is public by necessity — nobody filling it in has an
+  // account yet — so this limiter is its only abuse guard. Keyed on the
+  // submitted email where present, falling back to IP.
+  ENQUIRY: {
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: {
+      production: 5,
+      development: 1000
+    }
   }
 };
 

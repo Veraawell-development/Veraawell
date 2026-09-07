@@ -45,6 +45,7 @@ const availabilityRoutes = require('./routes/availability');
 const chatRoutes = require('./routes/chat');
 const patientRoutes = require('./routes/patients');
 const reviewRoutes = require('./routes/reviews');
+const enquiryRoutes = require('./routes/enquiries');
 const sessionToolsRoutes = require('./routes/sessionTools');
 const doctorStatusRoutes = require('./routes/doctor-status');
 const mentalHealthAssessmentRoutes = require('./routes/mentalHealthAssessment');
@@ -429,6 +430,7 @@ app.get('/api/admin/debug-pending-doctors', verifyAdminToken, adminController.de
 app.use('/api/sessions', sessionRoutes);
 app.use('/api/availability', availabilityRoutes);
 app.use('/api/reviews', reviewRoutes);
+app.use('/api/enquiries', enquiryRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/patients', patientRoutes);
 app.use('/api/session-tools', sessionToolsRoutes);

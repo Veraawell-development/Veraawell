@@ -8,6 +8,7 @@ import LeafDecor from '../components/ui/LeafDecor';
 import SparkDecor from '../components/ui/SparkDecor';
 import RippleDecor from '../components/ui/RippleDecor';
 import WaveDecor from '../components/ui/WaveDecor';
+import EnquiryForm from '../components/EnquiryForm';
 
 const CAREER_MARQUEE_ITEMS = [
   'Join Us As A Professional',
@@ -460,13 +461,24 @@ const CareerPage: React.FC = () => {
         </div>
 
         {/* ── Content Sections (varied editorial rows, one accent per idea) ── */}
+        {/*
+          md:min-h-[420px] gives every card the same height. They are stacked
+          full-width rows, not a grid, so there is no shared row track to
+          equalise them — height was purely a function of body copy (card 01
+          has three paragraphs, the rest two, and 03's are the longest). The
+          image column was already uniform at md:w-[42%] aspect-[16/10].
+          items-center keeps the shorter cards' content optically centred.
+
+          Mirrored in AboutPage.tsx and CareerPage.tsx, which carry identical
+          copies of this block.
+        */}
         <div className="flex flex-col gap-14 md:gap-16 mb-40">
           {careerSections.map((s, i) => (
             <div
               key={s.num}
               ref={s.ref}
               data-reveal
-              className={`group relative overflow-hidden flex flex-col md:flex-row ${i % 2 === 1 ? 'md:flex-row-reverse' : ''} items-center gap-8 md:gap-14 rounded-[20px] p-6 md:p-9 border transition-all duration-500 hover:-translate-y-1`}
+              className={`group relative overflow-hidden flex flex-col md:flex-row ${i % 2 === 1 ? 'md:flex-row-reverse' : ''} items-center gap-8 md:gap-14 rounded-[20px] p-6 md:p-9 border transition-all duration-500 hover:-translate-y-1 md:min-h-[420px]`}
               style={{ background: `linear-gradient(135deg, ${s.accent}0C, transparent 60%)`, borderColor: `${s.accent}22`, boxShadow: '0 4px 24px rgba(0,0,0,0.03)' }}
             >
               {/* Top accent line */}
@@ -941,47 +953,9 @@ const CareerPage: React.FC = () => {
               </>
             )}
 
-            {activeTab === 'partner' && (
-              <div className="text-center py-16 animate-in fade-in max-w-md mx-auto">
-                <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-6" style={{ background: 'var(--teal-muted)', color: 'var(--teal)' }}>
-                  <Handshake size={24} />
-                </div>
-                <h3 className="text-[20px] font-bold mb-3" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
-                  Partnership opportunities coming soon
-                </h3>
-                <p className="text-[var(--text-2)] mb-6">
-                  We're building out formal partnerships with clinics and organisations. Reach out and we'll get back to you personally.
-                </p>
-                <a
-                  href="mailto:contact@veraawell.com"
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-full text-white font-semibold text-[15px] shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300"
-                  style={{ background: 'var(--teal)' }}
-                >
-                  contact@veraawell.com
-                </a>
-              </div>
-            )}
+            {activeTab === 'partner' && <EnquiryForm type="partner" />}
 
-            {activeTab === 'other' && (
-              <div className="text-center py-16 animate-in fade-in max-w-md mx-auto">
-                <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-6" style={{ background: 'var(--teal-muted)', color: 'var(--teal)' }}>
-                  <MessageCircle size={24} />
-                </div>
-                <h3 className="text-[20px] font-bold mb-3" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>
-                  Got a different question?
-                </h3>
-                <p className="text-[var(--text-2)] mb-6">
-                  For anything else — press, careers questions, or general queries — drop us a line directly.
-                </p>
-                <a
-                  href="mailto:contact@veraawell.com"
-                  className="inline-flex items-center gap-2 px-6 py-3 rounded-full text-white font-semibold text-[15px] shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all duration-300"
-                  style={{ background: 'var(--teal)' }}
-                >
-                  contact@veraawell.com
-                </a>
-              </div>
-            )}
+            {activeTab === 'other' && <EnquiryForm type="other" />}
           </div>
         </div>
       </div>

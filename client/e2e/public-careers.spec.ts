@@ -82,3 +82,117 @@ test.describe('Careers / Professional Onboarding', () => {
     await expect(page.locator('text=Application submitted successfully')).toBeVisible({ timeout: 10000 });
   });
 });
+
+/**
+ * The two enquiry tabs. Both were dead ends before — a "coming soon" panel and
+ * a `mailto:` link — so these assert the whole path: the form renders, blank
+ * required fields are refused without a request, and a real submission reaches
+ * POST /api/enquiries and reports success.
+ */
+test.describe('Careers enquiry forms', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.context().clearCookies();
+    await page.goto('/careers');
+    await page.waitForLoadState('networkidle');
+  });
+
+  test('the Partner with us tab shows a form, not a mailto dead end', async ({ page }) => {
+    await page.locator('button', { hasText: 'Partner with us' }).click();
+
+    await expect(page.locator('#enquiry-partner-name')).toBeVisible();
+    await expect(page.locator('#enquiry-partner-organisation')).toBeVisible();
+    await expect(page.locator('#enquiry-partner-phone')).toBeVisible();
+    await expect(page.locator('#enquiry-partner-message')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Send Partnership Enquiry' })).toBeVisible();
+
+    // The old panel's only route out.
+    await expect(page.getByText('Partnership opportunities coming soon')).toHaveCount(0);
+  });
+
+  test('the Other Queries tab shows a form with a subject field', async ({ page }) => {
+    await page.locator('button', { hasText: 'Other Queries' }).click();
+
+    await expect(page.locator('#enquiry-other-subject')).toBeVisible();
+    await expect(page.locator('#enquiry-other-message')).toBeVisible();
+    // Organisation and phone belong to the partnership variant only.
+    await expect(page.locator('#enquiry-partner-organisation')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Send Enquiry' })).toBeVisible();
+  });
+
+  test('blank required fields are refused without hitting the network', async ({ page }) => {
+    await page.locator('button', { hasText: 'Other Queries' }).click();
+
+    let requests = 0;
+    page.on('request', (req) => {
+      if (req.url().includes('/api/enquiries') && req.method() === 'POST') requests += 1;
+    });
+
+    await page.getByRole('button', { name: 'Send Enquiry' }).click();
+
+    await expect(page.getByText('Please tell us your name')).toBeVisible();
+    await expect(page.getByText('We need an email to reply to')).toBeVisible();
+    await expect(page.getByText('A short subject helps us route your query')).toBeVisible();
+    await expect(page.getByText('Please add a short message')).toBeVisible();
+    expect(requests).toBe(0);
+  });
+
+  test('a malformed email is caught before submitting', async ({ page }) => {
+    await page.locator('button', { hasText: 'Other Queries' }).click();
+    await page.fill('#enquiry-other-name', 'E2E Tester');
+    await page.fill('#enquiry-other-email', 'not-an-email');
+    await page.fill('#enquiry-other-subject', 'Press enquiry');
+    await page.fill('#enquiry-other-message', 'Checking the validation path.');
+
+    await page.getByRole('button', { name: 'Send Enquiry' }).click();
+    await expect(page.getByText('That email address looks incomplete')).toBeVisible();
+  });
+
+  test('a partnership enquiry posts to the API and confirms', async ({ page }) => {
+    await page.locator('button', { hasText: 'Partner with us' }).click();
+    await page.fill('#enquiry-partner-name', 'E2E Partner');
+    await page.fill('#enquiry-partner-email', `e2e.partner.${Date.now()}@veraawell.test`);
+    await page.fill('#enquiry-partner-organisation', 'E2E Wellness Clinic');
+    await page.fill('#enquiry-partner-phone', '+91 90000 00000');
+    await page.fill('#enquiry-partner-message', 'We would like to offer sessions to our patients.');
+
+    const posted = page.waitForResponse((res) =>
+      res.url().includes('/api/enquiries') && res.request().method() === 'POST');
+
+    await page.getByRole('button', { name: 'Send Partnership Enquiry' }).click();
+
+    const response = await posted;
+    expect(response.status()).toBe(201);
+    expect((await response.json()).data.type).toBe('partner');
+
+    await expect(page.getByText('Thank you — we have it')).toBeVisible();
+  });
+
+  test('a general query posts with type "other"', async ({ page }) => {
+    await page.locator('button', { hasText: 'Other Queries' }).click();
+    await page.fill('#enquiry-other-name', 'E2E Enquirer');
+    await page.fill('#enquiry-other-email', `e2e.other.${Date.now()}@veraawell.test`);
+    await page.fill('#enquiry-other-subject', 'Press enquiry');
+    await page.fill('#enquiry-other-message', 'Who handles media requests?');
+
+    const posted = page.waitForResponse((res) =>
+      res.url().includes('/api/enquiries') && res.request().method() === 'POST');
+
+    await page.getByRole('button', { name: 'Send Enquiry' }).click();
+
+    const response = await posted;
+    expect(response.status()).toBe(201);
+    expect((await response.json()).data.type).toBe('other');
+    await expect(page.getByText('Thank you — we have it')).toBeVisible();
+  });
+
+  test('switching tabs does not carry one form’s errors into the other', async ({ page }) => {
+    // setActiveTab in CareerPage resets currentStep but not error/success, so
+    // the enquiry forms own their own state. This is the check that they do.
+    await page.locator('button', { hasText: 'Other Queries' }).click();
+    await page.getByRole('button', { name: 'Send Enquiry' }).click();
+    await expect(page.getByText('Please tell us your name')).toBeVisible();
+
+    await page.locator('button', { hasText: 'Partner with us' }).click();
+    await expect(page.getByText('Please tell us your name')).toHaveCount(0);
+  });
+});
