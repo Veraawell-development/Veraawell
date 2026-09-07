@@ -105,15 +105,10 @@ const initializeChatSocket = (io) => {
         // Persistence + fan-out is shared with the REST fallback in
         // chat.controller.js (see chat.service.js) so the two entry points
         // can't drift into different real-time behavior again.
-        const { formattedMessage } = await sendMessageAndNotify(io, chatNamespace, { conversationId, senderId, text });
-
-        // Emit to sender — the shared helper only fans out to the receiver's
-        // side, since the sender needs their own echo to reconcile the
-        // client's optimistic UI update against the real, persisted message.
-        socket.emit('message:receive', {
-          ...formattedMessage,
-          isSentByMe: true
-        });
+        // Persistence and the full fan-out — including the sender's own echo —
+        // live in the shared helper, so this handler and the REST fallback
+        // deliver byte-identical events.
+        await sendMessageAndNotify(io, chatNamespace, { conversationId, senderId, text });
 
         logger.info('Message sent', { conversationId: conversationId?.substring(0, 8), senderId: senderId?.substring(0, 8) });
       } catch (error) {

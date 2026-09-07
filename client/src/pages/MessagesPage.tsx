@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { FiSend, FiX } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -13,6 +13,9 @@ interface Message {
   senderId: string;
   senderName: string;
   isSentByMe: boolean;
+  // Present on the socket payload (services/chat.service.js:75), absent from
+  // the REST thread response — hence optional.
+  conversationId?: string;
 }
 
 interface Conversation {
@@ -58,6 +61,39 @@ const MessagesPage: React.FC = () => {
     enabled: !!selectedConversation?._id
   });
 
+  /**
+   * Tell the server this thread has been read, then let the dashboards know.
+   *
+   * Read state used to be a side effect of two things only: the socket
+   * `conversation:join`, and the GET that loads the thread. Both fire on
+   * ENTERING a conversation, so a message that arrived while the thread was
+   * already open stayed unread forever — the badge survived a reload. And
+   * because nothing invalidated ['chat','unreadCount'], even a successful
+   * server-side mark took up to `refetchInterval` (10s) to show.
+   *
+   * PUT .../read already existed and no client called it. Calling it
+   * explicitly also means the read survives a dead WebSocket, which the
+   * join-only path did not.
+   */
+  const markConversationRead = useCallback(async (conversationId: string) => {
+    if (!conversationId) return;
+    try {
+      await fetch(`${API_BASE_URL}/chat/conversation/${conversationId}/read`, {
+        method: 'PUT',
+        credentials: 'include',
+      });
+    } catch {
+      // A failed mark is not worth interrupting the reader for; the next
+      // open, or the dashboard's poll, will reconcile.
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: ['chat', 'unreadCount'] });
+    queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
+  }, [queryClient]);
+
+  const markConversationReadRef = useRef(markConversationRead);
+  useEffect(() => { markConversationReadRef.current = markConversationRead; }, [markConversationRead]);
+
   useEffect(() => {
     if (conversations.length > 0 && !selectedConversation) {
       setSelectedConversation(conversations[0]);
@@ -66,10 +102,11 @@ const MessagesPage: React.FC = () => {
 
   useEffect(() => {
     selectedConvRef.current = selectedConversation?._id || null;
-    if (selectedConversation && socketRef.current) {
-      socketRef.current.emit('conversation:join', selectedConversation._id);
-    }
-  }, [selectedConversation]);
+    if (!selectedConversation) return;
+
+    socketRef.current?.emit('conversation:join', selectedConversation._id);
+    markConversationRead(selectedConversation._id);
+  }, [selectedConversation, markConversationRead]);
 
   // Initialize Socket.IO connection
   useEffect(() => {
@@ -97,10 +134,16 @@ const MessagesPage: React.FC = () => {
     socketRef.current.on('connect', () => {
       console.log('[MESSAGES]  Socket connected:', socketRef.current?.id);
 
-      // Re-join conversation room if user was in one
-      if (selectedConversation) {
-        console.log('[MESSAGES] Re-joining conversation after reconnect:', selectedConversation._id);
-        socketRef.current?.emit('conversation:join', selectedConversation._id);
+      // Re-join whichever conversation is open NOW. This used to read
+      // `selectedConversation` from the enclosing closure, whose deps are
+      // [SOCKET_URL, token] — so it was always the mount-time value, i.e.
+      // null, and the re-join never happened. Same stale-closure shape that
+      // commit 92bf695 fixed in SessionChat.
+      const activeConvId = selectedConvRef.current;
+      if (activeConvId) {
+        console.log('[MESSAGES] Re-joining conversation after connect:', activeConvId);
+        socketRef.current?.emit('conversation:join', activeConvId);
+        markConversationReadRef.current(activeConvId);
       }
     });
 
@@ -119,27 +162,49 @@ const MessagesPage: React.FC = () => {
 
     socketRef.current.on('reconnect', (attemptNumber) => {
       console.log('[MESSAGES]  Socket reconnected after', attemptNumber, 'attempts');
-      // Re-join conversation if needed
-      if (selectedConversation) {
-        socketRef.current?.emit('conversation:join', selectedConversation._id);
+      // Same as above — read the live value from the ref, not the closure.
+      const activeConvId = selectedConvRef.current;
+      if (activeConvId) {
+        socketRef.current?.emit('conversation:join', activeConvId);
+        markConversationReadRef.current(activeConvId);
       }
     });
 
     // Listen for incoming messages
     socketRef.current.on('message:receive', (message: Message) => {
       const activeConvId = selectedConvRef.current;
-      if (activeConvId) {
+      // Only write into the thread the message actually belongs to. The server
+      // addresses the sender's own echo to their user room, which reaches every
+      // tab they have open — including ones looking at a different
+      // conversation. Without this check a message from thread B was appended
+      // to whatever thread happened to be on screen.
+      if (activeConvId && message.conversationId === activeConvId) {
         queryClient.setQueryData(['chat', 'messages', activeConvId], (old: Message[] = []) => {
-          // The server always echoes a sender's own message back via this same
-          // event. Without reconciling against the optimistic temp-id entry
-          // added in handleSendMessage, every sent message rendered twice —
-          // once as the optimistic bubble, once as the server-confirmed one.
+          // The server echoes a sender's own message back via this same event,
+          // so the optimistic entry added in handleSendMessage has to be
+          // reconciled away or the message renders twice.
           if (old.some((m) => m._id === message._id)) return old; // already applied
-          const withoutOptimisticDuplicate = message.isSentByMe
-            ? old.filter((m) => !m._id.startsWith('temp-'))
-            : old;
-          return [...withoutOptimisticDuplicate, message];
+          if (!message.isSentByMe) return [...old, message];
+
+          // Drop only the optimistic entry this echo confirms — matched on
+          // text, oldest first. Clearing every `temp-` entry would discard a
+          // second message still in flight.
+          const confirmedIndex = old.findIndex(
+            (m) => m._id.startsWith('temp-') && m.text === message.text
+          );
+          if (confirmedIndex === -1) return [...old, message];
+          const next = [...old];
+          next.splice(confirmedIndex, 1, message);
+          return next;
         });
+      }
+      // A message arriving in the thread the user is currently looking at has
+      // been read the moment it renders. Without this, nothing ever marks it
+      // and the badge is stuck at 1 until the conversation is re-entered.
+      if (activeConvId && message.conversationId === activeConvId && !message.isSentByMe) {
+        markConversationReadRef.current(activeConvId);
+      } else {
+        queryClient.invalidateQueries({ queryKey: ['chat', 'unreadCount'] });
       }
       queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
     });
@@ -148,6 +213,7 @@ const MessagesPage: React.FC = () => {
     socketRef.current.on('message:notification', (data) => {
       console.log('New message notification:', data);
       queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
+      queryClient.invalidateQueries({ queryKey: ['chat', 'unreadCount'] });
     });
 
     // Cleanup on unmount or token change
@@ -192,7 +258,10 @@ const MessagesPage: React.FC = () => {
       const optimisticMessage: Message = {
         _id: `temp-${Date.now()}`,
         text: newMessage.trim(),
-        timestamp: new Date().toISOString(),
+        // The server sends `timestamp` pre-formatted (toLocaleTimeString) and the
+        // bubble renders it verbatim, so an ISO string here showed up as a raw
+        // "2026-09-07T06:35:12.741Z" under the message. Match the server's format.
+        timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
         senderId: user?.userId || '',
         senderName: user?.firstName || user?.username || 'Me',
         isSentByMe: true
@@ -388,6 +457,8 @@ const MessagesPage: React.FC = () => {
                   return (
                   <div
                     key={message._id}
+                    data-testid="chat-message"
+                    data-own={message.isSentByMe ? 'true' : 'false'}
                     className={`flex ${message.isSentByMe ? 'justify-end' : 'justify-start'}`}
                   >
                     <div

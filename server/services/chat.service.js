@@ -66,14 +66,37 @@ async function sendMessageAndNotify(io, chatNamespace, { conversationId, senderI
   const receiverId = receiver.userId.toString();
 
   if (chatNamespace) {
-    // Receiver's copy in the conversation room (Socket.IO delivers only to
-    // sockets actually in that room, so this is a no-op if nobody's there —
-    // no need for a separate "is anyone connected" check beforehand).
-    chatNamespace.to(`conversation:${conversationId}`).emit('message:receive', {
+    // Receiver's copy, in the conversation room.
+    //
+    // `.except('user:<senderId>')` is load-bearing. The sender is in this room
+    // too — they joined it on 'conversation:join' — so a plain
+    // `.to('conversation:'+id)` broadcast delivered the sender their OWN
+    // message stamped `isSentByMe: false`, which the client rendered as an
+    // incoming message from the other party. Every message you sent appeared
+    // twice: once as yours, once as a reply you never received.
+    //
+    // Excluding the *user* room rather than the emitting socket matters:
+    // excluding one socket would still mis-flag the sender's other open tabs,
+    // all of which are in the conversation room as well. Every socket joins
+    // `user:<its own id>` on connect, so this covers all of them.
+    chatNamespace.to(`conversation:${conversationId}`).except(`user:${senderId}`).emit('message:receive', {
       ...formattedMessage,
       isSentByMe: false,
       conversationId
     });
+
+    // Sender's own copy, so the client can reconcile its optimistic bubble
+    // against the persisted message (real _id, server timestamp). Addressed to
+    // the sender's user room, not the one socket that sent it, so a second tab
+    // stays in sync. Emitted here rather than in the socket handler so the REST
+    // fallback behaves identically — that asymmetry is what this module exists
+    // to prevent.
+    chatNamespace.to(`user:${senderId}`).emit('message:receive', {
+      ...formattedMessage,
+      isSentByMe: true,
+      conversationId
+    });
+
     // Receiver's personal room, for a notification even if they're not
     // currently viewing this conversation.
     chatNamespace.to(`user:${receiverId}`).emit('message:notification', {

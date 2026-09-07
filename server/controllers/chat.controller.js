@@ -117,8 +117,28 @@ const sendMessage = asyncHandler(async (req, res) => {
 const markAsRead = asyncHandler(async (req, res) => {
   const { conversationId } = req.params;
   const userId = req.user._id;
+
+  // This was the one chat route with no membership check — it took
+  // conversationId straight from the params and wrote. It was not exploitable,
+  // because both writes below are scoped to the caller's own receiverId and
+  // their own participant entry, so a stranger's call matched nothing. But it
+  // answered 200 to a stranger, and it stopped being dead code the moment the
+  // client started calling it on every read, so it gets the same check every
+  // sibling route already has.
+  const conversation = await Conversation.findById(conversationId);
+  if (!conversation) throw new NotFoundError('Conversation');
+  if (!conversation.participants.some(p => p.userId && p.userId.toString() === userId.toString())) {
+    throw new AuthorizationError('Access denied');
+  }
+
   await Message.markAsRead(conversationId, userId.toString());
-  await Conversation.findByIdAndUpdate(conversationId, { $set: { 'participants.$[elem].lastReadAt': new Date() } }, { arrayFilters: [{ 'elem.userId': userId }] });
+  // arrayFilters is not reliably cast by Mongoose, so pass the ObjectId the
+  // participant entry actually stores rather than a string.
+  await Conversation.findByIdAndUpdate(
+    conversationId,
+    { $set: { 'participants.$[elem].lastReadAt': new Date() } },
+    { arrayFilters: [{ 'elem.userId': userId }] }
+  );
   res.json({ success: true, message: 'Marked as read' });
 });
 

@@ -10,6 +10,7 @@ interface Message {
     senderId: string;
     senderName: string;
     isSentByMe: boolean;
+    conversationId?: string;
 }
 
 interface SessionChatProps {
@@ -101,6 +102,14 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName,
             });
 
             socketRef.current.on('message:receive', (message: Message) => {
+                // The comment below used to be the only "check" there was — the
+                // conversation was never actually compared. The server addresses
+                // the sender's own echo to their user room, which reaches every
+                // tab they have open, so a message from another thread would
+                // otherwise land in this session's transcript.
+                if (message.conversationId && message.conversationId !== newConversationId) {
+                    return;
+                }
                 // Only add if it belongs to this conversation and isn't a duplicate
                 setMessages(prev => {
                     if (prev.some(m => m._id === message._id)) {
@@ -128,10 +137,9 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName,
 
         const text = newMessage.trim();
 
-        // Optimistic UI update (optional, but let's wait for ack or echo for simplicity/robustness like MessagesPage)
-        // Actually MessagesPage doesn't do optimistic, it waits for 'message:receive' even for own messages? 
-        // Checking MessagesPage.tsx... yes, it listens for 'message:receive' and appends.
-        // AND it emits 'message:send'. 
+        // No optimistic append here: this component renders the server's echo
+        // only. MessagesPage does append optimistically and reconciles against
+        // the echo; both are correct, and this one has less to go wrong.
 
         socketRef.current.emit('message:send', {
             conversationId,
