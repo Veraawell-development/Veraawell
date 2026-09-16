@@ -161,6 +161,79 @@ const doctorProfileSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  // ── Payout eligibility ───────────────────────────────────────────────────
+  //
+  // Replaces `razorpayAccountId` as the gate on whether a doctor can be booked.
+  // The old gate asked "does Razorpay know about this doctor", which
+  // approveOnboarding could satisfy with a fabricated `acc_mock_…` id — so it
+  // answered yes for doctors nobody could actually pay. This asks the question
+  // that matters: has an admin seen and approved a way to pay this person.
+  //
+  // Bank details themselves arrive with the payout work; this flag is the part
+  // booking depends on, so it lands first.
+  payoutApproved: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  payoutApprovedAt: {
+    type: Date,
+    default: null
+  },
+  payoutApprovedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    default: null
+  },
+
+  /**
+   * Where to send this practitioner's money.
+   *
+   * `select: false` on every field: these are the most sensitive values on
+   * the model, and the public therapist directory returned
+   * `profile.toObject()` unfiltered until very recently. The allowlist in
+   * PUBLIC_DOCTOR_FIELDS is the real guard; this is the second one, so that
+   * a query written without the allowlist still cannot leak an account
+   * number. Reading them requires an explicit `+payoutBank.accountNumber`.
+   *
+   * Deliberately NOT written by setupProfile or updatePricing — both use
+   * explicit $set allowlists, so there is no mass-assignment path from a
+   * profile edit into a bank account.
+   */
+  payoutBank: {
+    accountHolderName: { type: String, default: null, select: false },
+    accountNumber: { type: String, default: null, select: false },
+    ifsc: { type: String, default: null, select: false },
+    panNumber: { type: String, default: null, select: false },
+    submittedAt: { type: Date, default: null, select: false }
+  },
+  payoutBankStatus: {
+    type: String,
+    enum: ['not_submitted', 'pending_admin_approval', 'approved', 'rejected'],
+    default: 'not_submitted'
+  },
+  payoutRejectionReason: { type: String, default: null },
+
+  /**
+   * The last date this doctor has published availability for, denormalised
+   * from DoctorAvailability.activeDates by saveAvailability.
+   *
+   * The public directory has to exclude doctors with no future slots — showing
+   * a therapist whose calendar ran out is how patients reach a booking page
+   * with nothing on it, which is exactly what happened here: both live doctors'
+   * activeDates ended six weeks before they were still being listed as
+   * bookable.
+   *
+   * Denormalised rather than joined because availability lives in another
+   * collection, and filtering after pagination would silently return short
+   * pages. One indexed field keeps the directory a single query.
+   */
+  bookableUntil: {
+    type: Date,
+    default: null,
+    index: true
+  },
+
   // Doctor cancellation tracking
   cancellationCount: {
     type: Number,
@@ -184,6 +257,8 @@ const doctorProfileSchema = new mongoose.Schema({
 doctorProfileSchema.index({ specialization: 1 });
 doctorProfileSchema.index({ isOnline: 1 });
 doctorProfileSchema.index({ 'rating.average': -1 });
+// The public directory predicate, in the order the query uses it.
+doctorProfileSchema.index({ payoutApproved: 1, bookableUntil: 1 });
 
 // Virtual for full name
 doctorProfileSchema.virtual('fullName').get(function () {
@@ -204,4 +279,52 @@ doctorProfileSchema.statics.getAllDoctorsWithProfiles = async function () {
     .sort({ 'rating.average': -1 });
 };
 
-module.exports = mongoose.model('DoctorProfile', doctorProfileSchema);
+/**
+ * The only fields any unauthenticated or patient-facing endpoint may return.
+ *
+ * This exists because `GET /api/sessions/doctors` is a public route that
+ * returned `profile.toObject()` — the WHOLE document. Verified against the
+ * running server with no credentials: it published `razorpayAccountId`,
+ * `customFeePercentage` (the platform's per-doctor commercial terms),
+ * `payoutSetupCompleted`, `razorpayOnboardingStatus`,
+ * `razorpayKYCRejectionReason`, `cancellationCount` and
+ * `cancellationWarningIssued`. `getDoctorById` and `getMyDoctors` did the same.
+ *
+ * An allowlist rather than a denylist, and declared next to the schema rather
+ * than at the call sites, so that adding a sensitive field is safe by default:
+ * a new field is invisible publicly until someone deliberately adds its name
+ * here. The reverse — remembering to exclude each new secret at three separate
+ * call sites — is the arrangement that produced the leak.
+ *
+ * Derived from what the UI actually reads: the `Doctor` interface in
+ * client/src/types/index.ts, plus bannerImage/type/quote/quoteAuthor used by
+ * the profile page. `rating` is attached by the controllers from a live Review
+ * aggregation, not read from this document.
+ */
+const PUBLIC_DOCTOR_FIELDS = [
+  'userId', 'specialization', 'experience', 'qualification', 'languages',
+  'treatsFor', 'pricing', 'profileImage', 'bannerImage', 'bio', 'type',
+  'modeOfSession', 'quote', 'quoteAuthor', 'isOnline', 'rating'
+].join(' ');
+
+/**
+ * Changing bank details revokes approval.
+ *
+ * Without this: a doctor is approved, then edits the account number, and the
+ * next payout goes to an account no admin ever saw. Enforced in a hook rather
+ * than at the call site for the same reason the Session time fields are
+ * derived in one — so the next code path that writes these cannot forget.
+ */
+doctorProfileSchema.pre('validate', function resetApprovalOnBankChange(next) {
+  if (!this.isNew && this.isModified('payoutBank')) {
+    this.payoutApproved = false;
+    this.payoutApprovedAt = null;
+    this.payoutBankStatus = 'pending_admin_approval';
+  }
+  next();
+});
+
+const DoctorProfile = mongoose.model('DoctorProfile', doctorProfileSchema);
+
+module.exports = DoctorProfile;
+module.exports.PUBLIC_DOCTOR_FIELDS = PUBLIC_DOCTOR_FIELDS;

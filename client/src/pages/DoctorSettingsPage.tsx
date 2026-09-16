@@ -2,10 +2,15 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
-import { IndianRupee, Video, Mic, Landmark, Clock, Mail, CheckCircle, XCircle, BarChart3, ArrowLeft, Lightbulb, Check, RotateCcw } from 'lucide-react';
+import { IndianRupee, Video, Mic, Landmark, Clock, CheckCircle, XCircle, BarChart3, ArrowLeft, Lightbulb, Check, RotateCcw } from 'lucide-react';
 import { getAuthToken } from '../utils/authToken';
-
-const API_BASE_URL = import.meta.env.VITE_API_URL || '/api';
+// Was `import.meta.env.VITE_API_URL || '/api'` — the only use of VITE_API_URL
+// in the client, and the variable is not set. Locally the '/api' fallback
+// works via the Vite proxy, but in production the frontend and API are on
+// different origins, so all five requests on this page hit veraawell.com/api,
+// got index.html back from the Vercel SPA rewrite, and died on JSON.parse.
+// This entire page was inert in production.
+import { API_BASE_URL } from '../config/api';
 
 /*
  * Design tokens, identical to the doctor and patient dashboards. This page is
@@ -68,12 +73,26 @@ interface PricingState {
   };
 }
 
-interface OnboardingStatus {
-  status: 'not_requested' | 'pending_admin_approval' | 'submitted_to_razorpay' | 'active' | 'rejected';
-  message: string;
-  requestedAt: string | null;
-  activatedAt: string | null;
-  isActive: boolean;
+/** What the doctor submits, and what comes back (masked). */
+interface BankForm {
+  accountHolderName: string;
+  accountNumber: string;
+  ifsc: string;
+  panNumber: string;
+}
+
+interface BankDetailsState {
+  status: 'not_submitted' | 'pending_admin_approval' | 'approved' | 'rejected';
+  payoutApproved: boolean;
+  approvedAt: string | null;
+  rejectionReason: string | null;
+  details: {
+    accountHolderName: string;
+    accountNumberMasked: string;
+    ifsc: string;
+    panMasked: string;
+    submittedAt: string;
+  } | null;
 }
 
 interface EarningsStats {
@@ -96,31 +115,126 @@ const DoctorSettingsPage: React.FC = () => {
 
   const [platformFeePercent] = useState(20); // Default — can be fetched dynamically later
   const [isSavingPricing, setIsSavingPricing] = useState(false);
-  const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus | null>(null);
-  const [isRequestingOnboarding, setIsRequestingOnboarding] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 3;
   const [profileLoading, setProfileLoading] = useState(true);
   const [earnings, setEarnings] = useState<EarningsStats | null>(null);
 
+  const [bank, setBank] = useState<BankDetailsState | null>(null);
+  const [bankForm, setBankForm] = useState<BankForm>({
+    accountHolderName: '', accountNumber: '', ifsc: '', panNumber: ''
+  });
+  const [bankErrors, setBankErrors] = useState<Partial<Record<keyof BankForm, string>>>({});
+  const [isSavingBank, setIsSavingBank] = useState(false);
+  const [editingBank, setEditingBank] = useState(false);
+
 
   const token = getAuthToken();
 
-  // ── Load current pricing & onboarding status on mount ──────────────────────
+  /*
+   * Mirrors the server's validation in controllers/payout.controller.js.
+   *
+   * Duplicated on purpose — the server is authoritative and rejects bad
+   * input regardless, but a wrong IFSC caught only after a round trip is a
+   * worse experience for the one form on the site where a typo means money
+   * reaching the wrong account.
+   */
+  const BANK_RULES: Record<keyof BankForm, { test: (v: string) => boolean; message: string }> = {
+    accountHolderName: {
+      test: (v) => v.trim().length >= 3,
+      message: 'Enter the name exactly as it appears on the bank account'
+    },
+    accountNumber: {
+      test: (v) => /^\d{9,18}$/.test(v.replace(/\s/g, '')),
+      message: 'Account number must be 9 to 18 digits'
+    },
+    ifsc: {
+      test: (v) => /^[A-Z]{4}0[A-Z0-9]{6}$/.test(v.trim().toUpperCase()),
+      message: 'IFSC must be 11 characters, e.g. HDFC0001234'
+    },
+    panNumber: {
+      test: (v) => /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(v.trim().toUpperCase()),
+      message: 'PAN must be 10 characters, e.g. ABCDE1234F'
+    }
+  };
+
+  const validateBank = (form: BankForm) => {
+    const errors: Partial<Record<keyof BankForm, string>> = {};
+    (Object.keys(BANK_RULES) as (keyof BankForm)[]).forEach((field) => {
+      if (!BANK_RULES[field].test(form[field] || '')) errors[field] = BANK_RULES[field].message;
+    });
+    return errors;
+  };
+
+  const handleSubmitBank = async () => {
+    const errors = validateBank(bankForm);
+    setBankErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    setIsSavingBank(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/payouts/bank-details`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        credentials: 'include',
+        body: JSON.stringify(bankForm)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        // The server returns per-field errors; show them against the fields
+        // rather than collapsing everything into one toast.
+        if (data.errors) setBankErrors(data.errors);
+        toast.error(data.message || 'Could not save your bank details');
+        return;
+      }
+      toast.success(data.message || 'Submitted for review');
+      setEditingBank(false);
+      await loadBankDetails();
+    } catch {
+      toast.error('Network error. Please try again.');
+    } finally {
+      setIsSavingBank(false);
+    }
+  };
+
+  const loadBankDetails = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/payouts/bank-details`, {
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        credentials: 'include'
+      });
+      if (res.ok) setBank(await res.json());
+    } catch {
+      /* the section renders its own loading state */
+    }
+  };
+
+  // ── Load current pricing, bank details and earnings on mount ──────────────
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [profileRes, onboardingRes, statsRes] = await Promise.all([
+        const [profileRes, statsRes, bankRes] = await Promise.all([
           fetch(`${API_BASE_URL}/profile/setup`, {
-            headers: { Authorization: `Bearer ${token}` }
-          }),
-          fetch(`${API_BASE_URL}/payments/onboarding-status`, {
             headers: { Authorization: `Bearer ${token}` }
           }),
           fetch(`${API_BASE_URL}/sessions/stats`, {
             headers: { Authorization: `Bearer ${token}` }
+          }),
+          fetch(`${API_BASE_URL}/payouts/bank-details`, {
+            headers: { Authorization: `Bearer ${token}` }, credentials: 'include'
           })
         ]);
+
+        if (bankRes.ok) {
+          const bankData: BankDetailsState = await bankRes.json();
+          setBank(bankData);
+          // Open the form straight away when there is nothing to show, so a
+          // new doctor does not have to find a button first.
+          if (bankData.status === 'not_submitted') setEditingBank(true);
+          if (bankData.details) {
+            setBankForm((f) => ({ ...f, accountHolderName: bankData.details!.accountHolderName || '', ifsc: bankData.details!.ifsc || '' }));
+          }
+        }
 
         if (profileRes.ok) {
           const profileData = await profileRes.json();
@@ -137,11 +251,6 @@ const DoctorSettingsPage: React.FC = () => {
               }
             });
           }
-        }
-
-        if (onboardingRes.ok) {
-          const onboardingData = await onboardingRes.json();
-          setOnboardingStatus(onboardingData);
         }
 
         if (statsRes.ok) {
@@ -206,28 +315,6 @@ const DoctorSettingsPage: React.FC = () => {
       toast.error('Network error. Please try again.');
     } finally {
       setIsSavingPricing(false);
-    }
-  };
-
-  // ── Request Payout Onboarding ─────────────────────────────────────────────
-  const handleRequestOnboarding = async () => {
-    setIsRequestingOnboarding(true);
-    try {
-      const res = await fetch(`${API_BASE_URL}/payments/request-onboarding`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      const data = await res.json();
-      if (data.success) {
-        toast.success('Request submitted! Admin will review and approve.');
-        setOnboardingStatus(prev => prev ? { ...prev, status: 'pending_admin_approval', message: data.message } : null);
-      } else {
-        toast.error(data.message || 'Failed to submit request');
-      }
-    } catch {
-      toast.error('Network error. Please try again.');
-    } finally {
-      setIsRequestingOnboarding(false);
     }
   };
 
@@ -402,90 +489,175 @@ const DoctorSettingsPage: React.FC = () => {
           </div>
 
           <div className="p-6">
-            {!onboardingStatus ? (
+            {!bank ? (
               <div className="flex items-center gap-3" style={{ color: T.muted }}>
                 <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: T.muted, borderTopColor: 'transparent' }} />
                 <span className="text-sm">Loading status...</span>
               </div>
-            ) : onboardingStatus.status === 'not_requested' ? (
-              <div>
-                <p className="mb-4 leading-relaxed" style={{ fontSize: 13, color: T.text2 }}>
-                  Set up payouts to receive your earnings automatically. Once active, earnings are transferred within <strong>3 business days</strong> after each completed session.
-                </p>
-                <button
-                  onClick={handleRequestOnboarding}
-                  disabled={isRequestingOnboarding}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-bold text-sm text-white transition-all disabled:opacity-60"
-                  style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
-                >
-                  {isRequestingOnboarding ? (
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <Landmark className="w-4 h-4" />
-                  )}
-                  {isRequestingOnboarding ? 'Submitting...' : 'Request Payout Setup'}
-                </button>
-              </div>
-            ) : onboardingStatus.status === 'pending_admin_approval' ? (
-              <div className="flex items-start gap-3 bg-amber-50 border border-amber-100 rounded-xl p-4">
-                <Clock className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold text-sm text-amber-800">Pending Admin Review</p>
-                  <p className="text-xs text-amber-700 mt-1">
-                    Your request has been submitted. Our admin team will review and approve it. You'll be notified via email.
-                  </p>
-                </div>
-              </div>
-            ) : onboardingStatus.status === 'submitted_to_razorpay' ? (
-              <div className="flex items-start gap-3 bg-blue-50 border border-blue-100 rounded-xl p-4">
-                <Mail className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold text-sm text-blue-800">Check Your Email from Razorpay</p>
-                  <p className="text-xs text-blue-700 mt-1">
-                    We've submitted your details to Razorpay. They will send you a KYC link. Complete it to activate your payouts.
-                  </p>
-                  <p className="text-xs text-blue-500 mt-2">
-                    Didn't receive the email? Contact us at <a href="mailto:contact@veraawell.com" className="underline">contact@veraawell.com</a>
-                  </p>
-                </div>
-              </div>
-            ) : onboardingStatus.status === 'active' ? (
-              <div className="flex items-start gap-3 bg-green-50 border border-green-100 rounded-xl p-4">
-                <CheckCircle className="w-5 h-5 text-green-600 shrink-0 mt-0.5" />
-                <div>
-                  <p className="font-semibold text-sm text-green-800">Payouts Active</p>
-                  <p className="text-xs text-green-700 mt-1">
-                    Your earnings are automatically transferred to your bank account within 3 business days after each completed session.
-                  </p>
-                  {onboardingStatus.activatedAt && (
-                    <p className="text-xs text-green-500 mt-1">
-                      Active since {new Date(onboardingStatus.activatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                    </p>
-                  )}
-                </div>
-              </div>
-            ) : onboardingStatus.status === 'rejected' ? (
-              <div className="space-y-3">
-                <div className="flex items-start gap-3 bg-red-50 border border-red-100 rounded-xl p-4">
-                  <XCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+            ) : (
+              <>
+                {/*
+                  Status first, then the form. The status is what the doctor
+                  came to check; the form is what they came to change, and
+                  only when something needs changing.
+                */}
+                {bank.status === 'approved' && !editingBank && (
+                  <div className="rounded-xl p-4 mb-4 bg-green-50 border border-green-100">
+                    <div className="flex items-start gap-2.5">
+                      <CheckCircle className="w-[18px] h-[18px] mt-px text-green-600 shrink-0" />
+                      <div>
+                        <p className="font-semibold text-sm text-green-900">Payouts active</p>
+                        <p className="mt-0.5" style={{ fontSize: 12.5, color: T.text2 }}>
+                          You can take bookings. Earnings are transferred every Tuesday for the week before.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {bank.status === 'pending_admin_approval' && (
+                  <div className="rounded-xl p-4 mb-4 bg-amber-50 border border-amber-100">
+                    <div className="flex items-start gap-2.5">
+                      <Clock className="w-[18px] h-[18px] mt-px text-amber-600 shrink-0" />
+                      <div>
+                        <p className="font-semibold text-sm text-amber-900">Pending review</p>
+                        <p className="mt-0.5" style={{ fontSize: 12.5, color: T.text2 }}>
+                          An admin is checking your details. You will be able to take bookings once they are approved.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {bank.status === 'rejected' && (
+                  <div className="rounded-xl p-4 mb-4 bg-red-50 border border-red-100">
+                    <div className="flex items-start gap-2.5">
+                      <XCircle className="w-[18px] h-[18px] mt-px text-red-600 shrink-0" />
+                      <div>
+                        <p className="font-semibold text-sm text-red-900">Details not accepted</p>
+                        <p className="mt-0.5" style={{ fontSize: 12.5, color: T.text2 }}>
+                          {bank.rejectionReason || 'Please check your details and submit again.'}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* What is on file, when not editing. */}
+                {bank.details && !editingBank && (
+                  <div className="rounded-xl p-4 mb-4" style={{ background: T.tealSoft }}>
+                    <div className="grid grid-cols-2 gap-x-6 gap-y-3">
+                      {[
+                        ['Account holder', bank.details.accountHolderName],
+                        ['Account number', bank.details.accountNumberMasked],
+                        ['IFSC', bank.details.ifsc],
+                        ['PAN', bank.details.panMasked]
+                      ].map(([label, value]) => (
+                        <div key={label as string}>
+                          <div style={eyebrow}>{label}</div>
+                          <div className="mt-0.5" style={{ ...figure, fontSize: 14 }}>{value}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <button
+                      onClick={() => { setEditingBank(true); setBankErrors({}); }}
+                      className="mt-4 inline-flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold uppercase tracking-wide"
+                      style={{ background: 'transparent', color: T.teal, border: `1px solid rgba(31,122,140,.35)` }}
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" /> Change bank account
+                    </button>
+                  </div>
+                )}
+
+                {editingBank && (
                   <div>
-                    <p className="font-semibold text-sm text-red-800">Request Not Approved</p>
-                    <p className="text-xs text-red-700 mt-1">{onboardingStatus.message}</p>
-                    <p className="text-xs text-red-500 mt-2">
-                      Need help? Contact <a href="mailto:contact@veraawell.com" className="underline">contact@veraawell.com</a>
+                    {bank.status === 'approved' && (
+                      <div className="rounded-xl p-3 mb-4 flex items-start gap-2.5" style={{ background: T.tealSoft }}>
+                        <Lightbulb className="w-[18px] h-[18px] mt-px shrink-0" style={{ color: T.teal }} />
+                        <p style={{ fontSize: 12.5, color: T.text2 }}>
+                          Changing your account needs a fresh approval, and you will not be bookable until that comes through.
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="space-y-4">
+                      {([
+                        { key: 'accountHolderName', label: 'Account holder name', placeholder: 'As printed on your bank account', mode: 'text' },
+                        { key: 'accountNumber', label: 'Account number', placeholder: '9 to 18 digits', mode: 'numeric' },
+                        { key: 'ifsc', label: 'IFSC code', placeholder: 'HDFC0001234', mode: 'upper' },
+                        { key: 'panNumber', label: 'PAN', placeholder: 'ABCDE1234F', mode: 'upper' }
+                      ] as const).map((field) => (
+                        <div key={field.key}>
+                          {/* Label above the input, not beside it: the fixed
+                              w-24 label used by the pricing rows is too narrow
+                              for "Account holder name". */}
+                          <label htmlFor={field.key} className="block mb-1.5" style={{ fontSize: 12.5, fontWeight: 500, color: T.text2 }}>
+                            {field.label}
+                          </label>
+                          <input
+                            id={field.key}
+                            value={bankForm[field.key]}
+                            inputMode={field.mode === 'numeric' ? 'numeric' : 'text'}
+                            autoComplete="off"
+                            aria-invalid={!!bankErrors[field.key]}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              const value = field.mode === 'upper' ? raw.toUpperCase()
+                                : field.mode === 'numeric' ? raw.replace(/[^\d]/g, '')
+                                  : raw;
+                              setBankForm((f) => ({ ...f, [field.key]: value }));
+                              // Clear the error as soon as the value becomes
+                              // valid, rather than making them submit to find out.
+                              setBankErrors((errs) => {
+                                if (!errs[field.key]) return errs;
+                                if (!BANK_RULES[field.key].test(value)) return errs;
+                                const next = { ...errs }; delete next[field.key]; return next;
+                              });
+                            }}
+                            placeholder={field.placeholder}
+                            className="w-full px-3 py-2.5 rounded-xl focus:outline-none focus:ring-2 transition-all"
+                            style={{
+                              ...figure, fontSize: 15,
+                              border: `1px solid ${bankErrors[field.key] ? '#dc2626' : T.border}`,
+                              background: 'rgba(255,255,255,.6)'
+                            }}
+                          />
+                          {bankErrors[field.key] && (
+                            <p className="mt-1" style={{ fontSize: 11.5, color: '#dc2626' }}>{bankErrors[field.key]}</p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center gap-3 mt-5">
+                      <button
+                        onClick={handleSubmitBank}
+                        disabled={isSavingBank}
+                        className="flex items-center justify-center gap-2 rounded-xl px-5 py-3 font-bold text-sm text-white disabled:opacity-60"
+                        style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)' }}
+                      >
+                        {isSavingBank
+                          ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> Submitting...</>
+                          : <><Landmark className="w-4 h-4" /> Submit for review</>}
+                      </button>
+                      {bank.details && (
+                        <button
+                          onClick={() => { setEditingBank(false); setBankErrors({}); }}
+                          className="text-xs font-semibold uppercase tracking-wide"
+                          style={{ color: T.muted, background: 'transparent' }}
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+
+                    <p className="mt-4 leading-relaxed" style={{ fontSize: 11.5, color: T.muted }}>
+                      Used only to transfer your earnings. An admin verifies these once before your first payout.
                     </p>
                   </div>
-                </div>
-                <button
-                  onClick={handleRequestOnboarding}
-                  disabled={isRequestingOnboarding}
-                  className="flex items-center gap-2 px-5 py-2.5 rounded-full transition-all disabled:opacity-60"
-                  style={{ background: 'transparent', color: T.teal, border: '1px solid rgba(31,122,140,.35)', fontWeight: 600, fontSize: 12.5, letterSpacing: '.04em', textTransform: 'uppercase' }}
-                >
-                  {isRequestingOnboarding ? 'Submitting...' : <><RotateCcw className="w-4 h-4" /> Re-apply</>}
-                </button>
-              </div>
-            ) : null}
+                )}
+              </>
+            )}
           </div>
         </div>
         )}

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAdmin } from '../context/AdminContext';
-import { FiMenu, FiLogOut, FiUsers, FiUserCheck, FiClock, FiFileText, FiActivity, FiX, FiCheck, FiChevronLeft, FiChevronRight, FiInbox, FiMail } from 'react-icons/fi';
+import { FiMenu, FiLogOut, FiUsers, FiUserCheck, FiClock, FiFileText, FiActivity, FiX, FiCheck, FiChevronLeft, FiChevronRight, FiInbox, FiMail, FiCreditCard, FiDollarSign, FiLock } from 'react-icons/fi';
 import { LuStethoscope } from 'react-icons/lu';
 import { Plus, Search, Filter, Eye, CheckCircle, Clock, Edit, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -139,7 +139,7 @@ const SuperAdminDashboard: React.FC = () => {
   const location = useLocation();
   const [enquiryStatusFilter, setEnquiryStatusFilter] = useState<'all' | Enquiry['status']>('new');
   const [expandedEnquiry, setExpandedEnquiry] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'analytics' | 'doctors' | 'admins' | 'articles' | 'payouts' | 'revenue' | 'enquiries'>(() => {
+  const [activeTab, setActiveTab] = useState<'analytics' | 'doctors' | 'admins' | 'articles' | 'payouts' | 'bankDetails' | 'weeklyPayouts' | 'revenue' | 'enquiries'>(() => {
     const locState = location.state as { tab?: string } | null;
     return (locState?.tab as any) || 'analytics';
   });
@@ -284,7 +284,11 @@ const SuperAdminDashboard: React.FC = () => {
   // 'enquiries' is excluded for the same reason as 'articles' and 'payouts':
   // this expression gates the whole page on the analytics queries, which this
   // tab does not use, and the page would render "Loading dashboard..." forever.
-  const loading = activeTab !== 'articles' && activeTab !== 'payouts' && activeTab !== 'enquiries' && (
+  // Any tab NOT excluded here waits on the analytics queries before it will
+  // render, even though it does not use them. Both payout tabs are excluded
+  // for the same reason 'payouts' and 'enquiries' already are.
+  const loading = activeTab !== 'articles' && activeTab !== 'payouts' && activeTab !== 'enquiries'
+    && activeTab !== 'bankDetails' && activeTab !== 'weeklyPayouts' && (
     statsLoading || analyticsLoading || pendingDoctorsLoading || allDoctorsLoading || 
     (admin?.role === 'super_admin' && (pendingAdminsLoading || allAdminsLoading))
   );
@@ -357,6 +361,87 @@ const SuperAdminDashboard: React.FC = () => {
     },
     onError: () => toast.error('Failed to delete article'),
     onSettled: () => { setActionLoading(null); setArticleToDelete(null); }
+  });
+
+  // ── Payouts ──────────────────────────────────────────────────────────────
+  const [payoutPeriod, setPayoutPeriod] = useState<string>('');
+  const [utrModal, setUtrModal] = useState<{ payout: any } | null>(null);
+  const [utrValue, setUtrValue] = useState('');
+  const [bankRejectModal, setBankRejectModal] = useState<{ submission: any } | null>(null);
+  const [bankRejectReason, setBankRejectReason] = useState('');
+
+  const { data: bankSubmissions, isLoading: bankSubmissionsLoading } = useQuery<any>({
+    queryKey: ['admin', 'bank-details'],
+    queryFn: () => fetchAndParse(`${API_BASE_URL}/admin/payments/payouts/bank-details`),
+    enabled: !!admin && activeTab === 'bankDetails',
+  });
+  const pendingBankCount = bankSubmissions?.submissions?.length || 0;
+
+  const { data: payoutPreview, isLoading: payoutPreviewLoading } = useQuery<any>({
+    queryKey: ['admin', 'payout-preview', payoutPeriod],
+    queryFn: () => fetchAndParse(`${API_BASE_URL}/admin/payments/payouts/preview${payoutPeriod ? `?period=${payoutPeriod}` : ''}`),
+    enabled: !!admin && activeTab === 'weeklyPayouts',
+  });
+
+  const { data: payoutList } = useQuery<any>({
+    queryKey: ['admin', 'payout-list', payoutPreview?.period?.periodKey],
+    queryFn: () => fetchAndParse(`${API_BASE_URL}/admin/payments/payouts?period=${payoutPreview?.period?.periodKey}`),
+    enabled: !!admin && activeTab === 'weeklyPayouts' && !!payoutPreview?.period?.periodKey,
+  });
+
+  const refreshPayouts = () => {
+    queryClient.invalidateQueries({ queryKey: ['admin', 'payout-preview'] });
+    queryClient.invalidateQueries({ queryKey: ['admin', 'payout-list'] });
+  };
+
+  const payoutAction = async (url: string, body?: any) => {
+    const res = await fetch(`${API_BASE_URL}${url}`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {})
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Request failed');
+    return data;
+  };
+
+  const generatePayoutsMutation = useMutation({
+    mutationFn: (period: string) => payoutAction('/admin/payments/payouts/generate', { period }),
+    onSuccess: (d) => { toast.success(d.message || 'Drafts generated'); refreshPayouts(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const lockPayoutMutation = useMutation({
+    mutationFn: (payoutId: string) => payoutAction(`/admin/payments/payouts/${payoutId}/lock`),
+    onSuccess: (d) => { toast.success(d.message || 'Locked'); refreshPayouts(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const markPaidMutation = useMutation({
+    mutationFn: ({ payoutId, transferReference }: { payoutId: string; transferReference: string }) =>
+      payoutAction(`/admin/payments/payouts/${payoutId}/mark-paid`, { transferReference }),
+    onSuccess: () => { toast.success('Recorded as paid'); refreshPayouts(); },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const approveBankMutation = useMutation({
+    mutationFn: (doctorId: string) => payoutAction(`/admin/payments/payouts/bank-details/${doctorId}/approve`),
+    onSuccess: (d) => {
+      toast.success(d.message || 'Approved');
+      queryClient.invalidateQueries({ queryKey: ['admin', 'bank-details'] });
+    },
+    onError: (e: any) => toast.error(e.message),
+  });
+
+  const rejectBankMutation = useMutation({
+    mutationFn: ({ doctorId, reason }: { doctorId: string; reason: string }) =>
+      payoutAction(`/admin/payments/payouts/bank-details/${doctorId}/reject`, { reason }),
+    onSuccess: () => {
+      toast.success('Rejected');
+      queryClient.invalidateQueries({ queryKey: ['admin', 'bank-details'] });
+    },
+    onError: (e: any) => toast.error(e.message),
   });
 
   const approvePayoutMutation = useMutation({
@@ -529,7 +614,10 @@ const SuperAdminDashboard: React.FC = () => {
   }
 
   // Calculate max sessions for chart scaling
-  const maxSessions = analytics?.topDoctors.reduce((max, d) => d.sessionCount > max ? d.sessionCount : max, 0) || 1;
+  // `analytics?.topDoctors.reduce` guarded `analytics` but not `topDoctors`,
+  // so an analytics response without that field threw at render and took the
+  // ENTIRE admin dashboard to a white screen — every tab, not just this one.
+  const maxSessions = analytics?.topDoctors?.reduce((max, d) => d.sessionCount > max ? d.sessionCount : max, 0) || 1;
 
   return (
     <div className="min-h-screen flex bg-[#fcfbfa] text-neutral-800 antialiased font-sans">
@@ -643,6 +731,45 @@ const SuperAdminDashboard: React.FC = () => {
                 )}
               </button>
             )}
+            {admin?.role === 'super_admin' && (
+              <button
+                onClick={() => setActiveTab('bankDetails')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors ${activeTab === 'bankDetails' ? 'bg-[#0097b2] text-white' : 'text-[#fff3db]/70 hover:bg-[#fff3db]/5 hover:text-[#fff3db]'} ${sidebarCollapsed ? 'justify-center' : ''}`}
+                title={sidebarCollapsed ? "Bank Details" : ""}
+              >
+                {sidebarCollapsed ? (
+                  <div className={`w-2 h-2 rounded-full ${activeTab === 'bankDetails' ? 'bg-white' : 'bg-[#fff3db]/40'}`} />
+                ) : (
+                  <FiCreditCard size={16} />
+                )}
+                {!sidebarCollapsed && (
+                  <>
+                    <span>Bank Details</span>
+                    {pendingBankCount > 0 && (
+                      <span className="ml-auto text-[10px] font-semibold bg-amber-400 text-[#001e24] px-1.5 py-0.5 rounded-full">{pendingBankCount}</span>
+                    )}
+                  </>
+                )}
+              </button>
+            )}
+            {admin?.role === 'super_admin' && (
+              <button
+                onClick={() => setActiveTab('weeklyPayouts')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors ${activeTab === 'weeklyPayouts' ? 'bg-[#0097b2] text-white' : 'text-[#fff3db]/70 hover:bg-[#fff3db]/5 hover:text-[#fff3db]'} ${sidebarCollapsed ? 'justify-center' : ''}`}
+                title={sidebarCollapsed ? "Weekly Payouts" : ""}
+              >
+                {sidebarCollapsed ? (
+                  <div className={`w-2 h-2 rounded-full ${activeTab === 'weeklyPayouts' ? 'bg-white' : 'bg-[#fff3db]/40'}`} />
+                ) : (
+                  <FiDollarSign size={16} />
+                )}
+                {!sidebarCollapsed && (
+                  <>
+                    <span>Weekly Payouts</span>
+                  </>
+                )}
+              </button>
+            )}
 
             {admin?.role === 'super_admin' && (
               <button
@@ -735,7 +862,7 @@ const SuperAdminDashboard: React.FC = () => {
               <FiMenu size={18} />
             </button>
             <h1 className="text-base font-semibold text-neutral-800 flex items-center gap-2">
-              {activeTab === 'analytics' ? 'Dashboard Overview' : activeTab === 'doctors' ? 'Doctor Approvals' : activeTab === 'admins' ? 'Admin Approvals' : activeTab === 'payouts' ? 'Payout Approvals' : activeTab === 'revenue' ? 'Platform Revenue' : activeTab === 'enquiries' ? 'Enquiries' : 'Manage Articles'}
+              {activeTab === 'analytics' ? 'Dashboard Overview' : activeTab === 'doctors' ? 'Doctor Approvals' : activeTab === 'admins' ? 'Admin Approvals' : activeTab === 'payouts' ? 'Payout Approvals' : activeTab === 'bankDetails' ? 'Bank Details' : activeTab === 'weeklyPayouts' ? 'Weekly Payouts' : activeTab === 'revenue' ? 'Platform Revenue' : activeTab === 'enquiries' ? 'Enquiries' : 'Manage Articles'}
             </h1>
           </div>
           {/* Removed non-functional search bar to keep it minimal */}
@@ -760,7 +887,16 @@ const SuperAdminDashboard: React.FC = () => {
         <main className="flex-1 p-6 overflow-auto space-y-6">
           
           {/* Stats Grid - Enhanced with larger numbers and cleaner look */}
-          {statistics && activeTab === 'analytics' && (
+          {/*
+            Guarded on the nested objects, not just `statistics` being truthy.
+            The cards below read statistics.doctors.pending and
+            statistics.patients.total directly, so a response missing either
+            threw during render — and because this is above the tab switch, it
+            white-screened every tab including the payout screens, not only
+            this one. Rendering nothing is the right failure here: the numbers
+            are informational, and a blank card beats a blank app.
+          */}
+          {statistics?.doctors && statistics?.patients && activeTab === 'analytics' && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
               <div className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-sm hover:shadow-md transition-shadow">
                 <div className="flex items-center justify-between mb-4">
@@ -794,7 +930,9 @@ const SuperAdminDashboard: React.FC = () => {
           {/* Tab Content */}
           <AnimatePresence mode="wait">
             {/* ── Analytics Tab ─────────────────────────────────────────── */}
-            {activeTab === 'analytics' && analytics && (
+            {/* Same reasoning as the statistics block above. */}
+            {activeTab === 'analytics' && analytics?.sessions && analytics?.revenue
+              && analytics?.content && analytics?.growth && Array.isArray(analytics?.topDoctors) && (
               <motion.div key="analytics" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
                 
                 {/* Analytics Mini Grid */}
@@ -1305,6 +1443,264 @@ const SuperAdminDashboard: React.FC = () => {
             )}
 
             {/* ── Revenue Tab ────────────────────────────────────────────── */}
+            {/* ── BANK DETAILS APPROVAL ─────────────────────────────────────── */}
+            {activeTab === 'bankDetails' && admin?.role === 'super_admin' && (
+              <motion.div key="bankDetails" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+                <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm overflow-hidden">
+                  <div className="px-6 py-4 border-b border-neutral-100 bg-neutral-50/50 flex items-center justify-between">
+                    <div>
+                      <h3 className="text-sm font-semibold text-neutral-800">Bank Details Awaiting Review</h3>
+                      <p className="text-[11px] text-neutral-500 mt-0.5">
+                        Approving makes a therapist bookable. Check the name matches the account before you do.
+                      </p>
+                    </div>
+                    <span className="text-xs font-medium text-amber-600 bg-amber-100 px-2.5 py-1 rounded-full">
+                      {pendingBankCount} pending
+                    </span>
+                  </div>
+
+                  {bankSubmissionsLoading ? (
+                    <div className="p-12 flex justify-center">
+                      <div className="w-8 h-8 border-4 border-[#0097b2] border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  ) : pendingBankCount === 0 ? (
+                    <div className="p-12 text-center">
+                      <FiCreditCard size={28} className="mx-auto text-neutral-300 mb-3" />
+                      <p className="text-sm text-neutral-500">Nothing to review</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-neutral-100">
+                      {bankSubmissions.submissions.map((sub: any) => (
+                        <div key={sub.doctorId} className="p-6">
+                          <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-neutral-900">{sub.name}</p>
+                              <p className="text-[11px] text-neutral-500">{sub.email}{sub.phone ? ` · ${sub.phone}` : ''}</p>
+                              <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-2">
+                                {[
+                                  ['Account holder', sub.accountHolderName],
+                                  ['Account number', sub.accountNumber],
+                                  ['IFSC', sub.ifsc],
+                                  ['PAN', sub.panNumber]
+                                ].map(([label, value]) => (
+                                  <div key={label as string}>
+                                    <div className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400">{label}</div>
+                                    <div className="text-sm text-neutral-900 font-mono">{value || '—'}</div>
+                                  </div>
+                                ))}
+                              </div>
+                              {sub.submittedAt && (
+                                <p className="text-[11px] text-neutral-400 mt-3">Submitted {formatDate(sub.submittedAt)}</p>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                onClick={() => approveBankMutation.mutate(sub.doctorId)}
+                                disabled={approveBankMutation.isPending}
+                                className="flex items-center gap-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg disabled:opacity-60"
+                              >
+                                <FiCheck size={14} /> Approve
+                              </button>
+                              <button
+                                onClick={() => { setBankRejectModal({ submission: sub }); setBankRejectReason(''); }}
+                                className="flex items-center gap-1.5 text-xs font-semibold text-red-600 border border-red-200 hover:bg-red-50 px-4 py-2 rounded-lg"
+                              >
+                                <FiX size={14} /> Reject
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </motion.div>
+            )}
+
+            {/* ── WEEKLY PAYOUTS ────────────────────────────────────────────── */}
+            {activeTab === 'weeklyPayouts' && admin?.role === 'super_admin' && (
+              <motion.div key="weeklyPayouts" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
+                {payoutPreviewLoading ? (
+                  <div className="p-12 flex justify-center">
+                    <div className="w-8 h-8 border-4 border-[#0097b2] border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : (
+                  <>
+                    <div className="bg-white p-5 rounded-2xl border border-neutral-100 shadow-sm flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <div className="text-xs font-medium text-neutral-500 uppercase tracking-wider">Period</div>
+                        <div className="text-lg font-bold text-neutral-900">
+                          {payoutPreview?.period?.periodKey} · {payoutPreview?.period?.localFrom} to {payoutPreview?.period?.localTo}
+                        </div>
+                        <div className="text-[11px] text-neutral-500 mt-0.5">
+                          Pay on {payoutPreview?.period?.scheduledPayoutDate ? formatDate(payoutPreview.period.scheduledPayoutDate) : '—'}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={payoutPeriod}
+                          onChange={(e) => setPayoutPeriod(e.target.value)}
+                          placeholder={payoutPreview?.period?.periodKey || '2026-W37'}
+                          className="w-32 p-2 text-xs bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-[#0097b2]"
+                        />
+                        <button
+                          onClick={() => generatePayoutsMutation.mutate(payoutPreview?.period?.periodKey)}
+                          disabled={generatePayoutsMutation.isPending || !(payoutPreview?.rows?.length)}
+                          className="flex items-center gap-1.5 text-xs font-semibold text-white bg-[#0097b2] hover:bg-[#007d93] px-4 py-2 rounded-lg disabled:opacity-50"
+                        >
+                          {generatePayoutsMutation.isPending
+                            ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                            : <FiLock size={14} />}
+                          Generate drafts
+                        </button>
+                      </div>
+                    </div>
+
+                    {(payoutPreview?.outstandingDebt?.length || 0) > 0 && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
+                        <p className="text-xs font-semibold text-amber-900">
+                          {payoutPreview.outstandingDebt.length} therapist(s) carry an unsettled balance from a refund
+                        </p>
+                        <p className="text-[11px] text-amber-800 mt-0.5">
+                          It nets off automatically the next time they earn. Shown here because they have no sessions this period.
+                        </p>
+                      </div>
+                    )}
+
+                    <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm overflow-hidden">
+                      <div className="px-6 py-4 border-b border-neutral-100 bg-neutral-50/50">
+                        <h3 className="text-sm font-semibold text-neutral-800">Owed This Period</h3>
+                      </div>
+                      {(payoutPreview?.rows?.length || 0) === 0 ? (
+                        <div className="p-12 text-center">
+                          <FiDollarSign size={28} className="mx-auto text-neutral-300 mb-3" />
+                          <p className="text-sm text-neutral-500">Nothing owed for this period</p>
+                        </div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="bg-neutral-50/50 text-neutral-500 text-[11px] font-semibold uppercase tracking-wider border-b border-neutral-100">
+                                <th className="p-4 pl-6 font-medium">Therapist</th>
+                                <th className="p-4 font-medium">Sessions</th>
+                                <th className="p-4 font-medium">Gross</th>
+                                <th className="p-4 font-medium">Commission</th>
+                                <th className="p-4 font-medium">Adjustments</th>
+                                <th className="p-4 font-medium">Net Payable</th>
+                                <th className="p-4 text-right pr-6 font-medium">Bank</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-neutral-100">
+                              {payoutPreview.rows.map((row: any) => (
+                                <tr key={row._id} className="hover:bg-neutral-50/50 transition-colors">
+                                  <td className="p-4 pl-6">
+                                    <div className="text-sm font-semibold text-neutral-900">
+                                      {row.doctor ? `${row.doctor.firstName} ${row.doctor.lastName || ''}` : 'Unknown'}
+                                    </div>
+                                    <div className="text-[11px] text-neutral-500">{row.doctor?.email}</div>
+                                  </td>
+                                  <td className="p-4 text-sm text-neutral-700">{row.sessionCount}</td>
+                                  <td className="p-4 text-sm text-neutral-700">₹ {row.grossPrice?.toLocaleString()}</td>
+                                  <td className="p-4 text-sm text-emerald-600">₹ {row.platformFeeTotal?.toLocaleString()}</td>
+                                  <td className={`p-4 text-sm ${row.adjustmentsTotal < 0 ? 'text-red-600' : 'text-neutral-400'}`}>
+                                    {row.adjustmentsTotal ? `₹ ${row.adjustmentsTotal.toLocaleString()}` : '—'}
+                                  </td>
+                                  <td className="p-4 text-sm font-semibold text-[#0097b2]">₹ {row.netPayable?.toLocaleString()}</td>
+                                  <td className="p-4 text-right pr-6">
+                                    {/* The approval gate is shown here, not just enforced server-side:
+                                        an admin must see WHY someone cannot be paid. */}
+                                    {row.profile?.payoutApproved ? (
+                                      <span className="text-[11px] font-mono text-neutral-600">
+                                        {row.profile.ifsc} ••••{row.profile.accountNumberLast4}
+                                      </span>
+                                    ) : (
+                                      <span className="text-[11px] font-semibold text-red-600 bg-red-50 px-2 py-1 rounded-full">
+                                        Not approved
+                                      </span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm overflow-hidden">
+                      <div className="px-6 py-4 border-b border-neutral-100 bg-neutral-50/50">
+                        <h3 className="text-sm font-semibold text-neutral-800">Drafted &amp; Paid</h3>
+                      </div>
+                      {(payoutList?.payouts?.length || 0) === 0 ? (
+                        <div className="p-8 text-center text-sm text-neutral-500">No payouts drafted for this period yet</div>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-left border-collapse">
+                            <thead>
+                              <tr className="bg-neutral-50/50 text-neutral-500 text-[11px] font-semibold uppercase tracking-wider border-b border-neutral-100">
+                                <th className="p-4 pl-6 font-medium">Therapist</th>
+                                <th className="p-4 font-medium">Status</th>
+                                <th className="p-4 font-medium">Net</th>
+                                <th className="p-4 font-medium">Reference</th>
+                                <th className="p-4 text-right pr-6 font-medium">Action</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-neutral-100">
+                              {payoutList.payouts.map((po: any) => (
+                                <tr key={po._id} className="hover:bg-neutral-50/50 transition-colors">
+                                  <td className="p-4 pl-6 text-sm text-neutral-900">
+                                    {po.doctorId ? `${po.doctorId.firstName} ${po.doctorId.lastName || ''}` : 'Unknown'}
+                                  </td>
+                                  <td className="p-4">
+                                    <span className={`text-[11px] font-semibold px-2 py-1 rounded-full border ${
+                                      po.status === 'paid' ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                        : po.status === 'locked' ? 'bg-blue-50 text-blue-700 border-blue-200'
+                                          : 'bg-neutral-100 text-neutral-600 border-neutral-200'}`}>
+                                      {po.status}
+                                    </span>
+                                  </td>
+                                  <td className="p-4 text-sm font-semibold text-neutral-900">
+                                    {po.status === 'draft' ? '—' : `₹ ${po.netPayable?.toLocaleString()}`}
+                                    {po.carriedForward > 0 && (
+                                      <div className="text-[10px] text-amber-600">₹{po.carriedForward} carried forward</div>
+                                    )}
+                                  </td>
+                                  <td className="p-4 text-[11px] font-mono text-neutral-600">{po.transferReference || '—'}</td>
+                                  <td className="p-4 text-right pr-6">
+                                    {po.status === 'draft' && (
+                                      <button
+                                        onClick={() => lockPayoutMutation.mutate(po._id)}
+                                        disabled={lockPayoutMutation.isPending}
+                                        className="text-xs font-semibold text-[#0097b2] border border-[#0097b2]/30 hover:bg-[#0097b2]/5 px-3 py-1.5 rounded-lg disabled:opacity-50"
+                                      >
+                                        Lock amount
+                                      </button>
+                                    )}
+                                    {po.status === 'locked' && (
+                                      <button
+                                        onClick={() => { setUtrModal({ payout: po }); setUtrValue(''); }}
+                                        className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg"
+                                      >
+                                        Mark paid
+                                      </button>
+                                    )}
+                                    {po.status === 'paid' && (
+                                      <span className="text-[11px] text-neutral-400">{po.paidAt ? formatDate(po.paidAt) : ''}</span>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
+              </motion.div>
+            )}
+
+
             {activeTab === 'revenue' && admin?.role === 'super_admin' && (
               <motion.div key="revenue" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
                 
@@ -1736,6 +2132,117 @@ const SuperAdminDashboard: React.FC = () => {
       </AnimatePresence>
           </AnimatePresence>
         </main>
+
+        {/*
+          Placed at page root, after </main>, deliberately.
+          The existing article-delete and payout modals sit INSIDE the tab
+          <AnimatePresence mode="wait">, so they animate out with the tab
+          behind them. That is a latent bug; not inheriting it here.
+        */}
+        {utrModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setUtrModal(null)}
+          >
+            <div
+              className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-lg max-w-sm w-full mx-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-sm font-semibold text-neutral-900 mb-1">Record this payout as paid</h3>
+              <p className="text-xs text-neutral-500 mb-4">
+                ₹{utrModal.payout.netPayable?.toLocaleString()} to{' '}
+                {utrModal.payout.doctorId
+                  ? `${utrModal.payout.doctorId.firstName} ${utrModal.payout.doctorId.lastName || ''}`
+                  : 'this therapist'}
+                {utrModal.payout.bankSnapshot?.accountNumberLast4
+                  ? ` · ${utrModal.payout.bankSnapshot.ifsc} ••••${utrModal.payout.bankSnapshot.accountNumberLast4}`
+                  : ''}
+              </p>
+
+              <label className="block text-xs font-semibold text-neutral-700 mb-1.5">
+                Transfer reference (UTR)
+              </label>
+              <input
+                value={utrValue}
+                onChange={(e) => setUtrValue(e.target.value)}
+                placeholder="e.g. N123456789012345"
+                className="w-full p-3 text-xs font-mono bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-[#0097b2] focus:ring-1 focus:ring-[#0097b2]"
+              />
+              <p className="text-[11px] text-neutral-400 mt-1.5">
+                Make the transfer in your bank first, then paste its reference here. This is what the payout is reconciled against.
+              </p>
+
+              <div className="flex items-center justify-end gap-2 mt-5">
+                <button
+                  onClick={() => setUtrModal(null)}
+                  className="text-xs font-semibold text-neutral-500 px-3 py-2"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    markPaidMutation.mutate(
+                      { payoutId: utrModal.payout._id, transferReference: utrValue },
+                      { onSuccess: () => { setUtrModal(null); setUtrValue(''); } }
+                    );
+                  }}
+                  disabled={markPaidMutation.isPending || !utrValue.trim()}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg disabled:opacity-50"
+                >
+                  {markPaidMutation.isPending
+                    ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    : <FiCheck size={14} />}
+                  Confirm paid
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {bankRejectModal && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setBankRejectModal(null)}
+          >
+            <div
+              className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-lg max-w-sm w-full mx-4"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="text-sm font-semibold text-neutral-900 mb-1">Reject these bank details</h3>
+              <p className="text-xs text-neutral-500 mb-4">
+                {bankRejectModal.submission.name} will see this and can resubmit.
+              </p>
+              <label className="block text-xs font-semibold text-neutral-700 mb-1.5">What needs correcting?</label>
+              <textarea
+                value={bankRejectReason}
+                onChange={(e) => setBankRejectReason(e.target.value)}
+                placeholder="e.g. The account holder name does not match your registered name"
+                className="w-full p-3 text-xs bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400 min-h-[80px]"
+              />
+              <div className="flex items-center justify-end gap-2 mt-5">
+                <button onClick={() => setBankRejectModal(null)} className="text-xs font-semibold text-neutral-500 px-3 py-2">
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    rejectBankMutation.mutate(
+                      { doctorId: bankRejectModal.submission.doctorId, reason: bankRejectReason },
+                      { onSuccess: () => { setBankRejectModal(null); setBankRejectReason(''); } }
+                    );
+                  }}
+                  disabled={rejectBankMutation.isPending || !bankRejectReason.trim()}
+                  className="flex items-center gap-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg disabled:opacity-50"
+                >
+                  {rejectBankMutation.isPending
+                    ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    : <FiX size={14} />}
+                  Reject
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
       </div>
 
       {/* ── Document Viewer Modal ────────────────────────────────────────── */}

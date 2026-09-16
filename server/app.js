@@ -420,6 +420,13 @@ app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/admin/approvals', adminApprovalRoutes);
 app.use('/api/admin/payments', require('./routes/adminPayments.routes'));
 
+// Payouts. Two mount points on purpose: the doctor-facing half sits behind
+// verifyToken, the admin half behind verifyAdminToken. Sharing one router
+// across both auth realms is how a route ends up reachable from the wrong one.
+const payoutRoutes = require('./routes/payouts');
+app.use('/api/payouts', payoutRoutes);
+app.use('/api/admin/payments/payouts', payoutRoutes.adminRouter);
+
 
 // Protected admin debug/maintenance endpoints
 app.post('/api/admin/cleanup-sessions', verifyAdminToken, adminController.cleanupSessions);

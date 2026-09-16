@@ -8,6 +8,7 @@ const User = require('../models/user');
 const Session = require('../models/session');
 const PlatformSettings = require('../models/platformSettings');
 const { calculateRefund } = require('../services/refundPolicy');
+const { payableSessionMatch } = require('../services/earnings');
 const { hoursUntilStart } = require('../services/sessionTime');
 const { getRazorpay } = require('../services/razorpay.client');
 const { createLogger } = require('../utils/logger');
@@ -176,9 +177,16 @@ exports.approveOnboarding = async (req, res) => {
       return res.status(404).json({ message: 'Doctor profile not found' });
     }
 
+    if (doctorProfile.payoutApproved) {
+      return res.status(400).json({ message: 'This doctor is already approved for payouts' });
+    }
+
+    // An admin approves a request; they do not conscript a doctor who never
+    // asked. Keeping this guard also means the approval queue and the approve
+    // action agree on what is actionable.
     if (doctorProfile.razorpayOnboardingStatus !== 'pending_admin_approval') {
       return res.status(400).json({
-        message: `Cannot approve — current status is "${doctorProfile.razorpayOnboardingStatus}"`
+        message: `Cannot approve — current status is "${doctorProfile.razorpayOnboardingStatus || 'not_requested'}"`
       });
     }
 
@@ -189,57 +197,31 @@ exports.approveOnboarding = async (req, res) => {
       });
     }
 
-    let razorpayAccountId;
-    let accountCreated = false;
-
-    try {
-      // Create Razorpay Route Linked Account
-      const account = await getRazorpay().accounts.create({
-        email: doctor.email,
-        profile: {
-          category: 'healthcare',
-          subcategory: 'clinic',
-          addresses: {
-            registered: {
-              street1: 'India',
-              city: 'Mumbai',
-              state: 'MH',
-              postal_code: '400001',
-              country: 'IN'
-            }
-          }
-        },
-        type: 'route',
-        reference_id: doctorId.toString(),
-        legal_business_name: `Dr. ${doctor.firstName} ${doctor.lastName || ''}`.trim(),
-        business_type: 'individual',
-        contact_name: `${doctor.firstName} ${doctor.lastName || ''}`.trim(),
-        contact_info: {
-          sendEmail: true,
-          email: doctor.email
-        }
-      });
-
-      razorpayAccountId = account.id;
-      accountCreated = true;
-      logger.info(`[Admin] Razorpay account created: ${razorpayAccountId} for doctor ${doctorId}`);
-    } catch (rzpError) {
-      // In test mode Razorpay Route may not be fully enabled — use mock
-      logger.warn('[Admin] Razorpay account creation failed, using mock:', { error: rzpError.message });
-      const crypto = require('crypto');
-      razorpayAccountId = `acc_mock_${crypto.randomBytes(4).toString('hex')}`;
-      accountCreated = false;
-    }
-
-    doctorProfile.razorpayAccountId = razorpayAccountId;
-    // In test mode with mock account, instantly activate. Otherwise wait for Razorpay KYC webhook.
-    if (!accountCreated || razorpayAccountId.startsWith('acc_mock_')) {
-      doctorProfile.razorpayOnboardingStatus = 'active';
-      doctorProfile.razorpayActivatedAt = new Date();
-    } else {
-      doctorProfile.razorpayOnboardingStatus = 'submitted_to_razorpay';
-    }
+    // No Razorpay call.
+    //
+    // This function used to create a Razorpay Route linked account, and — on
+    // ANY error from that call — fabricate `acc_mock_<hex>` and mark the
+    // doctor 'active' anyway. That is how every doctor on the platform ended
+    // up holding an id no money could ever route to, while their own Pricing &
+    // Payouts page told them "Your payout account is active". Meanwhile
+    // resolveBookingPaymentState refused to book them precisely because the id
+    // was synthetic. The two halves contradicted each other and the doctor was
+    // shown the reassuring one.
+    //
+    // Route is not available to this platform anyway (it now requires an RBI
+    // Payment Aggregator turnover threshold), so payments land in the platform
+    // account and doctors are paid by bank transfer on a weekly cycle.
+    // Approval is therefore a decision an admin records, not an integration
+    // that can half-succeed — and it cannot silently claim to have worked.
+    doctorProfile.payoutApproved = true;
+    doctorProfile.payoutApprovedAt = new Date();
+    doctorProfile.payoutApprovedBy = req.admin ? req.admin._id : null;
+    doctorProfile.razorpayOnboardingStatus = 'active';
+    doctorProfile.razorpayActivatedAt = new Date();
+    doctorProfile.razorpayKYCRejectionReason = null;
     await doctorProfile.save();
+
+    logger.info('[Admin] Doctor approved for payouts', { doctorId: String(doctorId).substring(0, 8) });
 
     // Notify doctor by email
     try {
@@ -253,11 +235,9 @@ exports.approveOnboarding = async (req, res) => {
 
     res.json({
       success: true,
-      message: accountCreated
-        ? 'Razorpay account created. Doctor will receive KYC email from Razorpay.'
-        : 'Mock account created (test mode). Status moved to submitted_to_razorpay.',
-      razorpayAccountId,
-      status: (!accountCreated || razorpayAccountId.startsWith('acc_mock_')) ? 'active' : 'submitted_to_razorpay'
+      message: 'Doctor approved for payouts. They can now be booked.',
+      payoutApproved: true,
+      status: 'active'
     });
   } catch (error) {
     logger.error('[Admin] approveOnboarding error:', { error: error.message });
@@ -279,6 +259,10 @@ exports.rejectOnboarding = async (req, res) => {
       return res.status(404).json({ message: 'Doctor profile not found' });
     }
 
+    // Revoke bookability too: a rejected doctor with payoutApproved still true
+    // would keep taking bookings the platform has no approved way to settle.
+    doctorProfile.payoutApproved = false;
+    doctorProfile.payoutApprovedAt = null;
     doctorProfile.razorpayOnboardingStatus = 'rejected';
     doctorProfile.razorpayKYCRejectionReason = reason;
     await doctorProfile.save();
@@ -557,9 +541,16 @@ exports.getRevenueAnalytics = async (req, res) => {
         { $sort: { _id: 1 } }
       ]),
 
-      // Top earning doctors
+      // Top earning doctors.
+      //
+      // The payable predicate, so this agrees with each doctor's own
+      // dashboard and with what the weekly payout run will pay. The two
+      // aggregations above deliberately keep the broader
+      // `paymentStatus: 'paid'` filter: they answer "what did we collect",
+      // which legitimately includes sessions not yet delivered. This one
+      // answers "what have practitioners earned", which does not.
       Session.aggregate([
-        { $match: { paymentStatus: 'paid', createdAt: { $gte: startDate } } },
+        { $match: { ...payableSessionMatch(), createdAt: { $gte: startDate } } },
         {
           $group: {
             _id: '$doctorId',
