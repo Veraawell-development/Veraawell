@@ -128,27 +128,32 @@ const DoctorDashboard: React.FC = () => {
   const { socket } = useDataSocket();
   const queryClient = useQueryClient();
 
-  useEffect(() => {
-    const fetchDelayed = async () => {
-      try {
-        const res = await fetch(`${API_BASE_URL}/sessions/delayed`, { credentials: 'include' });
-        if (res.ok) {
-          const data = await res.json();
-          if (data.sessions && data.sessions.length > 0) {
-            setDelayedSessions(data.sessions.map((s: any) => ({
-              ...s,
-              delayedUntil: new Date(s.delayedUntil)
-            })));
-          }
-        }
-      } catch (err) {
-        console.error('Failed to fetch delayed sessions', err);
-      }
-    };
-    if (user?.role === 'doctor') {
-      fetchDelayed();
+  /**
+   * Refresh the "Patient Waiting" banner from the server.
+   *
+   * This used to run once on mount and only ever ADD to local state — it
+   * never cleared. So the banner survived the session it referred to: the
+   * doctor joined, had the call, came back to the dashboard, and was invited
+   * to rejoin a conversation that had already finished. Assigning the server's
+   * answer wholesale (rather than merging into what is already on screen)
+   * is what makes an empty response actually clear the banner.
+   */
+  const fetchDelayed = React.useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/sessions/delayed`, { credentials: 'include' });
+      if (!res.ok) return;
+      const data = await res.json();
+      setDelayedSessions(
+        (data.sessions || []).map((s: any) => ({ ...s, delayedUntil: new Date(s.delayedUntil) }))
+      );
+    } catch (err) {
+      console.error('Failed to fetch delayed sessions', err);
     }
-  }, [user]);
+  }, []);
+
+  useEffect(() => {
+    if (user?.role === 'doctor') fetchDelayed();
+  }, [user, fetchDelayed]);
 
   const { data: recentNotes = [] } = useQuery({
     queryKey: ['doctor', 'notes', user?.userId],
@@ -262,7 +267,13 @@ const DoctorDashboard: React.FC = () => {
   useEffect(() => {
     if (!socket) return;
 
-    socket.on('session:booked', ({ session }) => {
+    // Every handler is a named reference so it can be removed individually.
+    // socket.off(event) with no handler removes EVERY listener for that event
+    // on the socket — and since the /data socket is now shared app-wide, the
+    // bare calls this cleanup used to make would have torn out
+    // GlobalIncomingCallListener's incoming-request handler each time the
+    // dashboard unmounted, silently killing the ring.
+    const onSessionBooked = ({ session }: any) => {
       console.log('[REAL-TIME] New session booked:', session);
 
       //  NEW: If it's an immediate session, show the request modal
@@ -274,22 +285,25 @@ const DoctorDashboard: React.FC = () => {
 
       setCalendarRefreshTrigger(prev => prev + 1);
       queryClient.invalidateQueries({ queryKey: ['doctor', 'stats', user?.userId] });
-    });
+    };
 
-    socket.on('session:cancelled', ({ sessionId }) => {
+    const onSessionCancelled = ({ sessionId }: any) => {
       console.log('[REAL-TIME] Session cancelled:', sessionId);
+      fetchDelayed();
       toast('A session was cancelled');
       setCalendarRefreshTrigger(prev => prev + 1);
       queryClient.invalidateQueries({ queryKey: ['doctor', 'stats', user?.userId] });
-    });
+    };
 
-    socket.on('session:status-update', ({ sessionId, acceptanceStatus }) => {
+    const onStatusUpdate = ({ sessionId, acceptanceStatus }: any) => {
       console.log('[REAL-TIME] Session status updated:', { sessionId, acceptanceStatus });
       setCalendarRefreshTrigger(prev => prev + 1);
       queryClient.invalidateQueries({ queryKey: ['doctor', 'stats', user?.userId] });
-    });
+      // An accept, a delay or a completion all change what is still waiting.
+      fetchDelayed();
+    };
 
-    socket.on('doctor:approval-status', ({ status, reason }) => {
+    const onApprovalStatus = ({ status, reason }: any) => {
       console.log('[REAL-TIME] Approval status changed:', status);
       if (status === 'approved') {
         toast.success('Your account has been approved!');
@@ -297,17 +311,17 @@ const DoctorDashboard: React.FC = () => {
         toast.error(`Account rejected: ${reason || 'No reason provided'}`);
       }
       queryClient.invalidateQueries({ queryKey: ['session'] });
-    });
+    };
 
     //  NEW: Listen for real-time online status changes
-    socket.on('doctor:status-change', (data: any) => {
+    const onDoctorStatusChange = (data: any) => {
       if (data.doctorId === user?.userId) {
         console.log('[REAL-TIME] Online status changed:', data.isOnline);
         queryClient.setQueryData(['doctor', 'status', user?.userId], data.isOnline);
       }
-    });
+    };
 
-    socket.on('chat:new-message', ({ message, senderName }) => {
+    const onChatMessage = ({ message, senderName }: any) => {
       console.log('[REAL-TIME] New chat message received:', message);
       // Play notification sound
       playNotificationSound();
@@ -315,17 +329,26 @@ const DoctorDashboard: React.FC = () => {
       // Show toast notification
       toast(`New message from ${senderName}`);
       queryClient.invalidateQueries({ queryKey: ['chat', 'unreadCount'] });
-    });
+    };
+
+    socket.on('session:booked', onSessionBooked);
+    socket.on('session:cancelled', onSessionCancelled);
+    socket.on('session:status-update', onStatusUpdate);
+    socket.on('doctor:approval-status', onApprovalStatus);
+    socket.on('doctor:status-change', onDoctorStatusChange);
+    socket.on('chat:new-message', onChatMessage);
 
     return () => {
-      socket.off('session:booked');
-      socket.off('session:cancelled');
-      socket.off('session:status-change');
-      socket.off('doctor:approval-status');
-      socket.off('doctor:status-change');
-      socket.off('chat:new-message');
+      socket.off('session:booked', onSessionBooked);
+      socket.off('session:cancelled', onSessionCancelled);
+      // Was socket.off('session:status-change') — a name that was never
+      // registered, so this handler leaked on every remount.
+      socket.off('session:status-update', onStatusUpdate);
+      socket.off('doctor:approval-status', onApprovalStatus);
+      socket.off('doctor:status-change', onDoctorStatusChange);
+      socket.off('chat:new-message', onChatMessage);
     };
-  }, [socket, user, queryClient]);
+  }, [socket, user, queryClient, fetchDelayed]);
 
   //  FALLBACK REFRESH & MANDATORY REPORT: Detect navigation state
   useEffect(() => {
@@ -407,7 +430,7 @@ const DoctorDashboard: React.FC = () => {
 
   return (
     <div
-      className="min-h-screen pt-16 md:pt-[80px] box-border relative overflow-x-hidden flex flex-col"
+      className="min-h-screen lg:h-screen pt-16 md:pt-[80px] box-border relative overflow-hidden flex flex-col"
       style={{ background: T.bg, fontFamily: FONT_SANS, color: T.text }}
     >
       {/* Decorative background blobs — these give the frosted cards their color, per the design spec */}

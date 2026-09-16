@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import PatientSettingsPage from './pages/PatientSettingsPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { DataSocketProvider } from './context/DataSocketContext';
 import { AdminProvider, useAdmin } from './context/AdminContext';
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
@@ -340,6 +341,7 @@ export default function App() {
   return (
     <Router>
       <AuthProvider>
+        <DataSocketProvider>
         <AdminProvider>
           <GlobalIncomingCallListener />
           <Toaster
@@ -378,6 +380,7 @@ export default function App() {
           />
           <AppWithFooter />
         </AdminProvider>
+        </DataSocketProvider>
       </AuthProvider>
     </Router>
   );

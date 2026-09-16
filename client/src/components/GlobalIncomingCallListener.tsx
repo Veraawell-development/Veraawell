@@ -13,22 +13,66 @@ const GlobalIncomingCallListener: React.FC = () => {
   const [incomingRequest, setIncomingRequest] = useState<any>(null);
   const navigate = useNavigate();
 
+  /**
+   * Ask the server what is already waiting.
+   *
+   * The ring used to be a socket event and nothing else, so it only arrived
+   * if this component happened to be connected at the exact millisecond the
+   * patient's payment verified. Every other case — page not open yet, a
+   * reload, a sleeping laptop, a dropped socket — lost the request silently,
+   * and the patient sat in a call room nobody was coming to.
+   *
+   * Pulling on mount and on every reconnect turns that from a lost session
+   * into a few seconds' delay.
+   */
+  const fetchPending = React.useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/sessions/instant-requests`, {
+        headers: authHeaders(),
+        credentials: 'include'
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      const waiting = (data.sessions || [])[0];
+      // Only raise it if nothing is already on screen, so a backfill arriving
+      // just behind a live socket event cannot replace the modal underneath
+      // the doctor's cursor.
+      if (waiting) setIncomingRequest((current: any) => current || waiting);
+    } catch (err) {
+      console.error('[GLOBAL] Could not fetch pending instant requests:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isLoggedIn || user?.role !== 'doctor') return;
+    fetchPending();
+  }, [isLoggedIn, user, fetchPending]);
+
   useEffect(() => {
     if (!isLoggedIn || !socket || user?.role !== 'doctor') return;
 
     const handleSessionBooked = ({ session }: any) => {
       console.log('[GLOBAL] New session booked:', session);
       if (session.sessionType === 'immediate') {
-        setIncomingRequest(session);
+        setIncomingRequest((current: any) => (
+          // Same guard as above: the socket event and the backfill can both
+          // describe the same request.
+          current && current._id === session._id ? current : (current || session)
+        ));
       }
     };
 
+    // A reconnect means there was a window where events could not reach us.
+    const handleReconnect = () => fetchPending();
+
     socket.on('session:booked', handleSessionBooked);
+    socket.on('connect', handleReconnect);
 
     return () => {
       socket.off('session:booked', handleSessionBooked);
+      socket.off('connect', handleReconnect);
     };
-  }, [isLoggedIn, socket, user]);
+  }, [isLoggedIn, socket, user, fetchPending]);
 
   const authHeaders = () => ({
     'Content-Type': 'application/json',

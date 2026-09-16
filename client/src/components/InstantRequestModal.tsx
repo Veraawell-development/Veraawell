@@ -16,41 +16,82 @@ const InstantRequestModal: React.FC<InstantRequestModalProps> = ({ session, isOp
     const [delayMinutes, setDelayMinutes] = useState(5);
     const [isCustomDelay, setIsCustomDelay] = useState(false);
     const [note, setNote] = useState('');
-    const [timeLeft, setTimeLeft] = useState(60);
-    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const [timeLeft, setTimeLeft] = useState(0);
+    const audioRef = useRef<{ stop: () => void } | null>(null);
+
+    /**
+     * Seconds left, measured against the server's own deadline.
+     *
+     * This used to count down from a hardcoded 60 while the server expired
+     * the request on a different rule entirely, so the two disagreed about
+     * whether a session was still live. `acceptanceDeadline` is stamped once,
+     * when payment lands, and is the single answer both sides read — which
+     * also means a request recovered from the backfill 90 seconds late shows
+     * the 30 seconds it really has, not a fresh minute.
+     */
+    const remaining = () => {
+        const deadline = (session as any).acceptanceDeadline;
+        if (!deadline) return 60; // pre-deadline rows; the sweep still backstops
+        return Math.max(0, Math.round((new Date(deadline).getTime() - Date.now()) / 1000));
+    };
 
     useEffect(() => {
         let timer: ReturnType<typeof setInterval>;
         if (isOpen) {
-            setTimeLeft(60);
+            setTimeLeft(remaining());
             timer = setInterval(() => {
-                setTimeLeft((prev) => {
-                    if (prev <= 1) {
-                        clearInterval(timer);
-                        onMissed(session._id);
-                        return 0;
-                    }
-                    return prev - 1;
-                });
+                const left = remaining();
+                setTimeLeft(left);
+                if (left <= 0) {
+                    clearInterval(timer);
+                    onMissed(session._id);
+                }
             }, 1000);
+
+            // Synthesised rather than fetched.
+            //
+            // The ring was an <Audio> pointed at assets.mixkit.co — a third-party
+            // CDN on the critical path of a doctor being told someone is waiting,
+            // which fails silently on a blocked request, an offline moment, or the
+            // day that URL changes. Two oscillators cost nothing and cannot 404.
             try {
-                const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/1359/1359-preview.mp3');
-                audio.loop = true;
-                const playAudio = async () => {
-                    try {
-                        await audio.play();
-                    } catch (e) {
-                        console.log('Audio play failed:', e);
+                const Ctx = window.AudioContext || (window as any).webkitAudioContext;
+                const ctx: AudioContext = new Ctx();
+                let stopped = false;
+                const beep = () => {
+                    if (stopped || ctx.state === 'closed') return;
+                    const osc = ctx.createOscillator();
+                    const gain = ctx.createGain();
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(880, ctx.currentTime);
+                    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.2);
+                    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.05);
+                    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
+                    osc.connect(gain);
+                    gain.connect(ctx.destination);
+                    osc.start();
+                    osc.stop(ctx.currentTime + 0.45);
+                };
+                // Autoplay policy blocks this until the doctor has interacted with
+                // the page. resume() is attempted, and the title flash below is
+                // what gets their attention when it stays blocked.
+                ctx.resume().catch(() => { /* stays silent; the title still flashes */ });
+                beep();
+                const ring = setInterval(beep, 1500);
+                audioRef.current = {
+                    stop: () => {
+                        stopped = true;
+                        clearInterval(ring);
+                        ctx.close().catch(() => { /* already closed */ });
                     }
                 };
-                playAudio();
-                audioRef.current = audio;
             } catch (err) {
-                console.log('Audio initialization failed');
+                console.log('Ringtone unavailable:', err);
             }
         } else {
             if (audioRef.current) {
-                audioRef.current.pause();
+                audioRef.current.stop();
                 audioRef.current = null;
             }
             if (showDelayOptions) {
@@ -64,8 +105,31 @@ const InstantRequestModal: React.FC<InstantRequestModalProps> = ({ session, isOp
         return () => {
             if (timer) clearInterval(timer);
             if (audioRef.current) {
-                audioRef.current.pause();
+                audioRef.current.stop();
+                audioRef.current = null;
             }
+        };
+    }, [isOpen]);
+
+    /**
+     * Flash the tab title while a request is waiting.
+     *
+     * Browser autoplay policy silences the ring until the doctor has
+     * interacted with the page, so on a freshly-loaded tab the modal could
+     * appear in complete silence. A changing title is the one attention
+     * signal that needs no permission.
+     */
+    useEffect(() => {
+        if (!isOpen) return;
+        const original = document.title;
+        let on = false;
+        const flash = setInterval(() => {
+            on = !on;
+            document.title = on ? '📞 Incoming session request' : original;
+        }, 1000);
+        return () => {
+            clearInterval(flash);
+            document.title = original;
         };
     }, [isOpen]);
 

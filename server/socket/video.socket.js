@@ -144,24 +144,52 @@ module.exports = (io) => {
 
         // Update call tracking - mark call as started or resumed, and record which
         // side (doctor/patient) has actually joined so no-show detection is accurate.
-        let needsSave = false;
+        //
+        // Written as a targeted $set rather than session.save(). A full-document
+        // save rewrites status and paymentStatus from this snapshot, which was
+        // read before the await above — so a refund or a sweep transition
+        // landing in between would be silently reverted by someone merely
+        // joining the call.
+        const set = {};
         if (!session.callStatus || session.callStatus === 'not-started' || session.callStatus === 'paused') {
-          session.callStatus = 'in-progress';
-          session.callStartTime = new Date();
-          needsSave = true;
+          set.callStatus = 'in-progress';
+          set.callStartTime = new Date();
         }
         if (isDoctor && !session.doctorJoined) {
-          session.doctorJoined = true;
-          session.doctorJoinedAt = new Date();
-          needsSave = true;
+          set.doctorJoined = true;
+          set.doctorJoinedAt = new Date();
         }
         if (isPatient && !session.patientJoined) {
-          session.patientJoined = true;
-          session.patientJoinedAt = new Date();
-          needsSave = true;
+          set.patientJoined = true;
+          set.patientJoinedAt = new Date();
         }
-        if (needsSave) {
-          await session.save();
+
+        // Joining IS accepting.
+        //
+        // acceptanceStatus used to be changed only by the Accept button on the
+        // incoming-request popup. A doctor who instead opened the call link —
+        // from the email, from their dashboard, or after the popup was missed
+        // entirely — stayed 'pending' forever, and the unanswered-request
+        // sweep then cancelled and refunded the session out from under a
+        // conversation that was actively happening. Being in the room is the
+        // strongest evidence of acceptance there is.
+        // `!== 'accepted'` rather than `=== 'pending'`: a doctor who asked for
+        // a few more minutes has acceptanceStatus 'delayed', and joining from
+        // the "Patient Waiting" banner does not call /accept — it just
+        // navigates. Matching only 'pending' left those sessions delayed
+        // forever, so the banner came back on every dashboard remount long
+        // after the call had happened.
+        if (isDoctor && session.sessionType === 'immediate' && session.acceptanceStatus !== 'accepted') {
+          set.acceptanceStatus = 'accepted';
+          set.acceptanceDeadline = null;
+          log.info('Instant session accepted by the doctor joining the room', {
+            sessionId: sessionId.substring(0, 8)
+          });
+        }
+
+        if (Object.keys(set).length > 0) {
+          await Session.updateOne({ _id: session._id }, { $set: set });
+          Object.assign(session, set);
           log.info('Call/join state updated', { sessionId: sessionId.substring(0, 8), isDoctor, isPatient });
         }
 

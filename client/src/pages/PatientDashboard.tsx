@@ -373,30 +373,38 @@ const PatientDashboard: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['patient', 'upcomingSessions'] });
     };
 
-    socket.on('session:booked', () => {
+    // Named references, removed individually. The /data socket is shared
+    // app-wide now, so socket.off(event) with no handler would unregister
+    // other components' listeners for the same event.
+    const onBooked = () => {
       toast.success('New session booked!');
       invalidateSessionData();
-    });
+    };
 
-    socket.on('session:cancelled', () => {
+    const onCancelled = () => {
       toast('A session was cancelled');
       invalidateSessionData();
-    });
+    };
 
-    socket.on('session:status-update', () => {
+    const onStatusUpdate = () => {
       invalidateSessionData();
-    });
+    };
 
-    socket.on('chat:new-message', ({ senderName }) => {
+    const onChatMessage = ({ senderName }: any) => {
       toast(`New message from ${senderName}`);
       queryClient.invalidateQueries({ queryKey: ['chat', 'unreadCount'] });
-    });
+    };
+
+    socket.on('session:booked', onBooked);
+    socket.on('session:cancelled', onCancelled);
+    socket.on('session:status-update', onStatusUpdate);
+    socket.on('chat:new-message', onChatMessage);
 
     return () => {
-      socket.off('session:booked');
-      socket.off('session:cancelled');
-      socket.off('session:status-update');
-      socket.off('chat:new-message');
+      socket.off('session:booked', onBooked);
+      socket.off('session:cancelled', onCancelled);
+      socket.off('session:status-update', onStatusUpdate);
+      socket.off('chat:new-message', onChatMessage);
     };
   }, [socket, queryClient]);
 

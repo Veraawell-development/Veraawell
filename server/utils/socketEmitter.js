@@ -38,6 +38,28 @@ class SocketEmitter {
     }
 
     /**
+     * Is this user currently listening on /data?
+     *
+     * emitToUser is fire-and-forget: Socket.IO reports nothing about whether
+     * anyone was in the room, so an event sent to a doctor who has no page
+     * open vanishes indistinguishably from one that was delivered. The caller
+     * needs to tell those apart, because an unanswered instant request costs
+     * the doctor a cancellation strike and it is not fair to charge one for a
+     * ring that was never sent anywhere.
+     *
+     * Reads the adapter's room membership rather than the connection map in
+     * data.socket.js, so it stays correct under a multi-instance adapter.
+     *
+     * @param {string} userId
+     * @returns {boolean} true if at least one socket is in the user's room
+     */
+    hasListener(userId) {
+        if (!userId) return false;
+        const room = this.dataNamespace.adapter.rooms.get(`user:${userId}`);
+        return !!room && room.size > 0;
+    }
+
+    /**
      * Emit event to all users with a specific role
      * @param {string} role - Role (patient, doctor, admin)
      * @param {string} event - Event name

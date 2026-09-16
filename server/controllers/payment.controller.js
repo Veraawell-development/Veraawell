@@ -7,6 +7,7 @@ const SocketEmitter = require('../utils/socketEmitter');
 const emailService = require('../services/email.service');
 const { verifyWebhookSignature } = require('../utils/webhookSignature');
 const { createLogger } = require('../utils/logger');
+const { INSTANT_ACCEPT_WINDOW_MINUTES } = require('../config/time');
 
 const logger = createLogger('PAYMENT');
 
@@ -28,9 +29,34 @@ function _emitToUsers(req, event, data, userIds) {
  * doctor or emailed either party even though the DB correctly showed paid.
  */
 async function _markSessionPaidAndNotify(req, session, paymentId) {
+  const isImmediate = session.sessionType === 'immediate';
+
   session.paymentStatus = 'paid';
   session.paymentId = paymentId;
-  session.status = session.sessionType === 'immediate' ? 'active' : 'scheduled';
+  session.status = isImmediate ? 'active' : 'scheduled';
+
+  // The clock on an instant request starts when it is PAID, not when it was
+  // created: the patient may have sat on the Razorpay page for a minute, and
+  // the doctor should not lose that minute. Absolute, so every reader agrees.
+  if (isImmediate) {
+    session.acceptanceDeadline = new Date(Date.now() + INSTANT_ACCEPT_WINDOW_MINUTES * 60 * 1000);
+  }
+
+  // Whether anyone is actually listening has to be sampled BEFORE the save,
+  // and recorded on the same document, or the sweep cannot later tell a
+  // doctor who ignored a ring from one who never received it.
+  const doctorId = session.doctorId.toString();
+  if (isImmediate) {
+    const io = req.app.get('io');
+    if (io && new SocketEmitter(io).hasListener(doctorId)) {
+      session.ringDeliveredAt = new Date();
+    } else {
+      logger.warn('Instant request has no live doctor socket to ring', {
+        sessionId: session._id.toString().substring(0, 8)
+      });
+    }
+  }
+
   await session.save();
 
   const populated = await Session.findById(session._id)
@@ -40,10 +66,13 @@ async function _markSessionPaidAndNotify(req, session, paymentId) {
   _emitToUsers(req, 'session:booked', {
     session: populated,
     patientId: session.patientId.toString(),
-    doctorId: session.doctorId.toString(),
+    doctorId,
     sessionId: session._id.toString(),
+    // Carried explicitly so the doctor's countdown never has to guess how
+    // long the request has been in flight.
+    acceptanceDeadline: session.acceptanceDeadline || null,
     timestamp: new Date()
-  }, [session.patientId.toString(), session.doctorId.toString()]);
+  }, [session.patientId.toString(), doctorId]);
 
   try {
     const sessionDate = new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });

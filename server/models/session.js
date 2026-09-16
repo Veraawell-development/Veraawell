@@ -101,6 +101,40 @@ const sessionSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+
+  /**
+   * When an unaccepted instant request expires.
+   *
+   * Written once, when payment lands. The doctor's countdown, the auto-cancel
+   * sweep and the backfill endpoint all read THIS field rather than each
+   * applying a window to its own clock — which is how the popup came to give
+   * 60 seconds while the sweep gave ten minutes from a different starting
+   * point. A request recovered from the backfill 90 seconds late shows the
+   * 30 seconds it actually has left, because the deadline is absolute.
+   *
+   * Null for scheduled sessions, and cleared once the doctor accepts.
+   */
+  acceptanceDeadline: {
+    type: Date,
+    default: null
+  },
+
+  /**
+   * When the incoming-request ring demonstrably reached the doctor — either
+   * it was pushed to at least one live socket, or the doctor's client fetched
+   * it from the backfill endpoint.
+   *
+   * It exists so that missing a request can be told apart from never being
+   * told about one. An unanswered request counts against the doctor's
+   * cancellation record only when this is set; previously every auto-cancel
+   * counted, including the ones where the event was emitted into an empty
+   * room and dropped.
+   */
+  ringDeliveredAt: {
+    type: Date,
+    default: null
+  },
+
   doctorNote: {
     type: String,
     default: ''
@@ -164,6 +198,28 @@ const sessionSchema = new mongoose.Schema({
   cancelledBy: {
     type: String,
     enum: ['patient', 'doctor', 'admin', 'system'],
+    default: null
+  },
+
+  /**
+   * The weekly payout that settled this session's doctorEarnings.
+   *
+   * Null means unpaid, and it is the compare-and-set precondition that makes
+   * a session impossible to pay twice: the claim filter is
+   * `{ ...payable, payoutId: null }`, so a losing concurrent run simply
+   * matches nothing. Replaces `razorpayTransferId`, which only Razorpay Route
+   * ever set and which nothing sets now.
+   *
+   * A refunded session KEEPS its payoutId — that is how the clawback sweep
+   * finds sessions that were paid out and later reversed.
+   */
+  payoutId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Payout',
+    default: null
+  },
+  payoutClaimedAt: {
+    type: Date,
     default: null
   },
 
@@ -264,6 +320,11 @@ sessionSchema.index({ createdAt: -1 }); // Recent sessions
 sessionSchema.index({ status: 1, endsAt: 1 });
 sessionSchema.index({ startsAt: 1, status: 1 });
 sessionSchema.index({ doctorId: 1, startsAt: 1 });
+// The payout candidate scan: equality fields first, the range last.
+sessionSchema.index({ payoutId: 1, paymentStatus: 1, status: 1, endsAt: 1 });
+// The unanswered-instant-request sweep, which now runs every minute: the two
+// equality fields first, the deadline range last.
+sessionSchema.index({ sessionType: 1, acceptanceStatus: 1, acceptanceDeadline: 1 });
 
 /**
  * Keep every time representation derived from the one authoritative instant.

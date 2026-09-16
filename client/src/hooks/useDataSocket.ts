@@ -1,13 +1,16 @@
 /**
  * useDataSocket Hook
- * Reusable React hook for connecting to the data socket namespace
- * Handles authentication, connection state, and auto-reconnection
+ *
+ * A thin read of DataSocketContext. The connection logic moved there so the
+ * app opens ONE /data socket instead of one per calling component, and so it
+ * is dialled only after auth resolves — see the docblock in
+ * context/DataSocketContext.tsx for the failure this fixed.
+ *
+ * The return shape is unchanged, so every existing consumer works as before.
  */
 
-import { useEffect, useState, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
-import { SOCKET_URL } from '../config/api';
-import { getAuthToken } from '../utils/authToken';
+import { Socket } from 'socket.io-client';
+import { useDataSocketContext } from '../context/DataSocketContext';
 
 interface UseDataSocketReturn {
     socket: Socket | null;
@@ -16,128 +19,21 @@ interface UseDataSocketReturn {
     error: string | null;
 }
 
-/**
- * Custom hook to connect to the data socket namespace
- * @returns {UseDataSocketReturn} Socket instance, connection state, reconnecting state, and error
- */
-export const useDataSocket = (): UseDataSocketReturn => {
-    const [socket, setSocket] = useState<Socket | null>(null);
-    const [isConnected, setIsConnected] = useState(false);
-    const [isReconnecting, setIsReconnecting] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const reconnectAttempts = useRef(0);
-    const maxReconnectAttempts = 5;
-
-    useEffect(() => {
-        console.log('[DATA-SOCKET] Initializing connection...');
-
-        // Create socket connection to /data namespace
-        // Using token fallback in auth option if cookies are blocked
-        const token = getAuthToken();
-        const newSocket = io(`${SOCKET_URL}/data`, {
-            auth: {
-                token: token
-            },
-            withCredentials: true,  // Send cookies with the request
-            reconnection: true,
-            reconnectionDelay: 1000,
-            reconnectionDelayMax: 5000,
-            reconnectionAttempts: maxReconnectAttempts
-        });
-
-        // Connection successful
-        newSocket.on('connect', () => {
-            console.log('[DATA-SOCKET] Connected successfully', {
-                socketId: newSocket.id,
-                timestamp: new Date().toISOString()
-            });
-            setIsConnected(true);
-            setIsReconnecting(false);
-            setError(null);
-            reconnectAttempts.current = 0;
-        });
-
-        // Connection error
-        newSocket.on('connect_error', (err) => {
-            console.error('[DATA-SOCKET] Connection error:', err.message);
-            setError(err.message);
-            setIsConnected(false);
-
-            if (err.message.includes('Authentication error') || err.message.includes('No token')) {
-                console.log('[DATA-SOCKET] Auth failed, stopping reconnections');
-                newSocket.disconnect();
-                return;
-            }
-
-            reconnectAttempts.current++;
-
-            if (reconnectAttempts.current >= maxReconnectAttempts) {
-                console.error('[DATA-SOCKET] Max reconnection attempts reached');
-                setIsReconnecting(false);
-                newSocket.disconnect();
-            }
-        });
-
-        // Disconnected
-        newSocket.on('disconnect', (reason) => {
-            console.log('[DATA-SOCKET] Disconnected:', reason);
-            setIsConnected(false);
-
-            // Auto-reconnect unless disconnected by client
-            if (reason === 'io server disconnect') {
-                // Server disconnected, manually reconnect
-                newSocket.connect();
-            }
-        });
-
-        // Reconnection attempt
-        newSocket.on('reconnect_attempt', (attemptNumber) => {
-            console.log(`[DATA-SOCKET] Reconnection attempt ${attemptNumber}/${maxReconnectAttempts}`);
-            setIsReconnecting(true);
-        });
-
-        // Reconnection successful
-        newSocket.on('reconnect', (attemptNumber) => {
-            console.log(`[DATA-SOCKET] Reconnected after ${attemptNumber} attempts`);
-            setIsConnected(true);
-            setIsReconnecting(false);
-            setError(null);
-            reconnectAttempts.current = 0;
-        });
-
-        // Reconnection failed
-        newSocket.on('reconnect_failed', () => {
-            console.error('[DATA-SOCKET] Reconnection failed after max attempts');
-            setError('Failed to reconnect to server');
-            setIsReconnecting(false);
-        });
-
-        setSocket(newSocket);
-
-        // Cleanup on unmount
-        return () => {
-            console.log('[DATA-SOCKET] Cleaning up connection');
-            newSocket.disconnect();
-        };
-    }, []); // Empty dependency array - only run once on mount
-
-    return { socket, isConnected, isReconnecting, error };
-};
+export const useDataSocket = (): UseDataSocketReturn => useDataSocketContext();
 
 /**
  * Example usage:
- * 
+ *
  * const { socket, isConnected } = useDataSocket();
- * 
+ *
  * useEffect(() => {
  *   if (!socket) return;
- * 
- *   socket.on('doctor:status-change', (data) => {
- *     console.log('Doctor status changed:', data);
- *   });
- * 
+ *   const onChange = (data) => console.log('Doctor status changed:', data);
+ *   socket.on('doctor:status-change', onChange);
  *   return () => {
- *     socket.off('doctor:status-change');
+ *     // Always pass the handler reference: a bare socket.off(event) removes
+ *     // every listener for that event, including other components'.
+ *     socket.off('doctor:status-change', onChange);
  *   };
  * }, [socket]);
  */

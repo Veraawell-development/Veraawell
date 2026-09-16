@@ -39,10 +39,28 @@ const NO_SHOW_GRACE_MINUTES = 10;
  */
 const CHECKOUT_TTL_MINUTES = 20;
 
+/**
+ * How long a doctor has to answer a paid instant request before it is
+ * cancelled and the patient refunded.
+ *
+ * Same lesson as CHECKOUT_TTL_MINUTES above, and it had gone wrong the same
+ * way: the doctor's popup counted down from 60 seconds while the server sweep
+ * waited 10 minutes from createdAt. A patient could be told "no answer" a
+ * minute in while the server still considered the request live, and an
+ * immediate session — 20 minutes long — could be cancelled mid-call.
+ *
+ * The number is only half the fix. Each session also carries its own
+ * acceptanceDeadline, stamped when payment lands, so the popup, the sweep and
+ * the backfill endpoint all read one timestamp instead of each applying this
+ * constant to a different clock.
+ */
+const INSTANT_ACCEPT_WINDOW_MINUTES = 2;
+
 module.exports = {
   PLATFORM_TIMEZONE,
   JOIN_LEAD_MINUTES,
   JOIN_GRACE_MINUTES,
   NO_SHOW_GRACE_MINUTES,
-  CHECKOUT_TTL_MINUTES
+  CHECKOUT_TTL_MINUTES,
+  INSTANT_ACCEPT_WINDOW_MINUTES
 };

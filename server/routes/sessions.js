@@ -37,6 +37,10 @@ router.get('/call-history', verifyToken, withScope('session:list-own'), s.getCal
 router.get('/my-sessions', verifyToken, withScope('session:list-own'), s.getMySessions);
 router.get('/calendar', verifyToken, withScope('session:list-own'), s.getCalendar);
 router.get('/delayed', verifyToken, s.getDelayedSessions);
+// Self-scoped by req.actor.id inside the handler — there is no addressable
+// other-doctor resource, so a role gate is the whole policy. Same shape as
+// the doctor half of routes/payouts.js.
+router.get('/instant-requests', verifyToken, requireRole('doctor'), s.getInstantRequests);
 router.get('/upcoming', verifyToken, withScope('session:list-own'), s.getUpcoming);
 router.get('/my-therapists', verifyToken, requireRole('patient'), s.getMyTherapists);
 

@@ -398,6 +398,43 @@ describe('the /data fan-out namespace', () => {
     expect(doctorGot).toBe(false);
   });
 
+  test('hasListener tells a delivered ring apart from one shouted into an empty room', async () => {
+    // emitToUser is fire-and-forget, so an event sent to a doctor with no page
+    // open vanished indistinguishably from one that arrived — and the doctor
+    // then took a cancellation strike for an instant request they were never
+    // shown. This is the check that makes those two cases separable.
+    const SocketEmitter = require('../../utils/socketEmitter');
+    const emitter = new SocketEmitter(io);
+    const id = String(f.doctorA._id);
+
+    // A socket's departure is asynchronous and afterEach closes without
+    // awaiting, so both directions are polled rather than sampled once. A
+    // bare assertion here reads the leftovers of whichever test ran last.
+    const settles = async (want, ms = 3000) => {
+      const deadline = Date.now() + ms;
+      while (Date.now() < deadline && emitter.hasListener(id) !== want) {
+        await new Promise((r) => { setTimeout(r, 50); });
+      }
+      return emitter.hasListener(id);
+    };
+
+    expect(await settles(false)).toBe(false);
+
+    const doctor = await connect(tokenFor(f.doctorA), '/data');
+    expect(await settles(true)).toBe(true);
+
+    // Someone else's connection is not this user's.
+    expect(emitter.hasListener(String(f.doctorB._id))).toBe(false);
+
+    doctor.close();
+    expect(await settles(false)).toBe(false);
+  });
+
+  test('hasListener is false rather than throwing on a missing id', async () => {
+    const SocketEmitter = require('../../utils/socketEmitter');
+    expect(new SocketEmitter(io).hasListener(undefined)).toBe(false);
+  });
+
   test('emitToAll reaches every connected client on the namespace', async () => {
     const SocketEmitter = require('../../utils/socketEmitter');
     const emitter = new SocketEmitter(io);
