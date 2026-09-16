@@ -243,7 +243,14 @@ const DoctorProfilePage: React.FC = () => {
       const sessionData = data.session;
       if (sessionData && sessionData.razorpayOrderId) {
         const options = {
-          key: import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_TCJDiOL4WcPBxR',
+          // No fallback, deliberately. This used to default to a hardcoded
+          // 'rzp_test_TCJDiOL4WcPBxR' — a DIFFERENT key from the one the
+          // server creates orders with. Razorpay ties an order to the key that
+          // created it, so the fallback did not degrade gracefully: checkout
+          // opened and then rejected the payment, which is harder to diagnose
+          // than not opening at all. BookSessionPage.tsx:181 has always been
+          // bare; both now fail the same obvious way if the var is unset.
+          key: import.meta.env.VITE_RAZORPAY_KEY_ID,
           amount: sessionData.price * 100,
           currency: 'INR',
           name: 'Veraawell',

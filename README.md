@@ -190,39 +190,39 @@ sequenceDiagram
 
 ## Environment Variables Configuration
 
-Create a `.env` file in both `client` and `server` directories.
-
 ### Server (`server/.env`)
-```env
-# Server
-PORT=5000
-NODE_ENV=development
-FRONTEND_URL=http://localhost:5173
 
-# Database
-MONGO_URI=your-mongodb-atlas-uri
+**`server/example.env` is the authoritative list** — copy it and fill it in. It
+carries a per-variable rationale that this README cannot keep in sync, and
+`config/environment.js` validates the required subset at boot, exiting with the
+name of anything missing.
 
-# Authentication
-JWT_SECRET=your-secure-jwt-secret
-SESSION_SECRET=your-secure-session-secret
-ADMIN_JWT_SECRET=your-secure-admin-secret
+Three that reliably catch people out:
 
-# OAuth Integrations
-GOOGLE_CLIENT_ID=your-google-client-id
-GOOGLE_CLIENT_SECRET=your-google-client-secret
+- The Resend key is read as **`RESEND`**, not `RESEND_API_KEY`.
+- **`RAZORPAY_WEBHOOK_SECRET`** is a different value from `RAZORPAY_KEY_SECRET`
+  — it comes from the dashboard's Webhooks page.
+- **`SESSION_SECRET` must be stable.** Changing it logs every user out.
 
-# External Services
-RESEND=your-resend-api-key
-CLOUDINARY_CLOUD_NAME=your-cloud-name
-CLOUDINARY_API_KEY=your-api-key
-CLOUDINARY_API_SECRET=your-api-secret
-```
+For deployment, `render.yaml` lists every variable the server reads, including
+the optional ones, so a fresh environment cannot be provisioned with a silently
+missing key.
 
 ### Client (`client/.env`)
 ```env
-VITE_API_URL=http://localhost:5000/api
-VITE_SOCKET_URL=http://localhost:5000
+VITE_RAZORPAY_KEY_ID=rzp_test_xxxxxxxxxxxx
 ```
+
+That is the only variable the client reads, and it **must match the key the
+server creates orders with** — Razorpay ties an order to its key, so a mismatch
+opens the checkout and then rejects the payment.
+
+There is no `VITE_API_URL` or `VITE_SOCKET_URL`; both were documented here for a
+long time and neither is read by any code. `client/src/config/api.ts` chooses
+between localhost and `https://api.veraawell.com` at runtime from
+`window.location.hostname`. One consequence worth knowing: **every Vercel
+preview deployment talks to production**, because only the literal hostname
+`localhost` is treated as local.
 
 ---
 

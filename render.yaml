@@ -91,6 +91,41 @@ services:
       - key: ADMIN_PASSWORD
         sync: false
 
+      # ── Read by the code but previously absent from this file ──
+      #
+      # Listed per the rule at the top: a variable the server reads and this
+      # file omits is one a fresh environment can be provisioned without, and
+      # nothing will say so. Each of these fails quietly rather than loudly.
+
+      # The floor for payout generation — nothing dated before it is ever
+      # claimed (services/payoutLedger.js). It DEFAULTS to 2026-09-01, so
+      # leaving it unset is not neutral: the first weekly run sweeps every
+      # delivered session back to that date. Set it to the date you actually
+      # intend to start paying from.
+      - key: PAYOUT_EPOCH
+        sync: false
+
+      # Leave UNSET. 'stub' fabricates payments; anything else is live, which
+      # is the default. The production refusal that config/payments.js
+      # documents (assertPaymentsConfigured) is defined but never called —
+      # __tests__/e2e/payments.stubMode.test.js pins that as known-broken — so
+      # nothing would stop a stubbed deploy except not setting this.
+      - key: PAYMENTS_MODE
+        sync: false
+
+      # One-time bootstrap for POST /api/admin/auth/setup. Without the
+      # password, one is generated and logged exactly once.
+      - key: INITIAL_ADMIN_EMAIL
+        sync: false
+      - key: INITIAL_ADMIN_PASSWORD
+        sync: false
+
+      # Dev-only knobs; production pins the level to 'info' regardless.
+      - key: LOG_LEVEL
+        sync: false
+      - key: LOG_VERBOSE
+        sync: false
+
     # Disabled deliberately. There is no CI in this repo yet, so autoDeploy
     # ships whatever lands on main straight to production with nothing having
     # run the test suite or a boot check. Re-enable once the GitHub Actions
