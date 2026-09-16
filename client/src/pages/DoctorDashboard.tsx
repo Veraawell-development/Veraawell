@@ -631,183 +631,213 @@ const DoctorDashboard: React.FC = () => {
       </header>
 
       {/* Main Dashboard Content */}
-      <main className="flex-1 relative z-10 px-4 sm:px-6 lg:px-11 py-3 pb-8 grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-4 lg:gap-5 max-w-[1600px] mx-auto w-full">
-        {/* Left column */}
-        <div className="h-auto lg:h-full flex flex-col gap-3.5 min-w-0 lg:min-h-0">
+      <main className="flex-1 lg:min-h-0 relative z-10 px-4 sm:px-6 lg:px-11 py-3 pb-8 lg:pb-4 grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] lg:grid-rows-[auto_minmax(0,1fr)] gap-3.5 lg:gap-x-5 lg:gap-y-3.5 max-w-[1600px] mx-auto w-full">
+        {/*
+          One 2x2 grid, not two independent flex columns.
 
-          {/* Session Notes */}
-          <div style={{ ...cardStyle, padding: '16px 20px 12px', position: 'relative', overflow: 'hidden' }}>
-            <div className="flex items-baseline justify-between mb-2.5">
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.teal, textTransform: 'uppercase', marginBottom: 5 }}>— Clinical Record</div>
-                <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, lineHeight: 1.2, color: T.text, whiteSpace: 'nowrap' }}>
-                  Session <em style={{ fontStyle: 'italic', color: T.teal }}>Notes</em>
-                </div>
+          As two columns, each column was lg:h-full and each bottom card took
+          `flex: 1` of the leftover — so the bottom cards were only as equal as
+          the cards above them. Session Notes rendered 273px against Key
+          Metrics' 243px, and that 30px landed on Tasks & Reports, which came
+          out 440px against the calendar's 410px. Nothing declared the two
+          bottom cards should match; it was an accident of the copy above them.
+
+          Now row 1 is `auto` (the taller of Session Notes / Key Metrics, in
+          either direction) and row 2 is `1fr`, so the calendar and Tasks &
+          Reports share one track and are equal by construction. Grid items
+          stretch, so Key Metrics grows to meet Session Notes and its tile grid
+          takes lg:flex-1 to fill the gained height rather than leave it blank.
+
+          Row 2 is minmax(0,1fr) rather than a bare 1fr. A bare 1fr floors at
+          the track's min-content height, so Tasks & Reports' list pushed the
+          whole grid past the viewport and the page started scrolling — this
+          dashboard is built to fit the screen and scroll inside the cards
+          instead (hence lg:min-h-0 and the inner overflow-y-auto).
+
+          Column widths are untouched: still lg:grid-cols-[1.6fr_1fr].
+
+          DOM order stays Notes -> Calendar -> Metrics -> Tasks so the
+          single-column mobile stack reads exactly as it did before; the
+          lg:col-start / lg:row-start pairs place them into the two columns
+          only once there are two columns to place them in.
+        */}
+
+
+        {/* Session Notes */}
+        <div className="min-w-0 lg:col-start-1 lg:row-start-1"
+            style={{ ...cardStyle, padding: '16px 20px 12px', position: 'relative', overflow: 'hidden' }}>
+          <div className="flex items-baseline justify-between mb-2.5">
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.teal, textTransform: 'uppercase', marginBottom: 5 }}>— Clinical Record</div>
+              <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, lineHeight: 1.2, color: T.text, whiteSpace: 'nowrap' }}>
+                Session <em style={{ fontStyle: 'italic', color: T.teal }}>Notes</em>
               </div>
             </div>
-            <div className="flex flex-col">
-              {visibleNotes.length === 0 ? (
-                <div className="text-center py-6" style={{ fontSize: 12.5, color: T.muted }}>No session notes yet</div>
+          </div>
+          <div className="flex flex-col">
+            {visibleNotes.length === 0 ? (
+              <div className="text-center py-6" style={{ fontSize: 12.5, color: T.muted }}>No session notes yet</div>
+            ) : (
+              visibleNotes.map((note: any) => (
+                <div key={note._id} className="flex items-start gap-3" style={{ padding: '10px 4px', borderBottom: '1px solid rgba(31,122,140,.12)' }}>
+                  <div className="flex-none flex items-center justify-center" style={{ width: 30, height: 30, borderRadius: '50%', background: T.teal, color: '#fff', fontWeight: 600, fontSize: 11, marginTop: 1 }}>
+                    {getDrInitials(note.patientId?.firstName, note.patientId?.lastName)}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div style={{ fontWeight: 600, fontSize: 12.5, color: T.text, whiteSpace: 'nowrap' }}>
+                      {note.patientId?.firstName} {note.patientId?.lastName}
+                    </div>
+                    <div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>{formatDate(note.createdAt)}</div>
+                    <div style={{ fontSize: 12.5, lineHeight: 1.35, color: T.text2 }}>{getNoteSnippet(note.content)}</div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="mt-2 text-center">
+            <button
+              onClick={() => navigate('/doctor-session-notes')}
+              style={{ fontWeight: 600, fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase', border: '1px solid rgba(31,122,140,.3)', color: T.teal, borderRadius: 100, padding: '7px 16px', background: 'transparent', cursor: 'pointer' }}
+            >
+              View All Notes →
+            </button>
+          </div>
+        </div>
+
+        {/* Calendar */}
+        {/* overflow-hidden so a short row track can never let the calendar
+            paint outside the card's rounded border — belt to Calendar.tsx's
+            own overflow-y-auto brace. */}
+        <div className="min-w-0 lg:col-start-1 lg:row-start-2 lg:min-h-0 overflow-hidden"
+            style={{ ...cardStyle, padding: '16px 20px', minHeight: 0, display: 'flex', flexDirection: 'column' }}>
+          <div className="flex items-start justify-between mb-2">
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.muted, textTransform: 'uppercase', marginBottom: 6 }}>— Schedule</div>
+              <div style={{ fontFamily: FONT_SERIF, fontSize: 22, lineHeight: 1.1, color: T.text }}>
+                {monthLabel} <span style={{ fontSize: 14, color: T.muted, fontFamily: FONT_SANS }}>{yearLabel}</span>
+              </div>
+            </div>
+            <button
+              onClick={() => navigate('/manage-calendar')}
+              className="flex items-center gap-1.5"
+              style={{ border: '1px solid rgba(27,43,46,.15)', background: '#fff', borderRadius: 100, padding: '9px 16px', fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1b2b2e" strokeWidth="2">
+                <rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path>
+              </svg>
+              Manage
+            </button>
+          </div>
+          <div className="flex-1 min-h-0">
+            <Calendar
+              userRole="doctor"
+              onSessionClick={handleSessionClick}
+              refreshTrigger={calendarRefreshTrigger}
+              hideTitle={true}
+              hideManageButton={true}
+            />
+          </div>
+        </div>
+
+        {/* Key Metrics */}
+        <div className="min-w-0 lg:col-start-2 lg:row-start-1"
+            style={{ ...cardStyle, padding: '16px 20px', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.teal, textTransform: 'uppercase', marginBottom: 4 }}>— This Month</div>
+          <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 16, lineHeight: 1.2, color: T.text, marginBottom: 10 }}>Key Metrics</div>
+          {/*
+            One data array, one renderer. These were four hand-written copies
+            and the fourth had drifted twice — fontSize 18 against 24, and a
+            stray justifyContent: 'space-between' that pushed its value to
+            the bottom of the stretched row while the other three sat at the
+            top. That is why "DLA-20" rendered below "15".
+
+            auto-rows-fr makes both rows share one track height, so all four
+            tiles are the same size regardless of which value is longest.
+          */}
+          <div className="grid grid-cols-2 auto-rows-fr gap-2 lg:flex-1" data-testid="doctor-key-metrics">
+            {[
+              { label: 'Total Revenue', value: `₹${stats.revenue.toLocaleString()}` },
+              { label: 'Total Sessions', value: String(stats.sessions) },
+              { label: 'Total Hours', value: String(stats.hours) },
+              { label: 'Self-Assessment', value: 'DLA-20' },
+            ].map((m) => (
+              <div key={m.label} style={{ ...subCardStyle, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div style={{ fontWeight: 600, fontSize: 9.5, letterSpacing: '.08em', color: T.muted, textTransform: 'uppercase' }}>{m.label}</div>
+                <div
+                  data-metric-value
+                  style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 22, lineHeight: 1.2, color: T.text, fontVariantNumeric: 'tabular-nums' }}
+                >
+                  {m.value}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Tasks & Reports */}
+        <div className="min-w-0 lg:col-start-2 lg:row-start-2 lg:min-h-0"
+            style={{ ...cardStyle, padding: '16px 20px', minHeight: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="flex items-baseline justify-between">
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.muted, textTransform: 'uppercase', marginBottom: 4 }}>— Follow-Ups</div>
+              <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, lineHeight: 1.2, color: T.text }}>Tasks & Reports</div>
+            </div>
+            {openTasksCount > 0 && (
+              <div style={{ fontWeight: 600, fontSize: 10, color: T.gold, background: T.goldBg, borderRadius: 100, padding: '4px 9px', flex: 'none', whiteSpace: 'nowrap' }}>
+                {openTasksCount} open
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3.5">
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.muted, textTransform: 'uppercase', marginBottom: 8 }}>Recent Tasks</div>
+              {visibleTasks.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: T.muted, fontStyle: 'italic' }}>No tasks assigned</div>
               ) : (
-                visibleNotes.map((note: any) => (
-                  <div key={note._id} className="flex items-start gap-3" style={{ padding: '10px 4px', borderBottom: '1px solid rgba(31,122,140,.12)' }}>
-                    <div className="flex-none flex items-center justify-center" style={{ width: 30, height: 30, borderRadius: '50%', background: T.teal, color: '#fff', fontWeight: 600, fontSize: 11, marginTop: 1 }}>
-                      {getDrInitials(note.patientId?.firstName, note.patientId?.lastName)}
+                visibleTasks.map((task: any) => (
+                  <div key={task._id} className="flex items-center justify-between gap-3" style={{ padding: '9px 0', borderBottom: '1px solid rgba(27,43,46,.06)' }}>
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="flex-none" style={{ width: 7, height: 7, borderRadius: '50%', background: T.gold }} />
+                      <span className="truncate" style={{ fontSize: 12.5, color: T.text }}>{task.title}</span>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <div style={{ fontWeight: 600, fontSize: 12.5, color: T.text, whiteSpace: 'nowrap' }}>
-                        {note.patientId?.firstName} {note.patientId?.lastName}
-                      </div>
-                      <div style={{ fontSize: 11, color: T.muted, marginBottom: 3 }}>{formatDate(note.createdAt)}</div>
-                      <div style={{ fontSize: 12.5, lineHeight: 1.35, color: T.text2 }}>{getNoteSnippet(note.content)}</div>
-                    </div>
+                    <span style={{ fontSize: 12.5, color: T.text2, whiteSpace: 'nowrap' }}>{task.patientId?.firstName}</span>
                   </div>
                 ))
               )}
             </div>
-            <div className="mt-2 text-center">
-              <button
-                onClick={() => navigate('/doctor-session-notes')}
-                style={{ fontWeight: 600, fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase', border: '1px solid rgba(31,122,140,.3)', color: T.teal, borderRadius: 100, padding: '7px 16px', background: 'transparent', cursor: 'pointer' }}
-              >
-                View All Notes →
-              </button>
-            </div>
-          </div>
 
-          {/* Calendar */}
-          <div style={{ ...cardStyle, padding: '16px 20px', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
-            <div className="flex items-start justify-between mb-2">
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.muted, textTransform: 'uppercase', marginBottom: 6 }}>— Schedule</div>
-                <div style={{ fontFamily: FONT_SERIF, fontSize: 22, lineHeight: 1.1, color: T.text }}>
-                  {monthLabel} <span style={{ fontSize: 14, color: T.muted, fontFamily: FONT_SANS }}>{yearLabel}</span>
-                </div>
-              </div>
-              <button
-                onClick={() => navigate('/manage-calendar')}
-                className="flex items-center gap-1.5"
-                style={{ border: '1px solid rgba(27,43,46,.15)', background: '#fff', borderRadius: 100, padding: '9px 16px', fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#1b2b2e" strokeWidth="2">
-                  <rect x="3" y="4" width="18" height="18" rx="2"></rect><path d="M16 2v4M8 2v4M3 10h18"></path>
-                </svg>
-                Manage
-              </button>
-            </div>
-            <div className="flex-1 min-h-0">
-              <Calendar
-                userRole="doctor"
-                onSessionClick={handleSessionClick}
-                refreshTrigger={calendarRefreshTrigger}
-                hideTitle={true}
-                hideManageButton={true}
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Right column */}
-        <div className="h-auto lg:h-full flex flex-col gap-3.5 min-w-0 lg:min-h-0">
-
-          {/* Key Metrics */}
-          <div style={{ ...cardStyle, padding: '16px 20px', position: 'relative', overflow: 'hidden' }}>
-            <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.teal, textTransform: 'uppercase', marginBottom: 4 }}>— This Month</div>
-            <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 16, lineHeight: 1.2, color: T.text, marginBottom: 10 }}>Key Metrics</div>
-            {/*
-              One data array, one renderer. These were four hand-written copies
-              and the fourth had drifted twice — fontSize 18 against 24, and a
-              stray justifyContent: 'space-between' that pushed its value to
-              the bottom of the stretched row while the other three sat at the
-              top. That is why "DLA-20" rendered below "15".
-
-              auto-rows-fr makes both rows share one track height, so all four
-              tiles are the same size regardless of which value is longest.
-            */}
-            <div className="grid grid-cols-2 auto-rows-fr gap-2" data-testid="doctor-key-metrics">
-              {[
-                { label: 'Total Revenue', value: `₹${stats.revenue.toLocaleString()}` },
-                { label: 'Total Sessions', value: String(stats.sessions) },
-                { label: 'Total Hours', value: String(stats.hours) },
-                { label: 'Self-Assessment', value: 'DLA-20' },
-              ].map((m) => (
-                <div key={m.label} style={{ ...subCardStyle, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  <div style={{ fontWeight: 600, fontSize: 9.5, letterSpacing: '.08em', color: T.muted, textTransform: 'uppercase' }}>{m.label}</div>
-                  <div
-                    data-metric-value
-                    style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 22, lineHeight: 1.2, color: T.text, fontVariantNumeric: 'tabular-nums' }}
-                  >
-                    {m.value}
+            <div>
+              <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.muted, textTransform: 'uppercase', marginBottom: 8 }}>Recent Reports</div>
+              {visibleReports.length === 0 ? (
+                <div style={{ fontSize: 12.5, color: T.muted, fontStyle: 'italic' }}>No reports created</div>
+              ) : (
+                visibleReports.map((report: any) => (
+                  <div key={report._id} className="flex items-center justify-between gap-3" style={{ padding: '9px 0', borderBottom: '1px solid rgba(27,43,46,.06)' }}>
+                    <div className="min-w-0">
+                      <div style={{ fontWeight: 600, fontSize: 12.5, color: T.text, whiteSpace: 'nowrap' }}>{report.title}</div>
+                      <div style={{ fontSize: 11, color: T.muted }}>{formatDate(report.createdAt)}</div>
+                    </div>
+                    <span style={{ fontSize: 12.5, color: T.text2, whiteSpace: 'nowrap' }}>{report.patientId?.firstName}</span>
                   </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Tasks & Reports */}
-          <div style={{ ...cardStyle, padding: '16px 20px', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 14 }}>
-            <div className="flex items-baseline justify-between">
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.muted, textTransform: 'uppercase', marginBottom: 4 }}>— Follow-Ups</div>
-                <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, lineHeight: 1.2, color: T.text }}>Tasks & Reports</div>
-              </div>
-              {openTasksCount > 0 && (
-                <div style={{ fontWeight: 600, fontSize: 10, color: T.gold, background: T.goldBg, borderRadius: 100, padding: '4px 9px', flex: 'none', whiteSpace: 'nowrap' }}>
-                  {openTasksCount} open
-                </div>
+                ))
               )}
             </div>
+          </div>
 
-            <div className="flex-1 min-h-0 overflow-y-auto flex flex-col gap-3.5">
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.muted, textTransform: 'uppercase', marginBottom: 8 }}>Recent Tasks</div>
-                {visibleTasks.length === 0 ? (
-                  <div style={{ fontSize: 12.5, color: T.muted, fontStyle: 'italic' }}>No tasks assigned</div>
-                ) : (
-                  visibleTasks.map((task: any) => (
-                    <div key={task._id} className="flex items-center justify-between gap-3" style={{ padding: '9px 0', borderBottom: '1px solid rgba(27,43,46,.06)' }}>
-                      <div className="flex items-center gap-2.5 min-w-0">
-                        <span className="flex-none" style={{ width: 7, height: 7, borderRadius: '50%', background: T.gold }} />
-                        <span className="truncate" style={{ fontSize: 12.5, color: T.text }}>{task.title}</span>
-                      </div>
-                      <span style={{ fontSize: 12.5, color: T.text2, whiteSpace: 'nowrap' }}>{task.patientId?.firstName}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.muted, textTransform: 'uppercase', marginBottom: 8 }}>Recent Reports</div>
-                {visibleReports.length === 0 ? (
-                  <div style={{ fontSize: 12.5, color: T.muted, fontStyle: 'italic' }}>No reports created</div>
-                ) : (
-                  visibleReports.map((report: any) => (
-                    <div key={report._id} className="flex items-center justify-between gap-3" style={{ padding: '9px 0', borderBottom: '1px solid rgba(27,43,46,.06)' }}>
-                      <div className="min-w-0">
-                        <div style={{ fontWeight: 600, fontSize: 12.5, color: T.text, whiteSpace: 'nowrap' }}>{report.title}</div>
-                        <div style={{ fontSize: 11, color: T.muted }}>{formatDate(report.createdAt)}</div>
-                      </div>
-                      <span style={{ fontSize: 12.5, color: T.text2, whiteSpace: 'nowrap' }}>{report.patientId?.firstName}</span>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="flex gap-2.5" style={{ flex: 'none' }}>
-              <button
-                onClick={() => navigate('/doctor-tasks')}
-                style={{ flex: 1, textAlign: 'center', fontWeight: 600, fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase', border: '1px solid rgba(31,122,140,.3)', color: T.teal, borderRadius: 100, padding: 9, background: 'transparent', cursor: 'pointer' }}
-              >
-                All Tasks
-              </button>
-              <button
-                onClick={() => navigate('/doctor-reports')}
-                style={{ flex: 1, textAlign: 'center', fontWeight: 600, fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase', border: '1px solid rgba(31,122,140,.3)', color: T.teal, borderRadius: 100, padding: 9, background: 'transparent', cursor: 'pointer' }}
-              >
-                All Reports
-              </button>
-            </div>
+          <div className="flex gap-2.5" style={{ flex: 'none' }}>
+            <button
+              onClick={() => navigate('/doctor-tasks')}
+              style={{ flex: 1, textAlign: 'center', fontWeight: 600, fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase', border: '1px solid rgba(31,122,140,.3)', color: T.teal, borderRadius: 100, padding: 9, background: 'transparent', cursor: 'pointer' }}
+            >
+              All Tasks
+            </button>
+            <button
+              onClick={() => navigate('/doctor-reports')}
+              style={{ flex: 1, textAlign: 'center', fontWeight: 600, fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase', border: '1px solid rgba(31,122,140,.3)', color: T.teal, borderRadius: 100, padding: 9, background: 'transparent', cursor: 'pointer' }}
+            >
+              All Reports
+            </button>
           </div>
         </div>
       </main>

@@ -162,7 +162,19 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
       </div>
 
       {/* Calendar Grid */}
-      <div className="grid grid-cols-7 gap-1 text-center text-xs sm:text-sm flex-1 min-h-0" style={{ fontFamily: 'Inter, sans-serif' }}>
+      {/*
+        overflow-y-auto, not just min-h-0. `flex-1 min-h-0` lets this grid
+        SHRINK below its content, but nothing then clipped or scrolled the
+        overflow, so once the container got short enough the last rows of dates
+        painted outside the card and over the page background. Reproduced at a
+        1024x768 viewport on the doctor dashboard, where the two cards share an
+        equal-height row track.
+
+        Scrolling here rather than constraining the parent keeps the component
+        correct at any height it is given, instead of depending on every caller
+        to give it enough.
+      */}
+      <div className="grid grid-cols-7 gap-1 text-center text-xs sm:text-sm flex-1 min-h-0 overflow-y-auto content-start" style={{ fontFamily: 'Inter, sans-serif' }}>
         {/* Empty cells */}
         {Array.from({ length: firstDay }, (_, i) => (
           <div key={`empty-${i}`} className="p-1"></div>

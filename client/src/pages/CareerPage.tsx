@@ -462,17 +462,30 @@ const CareerPage: React.FC = () => {
 
         {/* ── Content Sections (varied editorial rows, one accent per idea) ── */}
         {/*
-          md:min-h-[420px] gives every card the same height. They are stacked
-          full-width rows, not a grid, so there is no shared row track to
-          equalise them — height was purely a function of body copy (card 01
-          has three paragraphs, the rest two, and 03's are the longest). The
-          image column was already uniform at md:w-[42%] aspect-[16/10].
-          items-center keeps the shorter cards' content optically centred.
+          Every card is the same height from md up, because the stack is a
+          single-column grid with md:auto-rows-fr: one implicit row track per
+          card, all sized to the tallest, so height stops being a function of
+          how much body copy each card happens to carry (card 01 has three
+          paragraphs, the rest two, and 03's are the longest).
+
+          md:min-h-[420px] on the card is only a floor for the case where
+          every card is short; it cannot equalise on its own, because the
+          card with the most copy simply grows past it — which is what left
+          these visibly uneven. Same auto-rows-fr idiom as the metric tiles
+          in DoctorDashboard/PatientDashboard/DoctorSettingsPage.
+
+          The image column is md:self-stretch rather than a fixed aspect box,
+          so it fills the row track it now shares. Left at aspect-[16/10] it
+          stayed 266px tall inside a 532px card, which read as an undersized
+          picture floating in dead space — the taller the equalised row, the
+          worse it looked. Stretching also keeps the four images identical to
+          each other, since the rows are identical. Below md the cards are
+          content-sized again, so the fixed 16/10 ratio still applies there.
 
           Mirrored in AboutPage.tsx and CareerPage.tsx, which carry identical
           copies of this block.
         */}
-        <div className="flex flex-col gap-14 md:gap-16 mb-40">
+        <div className="grid grid-cols-1 gap-14 md:auto-rows-fr md:gap-16 mb-40">
           {careerSections.map((s, i) => (
             <div
               key={s.num}
@@ -506,7 +519,7 @@ const CareerPage: React.FC = () => {
               </div>
 
               <div
-                className="w-full md:w-[42%] flex-none order-1 md:order-2 rounded-[18px] aspect-[16/10] relative overflow-hidden"
+                className="w-full md:w-[46%] flex-none order-1 md:order-2 rounded-[18px] aspect-[16/10] md:aspect-auto md:self-stretch md:min-h-[300px] relative overflow-hidden"
                 style={{ background: s.imgBg, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.05)' }}
               >
                 <img src={s.img} alt={s.imgAlt} className="absolute inset-0 w-full h-full object-cover transition-transform duration-700 group-hover:scale-[1.06]" />
