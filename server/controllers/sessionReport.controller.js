@@ -7,7 +7,7 @@ const SessionReport = require('../models/sessionReport');
 const Session = require('../models/session');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { NotFoundError, AuthorizationError } = require('../utils/errors');
-const { createLogger } = require('../utils/logger');
+const { createLogger, shortId } = require('../utils/logger');
 
 const logger = createLogger('SESSION-REPORT-CTRL');
 
@@ -48,7 +48,7 @@ const createReport = asyncHandler(async (req, res) => {
   await report.populate('doctorId', 'firstName lastName');
   await report.populate('sessionId', 'sessionDate sessionTime');
 
-  logger.info('Session report created', { reportId: report._id.toString().substring(0, 8) });
+  logger.info('Session report created', { reportId: shortId(report._id) });
   res.status(201).json({ success: true, report });
 });
 

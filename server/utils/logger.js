@@ -90,4 +90,30 @@ function createLogger(context) {
   return new Logger(context);
 }
 
-module.exports = { Logger, createLogger, LOG_LEVELS: { ERROR: 'error', WARN: 'warn', INFO: 'info', DEBUG: 'debug' } };
+/**
+ * An id truncated for logs, from a value of any shape.
+ *
+ * The log line is not allowed to be the thing that fails the request. It was:
+ * report.controller.js did `sessionId.substring(0, 8)` on a value that comes
+ * from `req.authz.derived`, where the policy's derive returns `session._id` —
+ * a Mongoose ObjectId, which has no .substring. The report had already been
+ * written and the session already updated by the time that line ran, so the
+ * doctor saw "Failed to submit report", pressed the button again, and filed a
+ * second copy of a report that had saved correctly the first time.
+ *
+ * Ids in this codebase arrive as strings (req.params, req.actor.id) and as
+ * ObjectIds (anything derived from a loaded document), and the two are not
+ * distinguishable at the call site without knowing the policy. So convert
+ * rather than assume.
+ */
+function shortId(value) {
+  if (value === null || value === undefined) return undefined;
+  return String(value).substring(0, 8);
+}
+
+module.exports = {
+  Logger,
+  createLogger,
+  shortId,
+  LOG_LEVELS: { ERROR: 'error', WARN: 'warn', INFO: 'info', DEBUG: 'debug' }
+};

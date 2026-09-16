@@ -287,16 +287,21 @@ describe('clinical notes, tasks and reports', () => {
     expect(after.title).toBe('Original title');
   });
 
-  test('creating a report SAVES it but still answers 500', async () => {
-    // report.controller.js:37 logs `sessionId.substring(0, 8)`, but sessionId
-    // comes from req.authz.derived, and clinicalRecords.policy.js:61 derives it
-    // as `session._id` — a Mongoose ObjectId, which has no .substring. The
-    // TypeError is thrown AFTER report.save() and after the Session is stamped,
-    // so the write succeeds and the caller is told it failed.
+  test('creating a report saves it AND answers 201', async () => {
+    // Was a characterisation test asserting 500. report.controller.js:37
+    // logged `sessionId.substring(0, 8)`, but sessionId comes from
+    // req.authz.derived, and clinicalRecords.policy.js derives it as
+    // `session._id` — a Mongoose ObjectId, which has no .substring. The
+    // TypeError was thrown AFTER report.save() and after the Session was
+    // stamped, so the write succeeded and the caller was told it failed.
     //
     // This is the doctor's post-session report flow (PostSessionReportModal
-    // posts here), so every submitted report reports an error, and a retry
-    // creates a duplicate.
+    // posts here), so every submitted report showed "Failed to submit report",
+    // and each retry filed a duplicate of a report that had saved correctly.
+    //
+    // Ids reach these handlers as strings (req.params, req.actor.id) and as
+    // ObjectIds (anything derived from a loaded document), so the logging
+    // helpers now convert instead of assuming. See shortId in utils/logger.js.
     const created = await call('post', '/api/session-tools/reports', tokens.doctorA, {
       sessionId: String(f.paidSession._id),
       title: 'Progress note',
@@ -304,11 +309,26 @@ describe('clinical notes, tasks and reports', () => {
       content: 'Improving.'
     });
 
-    expect(created.status).toBe(500);
-    // ...and yet the record exists:
+    expect(created.status).toBe(201);
+    expect(created.body.success).toBe(true);
     expect(await Models.Report.countDocuments({ title: 'Progress note' })).toBe(1);
     const stamped = await Models.Session.findById(f.paidSession._id);
     expect(stamped.postSessionReportCompleted).toBe(true);
+  });
+
+  test('a log line can never fail a write that already succeeded', async () => {
+    // The specific bug above was one call site; this pins the shape of it.
+    // shortId must be total over every id representation these handlers see,
+    // because the call site cannot tell which one a policy will hand it.
+    const { shortId } = require('../../utils/logger');
+    const mongoose = require('mongoose');
+    const oid = new mongoose.Types.ObjectId();
+
+    expect(shortId(oid)).toBe(String(oid).substring(0, 8));
+    expect(shortId(String(oid))).toBe(String(oid).substring(0, 8));
+    expect(shortId(null)).toBeUndefined();
+    expect(shortId(undefined)).toBeUndefined();
+    expect(() => shortId({ nested: 'object' })).not.toThrow();
   });
 
   test('a saved report is still readable and markable by the patient', async () => {

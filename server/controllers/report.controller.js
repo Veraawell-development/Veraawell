@@ -7,7 +7,7 @@ const Report = require('../models/report');
 const Session = require('../models/session');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { NotFoundError, AuthorizationError } = require('../utils/errors');
-const { createLogger } = require('../utils/logger');
+const { createLogger, shortId } = require('../utils/logger');
 
 const logger = createLogger('REPORT-CTRL');
 
@@ -34,7 +34,7 @@ const createReport = asyncHandler(async (req, res) => {
     .populate('doctorId', 'firstName lastName')
     .populate('patientId', 'firstName lastName');
 
-  logger.info('Report created', { reportId: report._id.toString().substring(0, 8), sessionId: sessionId.substring(0, 8) });
+  logger.info('Report created', { reportId: shortId(report._id), sessionId: shortId(sessionId) });
   res.status(201).json({ success: true, message: 'Report created successfully', report: populatedReport });
 });
 
@@ -98,7 +98,7 @@ const markReportViewed = asyncHandler(async (req, res) => {
   report.viewedAt = new Date();
   await report.save();
 
-  logger.info('Report marked as viewed', { reportId: reportId.substring(0, 8) });
+  logger.info('Report marked as viewed', { reportId: shortId(reportId) });
   res.json({ success: true, message: 'Report marked as viewed', report });
 });
 

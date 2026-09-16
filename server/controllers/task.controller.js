@@ -8,7 +8,7 @@ const Session = require('../models/session');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { sealedFilter } = require('../authz');
 const { NotFoundError, AuthorizationError } = require('../utils/errors');
-const { createLogger } = require('../utils/logger');
+const { createLogger, shortId } = require('../utils/logger');
 
 const logger = createLogger('TASK-CTRL');
 
@@ -30,7 +30,7 @@ const createTask = asyncHandler(async (req, res) => {
     .populate('doctorId', 'firstName lastName')
     .populate('patientId', 'firstName lastName');
 
-  logger.info('Task created', { taskId: task._id.toString().substring(0, 8) });
+  logger.info('Task created', { taskId: shortId(task._id) });
   res.status(201).json({ success: true, message: 'Task created successfully', task: populatedTask });
 });
 
@@ -98,7 +98,7 @@ const updateTask = asyncHandler(async (req, res) => {
     .populate('doctorId', 'firstName lastName')
     .populate('patientId', 'firstName lastName');
 
-  logger.info('Task updated', { taskId: taskId.substring(0, 8), status });
+  logger.info('Task updated', { taskId: shortId(taskId), status });
   res.json({ success: true, message: 'Task updated successfully', task: populatedTask });
 });
 

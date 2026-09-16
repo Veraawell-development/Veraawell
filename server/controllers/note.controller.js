@@ -7,7 +7,7 @@ const SessionNote = require('../models/sessionNote');
 const Session = require('../models/session');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { NotFoundError, AuthorizationError } = require('../utils/errors');
-const { createLogger } = require('../utils/logger');
+const { createLogger, shortId } = require('../utils/logger');
 
 const logger = createLogger('NOTE-CTRL');
 
@@ -32,7 +32,7 @@ const createNote = asyncHandler(async (req, res) => {
     .populate('doctorId', 'firstName lastName')
     .populate('patientId', 'firstName lastName');
 
-  logger.info('Session note created', { noteId: note._id.toString().substring(0, 8), doctorId: doctorId.substring(0, 8) });
+  logger.info('Session note created', { noteId: shortId(note._id), doctorId: shortId(doctorId) });
   res.status(201).json({ success: true, message: 'Session note created successfully', note: populatedNote });
 });
 
