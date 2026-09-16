@@ -18,25 +18,62 @@
  */
 
 const mongoose = require('mongoose');
-const { MongoMemoryServer } = require('mongodb-memory-server');
 const express = require('express');
 const cookieParser = require('cookie-parser');
 const jwt = require('jsonwebtoken');
 
-let mongod = null;
-
-/** Start an in-memory MongoDB and connect mongoose. Call from beforeAll. */
-async function startDb() {
-  mongod = await MongoMemoryServer.create();
-  await mongoose.connect(mongod.getUri());
-  return mongod;
+/**
+ * These suites share the one mongod that globalSetup.js starts, each on its
+ * own database — the arrangement __tests__/support/db.js already uses and
+ * explains.
+ *
+ * They used to call `MongoMemoryServer.create()` each, so a full run started
+ * a mongod per suite on top of the shared one. The symptom is precisely the
+ * one support/db.js's docblock describes: under load a suite that takes four
+ * seconds takes minutes and then times out, and it presents as flaky
+ * application code. It was reliably reproducible here — `authz.matrix`,
+ * `cancelSession.idempotency`, `completeSession.idempotency` and
+ * `production.posture` each failed in some full runs and passed alone, a
+ * different pair almost every time.
+ *
+ * The e2e suites were migrated to the shared server; these four were missed.
+ */
+function baseUri() {
+  const uri = process.env.__TEST_MONGO_URI__;
+  if (!uri) {
+    throw new Error(
+      'No shared test MongoDB. __tests__/support/globalSetup.js must run first — '
+      + 'check the jest globalSetup entry in package.json.'
+    );
+  }
+  if (!/(127\.0\.0\.1|localhost)/.test(uri)) {
+    throw new Error(`refusing to connect: shared test URI is not loopback (${uri})`);
+  }
+  return uri.replace(/\/?$/, '/');
 }
 
-/** Call from afterAll. */
+/**
+ * Connect mongoose to this suite's own database. Call from beforeAll.
+ *
+ * The database name is derived from the calling test file, so two suites can
+ * never share state even though they share a server.
+ */
+async function startDb(suiteName) {
+  const name = suiteName
+    || (expect.getState && expect.getState().testPath
+      ? require('path').basename(expect.getState().testPath, '.test.js')
+      : `anon_${Date.now()}`);
+  const db = `h_${String(name).replace(/[^a-zA-Z0-9_]/g, '_')}`;
+  await mongoose.connect(`${baseUri()}${db}`);
+  return mongoose.connection;
+}
+
+/** Drop this suite's database and disconnect. Call from afterAll. */
 async function stopDb() {
+  if (mongoose.connection.readyState === 1) {
+    try { await mongoose.connection.dropDatabase(); } catch (e) { /* best effort */ }
+  }
   await mongoose.disconnect();
-  if (mongod) await mongod.stop();
-  mongod = null;
 }
 
 /** Wipe every collection. Cheaper and less error-prone than listing models. */
@@ -104,13 +141,24 @@ async function makeUser(role = 'patient', extra = {}) {
 async function makeSession({ patient, doctor, hoursFromNow = 72, ...overrides }) {
   const Session = require('../../models/session');
   const when = new Date(Date.now() + hoursFromNow * 3600 * 1000);
-  const h = when.getHours();
-  const sessionTime = `${String(h % 12 || 12).padStart(2, '0')}:${String(when.getMinutes()).padStart(2, '0')} ${h >= 12 ? 'PM' : 'AM'}`;
+
+  // `startsAt` is the authoritative instant; the model derives sessionDate,
+  // sessionTime, endsAt and the local fields from it.
+  //
+  // This fixture used to set only the legacy (sessionDate, sessionTime) pair
+  // and let resolveStartsAt work backwards. That derivation asks "does this
+  // date carry a time component?" to tell a real instant from a UTC-midnight
+  // calendar date — so whenever `now + hoursFromNow` happened to land on
+  // exactly 00:00 UTC, the fixture was read as a legacy calendar date and its
+  // time string re-interpreted as IST wall clock, moving the session 5h30m
+  // earlier than intended. A session seeded "10 hours out" became 3.9 hours
+  // out, which silently crossed the 4-hour refund boundary. The result was a
+  // test that failed for roughly half an hour a day and passed the rest of
+  // the time — and looked like flaky infrastructure.
   return Session.create({
     patientId: patient._id,
     doctorId: doctor._id,
-    sessionDate: when,
-    sessionTime,
+    startsAt: when,
     duration: 60,
     price: 1000,
     status: 'scheduled',

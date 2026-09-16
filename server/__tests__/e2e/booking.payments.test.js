@@ -85,9 +85,10 @@ beforeEach(async () => {
   const { makeAvailability } = require('../support/seed');
   await makeAvailability(f.doctorA._id);
   await makeAvailability(f.doctorB._id);
+  // Reset the bookability gate: individual cases below turn it off.
   await DoctorProfile.updateOne(
     { userId: f.doctorA._id },
-    { $set: { razorpayAccountId: 'acc_live_seededfixture01' } }
+    { $set: { payoutApproved: true } }
   );
 
   mockOrdersCreate.mockReset();
@@ -194,8 +195,30 @@ describe('a booking never becomes paid without a payment', () => {
     expect(avail.bookedSlots.filter((s) => s.date === bookableDate)).toHaveLength(0);
   });
 
-  test('a doctor with a fabricated acc_mock payout account is refused with 409', async () => {
-    await DoctorProfile.updateOne({ userId: f.doctorA._id }, { $set: { razorpayAccountId: 'acc_mock_fabricated' } });
+  test('a doctor whose payouts are not approved is refused with 409', async () => {
+    await DoctorProfile.updateOne({ userId: f.doctorA._id }, { $set: { payoutApproved: false } });
+
+    const res = await book(baseBooking());
+    expect(res.status).toBe(409);
+    // Refused before the gateway: no order created, no slot consumed.
+    expect(mockOrdersCreate).not.toHaveBeenCalled();
+    expect(await Session.countDocuments({ sessionTime: SLOT })).toBe(0);
+  });
+
+  test('a leftover Razorpay account id does not make an unapproved doctor bookable', async () => {
+    // This replaces two tests that characterised the old Route gate, which
+    // asked whether the doctor had a non-synthetic `razorpayAccountId`. That
+    // gate had a blind spot (`acc_stub_` ids minted in stub mode passed as
+    // genuine) and, worse, answered "yes" for the `acc_mock_` ids
+    // approveOnboarding fabricated on failure.
+    //
+    // Every live profile still carries one of those ids. Bookability must come
+    // from payoutApproved alone, or the migration would quietly re-enable
+    // doctors the platform has no way to pay.
+    await DoctorProfile.updateOne(
+      { userId: f.doctorA._id },
+      { $set: { payoutApproved: false, razorpayAccountId: 'acc_live_seededfixture01', payoutSetupCompleted: true } }
+    );
 
     const res = await book(baseBooking());
     expect(res.status).toBe(409);
@@ -203,20 +226,19 @@ describe('a booking never becomes paid without a payment', () => {
     expect(await Session.countDocuments({ sessionTime: SLOT })).toBe(0);
   });
 
-  test('an acc_stub_ payout account is NOT recognised as fabricated', async () => {
-    // isSyntheticAccountId matches only 'acc_mock' (config/payments.js:41),
-    // but the stub client mints 'acc_stub_<hex>' (razorpay.client.js:65). So an
-    // account created while PAYMENTS_MODE=stub survives a switch to live mode
-    // and is treated as a genuine payout destination: the booking proceeds to
-    // order creation and fails at the gateway (502) instead of being refused
-    // cleanly (409).
-    await DoctorProfile.updateOne({ userId: f.doctorA._id }, { $set: { razorpayAccountId: 'acc_stub_deadbeef' } });
-
+  test('the order sent to the gateway carries no Route transfer', async () => {
+    // The whole amount lands in the platform account; the commission split is
+    // still recorded on the Session and settled by the weekly payout run.
     const res = await book(baseBooking());
-    expect(res.status).not.toBe(409);
+    expect(res.status).toBe(201);
     expect(mockOrdersCreate).toHaveBeenCalledTimes(1);
-    // The bogus account is what gets sent to the gateway as a transfer target.
-    expect(mockOrdersCreate.mock.calls[0][0].transfers[0].account).toBe('acc_stub_deadbeef');
+
+    const payload = mockOrdersCreate.mock.calls[0][0];
+    expect(payload).not.toHaveProperty('transfers');
+
+    const session = await Session.findOne({ sessionTime: SLOT });
+    expect(session.platformFee + session.doctorEarnings).toBe(session.price);
+    expect(session.doctorEarnings).toBeGreaterThan(0);
   });
 
   test('no booking path can produce a paid session carrying a synthetic paymentId', async () => {
@@ -446,11 +468,13 @@ describe('cancellation, refunds and slot release', () => {
     expect(mockRefund).toHaveBeenCalledTimes(1);
   });
 
-  test('cancelling between 4h and 24h refunds half', async () => {
+  test('cancelling between 4h and 24h refunds in full', async () => {
+    // This window used to pay 50%. It is the most common cancellation time —
+    // the evening before — and the policy page always promised 100% here.
     const s = await paidFutureSession(10);
     await cancel(s._id);
     const after = await Session.findById(s._id);
-    expect(after.refundAmount).toBe(1000);
+    expect(after.refundAmount).toBe(after.price);
   });
 
   test('cancelling under 4h refunds nothing and calls the gateway zero times', async () => {

@@ -23,9 +23,14 @@ const PASSWORDS = {
 };
 
 /**
- * A doctor profile with every required field populated and a payout account
- * that is NOT synthetic — session.controller.js:87 rejects booking outright
- * when razorpayAccountId is absent or matches isSyntheticAccountId().
+ * A doctor profile with every required field populated and payouts approved.
+ *
+ * `payoutApproved` is what makes this fixture bookable: resolveBookingPaymentState
+ * refuses outright for a doctor an admin has not approved a payment route for.
+ * (It used to gate on a non-synthetic `razorpayAccountId` — that was the
+ * Razorpay Route design, now removed.) `bookableUntil` mirrors what
+ * makeAvailability publishes, since the public directory hides doctors whose
+ * calendar has run out.
  */
 async function makeDoctorProfile(userId, overrides = {}) {
   const DoctorProfile = require('../../models/doctorProfile');
@@ -47,9 +52,10 @@ async function makeDoctorProfile(userId, overrides = {}) {
       session55: 2000,
       audio: { session20: 600, session40: 1200, session55: 1600 }
     },
-    razorpayAccountId: 'acc_live_seededfixture01',
-    payoutSetupCompleted: true,
-    razorpayOnboardingStatus: 'active',
+    payoutApproved: true,
+    payoutApprovedAt: new Date(),
+    // 14 days out, matching makeAvailability's default window.
+    bookableUntil: new Date(Date.now() + 14 * 864e5),
     ...overrides
   });
 }

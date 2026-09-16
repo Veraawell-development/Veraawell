@@ -98,6 +98,27 @@ doctorAvailabilitySchema.pre('validate', function normaliseSlots(next) {
     if (Array.isArray(this.activeDates)) {
       this.activeDates = this.activeDates.map((d) => normalizeDate(d));
     }
+    // bookedSlots written before `slotKey` existed carry no value for a field
+    // the schema marks required, so ANY later save() of the whole document
+    // fails validation on rows the caller never touched. That bricked
+    // saveAvailability outright: a doctor with one pre-slotKey booking could
+    // not save their schedule again, and every attempt returned the same 400.
+    //
+    // The read path was already made tolerant of these rows
+    // (getAvailableSlotsForDate falls back to safeSlotKey); the write path was
+    // not. Derive it here so the two agree and an unmigrated document heals on
+    // first write. migrations/backfillSessionStartsAt.js still repairs them in
+    // bulk — this is what stops the app being unusable until it is run.
+    if (Array.isArray(this.bookedSlots)) {
+      for (const booked of this.bookedSlots) {
+        if (!booked || booked.slotKey) continue;
+        const key = safeSlotKey(booked.date, booked.time);
+        // A row whose date/time cannot be parsed is left alone deliberately:
+        // it fails validation loudly rather than being silently dropped or
+        // given a fabricated identity that releaseSlot would then mis-match.
+        if (key) booked.slotKey = key;
+      }
+    }
     next();
   } catch (err) {
     next(err);

@@ -126,28 +126,30 @@ describe('applyTransition compare-and-set', () => {
     expect(changes).toHaveLength(1);
   });
 
-  test('passing a bare ObjectId silently breaks applyTransition', async () => {
-    // sessionTransition.js:49-51 distinguishes "a document" from "an id" with
-    //   (sessionOrId && sessionOrId._id) ? sessionOrId : await findById(...)
-    // but a Mongoose ObjectId has an `_id` getter that returns ITSELF, so an
-    // ObjectId satisfies the document branch and is used as the session. Every
-    // field then reads undefined and the call fails with a nonsensical
-    // 'status "undefined"'.
+  test('a bare ObjectId, a string id and a document all work identically', async () => {
+    // This used to be a known trap, pinned here as a failing-by-design
+    // characterisation: sessionTransition distinguished "a document" from "an
+    // id" with `sessionOrId._id ? doc : findById(...)`, but a Mongoose
+    // ObjectId has an `_id` getter returning ITSELF, so an ObjectId took the
+    // document branch and was used AS the session. Every field read undefined
+    // and the call died with a nonsensical 'status "undefined"'.
     //
-    // Not live today — the single production call site passes a document — but
-    // it is a trap in exactly the function that is meant to be the safe path,
-    // and a string id works while an ObjectId does not.
-    const s = await futureSession({ startsAt: new Date(Date.now() - 90 * 60 * 1000) });
+    // The note here said it was "not live today — the single production call
+    // site passes a document". services/sessionRefund.js then became a second
+    // call site that passes an id, and it was live within the hour. The
+    // detection is now explicit (string, or _bsontype === 'ObjectId'), so all
+    // three accepted forms behave the same.
+    for (const asArg of [
+      (doc) => doc._id,          // bare ObjectId — the form that broke
+      (doc) => String(doc._id),  // string id
+      (doc) => doc               // hydrated document
+    ]) {
+      const s = await futureSession({ startsAt: new Date(Date.now() - 90 * 60 * 1000) });
+      const result = await transition.tryTransition(asArg(s), { event: EVENT.COMPLETE, actor: ACTOR.DOCTOR });
 
-    const viaObjectId = await transition.tryTransition(s._id, { event: EVENT.COMPLETE, actor: ACTOR.DOCTOR });
-    expect(viaObjectId.changed).toBe(false);
-    expect(String(viaObjectId.error)).toMatch(/whose status is/);
-    expect((await Session.findById(s._id)).status).toBe('scheduled');
-
-    // The same call with a string id succeeds.
-    const viaString = await transition.tryTransition(String(s._id), { event: EVENT.COMPLETE, actor: ACTOR.DOCTOR });
-    expect(viaString.changed).toBe(true);
-    expect((await Session.findById(s._id)).status).toBe('completed');
+      expect(result.changed).toBe(true);
+      expect((await Session.findById(s._id)).status).toBe('completed');
+    }
   });
 
   test('tryTransition reports an illegal transition instead of throwing', async () => {
@@ -443,15 +445,23 @@ describe('concurrent webhook delivery', () => {
 });
 
 describe('where the state machine is NOT used', () => {
-  test('applyTransition has exactly one call site in the application', () => {
-    // The wrapper enforces the invariants and the compare-and-set guard, but
-    // only completeSession routes through it. Every other status or payment
-    // write — cancellation, payment capture, all seven webhook handlers, the
-    // four scheduler sweeps, the socket call-end path — uses session.save()
-    // directly and therefore gets none of those guarantees.
+  test('the state machine is used by the paths that have been converted, and no others', () => {
+    // The wrapper enforces the invariants and the compare-and-set guard.
+    // Coverage is still partial: cancellation, payment capture, the webhook
+    // handlers and the socket call-end path all still use session.save()
+    // directly and get none of those guarantees.
     //
     // Pinned as a number so that converting a path shows up here as a
-    // deliberate, visible change.
+    // deliberate, visible change — which is what these two lines record.
+    //
+    // Converted so far:
+    //   controllers/session.controller.js  completeSession
+    //   services/sessionRefund.js          the claim / succeed / fail sequence,
+    //                                      shared by the no-show auto-refund
+    //                                      and (in time) the other three
+    //                                      refund paths
+    // The scheduler's sweep goes through tryTransition, the non-throwing
+    // wrapper, so it does not appear in this grep.
     const { execSync } = require('child_process');
     const root = require('path').join(__dirname, '..', '..');
 
@@ -460,13 +470,16 @@ describe('where the state machine is NOT used', () => {
       { cwd: root, encoding: 'utf8' }
     ).trim().split('\n').filter(Boolean);
 
-    expect(callSites).toHaveLength(1);
-    expect(callSites[0]).toMatch(/session\.controller\.js/);
+    expect(callSites).toHaveLength(4);
+    expect(callSites.filter((l) => /session\.controller\.js/.test(l))).toHaveLength(1);
+    expect(callSites.filter((l) => /sessionRefund\.js/.test(l))).toHaveLength(3);
 
     const directSaves = execSync(
       'grep -rn "session\\.save()" controllers services socket --include="*.js" | wc -l',
       { cwd: root, encoding: 'utf8' }
     ).trim();
-    expect(Number(directSaves)).toBeGreaterThan(15);
+    // Still high, and each one is a money path that has not been converted.
+    // This number should fall as they are; it must never rise.
+    expect(Number(directSaves)).toBeLessThanOrEqual(20);
   });
 });

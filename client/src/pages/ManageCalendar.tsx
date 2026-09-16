@@ -165,7 +165,14 @@ const ManageCalendar: React.FC = () => {
         method: 'POST', headers, credentials: 'include',
         body: JSON.stringify(payload),
       });
-      if (!res.ok) throw new Error('Failed to save');
+      if (!res.ok) {
+        // Surface what the server actually said. This used to throw a fixed
+        // 'Failed to save', so a 400 naming the exact invalid field arrived at
+        // the user as an unqualified "Error saving schedule" and the real
+        // cause had to be found by reading the database.
+        const body = await res.json().catch(() => null);
+        throw new Error((body && body.message) || `Failed to save (HTTP ${res.status})`);
+      }
       return res.json();
     },
     onSuccess: () => {
@@ -173,8 +180,8 @@ const ManageCalendar: React.FC = () => {
       setIsEditing(false);
       queryClient.invalidateQueries({ queryKey: ['doctor', 'availability', user?.userId] });
     },
-    onError: () => {
-      toast.error('Error saving schedule');
+    onError: (err: any) => {
+      toast.error(err?.message || 'Error saving schedule');
     }
   });
 

@@ -341,13 +341,18 @@ describe('required fields', () => {
 });
 
 describe('unique indexes are declared where uniqueness is a correctness requirement', () => {
-  test('the five identity and exactly-once constraints are all present', async () => {
+  test('the seven identity and exactly-once constraints are all present', async () => {
     const expected = [
       ['User', { email: 1 }],
       ['DoctorProfile', { userId: 1 }],
       ['WebhookEvent', { eventId: 1 }],
       ['Review', { sessionId: 1, patientId: 1, reviewType: 1 }],
-      ['MoodEntry', { patientId: 1, date: 1 }]
+      ['MoodEntry', { patientId: 1, date: 1 }],
+      // Money. A doctor cannot be paid twice for one week, and a clawback
+      // cannot be recorded twice for one refund — both callers upsert, but
+      // the index is what holds against two of them landing at once.
+      ['Payout', { doctorId: 1, periodKey: 1 }],
+      ['PayoutAdjustment', { idempotencyKey: 1 }]
     ];
 
     for (const [modelName, keys] of expected) {

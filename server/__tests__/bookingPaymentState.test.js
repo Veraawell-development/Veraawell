@@ -97,15 +97,23 @@ async function mkUser(role) {
   });
 }
 
-/** A doctor with prices and one bookable slot three days out. */
-async function seedDoctor({ razorpayAccountId }) {
+/**
+ * A doctor with prices and one bookable slot three days out.
+ *
+ * `payoutApproved` is the bookability gate. It replaced a check for a
+ * non-synthetic `razorpayAccountId`, which belonged to the removed Razorpay
+ * Route split — `extraProfile` lets a case set that legacy field to prove it
+ * no longer grants anything.
+ */
+async function seedDoctor({ payoutApproved = true, ...extraProfile } = {}) {
   const doctor = await mkUser('doctor');
   await DoctorProfile.create({
     userId: doctor._id,
     specialization: ['Anxiety'], experience: 5, qualification: ['MPhil'],
     languages: ['English'], treatsFor: ['Anxiety'], type: 'Clinical Psychologist',
     pricing: { min: 2000, max: 2000, session20: 2000 },
-    razorpayAccountId
+    payoutApproved,
+    ...extraProfile
   });
   const dateStr = new Date(Date.now() + 3 * 864e5).toISOString().split('T')[0];
   await DoctorAvailability.create({
@@ -126,7 +134,7 @@ describe('a booking that owes money is never created as paid', () => {
   test('gateway failure rejects the booking instead of creating a free paid session', async () => {
     mockOrdersCreate.mockRejectedValue(new Error('Razorpay is down'));
     const patient = await mkUser('patient');
-    const { doctor, dateStr } = await seedDoctor({ razorpayAccountId: 'acc_REAL_LOOKING' });
+    const { doctor, dateStr } = await seedDoctor();
 
     const res = await request(buildApp())
       .post('/sessions/book').set('Authorization', `Bearer ${tokenFor(patient)}`).send(bookBody(doctor, dateStr));
@@ -137,21 +145,56 @@ describe('a booking that owes money is never created as paid', () => {
     expect(await Session.countDocuments({})).toBe(0);
   });
 
-  test('a doctor with no payout account cannot be booked, rather than booked for free', async () => {
+  test('a doctor whose payouts are not approved cannot be booked, rather than booked for free', async () => {
     const patient = await mkUser('patient');
-    const { doctor, dateStr } = await seedDoctor({ razorpayAccountId: null });
+    const { doctor, dateStr } = await seedDoctor({ payoutApproved: false });
 
     const res = await request(buildApp())
       .post('/sessions/book').set('Authorization', `Bearer ${tokenFor(patient)}`).send(bookBody(doctor, dateStr));
 
     expect(res.status).toBe(409);
+    // Refused before the gateway is touched: no order, no money, no session.
     expect(mockOrdersCreate).not.toHaveBeenCalled();
     expect(await Session.countDocuments({})).toBe(0);
   });
 
-  test('a fabricated acc_mock_ payout account is treated as no account', async () => {
+  test('payoutApproved defaults to false, so a profile that never went through approval is refused', async () => {
+    // The schema default is the fail-closed half of the gate. A doctor created
+    // by any path that does not explicitly approve them is unbookable.
     const patient = await mkUser('patient');
-    const { doctor, dateStr } = await seedDoctor({ razorpayAccountId: 'acc_mock_deadbeef' });
+    const doctor = await mkUser('doctor');
+    await DoctorProfile.create({
+      userId: doctor._id,
+      specialization: ['Anxiety'], experience: 5, qualification: ['MPhil'],
+      languages: ['English'], treatsFor: ['Anxiety'], type: 'Clinical Psychologist',
+      pricing: { min: 2000, max: 2000, session20: 2000 }
+      // payoutApproved deliberately not set
+    });
+    const dateStr = new Date(Date.now() + 3 * 864e5).toISOString().split('T')[0];
+    await DoctorAvailability.create({
+      doctorId: doctor._id, availabilityType: 'same_slots',
+      defaultSlots: ['10:00 AM'], activeDates: [dateStr]
+    });
+
+    const res = await request(buildApp())
+      .post('/sessions/book').set('Authorization', `Bearer ${tokenFor(patient)}`).send(bookBody(doctor, dateStr));
+
+    expect(res.status).toBe(409);
+    expect(await Session.countDocuments({})).toBe(0);
+  });
+
+  test('a leftover razorpayAccountId no longer makes a doctor bookable on its own', async () => {
+    // Every live doctor carries one of these from the Route era, including
+    // fabricated `acc_mock_` ids that approveOnboarding wrote on failure.
+    // Bookability must now come from payoutApproved and nothing else, or the
+    // migration would silently re-enable doctors nobody can pay.
+    const patient = await mkUser('patient');
+    const { doctor, dateStr } = await seedDoctor({
+      payoutApproved: false,
+      razorpayAccountId: 'acc_live_looksTotallyReal',
+      payoutSetupCompleted: true,
+      razorpayOnboardingStatus: 'active'
+    });
 
     const res = await request(buildApp())
       .post('/sessions/book').set('Authorization', `Bearer ${tokenFor(patient)}`).send(bookBody(doctor, dateStr));
@@ -163,7 +206,7 @@ describe('a booking that owes money is never created as paid', () => {
   test('a successful order yields payment_pending, never paid', async () => {
     mockOrdersCreate.mockResolvedValue({ id: 'order_realone' });
     const patient = await mkUser('patient');
-    const { doctor, dateStr } = await seedDoctor({ razorpayAccountId: 'acc_REAL_LOOKING' });
+    const { doctor, dateStr } = await seedDoctor();
 
     const res = await request(buildApp())
       .post('/sessions/book').set('Authorization', `Bearer ${tokenFor(patient)}`).send(bookBody(doctor, dateStr));
@@ -174,12 +217,18 @@ describe('a booking that owes money is never created as paid', () => {
     expect(session.status).toBe('payment_pending');
     expect(session.paymentId).toBeNull();
     expect(session.razorpayOrderId).toBe('order_realone');
+
+    // No Route split: the whole amount goes to the platform account and the
+    // doctor's share is settled by the weekly payout run, not by the gateway.
+    const orderPayload = mockOrdersCreate.mock.calls[0][0];
+    expect(orderPayload).not.toHaveProperty('transfers');
+    expect(orderPayload.amount).toBe(2000 * 100);
   });
 
   test('no code path produces a synthetic mock_payment_ id on a priced booking', async () => {
     mockOrdersCreate.mockResolvedValue({ id: 'order_realone' });
     const patient = await mkUser('patient');
-    const { doctor, dateStr } = await seedDoctor({ razorpayAccountId: 'acc_REAL_LOOKING' });
+    const { doctor, dateStr } = await seedDoctor();
     await request(buildApp())
       .post('/sessions/book').set('Authorization', `Bearer ${tokenFor(patient)}`).send(bookBody(doctor, dateStr));
 

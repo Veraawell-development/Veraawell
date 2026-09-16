@@ -9,6 +9,7 @@ const Session = require('../models/session');
 const Conversation = require('../models/conversation');
 const User = require('../models/user');
 const DoctorProfile = require('../models/doctorProfile');
+const { PUBLIC_DOCTOR_FIELDS } = require('../models/doctorProfile');
 const DoctorAvailability = require('../models/doctorAvailability');
 const Review = require('../models/review');
 const PlatformSettings = require('../models/platformSettings');
@@ -17,15 +18,16 @@ const SocketEmitter = require('../utils/socketEmitter');
 const { calculateSessionPrice, getOrCreateAvailability, getGenderBasedImage } = require('../services/session.service');
 const { calculateRefund, describeRefundPolicy } = require('../services/refundPolicy');
 const { resolveStartsAt, hoursUntilStart } = require('../services/sessionTime');
+const { payableSessionMatch } = require('../services/earnings');
 const { zonedToUtc, slotKey } = require('../utils/zonedTime');
-const { PLATFORM_TIMEZONE } = require('../config/time');
+const { PLATFORM_TIMEZONE, CHECKOUT_TTL_MINUTES, INSTANT_ACCEPT_WINDOW_MINUTES } = require('../config/time');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { applyTransition } = require('../services/sessionTransition');
 const { EVENT, ACTOR } = require('../services/sessionState');
 const { sealedFilter } = require('../authz');
 const { NotFoundError, AuthorizationError } = require('../utils/errors');
 const { getRazorpay } = require('../services/razorpay.client');
-const { isStubMode, isSyntheticAccountId } = require('../config/payments');
+const { isStubMode } = require('../config/payments');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('SESSION-CTRL');
@@ -61,7 +63,7 @@ function _emitToUsers(req, event, data, userIds) {
  * @returns {Promise<{ok:true, paymentStatus:string, status:string, paymentId:string|null, razorpayOrderId:string|null}
  *                  | {ok:false, httpStatus:number, message:string}>}
  */
-async function resolveBookingPaymentState({ doctorProfile, finalPrice, doctorEarnings, receiptPrefix, immediate = false }) {
+async function resolveBookingPaymentState({ doctorProfile, finalPrice, receiptPrefix, immediate = false }) {
   const scheduledStatus = immediate ? 'active' : 'scheduled';
 
   // Genuinely free (e.g. a discovery call priced at 0). Nothing to collect.
@@ -83,11 +85,31 @@ async function resolveBookingPaymentState({ doctorProfile, finalPrice, doctorEar
   }
 
   // ── Live mode. Both branches below are explicit failures, never a downgrade.
-  const accountId = doctorProfile && doctorProfile.razorpayAccountId;
-  if (!accountId || isSyntheticAccountId(accountId)) {
-    logger.error('Booking rejected: doctor has no usable payout account', {
-      hasAccount: !!accountId,
-      synthetic: isSyntheticAccountId(accountId)
+  //
+  // The gate used to be "does this doctor have a non-synthetic
+  // razorpayAccountId", because the order below carried a Razorpay Route
+  // `transfers[]` split that needs a real linked account. Two things killed
+  // that design:
+  //
+  //   - Route now requires the platform to clear an RBI Payment Aggregator
+  //     turnover bar (>Rs.40L domestic), which this platform does not meet, and
+  //     the onboarding flow only ever implemented 1 of the 4 API calls a linked
+  //     account needs, so no account could have become transfer-capable anyway.
+  //   - approveOnboarding fabricated `acc_mock_<hex>` whenever the Razorpay
+  //     call threw and marked the doctor 'active'. So the gate answered "yes,
+  //     Razorpay knows them" for doctors nobody could pay, and "no" for
+  //     everyone else — every doctor on the platform was unbookable while their
+  //     own settings page said payouts were live.
+  //
+  // Money now lands wholly in the platform account and doctors are paid by
+  // bank transfer on a weekly cycle. So the question the gate asks changes
+  // from "can Razorpay route to them" to "has an admin approved a way to pay
+  // them" — which is what payoutApproved records. Same fail-closed posture:
+  // the platform never takes money for a session it has no way to settle.
+  if (!doctorProfile || doctorProfile.payoutApproved !== true) {
+    logger.error('Booking rejected: doctor is not approved for payouts', {
+      hasProfile: !!doctorProfile,
+      payoutApproved: doctorProfile ? doctorProfile.payoutApproved : undefined
     });
     return {
       ok: false,
@@ -96,16 +118,15 @@ async function resolveBookingPaymentState({ doctorProfile, finalPrice, doctorEar
     };
   }
 
+  // No `transfers[]`: this is a plain order into the platform's own account.
+  // The commission split is still computed and stored on the Session
+  // (platformFee / doctorEarnings) — it is settled by the weekly payout run
+  // rather than by the gateway.
   const orderPayload = {
     amount: Math.round(finalPrice * 100),
     currency: 'INR',
     receipt: `${receiptPrefix}_${Date.now()}`,
-    transfers: [{
-      account: accountId,
-      amount: Math.round(doctorEarnings * 100),
-      currency: 'INR',
-      notes: { branch: 'Veraawell Session' }
-    }]
+    notes: { branch: 'Veraawell Session' }
   };
 
   try {
@@ -157,7 +178,10 @@ const getStats = asyncHandler(async (req, res) => {
 
   const [overallStats, recentEarnings] = await Promise.all([
     Session.aggregate([
-      { $match: { doctorId: new mongoose.Types.ObjectId(userId), status: 'completed', paymentStatus: 'paid' } },
+      // The shared payable predicate, so what the doctor is SHOWN here is
+      // exactly what the weekly payout run will pay them. These used to be
+      // three different filters in three files.
+      { $match: payableSessionMatch({ doctorId: userId }) },
       {
         $group: {
           _id: null,
@@ -173,9 +197,7 @@ const getStats = asyncHandler(async (req, res) => {
     Session.aggregate([
       {
         $match: {
-          doctorId: new mongoose.Types.ObjectId(userId),
-          status: 'completed',
-          paymentStatus: 'paid',
+          ...payableSessionMatch({ doctorId: userId }),
           createdAt: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }
         }
       },
@@ -192,16 +214,14 @@ const getStats = asyncHandler(async (req, res) => {
 
   const r = overallStats[0] || { totalGross: 0, totalPlatformFee: 0, totalDoctorEarnings: 0, totalSessions: 0, totalDurationMinutes: 0 };
 
-  // Pending payout = completed + paid sessions with no transfer yet
+  // What the doctor is owed but has not been paid.
+  //
+  // Keyed on `payoutId`, not `razorpayTransferId`. The old field was set only
+  // by Razorpay Route's transfer.processed webhook, and Route is gone — so
+  // nothing would ever have cleared it and this figure could only count up
+  // forever, whatever had actually been paid.
   const pendingPayout = await Session.aggregate([
-    {
-      $match: {
-        doctorId: new mongoose.Types.ObjectId(userId),
-        status: 'completed',
-        paymentStatus: 'paid',
-        razorpayTransferId: null
-      }
-    },
+    { $match: payableSessionMatch({ doctorId: userId, unpaidOnly: true }) },
     { $group: { _id: null, amount: { $sum: '$doctorEarnings' } } }
   ]);
 
@@ -228,7 +248,8 @@ const getMyDoctors = asyncHandler(async (req, res) => {
     { $limit: 3 }
   ]);
   if (!previousDoctors.length) return res.json([]);
-  const doctors = await DoctorProfile.find({ userId: { $in: previousDoctors.map(d => d._id) } }).populate('userId', 'firstName lastName email').lean();
+  const doctors = await DoctorProfile.find({ userId: { $in: previousDoctors.map(d => d._id) } })
+    .select(PUBLIC_DOCTOR_FIELDS).populate('userId', 'firstName lastName email').lean();
   const result = doctors.map(d => {
     const stats = previousDoctors.find(p => p._id.equals(d.userId._id));
     return { ...d, sessionCount: stats?.sessionCount || 0, lastSessionDate: stats?.lastSession || null };
@@ -275,10 +296,10 @@ const getCallHistory = asyncHandler(async (req, res) => {
  */
 const cleanupPendingSessions = async () => {
   try {
-    const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
+    const cutoff = new Date(Date.now() - CHECKOUT_TTL_MINUTES * 60 * 1000);
     const pendingSessions = await Session.find({
       paymentStatus: 'pending',
-      createdAt: { $lt: fifteenMinsAgo }
+      createdAt: { $lt: cutoff }
     });
 
     if (pendingSessions.length === 0) return;
@@ -341,7 +362,7 @@ const bookImmediate = asyncHandler(async (req, res) => {
     doctorProfile = await DoctorProfile.findOne({ userId: doctorId });
     if (doctorProfile) {
       const platformSettings = await PlatformSettings.getSettings();
-      const feePercentage = doctorProfile.customFeePercentage !== null ? doctorProfile.customFeePercentage : platformSettings.defaultPlatformFeePercentage;
+      const feePercentage = doctorProfile.customFeePercentage ?? platformSettings.defaultPlatformFeePercentage;
       platformFee = Math.round((finalPrice * feePercentage) / 100);
       doctorEarnings = finalPrice - platformFee;
     }
@@ -354,7 +375,7 @@ const bookImmediate = asyncHandler(async (req, res) => {
   const paymentState = isSelfSession
     ? { ok: true, paymentStatus: 'not_required', status: 'active', paymentId: null, razorpayOrderId: null }
     : await resolveBookingPaymentState({
-        doctorProfile, finalPrice, doctorEarnings, receiptPrefix: 'rcpt_imm', immediate: true
+        doctorProfile, finalPrice, receiptPrefix: 'rcpt_imm', immediate: true
       });
 
   if (!paymentState.ok) {
@@ -460,7 +481,7 @@ const bookSession = asyncHandler(async (req, res) => {
   }
 
   const platformSettings = await PlatformSettings.getSettings();
-  const feePercentage = doctorProfile.customFeePercentage !== null ? doctorProfile.customFeePercentage : platformSettings.defaultPlatformFeePercentage;
+  const feePercentage = doctorProfile.customFeePercentage ?? platformSettings.defaultPlatformFeePercentage;
   const platformFee = Math.round((finalPrice * feePercentage) / 100);
   const doctorEarnings = finalPrice - platformFee;
 
@@ -476,7 +497,7 @@ const bookSession = asyncHandler(async (req, res) => {
   // Payment failure is now a failed request. The only way to get a session
   // that owes nothing is for it to genuinely owe nothing.
   const paymentState = await resolveBookingPaymentState({
-    doctorProfile, finalPrice, doctorEarnings, receiptPrefix: 'rcpt'
+    doctorProfile, finalPrice, receiptPrefix: 'rcpt'
   });
   if (!paymentState.ok) {
     return res.status(paymentState.httpStatus).json({ success: false, message: paymentState.message });
@@ -588,7 +609,33 @@ const getAllDoctors = asyncHandler(async (req, res) => {
   const limit = parseInt(req.query.limit) || 100;
   const skip = (page - 1) * limit;
 
-  const profiles = await DoctorProfile.find({}).populate('userId', 'firstName lastName email isOnline profileCompleted').skip(skip).limit(limit);
+  // Only list therapists a patient can actually book.
+  //
+  // The filter used to be `find({})` plus "does this profile still have a
+  // user", so the directory advertised:
+  //   - doctors whose application was still pending, or had been REJECTED —
+  //     approvalStatus was never referenced anywhere in this controller;
+  //   - doctors with no approved way to be paid, whose bookings 409 at
+  //     resolveBookingPaymentState;
+  //   - doctors with no price set;
+  //   - doctors whose published calendar ran out weeks ago, so the booking
+  //     page offers no times at all.
+  // All four were live: both doctors on the platform had expired calendars and
+  // no usable payout route while being listed as bookable.
+  const profiles = await DoctorProfile.find({
+    payoutApproved: true,
+    'pricing.min': { $gt: 0 },
+    bookableUntil: { $gte: new Date() }
+  }).select(PUBLIC_DOCTOR_FIELDS)
+    .populate({
+      path: 'userId',
+      select: 'firstName lastName email isOnline profileCompleted approvalStatus',
+      // The approval state lives on User, so it cannot join the query above.
+      // A populate `match` filters it server-side and leaves userId null on a
+      // miss, which the existing `!!p.userId` guard already drops.
+      match: { approvalStatus: 'approved' }
+    })
+    .skip(skip).limit(limit);
   const valid = profiles.filter(p => !!p.userId);
   const doctorIds = valid.map(p => p.userId?._id).filter(Boolean);
   const ratingAgg = await Review.aggregate([
@@ -617,7 +664,8 @@ const getDoctorById = asyncHandler(async (req, res) => {
   const doctor = await User.findOne({ _id: doctorId, role: 'doctor' }).select('firstName lastName email');
   if (!doctor) throw new NotFoundError('Doctor');
   const genderImage = getGenderBasedImage(doctor);
-  const profile = await DoctorProfile.findOne({ userId: doctorId }).populate('userId', 'firstName lastName email');
+  const profile = await DoctorProfile.findOne({ userId: doctorId }).select(PUBLIC_DOCTOR_FIELDS)
+    .populate('userId', 'firstName lastName email');
   const ratingStats = await Review.aggregate([
     { $match: { doctorId: new mongoose.Types.ObjectId(doctorId), reviewType: 'doctor' } },
     { $group: { _id: null, average: { $avg: '$rating' }, totalReviews: { $sum: 1 } } }
@@ -948,6 +996,8 @@ const acceptSession = asyncHandler(async (req, res) => {
   const userId = req.actor.id;
   const session = req.authz.resource;
   session.acceptanceStatus = 'accepted';
+  // Answered, so it is no longer a pending request the sweep should expire.
+  session.acceptanceDeadline = null;
   // Payment verification already set status to 'active' for immediate sessions —
   // don't downgrade it back to 'scheduled' once the doctor accepts.
   if (session.sessionType !== 'immediate') session.status = 'scheduled';
@@ -1009,7 +1059,20 @@ async function _autoCancelUnacceptedSession(session, io) {
 
   // Track doctor no-shows the same way explicit doctor cancellations are tracked —
   // otherwise a doctor who repeatedly just never answers accrues no accountability at all.
-  await _incrementDoctorCancellationCount(session.doctorId, 'Failed to update doctor cancellation tracking on missed session');
+  //
+  // But only when the request actually reached them. This used to fire
+  // unconditionally, so the commonest way to collect a strike was a dropped
+  // socket: the ring was emitted into an empty room, the doctor never saw
+  // anything, and three of those raised a warning on their account. A strike
+  // has to mean "you were asked and did not answer".
+  if (session.ringDeliveredAt) {
+    await _incrementDoctorCancellationCount(session.doctorId, 'Failed to update doctor cancellation tracking on missed session');
+  } else {
+    logger.warn('Instant request expired without ever reaching the doctor — not counted against them', {
+      sessionId: session._id.toString().substring(0, 8),
+      doctorId: String(session.doctorId._id || session.doctorId).substring(0, 8)
+    });
+  }
 
   try {
     const populatedMissed = await Session.findById(session._id).populate('patientId', 'firstName lastName email');
@@ -1067,13 +1130,34 @@ const missedSession = asyncHandler(async (req, res) => {
  * refunds/cancels them the same way, so nothing paid can get stuck forever.
  */
 const sweepStuckUnacceptedSessions = async (io) => {
-  const cutoff = new Date(Date.now() - 10 * 60 * 1000);
+  const now = new Date();
+  // Rows created before acceptanceDeadline existed still have to resolve, so
+  // they keep the old createdAt rule. Remove this arm once no unaccepted
+  // instant session predates the deploy.
+  const legacyCutoff = new Date(now.getTime() - INSTANT_ACCEPT_WINDOW_MINUTES * 60 * 1000);
+
   const stuck = await Session.find({
     sessionType: 'immediate',
     acceptanceStatus: 'pending',
     paymentStatus: 'paid',
     status: { $nin: ['cancelled', 'completed'] },
-    createdAt: { $lte: cutoff }
+
+    // NEVER cancel a call that is actually happening.
+    //
+    // acceptanceStatus is a parallel state machine that joining the room used
+    // not to touch, so a doctor who opened the call link instead of clicking
+    // Accept stayed 'pending' forever — and this sweep, whose status filter
+    // does not exclude 'active', cancelled and refunded their session
+    // mid-conversation. Joining now marks acceptance, and these two clauses
+    // are the belt to that braces: a session with a live call or a doctor
+    // already in it is not an unanswered request, whatever its flags say.
+    callStatus: { $ne: 'in-progress' },
+    doctorJoined: { $ne: true },
+
+    $or: [
+      { acceptanceDeadline: { $lte: now } },
+      { acceptanceDeadline: null, createdAt: { $lte: legacyCutoff } }
+    ]
   }).populate('patientId', 'firstName lastName').populate('doctorId', 'firstName lastName');
 
   for (const session of stuck) {
@@ -1099,11 +1183,73 @@ const getDelayedSessions = asyncHandler(async (req, res) => {
     doctorId: userId,
     acceptanceStatus: 'delayed',
     delayedUntil: { $gte: fifteenMinsAgo },
-    status: { $nin: ['cancelled', 'completed'] }
+    status: { $nin: ['cancelled', 'completed'] },
+
+    // A session the doctor has already been in is not a patient still
+    // waiting for them. Only 'cancelled' and 'completed' were excluded, and a
+    // call that ended without being formally completed matches neither — so
+    // the "Patient Waiting" banner reappeared on every dashboard remount,
+    // inviting the doctor to rejoin a conversation that had already happened.
+    doctorJoined: { $ne: true },
+    callStatus: { $ne: 'in-progress' }
   }).populate('patientId', 'firstName lastName profileImage');
   
   res.json({ success: true, sessions });
 });
+/**
+ * GET /api/sessions/instant-requests — paid instant requests still waiting on
+ * this doctor.
+ *
+ * WHY THIS EXISTS
+ *
+ * The incoming-request ring was a single socket event and nothing else: no
+ * notification row, no replay on connect, no polling backstop anywhere in the
+ * doctor's dashboard. If the doctor's browser was not attached to /data at
+ * the exact millisecond the payment verified — page closed, mid-reload, a
+ * network blip, a laptop waking up — the event went into an empty room and
+ * was gone. The patient then sat in a call room nobody was coming to, and
+ * the doctor collected a cancellation strike for a request they were never
+ * shown.
+ *
+ * So the ring stops being a packet and becomes state the doctor can ask for.
+ * The client calls this on mount and on every reconnect, which turns a
+ * dropped event from a lost session into a few seconds' delay.
+ *
+ * Self-scoped by req.actor.id — there is no addressable other-doctor
+ * resource here, so the role gate on the route is the whole policy.
+ */
+const getInstantRequests = asyncHandler(async (req, res) => {
+  const doctorId = req.actor.id;
+  const now = new Date();
+
+  const sessions = await Session.find({
+    doctorId,
+    sessionType: 'immediate',
+    paymentStatus: 'paid',
+    acceptanceStatus: 'pending',
+    status: { $nin: ['cancelled', 'completed'] },
+    // Only requests still inside their window. An expired one belongs to the
+    // sweep, not to a popup that would ask the doctor to answer a call the
+    // patient has already been refunded for.
+    acceptanceDeadline: { $gt: now }
+  }).populate('patientId', 'firstName lastName profileImage');
+
+  // Returning it IS delivery — the doctor's client is holding the request. If
+  // they now ignore it, that is a real missed call and should count.
+  if (sessions.length > 0) {
+    await Session.updateMany(
+      { _id: { $in: sessions.map((s) => s._id) }, ringDeliveredAt: null },
+      { $set: { ringDeliveredAt: now } }
+    );
+    logger.info('Instant requests recovered via backfill', {
+      doctorId: String(doctorId).substring(0, 8),
+      count: sessions.length
+    });
+  }
+
+  res.json({ success: true, sessions });
+});
+
 /** GET /api/sessions/turn-credentials */
 const getTurnCredentials = asyncHandler(async (req, res) => {
   const domain = process.env.METERED_DOMAIN;
@@ -1133,4 +1279,4 @@ const getTurnCredentials = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { getStats, getMyDoctors, getPendingFeedback, getCallHistory, getDoctorSlots, bookImmediate, bookSession, getMySessions, getUpcoming, getAllDoctors, getDoctorById, getSessionById, joinSession, completeSession, cancelSession, getCalendar, getPatientEmergencyContact, getMyTherapists, acceptSession, delaySession, getTurnCredentials, missedSession, getDelayedSessions, sweepStuckUnacceptedSessions };
+module.exports = { getStats, getMyDoctors, getPendingFeedback, getCallHistory, getDoctorSlots, bookImmediate, bookSession, getMySessions, getUpcoming, getAllDoctors, getDoctorById, getSessionById, joinSession, completeSession, cancelSession, getCalendar, getPatientEmergencyContact, getMyTherapists, acceptSession, delaySession, getTurnCredentials, missedSession, getDelayedSessions, getInstantRequests, sweepStuckUnacceptedSessions };

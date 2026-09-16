@@ -114,11 +114,29 @@ function concretePath(path) {
 }
 
 /** A stable census of every collection, to prove a sweep changed nothing. */
+/**
+ * Document counts per collection, EMPTY COLLECTIONS OMITTED.
+ *
+ * The omission is the whole subtlety. Mongoose builds a model's indexes in
+ * the background on first use, and createIndex creates the collection — so a
+ * collection can come into existence mid-sweep holding zero documents. A
+ * census that listed it would then differ from the one taken before, and the
+ * assertion would read as "a refused request wrote to the database" when
+ * nothing was written and every count was identical. That failure was real
+ * and intermittent: under a full-suite run the index builds lose the race and
+ * a bare `"mentalhealthassessments": 0` appears out of nowhere.
+ *
+ * Dropping zero-count entries keeps the assertion pointed at what it is
+ * actually for — a refused request must not create a ROW — instead of at
+ * Mongoose's lazy-initialisation timing. Any document a leak wrote still
+ * shows up, in a new key or an existing count.
+ */
 async function census() {
   const names = (await mongoose.connection.db.listCollections().toArray()).map((c) => c.name).sort();
   const out = {};
   for (const n of names) {
-    out[n] = await mongoose.connection.db.collection(n).countDocuments();
+    const count = await mongoose.connection.db.collection(n).countDocuments();
+    if (count > 0) out[n] = count;
   }
   return out;
 }

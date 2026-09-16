@@ -188,7 +188,7 @@ describe('payout onboarding', () => {
     // doctor with no phone number.
     await DoctorProfile.updateOne(
       { userId: f.doctorB._id },
-      { $set: { razorpayOnboardingStatus: 'not_requested', razorpayAccountId: null, payoutSetupCompleted: false } }
+      { $set: { razorpayOnboardingStatus: 'not_requested', razorpayAccountId: null, payoutSetupCompleted: false, payoutApproved: false } }
     );
     await User.updateOne({ _id: f.doctorB._id }, { $set: { phoneNumber: '9000000022' } });
 
@@ -205,18 +205,172 @@ describe('payout onboarding', () => {
     expect(approved.status).toBeLessThan(400);
 
     const after = await DoctorProfile.findOne({ userId: f.doctorB._id });
-    expect(after.razorpayAccountId).toBe('acc_live_onboarded');
-    expect(after.razorpayOnboardingStatus).not.toBe('pending_admin_approval');
+    // Approval is a recorded decision, not a gateway integration. It used to
+    // call Razorpay to create a Route linked account and, on any error,
+    // fabricate `acc_mock_<hex>` while still reporting success — which is how
+    // doctors ended up "active" with an id no money could route to.
+    expect(after.payoutApproved).toBe(true);
+    expect(after.payoutApprovedAt).toBeInstanceOf(Date);
+    expect(after.razorpayOnboardingStatus).toBe('active');
+    // Nothing fabricated an account id.
+    expect(after.razorpayAccountId).toBeFalsy();
+  });
+
+  test('rejecting a doctor revokes their bookability', async () => {
+    // A rejected doctor left with payoutApproved true would keep taking
+    // bookings the platform has no approved way to settle.
+    await DoctorProfile.updateOne(
+      { userId: f.doctorB._id },
+      { $set: { razorpayOnboardingStatus: 'pending_admin_approval', payoutApproved: true } }
+    );
+
+    const res = await call('post', `/api/admin/payments/onboarding-requests/${f.doctorB._id}/reject`, adminToken, { reason: 'Bank details unreadable' });
+    expect(res.status).toBeLessThan(400);
+
+    const after = await DoctorProfile.findOne({ userId: f.doctorB._id });
+    expect(after.payoutApproved).toBe(false);
+    expect(after.razorpayOnboardingStatus).toBe('rejected');
   });
 
   test('approving a doctor who never requested onboarding is refused', async () => {
+    // The fixture is seeded payoutApproved, which is a DIFFERENT refusal —
+    // without clearing it this passes on the "already approved" branch and
+    // never exercises the one it is named for.
+    await DoctorProfile.updateOne(
+      { userId: f.doctorA._id },
+      { $set: { payoutApproved: false, razorpayOnboardingStatus: 'not_requested' } }
+    );
+
     const res = await call('post', `/api/admin/payments/onboarding-requests/${f.doctorA._id}/approve`, adminToken, {});
     expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/current status/i);
+
+    // Refused means unchanged: an admin cannot conscript a doctor who never asked.
+    const after = await DoctorProfile.findOne({ userId: f.doctorA._id });
+    expect(after.payoutApproved).toBe(false);
+  });
+
+  test('approving a doctor who is already approved is refused', async () => {
+    // Guards against a second approval quietly re-stamping payoutApprovedAt,
+    // which would misdate the audit trail on who authorised paying whom.
+    await DoctorProfile.updateOne(
+      { userId: f.doctorA._id },
+      { $set: { payoutApproved: true, razorpayOnboardingStatus: 'pending_admin_approval' } }
+    );
+
+    const res = await call('post', `/api/admin/payments/onboarding-requests/${f.doctorA._id}/approve`, adminToken, {});
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/already approved/i);
+  });
+
+  test('approving a doctor with no phone number is refused', async () => {
+    await DoctorProfile.updateOne(
+      { userId: f.doctorB._id },
+      { $set: { payoutApproved: false, razorpayOnboardingStatus: 'pending_admin_approval' } }
+    );
+    await User.updateOne({ _id: f.doctorB._id }, { $unset: { phoneNumber: 1 } });
+
+    const res = await call('post', `/api/admin/payments/onboarding-requests/${f.doctorB._id}/approve`, adminToken, {});
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/phone number/i);
+
+    const after = await DoctorProfile.findOne({ userId: f.doctorB._id });
+    expect(after.payoutApproved).toBe(false);
   });
 
   test('a patient cannot request payout onboarding', async () => {
     const res = await call('post', '/api/payments/request-onboarding', patientToken, {});
     expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+
+  describe('editing bank details revokes approval', () => {
+    // The guard that stops money reaching an account no admin ever reviewed:
+    // an approved doctor swaps the account number, and without this the next
+    // payout goes wherever they just typed. It lives in a pre('validate')
+    // hook rather than in submitBankDetails so that no future write path can
+    // forget it — which means it can only be proven through save(), the only
+    // path that runs hooks. updateOne would skip it entirely and pass for the
+    // wrong reason.
+    beforeEach(async () => {
+      await DoctorProfile.updateOne(
+        { userId: f.doctorB._id },
+        {
+          $set: {
+            payoutApproved: true,
+            payoutApprovedAt: new Date(),
+            payoutBankStatus: 'approved'
+          }
+        }
+      );
+    });
+
+    afterAll(async () => {
+      // Leave the shared fixture as the rest of the file found it.
+      await DoctorProfile.updateOne(
+        { userId: f.doctorB._id },
+        { $set: { payoutApproved: false, payoutBankStatus: 'not_submitted' }, $unset: { payoutBank: 1 } }
+      );
+    });
+
+    test('changing the account number un-approves the doctor', async () => {
+      const profile = await DoctorProfile.findOne({ userId: f.doctorB._id });
+      profile.payoutBank = {
+        accountHolderName: 'Someone Else Entirely',
+        accountNumber: '999888777666',
+        ifsc: 'HDFC0001234',
+        panNumber: 'ABCDE1234F',
+        submittedAt: new Date()
+      };
+      await profile.save();
+
+      const after = await DoctorProfile.findOne({ userId: f.doctorB._id });
+      expect(after.payoutApproved).toBe(false);
+      expect(after.payoutApprovedAt).toBeNull();
+      expect(after.payoutBankStatus).toBe('pending_admin_approval');
+    });
+
+    test('a save that does not touch bank details leaves approval standing', async () => {
+      // The other half of the condition. Without this, a hook that revoked on
+      // every save would look identical to a correct one — and would quietly
+      // un-book every doctor whose profile was edited for any reason.
+      const profile = await DoctorProfile.findOne({ userId: f.doctorB._id });
+      profile.bio = 'An unrelated edit to an unrelated field.';
+      await profile.save();
+
+      const after = await DoctorProfile.findOne({ userId: f.doctorB._id });
+      expect(after.payoutApproved).toBe(true);
+      expect(after.payoutBankStatus).toBe('approved');
+    });
+
+    test('the first-ever submission is not treated as a revocation', async () => {
+      // isNew guards the create case: a brand-new profile carrying bank
+      // details has nothing to revoke, and must not be stamped
+      // pending_admin_approval by a hook meant for edits.
+      const fresh = new DoctorProfile({
+        userId: new mongoose.Types.ObjectId(),
+        specialization: ['Anxiety'],
+        experience: 5,
+        qualification: ['MA Psychology'],
+        languages: ['English'],
+        treatsFor: ['Anxiety'],
+        pricing: { min: 1000, max: 1500 },
+        type: 'Psychologist',
+        payoutApproved: true,
+        payoutBankStatus: 'approved',
+        payoutBank: {
+          accountHolderName: 'New Joiner',
+          accountNumber: '123123123123',
+          ifsc: 'HDFC0001234',
+          panNumber: 'ZZZZZ9999Z',
+          submittedAt: new Date()
+        }
+      });
+      await fresh.save();
+
+      expect(fresh.payoutApproved).toBe(true);
+      expect(fresh.payoutBankStatus).toBe('approved');
+      await DoctorProfile.deleteOne({ _id: fresh._id });
+    });
   });
 
   test('changing the platform fee requires super admin', async () => {
