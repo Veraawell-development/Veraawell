@@ -485,7 +485,7 @@ const DoctorProfilePage: React.FC = () => {
                     "name": "What is the cancellation policy?",
                     "acceptedAnswer": {
                       "@type": "Answer",
-                      "text": "We understand that plans change. You can reschedule or cancel your session up to 24 hours in advance without any penalty directly from your bookings dashboard. Late cancellations or missed appointments may be subject to a fee."
+                      "text": "We understand that plans change. You can reschedule or cancel your session more than 4 hours in advance without any penalty, directly from your bookings dashboard. Cancellations inside 4 hours, and missed appointments, are not refundable."
                     }
                   }
                 ]
@@ -947,7 +947,7 @@ const DoctorProfilePage: React.FC = () => {
             },
             {
               q: "What is the cancellation policy?",
-              a: "We understand that plans change. You can reschedule or cancel your session up to 24 hours in advance without any penalty directly from your bookings dashboard. Late cancellations or missed appointments may be subject to a fee."
+              a: "We understand that plans change. You can reschedule or cancel your session more than 4 hours in advance without any penalty, directly from your bookings dashboard. Cancellations inside 4 hours, and missed appointments, are not refundable."
             }
           ].map((faq, idx) => (
             <div 

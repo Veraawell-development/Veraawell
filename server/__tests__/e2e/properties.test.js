@@ -39,7 +39,8 @@ describe('refund policy', () => {
 
   test('a refund is monotonically non-decreasing in notice given', () => {
     // Cancelling earlier can never be punished more harshly than cancelling
-    // later. This is the property the three tiers exist to express.
+    // later. This is the property the tiers exist to express, and it holds
+    // for any number of them — it survived the middle tier being removed.
     fc.assert(fc.property(price, hours, hours, (p, a, b) => {
       const [earlier, later] = a <= b ? [b, a] : [a, b];
       return calculateRefund(p, earlier, 'patient') >= calculateRefund(p, later, 'patient');
@@ -62,17 +63,27 @@ describe('refund policy', () => {
       const text = describeRefundPolicy(refund, p);
       if (refund === p) return text.includes('100%');
       if (refund === 0) return /No refund/.test(text);
-      return text.includes('50%');
+      // Two tiers: anything else is not a labelling problem, it is a
+      // calculation that should not be reachable.
+      return false;
     }), { numRuns: RUNS });
   });
 
-  test('the tier boundaries sit exactly where the policy says', () => {
+  test('the tier boundary sits exactly where the policy says', () => {
     // The properties above hold for any monotone step function, so pin the
-    // actual thresholds too: strictly greater than 24h and than 4h.
-    expect(calculateRefund(1000, 24.001, 'patient')).toBe(1000);
-    expect(calculateRefund(1000, 24, 'patient')).toBe(500);
-    expect(calculateRefund(1000, 4.001, 'patient')).toBe(500);
+    // actual threshold too: strictly greater than 4 hours, matching
+    // RefundPolicyPage.tsx.
+    expect(calculateRefund(1000, 4.001, 'patient')).toBe(1000);
     expect(calculateRefund(1000, 4, 'patient')).toBe(0);
+  });
+
+  test('a refund is all or nothing', () => {
+    // With the 4-24h band gone there is no partial refund left in the system.
+    // Stated as a property so that reintroducing one has to be deliberate.
+    fc.assert(fc.property(price, hours, (p, h) => {
+      const refund = calculateRefund(p, h, 'patient');
+      return refund === 0 || refund === p;
+    }), { numRuns: RUNS });
   });
 });
 

@@ -41,12 +41,12 @@ const FAQPage: React.FC = () => {
         {
             category: 'booking',
             question: 'Can I cancel or reschedule a session?',
-            answer: 'Yes, you can cancel sessions up to 24 hours before the scheduled time for a full refund. To cancel, go to your dashboard, click on the session, and select "Cancel Session". For rescheduling, please cancel and book a new slot.'
+            answer: 'Yes. Cancel more than 4 hours before the scheduled start and you receive a full refund. To cancel, go to your dashboard, click on the session, and select "Cancel Session". For rescheduling, please cancel and book a new slot.'
         },
         {
             category: 'booking',
             question: 'What if I miss a session?',
-            answer: 'If you miss a scheduled session without prior cancellation, it will be marked as a "no-show" and the payment will not be refunded. We recommend setting reminders and canceling at least 24 hours in advance if you cannot attend.'
+            answer: 'If you miss a scheduled session without prior cancellation, it will be marked as a "no-show" and the payment will not be refunded. We recommend setting reminders and cancelling more than 4 hours in advance if you cannot attend.'
         },
         {
             category: 'booking',
@@ -68,7 +68,7 @@ const FAQPage: React.FC = () => {
         {
             category: 'payments',
             question: 'Do you offer refunds?',
-            answer: 'Yes, full refunds are provided for sessions cancelled at least 24 hours in advance. Refunds are processed within 5-7 business days to your original payment method.'
+            answer: 'Yes. Full refunds are provided for sessions cancelled more than 4 hours before the scheduled start. Refunds are processed within 5-7 business days to your original payment method.'
         },
         {
             category: 'payments',

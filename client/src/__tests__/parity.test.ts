@@ -34,9 +34,10 @@ describe('refund tiers agree on both sides', () => {
         const when = new Date(Date.now() + hours * 3600 * 1000);
         const client = calculateRefundPreview(price, when).amount;
         const server = serverRefund.calculateRefund(price, hours, 'patient');
-        // A millisecond of clock drift between the two calls can straddle a
-        // boundary; only flag a genuine disagreement.
-        const nearBoundary = [4, 24].some((b) => Math.abs(hours - b) < 0.02);
+        // A millisecond of clock drift between the two calls can straddle the
+        // boundary; only flag a genuine disagreement. There is one boundary
+        // now — the 24h edge went away with the 50% tier.
+        const nearBoundary = [4].some((b) => Math.abs(hours - b) < 0.02);
         if (client !== server && !nearBoundary) {
           mismatches.push(`price ${price} at ${hours}h: client ${client} vs server ${server}`);
         }
@@ -53,9 +54,11 @@ describe('refund tiers agree on both sides', () => {
         const { amount, label } = calculateRefundPreview(price, when);
         expect(amount).toBe(serverRefund.calculateRefund(price, hours, 'patient'));
 
+        // Two tiers, so there is no third case: any amount that is neither
+        // the full price nor zero would itself be the bug.
         if (amount === price) expect(label).toContain('100%');
         else if (amount === 0) expect(label).toContain('No refund');
-        else expect(label).toContain('50%');
+        else throw new Error(`unexpected partial refund of ${amount} on a ${price} session`);
       }
     }
   });

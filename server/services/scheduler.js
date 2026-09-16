@@ -4,6 +4,10 @@ const DoctorAvailability = require('../models/doctorAvailability');
 const { sendSessionReminderEmail } = require('./email.service');
 const { createLogger } = require('../utils/logger');
 const { resolveStartsAt, resolveEndsAt } = require('../services/sessionTime');
+const { CHECKOUT_TTL_MINUTES } = require('../config/time');
+const { tryTransition } = require('./sessionTransition');
+const { EVENT, ACTOR } = require('./sessionState');
+const { refundSession } = require('./sessionRefund');
 
 const logger = createLogger('SCHEDULER');
 
@@ -11,6 +15,7 @@ let notificationTask = null;
 let statusUpdateTask = null;
 let paymentCleanupTask = null;
 let stuckSessionTask = null;
+let clawbackTask = null;
 
 // node-cron does not skip an overlapping run by default — if a job ever
 // takes longer than its own interval (a slow DB moment, a spike in session
@@ -20,6 +25,7 @@ let statusSweepRunning = false;
 let notificationSweepRunning = false;
 let stuckSessionSweepRunning = false;
 let paymentCleanupRunning = false;
+let clawbackSweepRunning = false;
 
 /**
  * Sweep past sessions and mark them completed/no-show.
@@ -44,22 +50,104 @@ const runSessionStatusUpdate = async () => {
         if (scheduledSessions.length === 0) return 0;
 
         let updatedCount = 0;
+        let refundedCount = 0;
         for (const session of scheduledSessions) {
-            if (resolveEndsAt(session) < now) {
-                session.status = (session.doctorJoined && session.patientJoined) ? 'completed' : 'no-show';
-                if (session.status === 'completed') session.callStatus = 'completed';
-                await session.save();
-                updatedCount++;
+            if (resolveEndsAt(session) >= now) continue;
+
+            // Routed through the transition table rather than a bare
+            // `session.status = ...; save()`. The table already decides
+            // completed-vs-no-show from the join flags, and going through
+            // applyTransition means the write is a compare-and-set and the
+            // post-image is checked against the invariants — neither of which
+            // a direct save() gets. It also has to be the transition, not a
+            // save, because the refund below must see a consistent state.
+            const swept = await tryTransition(session, {
+                event: EVENT.SWEEP_ELAPSED,
+                actor: ACTOR.SYSTEM,
+                now,
+                extraSet: (session.doctorJoined && session.patientJoined)
+                    ? { callStatus: 'completed' }
+                    : {}
+            });
+            if (!swept.changed) continue;
+            updatedCount += 1;
+
+            // The doctor did not turn up but the patient did.
+            //
+            // RefundPolicyPage.tsx promises "an automatic 100% full refund" in
+            // this exact situation. It was only true for INSTANT sessions,
+            // which sweepStuckUnacceptedSessions handles; a patient who sat
+            // waiting for a normally-booked session got the no-show status and
+            // no money back, and nothing anywhere flagged it. The condition is
+            // deliberately not just `!doctorJoined`: if the patient did not
+            // attend either, nobody was stood up and the session is not
+            // refundable (and, per the payout rule, the doctor is still paid
+            // for a patient no-show).
+            const doctorStoodThemUp = swept.session.status === 'no-show'
+                && session.patientJoined === true
+                && session.doctorJoined !== true;
+
+            if (doctorStoodThemUp) {
+                const result = await refundSession(swept.session, {
+                    actor: ACTOR.SYSTEM,
+                    amount: swept.session.price,
+                    reason: 'Therapist did not join the session'
+                });
+                if (result.refunded) {
+                    refundedCount += 1;
+                    logger.info('Auto-refunded a doctor no-show', {
+                        sessionId: String(session._id).substring(0, 8),
+                        amount: swept.session.price
+                    });
+                } else if (result.failed) {
+                    // Left in refund_failed for the admin retry queue rather
+                    // than retried here — the sweep runs every 5 minutes and
+                    // must not hammer the gateway.
+                    logger.error('Auto-refund of a doctor no-show failed', {
+                        sessionId: String(session._id).substring(0, 8)
+                    });
+                }
             }
         }
 
         if (updatedCount > 0) {
-            logger.info(`Session status sweep complete`, { updated: updatedCount });
+            logger.info(`Session status sweep complete`, { updated: updatedCount, autoRefunded: refundedCount });
         }
         return updatedCount;
     } catch (error) {
-        logger.error('Error in session status sweep', { error: error.message });
+        // The stack matters here: this catch wraps the whole sweep, so a
+        // throw from any one session silently stops the rest. Without it a
+        // failure inside the auto-refund looked like "the sweep did nothing".
+        logger.error('Error in session status sweep', { error: error.message, stack: error.stack });
         return 0;
+    }
+};
+
+/**
+ * Reconcile clawbacks: find refunds that landed on already-paid-out sessions
+ * and make sure each has its negative adjustment.
+ *
+ * A named export rather than an inline cron callback, for the same reason
+ * runSessionStatusUpdate is one — a body that only a cron can reach is a body
+ * no test can call. Returns the number of rows recorded so a caller can
+ * assert on it.
+ */
+const runClawbackReconciliation = async () => {
+    if (clawbackSweepRunning) return 0;
+    clawbackSweepRunning = true;
+    try {
+        const { reconcileClawbacks } = require('./payoutLedger');
+        const recorded = await reconcileClawbacks();
+        if (recorded > 0) logger.info('Payout clawback reconciliation complete', { recorded });
+        return recorded;
+    } catch (error) {
+        // Swallowed deliberately: one bad session must not stop the hourly
+        // sweep from reaching the rest, and the inline refund hook has
+        // already written most of these anyway.
+        logger.error('Error in payout clawback reconciliation', { error: error.message });
+        return 0;
+    } finally {
+        clawbackSweepRunning = false;
     }
 };
 
@@ -160,7 +248,11 @@ const startScheduler = (io) => {
     // A paid instant session the doctor never accepted has no resolution path if the
     // patient closes the app before their own client-side 10-minute timer fires
     // /missed — this is the server-side backstop so nothing paid stays stuck forever.
-    stuckSessionTask = cron.schedule('*/2 * * * *', async () => {
+    // Every minute, not every two: the instant-request window is two minutes,
+    // and a sweep on a two-minute cadence could add most of another one to it
+    // — a patient waiting on a doctor who is never coming should not sit
+    // through double the advertised wait before being refunded.
+    stuckSessionTask = cron.schedule('* * * * *', async () => {
         if (stuckSessionSweepRunning) return;
         stuckSessionSweepRunning = true;
         try {
@@ -174,7 +266,23 @@ const startScheduler = (io) => {
         }
     });
 
-    logger.info('All schedulers started successfully (notifications: 1min, status-sweep: 5min, payment-cleanup: 30min, stuck-sessions: 2min)');
+    // --- Payout clawback reconciliation: hourly ---
+    //
+    // A session that was already paid out to a doctor and is later refunded
+    // leaves the platform short that doctor's share, which has to come off
+    // their next payout. applyTransition raises that adjustment inline the
+    // moment a session reaches `refunded` — but THREE of the four refund
+    // paths (cancelSession, _autoCancelUnacceptedSession, adminRefundSession)
+    // still mutate paymentStatus with a raw save() and never reach that hook.
+    //
+    // So this is not a backstop today, it is the primary mechanism for those
+    // three. It stays valuable after they are converted, because a webhook
+    // that arrives while the app is restarting would otherwise be missed.
+    // Idempotent via a unique key, so overlapping with the inline hook is
+    // safe.
+    clawbackTask = cron.schedule('0 * * * *', runClawbackReconciliation);
+
+    logger.info('All schedulers started successfully (notifications: 1min, status-sweep: 5min, payment-cleanup: 30min, stuck-sessions: 2min, clawbacks: hourly)');
 
     // ── Phase 9: Expired Payment Cleanup (every 30 minutes) ──────────────────
     // Sessions where the patient opened Razorpay but didn't pay within 30 mins.
@@ -183,12 +291,12 @@ const startScheduler = (io) => {
         if (paymentCleanupRunning) return;
         paymentCleanupRunning = true;
         try {
-            const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+            const cutoff = new Date(Date.now() - CHECKOUT_TTL_MINUTES * 60 * 1000);
 
             const staleSessions = await Session.find({
                 paymentStatus: 'pending',
                 razorpayOrderId: { $ne: null }, // Only sessions that went through Razorpay
-                createdAt: { $lte: thirtyMinutesAgo },
+                createdAt: { $lte: cutoff },
                 status: { $nin: ['cancelled', 'completed'] }
             });
 
@@ -252,11 +360,16 @@ const stopScheduler = () => {
         stuckSessionTask.stop();
         stuckSessionTask = null;
     }
+    if (clawbackTask) {
+        clawbackTask.stop();
+        clawbackTask = null;
+    }
     logger.info('All schedulers stopped');
 };
 
 module.exports = {
     startScheduler,
     stopScheduler,
-    runSessionStatusUpdate
+    runSessionStatusUpdate,
+    runClawbackReconciliation
 };

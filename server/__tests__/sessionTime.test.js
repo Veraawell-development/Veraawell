@@ -75,22 +75,27 @@ describe('refund tier boundaries, end to end', () => {
     return calculateRefund(PRICE, hoursUntilStart(s), 'patient');
   }
 
-  test('exactly 24h out is the 50% tier (the boundary is >24h)', () => {
-    expect(refundFor(24)).toBe(500);
-  });
-
-  test('a millisecond past 24h is a full refund', () => {
-    const s = session({ startsAt: new Date(NOW.getTime() + 24 * 3600 * 1000 + 1) });
-    expect(calculateRefund(PRICE, hoursUntilStart(s), 'patient')).toBe(1000);
-  });
-
   test('exactly 4h out is the 0% tier (the boundary is >4h)', () => {
     expect(refundFor(4)).toBe(0);
   });
 
-  test('a millisecond past 4h is the 50% tier', () => {
+  test('a millisecond past 4h is already a FULL refund', () => {
+    // The single boundary in the policy, exercised through the real
+    // startsAt -> hoursUntilStart -> calculateRefund pipeline rather than by
+    // calling calculateRefund with a hand-written hours figure.
     const s = session({ startsAt: new Date(NOW.getTime() + 4 * 3600 * 1000 + 1) });
-    expect(calculateRefund(PRICE, hoursUntilStart(s), 'patient')).toBe(500);
+    expect(calculateRefund(PRICE, hoursUntilStart(s), 'patient')).toBe(1000);
+  });
+
+  test('a millisecond before 4h is nothing', () => {
+    const s = session({ startsAt: new Date(NOW.getTime() + 4 * 3600 * 1000 - 1) });
+    expect(calculateRefund(PRICE, hoursUntilStart(s), 'patient')).toBe(0);
+  });
+
+  test('24h is not a boundary — it used to split 100% from 50%', () => {
+    for (const hoursOut of [23.99, 24, 24.01]) {
+      expect(refundFor(hoursOut)).toBe(PRICE);
+    }
   });
 
   test('a doctor cancellation is always a full refund regardless of timing', () => {
@@ -104,7 +109,12 @@ describe('refund tier boundaries, end to end', () => {
     // setHours could not guarantee.
     const s = session({ startsAt: new Date(NOW.getTime() + 10 * 3600 * 1000) });
     expect(hoursUntilStart(s)).toBeCloseTo(10, 9);
-    expect(calculateRefund(PRICE, hoursUntilStart(s), 'patient')).toBe(500);
+    expect(calculateRefund(PRICE, hoursUntilStart(s), 'patient')).toBe(1000);
+
+    // And close to the boundary, where a 5h30m timezone error would actually
+    // change the answer rather than just the arithmetic.
+    const nearBoundary = session({ startsAt: new Date(NOW.getTime() + 4.5 * 3600 * 1000) });
+    expect(calculateRefund(PRICE, hoursUntilStart(nearBoundary), 'patient')).toBe(1000);
   });
 });
 
