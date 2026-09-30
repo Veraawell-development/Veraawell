@@ -180,11 +180,30 @@ describe('doctor pricing', () => {
     expect(res.status).toBe(400);
   });
 
-  test('a positive price under the 100 floor is refused', async () => {
+  test('a positive price under the ₹1 floor is refused', async () => {
+    // ₹1 is Razorpay's minimum order amount, so nothing smaller is chargeable.
     const res = await call('patch', '/api/profile/pricing', doctorToken, {
-      pricing: { ...validPricing, session55: 50 }
+      pricing: { ...validPricing, session20: 0.5 }
     });
     expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/at least ₹1/);
+  });
+
+  test('₹1 — the smallest chargeable amount — is accepted on every slot', async () => {
+    const onePricing = {
+      session20: 1, session40: 1, session55: 1,
+      audio: { session20: 1, session40: 1, session55: 1 }
+    };
+    const res = await call('patch', '/api/profile/pricing', doctorToken, { pricing: onePricing });
+    expect(res.status).toBeLessThan(300);
+
+    const profile = await DoctorProfile.findOne({ userId: f.doctorA._id });
+    expect(profile.pricing.session20).toBe(1);
+    expect(profile.pricing.audio.session55).toBe(1);
+
+    // Put the fixture back so later suites' price assumptions still hold.
+    const restore = await call('patch', '/api/profile/pricing', doctorToken, { pricing: validPricing });
+    expect(restore.status).toBeLessThan(300);
   });
 
   test('a patient cannot set pricing', async () => {

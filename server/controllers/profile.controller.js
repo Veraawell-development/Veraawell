@@ -247,8 +247,11 @@ const updatePricing = asyncHandler(async (req, res) => {
       if (isNaN(num) || num < 0) {
         return res.status(400).json({ success: false, message: `${label} price must be a non-negative number` });
       }
-      if (num > 0 && num < 100) {
-        return res.status(400).json({ success: false, message: `${label} price must be at least ₹100` });
+      // ₹1 is the floor because it is Razorpay's minimum order amount (100
+      // paise) — anything smaller cannot be charged at all. It used to be
+      // ₹100, which made a live low-value test booking impossible.
+      if (num > 0 && num < 1) {
+        return res.status(400).json({ success: false, message: `${label} price must be at least ₹1` });
       }
       if (num > 10000) {
         return res.status(400).json({ success: false, message: `${label} price cannot exceed ₹10,000` });
