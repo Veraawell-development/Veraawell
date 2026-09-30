@@ -618,7 +618,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
       <RatingModal
         isOpen={showRatingModal}
         sessionId={session._id}
-        doctorName={`${session.doctorId.firstName} ${session.doctorId.lastName}`}
+        doctorName={session.doctorId ? `${session.doctorId.firstName} ${session.doctorId.lastName || ''}`.trim() : 'your therapist'}
         onClose={() => setShowRatingModal(false)}
         onSubmit={handleRatingSubmit}
       />

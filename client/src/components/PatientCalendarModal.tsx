@@ -13,12 +13,16 @@ interface PatientCalendarModalProps {
 interface Session {
     _id: string;
     patientId: string;
+    // Nullable on purpose: mongoose populate() yields null when the doctor
+    // document is gone, which is exactly what accumulates in PAST sessions
+    // (the account cascade delete is a non-transactional Promise.all). This
+    // was typed non-nullable, so the compiler could not see the crash below.
     doctorId: {
         _id: string;
         firstName: string;
         lastName: string;
         profileImage?: string;
-    };
+    } | null;
     sessionDate: string;
     sessionTime: string;
     duration: number;
@@ -49,6 +53,19 @@ const T = {
 };
 const FONT_SERIF = "'Newsreader', Georgia, serif";
 const FONT_SANS = "'Public Sans', 'Inter', sans-serif";
+
+/**
+ * A session's doctor may be null — see the Session interface above.
+ * Calendar.tsx:243 and session.controller.js:568 already guard this; these
+ * give the modal the same treatment in one place rather than four.
+ */
+type SessionDoctor = { firstName?: string; lastName?: string; profileImage?: string } | null | undefined;
+
+const doctorLabel = (d: SessionDoctor) =>
+    d?.firstName ? `Dr. ${d.firstName} ${d.lastName || ''}`.trim() : 'Doctor';
+
+const doctorInitials = (d: SessionDoctor) =>
+    `${d?.firstName?.[0] || ''}${d?.lastName?.[0] || ''}`.toUpperCase() || 'D';
 
 const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onClose }) => {
     const navigate = useNavigate();
@@ -384,10 +401,10 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
             >
                 {/* Doctor Info */}
                 <div className="flex items-start gap-3 mb-3">
-                    {session.doctorId.profileImage ? (
+                    {session.doctorId?.profileImage ? (
                         <img
                             src={session.doctorId.profileImage}
-                            alt={`Dr. ${session.doctorId.firstName} ${session.doctorId.lastName}`}
+                            alt={doctorLabel(session.doctorId)}
                             className="w-12 h-12 rounded-full object-cover flex-shrink-0"
                             style={{ border: `2px solid ${T.border}` }}
                             onError={(e) => {
@@ -399,15 +416,15 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                         />
                     ) : null}
                     <div
-                        className={`w-12 h-12 rounded-full items-center justify-center font-bold text-lg flex-shrink-0 ${session.doctorId.profileImage ? 'hidden' : 'flex'}`}
+                        className={`w-12 h-12 rounded-full items-center justify-center font-bold text-lg flex-shrink-0 ${session.doctorId?.profileImage ? 'hidden' : 'flex'}`}
                         style={{ background: T.teal, color: '#fff', fontFamily: FONT_SERIF }}
                     >
-                        {session.doctorId.firstName[0]}{session.doctorId.lastName[0]}
+                        {doctorInitials(session.doctorId)}
                     </div>
                     <div className="flex-1">
                         <div className="flex items-center gap-2 mb-1">
                             <h4 style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, color: T.text }}>
-                                Dr. {session.doctorId.firstName} {session.doctorId.lastName}
+                                {doctorLabel(session.doctorId)}
                             </h4>
                             {getStatusBadge(session.status, session)}
                         </div>

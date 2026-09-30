@@ -161,6 +161,14 @@ describe('assessment scoring agrees on both sides', () => {
     // entries and dla20 is not among them, so calculateTestScore('dla20')
     // throws 'Invalid test type'. The server is waiting for a score the client
     // cannot produce.
+    //
+    // The patient dashboard used to offer a DLA-20 tile anyway, spelled
+    // 'disability' — a third spelling matching neither side — which bounced
+    // every patient who tapped it straight back to the list. That tile and the
+    // matching filter pill on MyTestsPage are gone: the platform no longer
+    // advertises an assessment it cannot administer. This assertion stays as
+    // the record of why, and will fail the day someone adds the questions,
+    // which is the right moment to put the tile back.
     expect(Object.keys(MENTAL_HEALTH_TESTS)).toHaveLength(10);
     expect(MENTAL_HEALTH_TESTS.dla20).toBeUndefined();
     expect(() => calculateTestScore('dla20', [{ questionId: 1, answer: 2 }])).toThrow(/Invalid test type/);

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import PatientSettingsPage from './pages/PatientSettingsPage';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { DataSocketProvider } from './context/DataSocketContext';
+import ErrorBoundary from './components/ErrorBoundary';
 import { AdminProvider, useAdmin } from './context/AdminContext';
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
@@ -339,6 +340,7 @@ function AppWithFooter() {
 
 export default function App() {
   return (
+    <ErrorBoundary>
     <Router>
       <AuthProvider>
         <DataSocketProvider>
@@ -383,5 +385,6 @@ export default function App() {
         </DataSocketProvider>
       </AuthProvider>
     </Router>
+    </ErrorBoundary>
   );
 }

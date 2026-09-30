@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { formatReportText } from '../utils/reportContent';
 import { useNavigate, useParams } from 'react-router-dom';
 import { FiDownload, FiArrowLeft, FiFile } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
@@ -211,7 +212,7 @@ const DoctorReportsDetailPage: React.FC = () => {
                       } catch (e) {
                         return (
                           <div className="bg-gray-50/50 p-5 rounded-2xl border border-gray-100 flex-1">
-                            <p className="whitespace-pre-wrap text-[13px] leading-relaxed font-medium text-gray-700 m-0" style={{ fontFamily: 'Inter, sans-serif' }}>{report.content}</p>
+                            <p className="whitespace-pre-wrap text-[13px] leading-relaxed font-medium text-gray-700 m-0" style={{ fontFamily: 'Inter, sans-serif' }}>{formatReportText(report.content)}</p>
                           </div>
                         );
                       }

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { MENTAL_HEALTH_TESTS, calculateTestScore } from '../data/mentalHealthTests';
 import type { TestDefinition } from '../data/mentalHealthTests';
@@ -47,28 +47,76 @@ const MentalHealthTestPage: React.FC = () => {
 
     if (!test) return null;
 
-    // Filter questions based on conditions
-    const visibleQuestions = test.questions.filter(q => {
-        if (!q.sectionId) return true;
-        const section = test.sections?.find(s => s.id === q.sectionId);
-        if (!section || !section.condition) return true;
-        return section.condition(responses);
-    });
+    /**
+     * Which questions apply, given a set of answers.
+     *
+     * Sections can be conditional — the addiction test branches on Q1 into
+     * alcohol / drugs / behaviour. So the visible set is a function OF the
+     * responses, which means it has to be recomputed against the answer just
+     * given, not read off the render's stale copy. See handleAnswer.
+     */
+    const visibleFor = useCallback((resp: Record<number, number>) => (
+        test.questions.filter(q => {
+            if (!q.sectionId) return true;
+            const section = test.sections?.find(s => s.id === q.sectionId);
+            if (!section || !section.condition) return true;
+            return section.condition(resp);
+        })
+    ), [test]);
 
+    const visibleQuestions = visibleFor(responses);
     const currentQuestion = visibleQuestions[currentQuestionIndex];
-    if (!currentQuestion && visibleQuestions.length > 0) {
-        // Fallback if current index is out of bounds due to condition changes
-        setCurrentQuestionIndex(visibleQuestions.length - 1);
-    }
 
-    const handleAnswer = async (value: number) => {
+    // If a conditional section collapsed under us, step back into range.
+    // This was a setState DURING render, which schedules a re-render but does
+    // not stop the current one — so the render that spotted the problem still
+    // ran on to dereference the undefined question.
+    useEffect(() => {
+        if (visibleQuestions.length > 0 && currentQuestionIndex > visibleQuestions.length - 1) {
+            setCurrentQuestionIndex(visibleQuestions.length - 1);
+        }
+    }, [visibleQuestions.length, currentQuestionIndex]);
+
+    /**
+     * True while the 300ms advance animation is in flight.
+     *
+     * The page says "Auto-advances on selection" and then leaves the buttons
+     * live for those 300ms. The advance was `prev => prev + 1` with the bound
+     * checked at CLICK time, so two taps inside the window — a change of mind,
+     * a double tap, an impatient re-tap because nothing visibly happened —
+     * queued two increments and walked off the end of the array. That was the
+     * white screen, and it was not specific to any one test.
+     *
+     * A ref for the synchronous guard (state would not have updated yet by the
+     * second click) and state for the disabled attribute.
+     */
+    const advancing = useRef(false);
+    const [isAdvancing, setIsAdvancing] = useState(false);
+
+    useEffect(() => () => { advancing.current = false; }, []);
+
+    const handleAnswer = (value: number) => {
+        if (!currentQuestion || advancing.current || saveAssessmentMutation.isPending) return;
+
         const newResponses = { ...responses, [currentQuestion.id]: value };
         setResponses(newResponses);
 
-        if (currentQuestionIndex < visibleQuestions.length - 1) {
-            setTimeout(() => setCurrentQuestionIndex(prev => prev + 1), 300);
+        // Recomputed against the new answer. Reading the stale list is what
+        // made the addiction test submit after one question: until Q1 is
+        // answered none of its three branches qualify, so the visible list is
+        // length 1 and the old bounds check called that "the last question".
+        const nextVisible = visibleFor(newResponses);
+
+        if (currentQuestionIndex < nextVisible.length - 1) {
+            advancing.current = true;
+            setIsAdvancing(true);
+            setTimeout(() => {
+                setCurrentQuestionIndex(prev => Math.min(prev + 1, nextVisible.length - 1));
+                advancing.current = false;
+                setIsAdvancing(false);
+            }, 300);
         } else {
-            await saveResults(newResponses);
+            saveResults(newResponses);
         }
     };
 
@@ -145,12 +193,13 @@ const MentalHealthTestPage: React.FC = () => {
                 {/* Options Grid */}
                 <div className="space-y-3 mb-12">
                     {options.map((option) => {
-                        const isSelected = responses[currentQuestion.id] === option.value;
+                        const isSelected = currentQuestion ? responses[currentQuestion.id] === option.value : false;
                         return (
                             <button
                                 key={option.value}
                                 onClick={() => handleAnswer(option.value)}
-                                className={`w-full group flex items-center justify-between p-5 rounded-[12px] border text-left transition-all duration-200 ${
+                                disabled={!currentQuestion || isAdvancing || saveAssessmentMutation.isPending}
+                                className={`w-full group flex items-center justify-between p-5 rounded-[12px] border text-left transition-all duration-200 disabled:cursor-default ${
                                     isSelected 
                                     ? 'border-teal-500 bg-white ring-1 ring-teal-500 shadow-sm' 
                                     : 'border-gray-200 bg-white hover:border-gray-400 hover:bg-gray-50'

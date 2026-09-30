@@ -14,6 +14,7 @@ import logger from '../utils/logger';
 import type { Session, Report, Task, JournalEntry } from '../types';
 import { useDataSocket } from '../hooks/useDataSocket';
 import toast from 'react-hot-toast';
+import { reportSnippet } from '../utils/reportContent';
 import { MENTAL_HEALTH_TESTS } from '../data/mentalHealthTests';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 
@@ -73,16 +74,9 @@ const MOOD_DOTS: { value: 1 | 2 | 3 | 4 | 5; label: string; color: string }[] = 
 const getInitials = (firstName?: string, lastName?: string) =>
   `${firstName?.[0] || ''}${lastName?.[0] || ''}`.toUpperCase() || '?';
 
-const getReportSnippet = (report: Report) => {
-  let text = report.content || '';
-  try {
-    const parsed = JSON.parse(report.content);
-    text = parsed.summary || parsed.recommendations || parsed.diagnosis || report.content;
-  } catch {
-    // plain-text report content — use as-is
-  }
-  return text.length > 90 ? text.slice(0, 87) + '...' : text;
-};
+// Shared with the exports and the detail view — see utils/reportContent.ts
+// for why a raw JSON fallback is never acceptable here.
+const getReportSnippet = (report: Report) => reportSnippet(report.content, 90);
 
 const getSeverityLabel = (score: number, maxScore: number) => {
   const percentage = (score / maxScore) * 100;
@@ -484,7 +478,13 @@ const PatientDashboard: React.FC = () => {
   };
 
   // Mental health screening tests to show (defaults + any taken tests, taken/recent first)
-  const defaultTestIds = ['depression', 'anxiety', 'adhd', 'disability'];
+  //
+  // 'disability' (DLA-20) was here and was a dead end: the tile navigated to
+  // /mental-health/disability, MentalHealthTestPage only accepts keys that
+  // exist in MENTAL_HEALTH_TESTS, and the client defines neither 'disability'
+  // nor the server's spelling 'dla20'. Every patient who tapped it was bounced
+  // silently back to the list. Removed until the assessment itself exists.
+  const defaultTestIds = ['depression', 'anxiety', 'adhd'];
   const allTestIds = Array.from(new Set([...defaultTestIds, ...Object.keys(latestScores)]));
   const sortedTestIds = allTestIds.sort((a, b) => {
     const scoreA = latestScores[a];
@@ -861,7 +861,6 @@ const PatientDashboard: React.FC = () => {
                 const testDef = MENTAL_HEALTH_TESTS[testId];
                 let testName = testDef ? testDef.name : testId;
                 let maxScore = testDef ? testDef.scoring.maxScore : 100;
-                if (testId === 'disability') { testName = 'DLA-20'; maxScore = 80; }
 
                 const scoreData = latestScores[testId];
                 const hasScore = !!scoreData;
@@ -1001,15 +1000,15 @@ const PatientDashboard: React.FC = () => {
             {nextSession ? (
               <>
                 <div className="flex items-center gap-3 cursor-pointer" onClick={() => handleSessionClick(nextSession)}>
-                  {nextSession.doctorId.profileImage ? (
+                  {nextSession.doctorId?.profileImage ? (
                     <img src={nextSession.doctorId.profileImage} alt="" className="flex-none rounded-full object-cover" style={{ width: 42, height: 42 }} />
                   ) : (
                     <div className="flex-none flex items-center justify-center" style={{ width: 42, height: 42, borderRadius: '50%', background: T.teal, color: '#fff', fontWeight: 600, fontSize: 14 }}>
-                      {getInitials(nextSession.doctorId.firstName, nextSession.doctorId.lastName)}
+                      {getInitials(nextSession.doctorId?.firstName, nextSession.doctorId?.lastName)}
                     </div>
                   )}
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: 13.5, color: T.text }}>Dr. {nextSession.doctorId.firstName} {nextSession.doctorId.lastName}</div>
+                    <div style={{ fontWeight: 600, fontSize: 13.5, color: T.text }}>{nextSession.doctorId?.firstName ? `Dr. ${nextSession.doctorId.firstName} ${nextSession.doctorId.lastName || ''}`.trim() : 'Your therapist'}</div>
                     <div style={{ fontSize: 12.5, color: T.text2, whiteSpace: 'nowrap' }}>{nextSession.callMode || 'Video Calling'} · {nextSession.duration || 60} min</div>
                   </div>
                 </div>

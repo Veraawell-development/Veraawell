@@ -42,8 +42,9 @@ const MyTestsPage: React.FC = () => {
         { id: 'all', label: 'All Tests' },
         { id: 'depression', label: 'Depression' },
         { id: 'anxiety', label: 'Anxiety' },
-        { id: 'adhd', label: 'ADHD' },
-        { id: 'dla20', label: 'DLA-20' }
+        { id: 'adhd', label: 'ADHD' }
+        // No DLA-20 pill: the client has no such assessment, so it could never
+        // match a record. See defaultTestIds in PatientDashboard.tsx.
     ];
 
     return (
