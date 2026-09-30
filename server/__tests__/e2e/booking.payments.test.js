@@ -402,11 +402,11 @@ describe('the webhook', () => {
     expect(after.paymentId).toBe('pay_hook_capture01');
   });
 
-  test('a webhook with no body-level id is not deduplicated at all', async () => {
-    // The idempotency block is guarded by `if (eventId)`
-    // (payment.controller.js:277). An event delivered without a top-level `id`
-    // skips the WebhookEvent record entirely, so Razorpay's retries reprocess
-    // it every time. Pinned so the conditional is a deliberate choice.
+  test('a webhook with no event id at all is not deduplicated', async () => {
+    // The idempotency block is guarded by `if (eventId)`. A delivery carrying
+    // neither the x-razorpay-event-id header nor a body-level `id` skips the
+    // WebhookEvent record entirely, so retries reprocess it every time. Real
+    // Razorpay deliveries always carry the header; this pins the fallback.
     const bookRes = await book(baseBooking());
     const session = await Session.findOne({ doctorId: f.doctorA._id, sessionTime: SLOT });
 
@@ -426,6 +426,128 @@ describe('the webhook', () => {
 
     expect(await WebhookEvent.countDocuments({})).toBe(0);
     expect(bookRes.status).toBe(201);
+  });
+
+  test('a real Razorpay delivery is deduplicated by its x-razorpay-event-id header', async () => {
+    // Razorpay's payload has no top-level `id` — the event id travels in a
+    // header. Dedupe used to read only the body, so it never ran for a
+    // genuine delivery; every redelivery was processed again.
+    const bookRes = await book(baseBooking());
+    expect(bookRes.status).toBe(201);
+    const session = await Session.findOne({ doctorId: f.doctorA._id, sessionTime: SLOT });
+
+    // Shaped like a real Razorpay payload: entity/event/payload, no `id`.
+    const { body, sig } = signed({
+      entity: 'event',
+      event: 'payment.captured',
+      contains: ['payment'],
+      payload: { payment: { entity: { id: 'pay_hdr_01', order_id: session.razorpayOrderId, amount: session.price * 100, status: 'captured' } } },
+      created_at: Math.floor(Date.now() / 1000)
+    });
+    const send = () => request(server)
+      .post('/api/payments/webhook')
+      .set('Content-Type', 'application/json')
+      .set('X-Razorpay-Signature', sig)
+      .set('X-Razorpay-Event-Id', 'evt_hdr_01')
+      .send(body);
+
+    const first = await send();
+    const second = await send();
+    expect(first.status).toBe(200);
+    expect(first.body.status).toBe('ok');
+    expect(second.status).toBe(200);
+    expect(second.body.status).toBe('already_processed');
+
+    const rows = await WebhookEvent.find({ eventId: 'evt_hdr_01' }).lean();
+    expect(rows).toHaveLength(1);
+    expect(rows[0].status).toBe('done');
+    expect((await Session.findById(session._id)).paymentStatus).toBe('paid');
+  });
+
+  /** A signed payment.captured delivery for `session`, with a fixed event id. */
+  async function capturedDelivery(eventId, paymentId) {
+    const bookRes = await book(baseBooking());
+    expect(bookRes.status).toBe(201);
+    const session = await Session.findOne({ doctorId: f.doctorA._id, sessionTime: SLOT });
+    const { body, sig } = signed({
+      id: eventId,
+      event: 'payment.captured',
+      payload: { payment: { entity: { id: paymentId, order_id: session.razorpayOrderId, amount: session.price * 100, status: 'captured' } } }
+    });
+    const send = () => request(server)
+      .post('/api/payments/webhook')
+      .set('Content-Type', 'application/json')
+      .set('X-Razorpay-Signature', sig)
+      .send(body);
+    return { session, send };
+  }
+
+  test('a delivery that fails mid-processing is retried, not dropped as already processed', async () => {
+    // The claim used to be written as a finished receipt BEFORE processing.
+    // A failure after that point returned 500, Razorpay retried, and the
+    // retry was answered "already_processed" — the captured payment was
+    // never recorded and nothing would ever try again.
+    const { session, send } = await capturedDelivery('evt_fail_then_retry', 'pay_hook_retry01');
+
+    const spy = jest.spyOn(Session, 'findOne').mockRejectedValueOnce(new Error('transient DB failure'));
+    let first;
+    try {
+      first = await send();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(first.status).toBe(500);
+    // The failed attempt released its claim.
+    expect(await WebhookEvent.countDocuments({ eventId: 'evt_fail_then_retry' })).toBe(0);
+    expect((await Session.findById(session._id)).paymentStatus).toBe('pending');
+
+    // Razorpay's retry of the same delivery now processes it.
+    const retry = await send();
+    expect(retry.status).toBe(200);
+    expect(retry.body.status).toBe('ok');
+
+    const after = await Session.findById(session._id);
+    expect(after.paymentStatus).toBe('paid');
+    expect(after.paymentId).toBe('pay_hook_retry01');
+    expect((await WebhookEvent.findOne({ eventId: 'evt_fail_then_retry' })).status).toBe('done');
+  });
+
+  test('a fresh in-flight claim is answered 409 so Razorpay retries, not 200', async () => {
+    const { session, send } = await capturedDelivery('evt_in_flight', 'pay_hook_inflight01');
+    await WebhookEvent.create({ eventId: 'evt_in_flight', eventType: 'payment.captured', status: 'processing', claimedAt: new Date() });
+
+    const res = await send();
+    expect(res.status).toBe(409);
+    expect(res.body.status).toBe('in_progress');
+    expect((await Session.findById(session._id)).paymentStatus).toBe('pending');
+  });
+
+  test('a stale claim left by an attempt that died is taken over and processed', async () => {
+    // A process that crashed mid-webhook never deletes its claim. Without a
+    // takeover, every retry would be answered 409 forever.
+    const { session, send } = await capturedDelivery('evt_stale_claim', 'pay_hook_stale01');
+    await WebhookEvent.create({
+      eventId: 'evt_stale_claim', eventType: 'payment.captured',
+      status: 'processing', claimedAt: new Date(Date.now() - 10 * 60 * 1000)
+    });
+
+    const res = await send();
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('ok');
+    expect((await Session.findById(session._id)).paymentStatus).toBe('paid');
+    expect((await WebhookEvent.findOne({ eventId: 'evt_stale_claim' })).status).toBe('done');
+  });
+
+  test('a receipt written before claims existed still counts as processed', async () => {
+    // Pre-existing rows have no status field. They were only ever written
+    // for events that were handled, so they must keep deduplicating.
+    const { session, send } = await capturedDelivery('evt_legacy_receipt', 'pay_hook_legacy01');
+    await WebhookEvent.collection.insertOne({ eventId: 'evt_legacy_receipt', eventType: 'payment.captured', processedAt: new Date() });
+
+    const res = await send();
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('already_processed');
+    expect((await Session.findById(session._id)).paymentStatus).toBe('pending');
   });
 });
 

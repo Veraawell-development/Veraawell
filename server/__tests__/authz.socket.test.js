@@ -84,11 +84,11 @@ function once(socket, event, ms = 3000) {
   });
 }
 
-async function seed() {
+async function seed({ hoursFromNow = 1 } = {}) {
   const patient = await makeUser('patient');
   const doctor = await makeUser('doctor');
   const stranger = await makeUser('patient');
-  const session = await makeSession({ patient, doctor, hoursFromNow: 1, callStatus: 'in-progress', callStartTime: new Date() });
+  const session = await makeSession({ patient, doctor, hoursFromNow, callStatus: 'in-progress', callStartTime: new Date() });
   return { patient, doctor, stranger, session };
 }
 
@@ -146,9 +146,50 @@ describe('a non-participant cannot act on a call', () => {
   });
 });
 
+/** Both parties join the room and wait for the join to land. */
+async function joinBoth(patient, doctor, sid) {
+  const pSock = await connect(tokenFor(patient));
+  const dSock = await connect(tokenFor(doctor));
+
+  const pJoined = once(pSock, 'room-joined');
+  pSock.emit('join-room', { sessionId: sid });
+  expect(await pJoined).not.toBeNull();
+
+  const dJoined = once(dSock, 'room-joined');
+  dSock.emit('join-room', { sessionId: sid });
+  expect(await dJoined).not.toBeNull();
+
+  return { pSock, dSock };
+}
+
+describe('ending a call is bound by the same completion rule as HTTP', () => {
+  test('a participant ending the call BEFORE the scheduled start does not complete it', async () => {
+    // call-ended used to write status 'completed' with no time check, so a
+    // doctor could complete a booking hours or days out just by joining the
+    // room and emitting this — which blocked the patient's refund (a
+    // completed session cannot be cancelled) and made it count toward the
+    // doctor's payout. POST /:id/complete already refused this; the socket
+    // path now goes through the same transition guard.
+    const { patient, doctor, session } = await seed({ hoursFromNow: 1 });
+    const sid = String(session._id);
+    const { pSock, dSock } = await joinBoth(patient, doctor, sid);
+
+    dSock.emit('call-ended', { sessionId: sid, endedBy: 'doctor', userName: 'Doc' });
+    await new Promise((r) => setTimeout(r, 800));
+
+    const after = await Session.findById(sid);
+    expect(after.status).toBe('scheduled');
+    expect(after.paymentStatus).toBe('paid');
+
+    pSock.close();
+    dSock.close();
+  });
+});
+
 describe('the real call still works', () => {
   test('both parties join, signaling is relayed, and the doctor can end the call', async () => {
-    const { patient, doctor, session } = await seed();
+    // Started 15 minutes ago, so ending the call may complete it.
+    const { patient, doctor, session } = await seed({ hoursFromNow: -0.25 });
     const sid = String(session._id);
 
     const pSock = await connect(tokenFor(patient));

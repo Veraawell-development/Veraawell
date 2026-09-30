@@ -175,80 +175,78 @@ describe('applyTransition compare-and-set', () => {
 });
 
 describe('concurrent HTTP requests on one session', () => {
-  test('CONCURRENT cancels issue MULTIPLE refunds for one payment', async () => {
-    // cancelSession does not go through applyTransition. Its idempotency is a
-    // read-then-write check with no compare-and-set (session.controller.js:710
-    // onward): load the session, see status !== 'cancelled', write 'cancelled',
-    // then call the gateway. Two requests whose READS both land before either
-    // WRITE both pass the guard and both refund the same paymentId.
+  test('CONCURRENT cancels issue exactly ONE refund for one payment', async () => {
+    // cancelSession used to guard with a read-then-save: load the session,
+    // see status !== 'cancelled', save 'cancelled', then call the gateway. Two
+    // requests whose reads both landed before either write both passed the
+    // guard and both refunded the same paymentId — measured at 96% for two
+    // concurrent requests. A patient double-clicking Cancel was the trigger.
     //
-    // cancelSession.idempotency.test.js only exercises the SEQUENTIAL case,
-    // where the first write has already landed — which is why this has never
-    // been caught. A patient double-clicking Cancel is the realistic trigger.
+    // It now claims the cancellation with a compare-and-set
+    // (applyTransition), so the loser's write matches nothing and it gets the
+    // idempotent "already cancelled" answer without touching money.
     //
-    // The interleaving is FORCED rather than raced, by holding the first
-    // request inside save() until the second has also reached its own save.
-    // Measured without the gate, the duplicate rate is 96% at two concurrent
-    // requests and 52-64% at three to six — so this is the common case under
-    // concurrency, not a rare one. Gating it simply makes the test deterministic
-    // instead of a coin flip.
+    // The interleaving is FORCED rather than raced: the first request is held
+    // inside its compare-and-set until the second has also reached its own,
+    // so both have read the session as un-cancelled before either writes.
+    // That is the exact schedule that used to double-refund.
     const s = await futureSession();
 
-    const realSave = Session.prototype.save;
-    let saves = 0;
-    let firstSaveEntered;
-    const entered = new Promise((resolve) => { firstSaveEntered = resolve; });
-    let releaseFirstSave;
-    const gate = new Promise((resolve) => { releaseFirstSave = resolve; });
+    const realFindOneAndUpdate = Session.findOneAndUpdate;
+    let writes = 0;
+    let firstWriteEntered;
+    const entered = new Promise((resolve) => { firstWriteEntered = resolve; });
+    let releaseFirstWrite;
+    const gate = new Promise((resolve) => { releaseFirstWrite = resolve; });
 
-    Session.prototype.save = async function gatedSave(...args) {
-      saves += 1;
-      if (saves === 1) {
-        firstSaveEntered();
+    Session.findOneAndUpdate = async function gatedFindOneAndUpdate(...args) {
+      writes += 1;
+      if (writes === 1) {
+        firstWriteEntered();
         await gate;
       }
-      return realSave.apply(this, args);
+      return realFindOneAndUpdate.apply(this, args);
     };
 
+    let ra, rb;
     try {
       // .then() forces supertest to dispatch; a Test object is lazy.
       const a = call('post', `/api/sessions/${s._id}/cancel`, patientToken, {}).then((r) => r);
       await entered;
 
-      // A has read and validated but not yet persisted, so B sees the session
-      // still un-cancelled and passes the same guard.
+      // A has read and validated but not yet written, so B sees the session
+      // still un-cancelled and passes the same read guard.
       const b = call('post', `/api/sessions/${s._id}/cancel`, patientToken, {}).then((r) => r);
 
       const deadline = Date.now() + 8000;
-      while (saves < 2 && Date.now() < deadline) {
+      while (writes < 2 && Date.now() < deadline) {
         // eslint-disable-next-line no-await-in-loop
         await new Promise((r) => { setTimeout(r, 10); });
       }
-      releaseFirstSave();
+      expect(writes).toBeGreaterThanOrEqual(2);
+      releaseFirstWrite();
 
-      const [ra, rb] = await Promise.all([a, b]);
-      expect([ra.status, rb.status].every((st) => st < 500)).toBe(true);
-      expect(saves).toBeGreaterThanOrEqual(2);
+      [ra, rb] = await Promise.all([a, b]);
     } finally {
-      Session.prototype.save = realSave;
+      Session.findOneAndUpdate = realFindOneAndUpdate;
     }
 
-    // The defect: the gateway is asked to refund the same paymentId twice. The
-    // call carries no idempotency key — session.controller.js passes only
-    // {amount, speed, notes} — so this is duplicate money movement, not a
-    // harmless retry.
-    expect(mockRefund).toHaveBeenCalledTimes(2);
-    const refunded = mockRefund.mock.calls.map((c) => c[0]);
-    expect(new Set(refunded).size).toBe(1);
-    expect(refunded[0]).toBe('pay_conc_01');
+    expect(ra.status).toBe(200);
+    expect(rb.status).toBe(200);
+    // One of them did the work; the other was told it was already done.
+    const messages = [ra.body.message, rb.body.message].sort();
+    expect(messages).toEqual(['Session already cancelled', 'Session cancelled successfully']);
 
-    // And the database looks perfectly healthy afterwards, which is what makes
-    // this invisible without watching the gateway.
+    // The fix: the gateway is asked to refund exactly once.
+    expect(mockRefund).toHaveBeenCalledTimes(1);
+    expect(mockRefund.mock.calls[0][0]).toBe('pay_conc_01');
+
     const after = await Session.findById(s._id);
     expect(after.status).toBe('cancelled');
+    expect(after.paymentStatus).toBe('refunded');
     expect(after.refundAmount).toBe(2000);
+    expect(after.refundId).toBe('rfnd_conc');
   });
-
   test('the cancelled status is written BEFORE the gateway is called', async () => {
     // Establishes the ordering the test above depends on, and rules out the
     // simpler explanation that the refund happens first. It also means a
@@ -433,10 +431,23 @@ describe('concurrent webhook delivery', () => {
       .send(payload);
 
     const results = await Promise.all([send(), send(), send()]);
-    expect(results.every((r) => r.status === 200)).toBe(true);
+
+    // Exactly one delivery processed it. The others either arrived after it
+    // finished (200 already_processed) or while it was still running — and
+    // those are told 409, so Razorpay retries them, rather than 200. A 200
+    // there would promise the event was handled before it was, and if the
+    // in-flight attempt then failed nothing would ever retry it.
+    const statuses = results.map((r) => r.body.status);
+    expect(statuses.filter((st) => st === 'ok')).toHaveLength(1);
+    for (const r of results) {
+      if (r.body.status === 'ok') continue;
+      expect([200, 409]).toContain(r.status);
+      expect(['already_processed', 'in_progress']).toContain(r.body.status);
+    }
 
     // The unique index plus the duplicate-key catch make this exactly-once.
     expect(await WebhookEvent.countDocuments({ eventId: 'evt_race_01' })).toBe(1);
+    expect((await WebhookEvent.findOne({ eventId: 'evt_race_01' })).status).toBe('done');
 
     const after = await Session.findById(s._id);
     expect(after.paymentStatus).toBe('paid');
@@ -447,21 +458,22 @@ describe('concurrent webhook delivery', () => {
 describe('where the state machine is NOT used', () => {
   test('the state machine is used by the paths that have been converted, and no others', () => {
     // The wrapper enforces the invariants and the compare-and-set guard.
-    // Coverage is still partial: cancellation, payment capture, the webhook
-    // handlers and the socket call-end path all still use session.save()
-    // directly and get none of those guarantees.
+    // Coverage is still partial: payment capture, the webhook handlers, the
+    // instant-session auto-cancel and the admin refund paths all still use
+    // session.save() directly and get none of those guarantees.
     //
     // Pinned as a number so that converting a path shows up here as a
     // deliberate, visible change — which is what these two lines record.
     //
     // Converted so far:
-    //   controllers/session.controller.js  completeSession
+    //   controllers/session.controller.js  completeSession, cancelSession
     //   services/sessionRefund.js          the claim / succeed / fail sequence,
-    //                                      shared by the no-show auto-refund
-    //                                      and (in time) the other three
-    //                                      refund paths
-    // The scheduler's sweep goes through tryTransition, the non-throwing
-    // wrapper, so it does not appear in this grep.
+    //                                      shared by the no-show auto-refund,
+    //                                      cancelSession and (in time) the
+    //                                      remaining refund paths
+    // The scheduler's sweep and the socket call-ended handler go through
+    // tryTransition, the non-throwing wrapper, so they do not appear in this
+    // grep.
     const { execSync } = require('child_process');
     const root = require('path').join(__dirname, '..', '..');
 
@@ -470,8 +482,8 @@ describe('where the state machine is NOT used', () => {
       { cwd: root, encoding: 'utf8' }
     ).trim().split('\n').filter(Boolean);
 
-    expect(callSites).toHaveLength(4);
-    expect(callSites.filter((l) => /session\.controller\.js/.test(l))).toHaveLength(1);
+    expect(callSites).toHaveLength(5);
+    expect(callSites.filter((l) => /session\.controller\.js/.test(l))).toHaveLength(2);
     expect(callSites.filter((l) => /sessionRefund\.js/.test(l))).toHaveLength(3);
 
     const directSaves = execSync(
@@ -480,6 +492,6 @@ describe('where the state machine is NOT used', () => {
     ).trim();
     // Still high, and each one is a money path that has not been converted.
     // This number should fall as they are; it must never rise.
-    expect(Number(directSaves)).toBeLessThanOrEqual(20);
+    expect(Number(directSaves)).toBeLessThanOrEqual(17);
   });
 });

@@ -8,6 +8,8 @@ const Session = require('../models/session');
 const { createLogger } = require('../utils/logger');
 const { createSocketAuthMiddleware } = require('./authMiddleware');
 const { createGuardedRegistrar, grantRoom, revokeRoom } = require('../authz/socket');
+const { tryTransition } = require('../services/sessionTransition');
+const { EVENT, ACTOR } = require('../services/sessionState');
 
 const logger = createLogger('SOCKET-HANDLER');
 
@@ -344,27 +346,51 @@ module.exports = (io) => {
       // Broadcast to other users in the room
       socket.to(sessionId).emit('call-ended', { endedBy, userName });
       
-      // Mark session as completed in DB if it hasn't been already
+      // Mark the session completed — through the transition table, the same
+      // rule POST /api/sessions/:id/complete answers to.
+      //
+      // This used to be a bare `status = 'completed'; save()` with no time
+      // check, so either party could complete a session at any moment by
+      // emitting this event — including a booking days in the future. That is
+      // the exact hole the table's COMPLETE guard closed on the HTTP side: a
+      // completed session cannot be cancelled, so the patient lost their
+      // refund, and it counts toward the doctor's payout.
+      //
+      // Before the scheduled start the transition is refused and the session
+      // stays scheduled. The disconnect handler then records the call as
+      // paused, so the real session can still happen later.
       try {
         const session = await Session.findById(sessionId);
         if (session && !['completed', 'cancelled', 'no-show'].includes(session.status)) {
-          session.status = 'completed';
-          // Also flip callStatus to a terminal value here. If we don't, the
-          // disconnect handler that fires moments later (this same socket is
-          // about to disconnect) still sees callStatus === 'in-progress' and
-          // runs its own "figure out what happened" logic, which can overwrite
-          // status back to 'scheduled' for any call shorter than the full
-          // booked duration — silently undoing the 'completed' we just set.
-          session.callStatus = 'completed';
-          session.callEndTime = new Date();
+          const callEndTime = new Date();
+          // Also flip callStatus to a terminal value in the same write. If we
+          // don't, the disconnect handler that fires moments later (this same
+          // socket is about to disconnect) still sees callStatus ===
+          // 'in-progress' and runs its own "figure out what happened" logic,
+          // which can overwrite status back to 'scheduled' for any call
+          // shorter than the full booked duration — silently undoing the
+          // 'completed' we just set.
+          const extraSet = { callStatus: 'completed', callEndTime };
           if (!session.actualDuration) {
-            const sessionDurationInMinutes = session.duration || 60;
-            session.actualDuration = session.callStartTime
-              ? Math.max(1, Math.round((session.callEndTime - session.callStartTime) / 60000))
-              : sessionDurationInMinutes;
+            extraSet.actualDuration = session.callStartTime
+              ? Math.max(1, Math.round((callEndTime - session.callStartTime) / 60000))
+              : (session.duration || 60);
           }
-          await session.save();
-          log.info('Session marked as completed from call-ended event', { sessionId, actualDuration: session.actualDuration });
+
+          const result = await tryTransition(session, {
+            event: EVENT.COMPLETE,
+            actor: role === 'doctor' ? ACTOR.DOCTOR : ACTOR.PATIENT,
+            extraSet
+          });
+
+          if (result.changed) {
+            log.info('Session marked as completed from call-ended event', { sessionId, actualDuration: extraSet.actualDuration });
+          } else {
+            log.warn('call-ended did not complete the session', {
+              sessionId: String(sessionId).substring(0, 8),
+              reason: result.error ? result.error.message : result.noopReason
+            });
+          }
         }
       } catch (err) {
         log.error('Error updating session on call-ended', { error: err.message, sessionId });

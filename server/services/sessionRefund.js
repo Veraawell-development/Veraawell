@@ -21,8 +21,10 @@
  *     `paymentStatus: 'refunded'` directly from `paid`, skipping the claim
  *     entirely, and sets no `refundId` — a state invariant I7 forbids and
  *     which only survives because a raw `save()` bypasses assertInvariants.
- *   - `cancelSession` saves `refund_pending`, calls the gateway, then mutates
- *     the document again — a read-modify-write around a network call.
+ *   - `cancelSession` saved `refund_pending`, called the gateway, then
+ *     mutated the document again — a read-modify-write around a network
+ *     call, which let two concurrent cancels both refund. It now claims the
+ *     cancellation with applyTransition and refunds through this module.
  *   - `adminRefundSession` fabricates `refund_mock_<ts>` / `refund_zero_<ts>`
  *     ids for payments it decides not to send.
  *

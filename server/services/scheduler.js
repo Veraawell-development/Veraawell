@@ -271,12 +271,14 @@ const startScheduler = (io) => {
     // A session that was already paid out to a doctor and is later refunded
     // leaves the platform short that doctor's share, which has to come off
     // their next payout. applyTransition raises that adjustment inline the
-    // moment a session reaches `refunded` — but THREE of the four refund
-    // paths (cancelSession, _autoCancelUnacceptedSession, adminRefundSession)
-    // still mutate paymentStatus with a raw save() and never reach that hook.
+    // moment a session reaches `refunded` — but two of the refund paths
+    // (_autoCancelUnacceptedSession, adminRefundSession) and the
+    // refund.processed webhook still mutate paymentStatus with a raw save()
+    // and never reach that hook. (cancelSession now goes through
+    // sessionRefund, so it does.)
     //
     // So this is not a backstop today, it is the primary mechanism for those
-    // three. It stays valuable after they are converted, because a webhook
+    // paths. It stays valuable after they are converted, because a webhook
     // that arrives while the app is restarting would otherwise be missed.
     // Idempotent via a unique key, so overlapping with the inline hook is
     // safe.

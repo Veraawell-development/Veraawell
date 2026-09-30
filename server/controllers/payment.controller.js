@@ -267,7 +267,52 @@ exports.verifyPayment = async (req, res) => {
 
 const WebhookEvent = require('../models/webhookEvent');
 
+/**
+ * A 'processing' claim older than this belongs to an attempt that died
+ * without answering (a crash, a deploy mid-request) and may be taken over.
+ * Comfortably past app.js's 60-second request timeout, so a claim this old
+ * cannot still have a live request behind it.
+ */
+const WEBHOOK_CLAIM_STALE_MS = 2 * 60 * 1000;
+
+/**
+ * Take the exactly-once claim on a webhook event.
+ *
+ * @returns {Promise<'claimed'|'done'|'busy'>}
+ *   claimed — this request owns the event and must process it
+ *   done    — a previous delivery finished it; answer 200 so Razorpay stops
+ *   busy    — another attempt holds a fresh claim; answer non-2xx so Razorpay
+ *             retries. Answering 200 here would be a promise that the event
+ *             is handled, and if the in-flight attempt then fails, nothing
+ *             would ever retry it.
+ */
+async function claimWebhookEvent(eventId, eventType) {
+  const now = new Date();
+  try {
+    await WebhookEvent.create({ eventId, eventType, status: 'processing', claimedAt: now });
+    return 'claimed';
+  } catch (err) {
+    if (err.code !== 11000) throw err;
+  }
+
+  const existing = await WebhookEvent.findOne({ eventId }).lean();
+  // Deleted between our insert and this read: a failed attempt released it.
+  // Razorpay will redeliver, and that delivery can claim it cleanly.
+  if (!existing) return 'busy';
+  if (existing.status !== 'processing') return 'done';
+
+  const takenOver = await WebhookEvent.findOneAndUpdate(
+    { eventId, status: 'processing', claimedAt: { $lt: new Date(now.getTime() - WEBHOOK_CLAIM_STALE_MS) } },
+    { $set: { claimedAt: now } },
+    { new: true }
+  );
+  return takenOver ? 'claimed' : 'busy';
+}
+
 exports.razorpayWebhook = async (req, res) => {
+  // Set once this request owns the event's claim, so the catch below knows
+  // whether there is a claim to release.
+  let claimedEventId = null;
   try {
     // ── SIGNATURE VERIFICATION (uses WEBHOOK secret, NOT key secret) ──────────
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
@@ -301,20 +346,24 @@ exports.razorpayWebhook = async (req, res) => {
       return res.status(400).json({ message: 'Invalid signature' });
     }
 
-    // ── IDEMPOTENCY CHECK ─────────────────────────────────────────────────
-    const eventId = req.body.id; // Razorpay sends unique ID with every webhook
+    // ── IDEMPOTENCY CLAIM ─────────────────────────────────────────────────
+    // Claimed before handling so two deliveries cannot both process the
+    // event, but only marked done AFTER handling succeeds — see
+    // claimWebhookEvent and models/webhookEvent.js for why.
+    // Razorpay sends the event's unique id in the x-razorpay-event-id HEADER;
+    // the payload body carries no top-level id. Reading only `req.body.id`
+    // meant this dedupe never ran for a real Razorpay delivery. The body id
+    // is kept as a fallback so hand-built test deliveries still dedupe.
+    const eventId = req.headers['x-razorpay-event-id'] || req.body.id;
     if (eventId) {
-      const alreadyProcessed = await WebhookEvent.findOne({ eventId });
-      if (alreadyProcessed) {
+      const claim = await claimWebhookEvent(eventId, req.body.event);
+      if (claim === 'done') {
         return res.status(200).json({ status: 'already_processed' }); // 200 stops Razorpay retrying
       }
-      // Mark as processed immediately (before handling, to prevent race conditions)
-      try {
-        await WebhookEvent.create({ eventId, eventType: req.body.event });
-      } catch (dupErr) {
-        // Race condition: another request already inserted this eventId
-        return res.status(200).json({ status: 'already_processed' });
+      if (claim === 'busy') {
+        return res.status(409).json({ status: 'in_progress' }); // non-2xx: Razorpay retries later
       }
+      claimedEventId = eventId;
     }
 
     const event = req.body.event;
@@ -453,9 +502,29 @@ exports.razorpayWebhook = async (req, res) => {
       }
     }
 
+    if (claimedEventId) {
+      await WebhookEvent.updateOne(
+        { eventId: claimedEventId },
+        { $set: { status: 'done', processedAt: new Date() } }
+      );
+    }
+
     res.status(200).json({ status: 'ok' });
   } catch (error) {
     logger.error('Webhook processing error', { error: error.message });
+    // Release the claim so Razorpay's retry of this delivery processes it
+    // instead of being told it was already handled. Every branch above is
+    // safe to re-run — each either checks the record's current state first or
+    // rewrites the same values — so the worst a retry does is send a
+    // notification email twice. Losing a captured payment is far worse.
+    if (claimedEventId) {
+      try {
+        await WebhookEvent.deleteOne({ eventId: claimedEventId, status: 'processing' });
+      } catch (releaseErr) {
+        // The stale-claim takeover in claimWebhookEvent is the backstop.
+        logger.error('Could not release webhook claim', { error: releaseErr.message });
+      }
+    }
     res.status(500).json({ message: 'Webhook processing failed' });
   }
 };

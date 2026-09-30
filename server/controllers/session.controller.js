@@ -24,6 +24,7 @@ const { PLATFORM_TIMEZONE, CHECKOUT_TTL_MINUTES, INSTANT_ACCEPT_WINDOW_MINUTES }
 const { asyncHandler } = require('../middleware/error.middleware');
 const { applyTransition } = require('../services/sessionTransition');
 const { EVENT, ACTOR } = require('../services/sessionState');
+const { refundSession } = require('../services/sessionRefund');
 const { sealedFilter } = require('../authz');
 const { NotFoundError, AuthorizationError } = require('../utils/errors');
 const { getRazorpay } = require('../services/razorpay.client');
@@ -775,6 +776,10 @@ const cancelSession = asyncHandler(async (req, res) => {
   // can't sensibly be cancelled again, and a completed one shouldn't be
   // cancellable either (completeSession and cancelSession could otherwise
   // race on the same session).
+  //
+  // This check is only the fast path for a SEQUENTIAL repeat. Two requests
+  // in flight together both pass it; what stops them both refunding is the
+  // compare-and-set in step 1 below.
   if (session.status === 'cancelled') {
     return res.json({
       success: true,
@@ -801,61 +806,58 @@ const cancelSession = asyncHandler(async (req, res) => {
   // the 4-24h 50% rate, or vice versa, depending on the server's offset.
   const hoursUntil = hoursUntilStart(session);
   const refundAmount = calculateRefund(session.price, hoursUntil, cancellerRole);
+  const actor = cancellerRole === 'doctor' ? ACTOR.DOCTOR : ACTOR.PATIENT;
 
-  session.status = 'cancelled';
-  session.cancelledBy = cancellerRole;
+  // ── 1. CLAIM THE CANCELLATION ─────────────────────────────────────────────
+  // A compare-and-set through the transition table, not a read-then-save.
+  //
+  // The guard above is a read, and two requests can both pass it: a patient
+  // double-clicking Cancel was the realistic trigger. Both then saved
+  // 'cancelled' and both called the gateway, refunding one payment twice
+  // (reproduced in __tests__/e2e/concurrency.test.js at a 96% hit rate for
+  // two concurrent requests). Now only the request whose write matches the
+  // pre-state wins; the loser re-reads, finds the session already cancelled,
+  // and gets the idempotent answer below without touching money.
+  //
+  // The table also decides what the money field does, which is what the old
+  // if/else chain here was trying to encode by hand:
+  //   pending  -> failed        checkout never completed; nothing to refund
+  //   paid, not_required, ...   unchanged; the refund (if any) moves it
+  const cancelled = await applyTransition(session, {
+    event: EVENT.CANCEL,
+    actor,
+    payload: { cancelledBy: cancellerRole }
+  });
 
-  // ── PROCESS REFUND ────────────────────────────────────────────────────────
-  const isRealPayment = session.paymentId && 
-    !session.paymentId.startsWith('mock_') && 
-    !session.paymentId.startsWith('immediate_');
-
-  if (session.paymentStatus === 'paid' && isRealPayment && refundAmount > 0) {
-    session.paymentStatus = 'refund_pending';
-    await session.save(); // Save pending state first
-    
-    try {
-      const refund = await getRazorpay().payments.refund(session.paymentId, {
-        amount: refundAmount * 100, // In paise
-        speed: 'normal',
-        notes: { reason: `Cancelled by ${cancellerRole}`, sessionId: sessionId }
-      });
-      session.paymentStatus = 'refunded';
-      session.refundId = refund.id;
-      session.refundedAt = new Date();
-      session.refundAmount = refundAmount;
-    } catch (err) {
-      logger.error('Razorpay refund failed', { error: err.message, paymentId: session.paymentId });
-      session.paymentStatus = 'refund_failed';
-    }
-  } else if (session.paymentStatus === 'not_required') {
-    // Nothing was ever charged (a free session, or stub payments mode), so
-    // there is nothing to refund and nothing to "keep". Both branches below
-    // would lie about this session's money: the first by claiming it was
-    // paid, the second by claiming a refund was issued. Leave it alone.
-    session.refundAmount = 0;
-  } else if (session.paymentStatus === 'pending' || session.paymentStatus === 'failed') {
-    // The patient opened checkout but never completed it, so no money was
-    // ever captured. The final `else` below used to catch this case and write
-    // paymentStatus='refunded' with a non-zero refundAmount — inventing a
-    // refund of money that was never collected, which then flows into the
-    // admin refund tooling, revenue analytics and the patient's own history.
-    // (Verified: cancelling a payment_pending ₹1500 session recorded
-    // refundAmount=1500 against paymentId=null.)
-    session.paymentStatus = 'failed';
-    session.refundAmount = 0;
-  } else if (refundAmount === 0) {
-    session.paymentStatus = 'paid'; // No refund owed, payment stays as-is
-  } else {
-    session.paymentStatus = 'refunded'; // Mock/immediate payments — mark refunded
-    // Persist the tiered amount, not the full price — this used to always
-    // write session.price here even when the response body (and the patient)
-    // were told they'd get a 50% or partial refund, so the persisted record
-    // silently disagreed with what was actually communicated.
-    session.refundAmount = refundAmount;
+  if (!cancelled.changed) {
+    const current = cancelled.session;
+    return res.json({
+      success: true,
+      message: 'Session already cancelled',
+      refundAmount: current.refundAmount || 0,
+      refundPolicy: describeRefundPolicy(current.refundAmount || 0, current.price)
+    });
   }
 
-  await session.save();
+  // ── 2. REFUND, if one is owed ─────────────────────────────────────────────
+  // refundSession takes its own claim (paid -> refund_pending) before calling
+  // the gateway, so even two callers that both reached this line could not
+  // both refund. It also refuses synthetic payment ids and zero amounts, and
+  // records refund_failed for the admin retry queue if Razorpay declines.
+  let current = cancelled.session;
+  if (refundAmount > 0 && current.paymentStatus === 'paid') {
+    const refund = await refundSession(current, {
+      actor,
+      amount: refundAmount,
+      reason: `Cancelled by ${cancellerRole}`
+    });
+    if (refund.session) current = refund.session;
+    if (refund.failed) {
+      logger.error('Refund failed on cancellation; left in refund_failed for the admin retry queue', {
+        sessionId: sessionId.substring(0, 8)
+      });
+    }
+  }
 
   // Track doctor cancellations
   if (cancellerRole === 'doctor') {

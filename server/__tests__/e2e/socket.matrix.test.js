@@ -450,7 +450,9 @@ describe('the /data fan-out namespace', () => {
 
 describe('the video namespace: full signalling sequence', () => {
   test('both parties join, exchange offer/answer/ICE, and the doctor ends the call', async () => {
-    const session = await paidSession({ paymentId: 'pay_sock_seq' });
+    // Started five minutes ago: ending a call only completes a session whose
+    // scheduled start has passed (see authz.socket.test.js for the refusal).
+    const session = await paidSession({ paymentId: 'pay_sock_seq', startsAt: new Date(Date.now() - 5 * 60 * 1000) });
     const id = String(session._id);
 
     const patient = await connect(tokenFor(f.patientA));
