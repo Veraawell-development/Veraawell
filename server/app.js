@@ -95,7 +95,13 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
+  // X-CSRF-Token is what client/src/utils/csrfFetchInterceptor.ts sets on
+  // every POST/PUT/PATCH/DELETE. It is not a CORS-safelisted header, so the
+  // browser asks for it in the preflight and refuses to send the request when
+  // it is absent from this list — which made every mutation in production
+  // (Vercel frontend -> api.veraawell.com) fail before it left the browser.
+  // Development never saw it: Vite's proxy makes those requests same-origin.
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin', 'X-CSRF-Token'],
   exposedHeaders: ['Content-Type', 'Authorization'],
   preflightContinue: false,
   optionsSuccessStatus: 204

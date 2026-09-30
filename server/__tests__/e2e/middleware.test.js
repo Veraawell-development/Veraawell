@@ -46,16 +46,15 @@ afterAll(async () => {
 describe('CORS', () => {
   const FRONTEND = 'https://veraawell.vercel.app';
 
-  test('the preflight does NOT allow X-CSRF-Token, which the client sends on every mutation', async () => {
-    // client/src/utils/csrfFetchInterceptor.ts:41 sets this header on every
-    // POST/PUT/PATCH/DELETE. app.js:97 lists only Content-Type, Authorization,
-    // X-Requested-With, Accept and Origin.
+  test('the preflight allows X-CSRF-Token, which the client sends on every mutation', async () => {
+    // client/src/utils/csrfFetchInterceptor.ts sets this header on every
+    // POST/PUT/PATCH/DELETE.
     //
     // X-CSRF-Token is not a CORS-safelisted request header, so a real browser
     // must ask permission for it in the preflight and will refuse to send the
     // request when it is absent from Access-Control-Allow-Headers. In the
-    // production topology (Vercel frontend -> api.veraawell.com) that means
-    // every state-changing request fails before it is issued.
+    // production topology (Vercel frontend -> api.veraawell.com) its absence
+    // meant every state-changing request failed before it was issued.
     const res = await request(server)
       .options('/api/sessions/book')
       .set('Origin', FRONTEND)
@@ -66,8 +65,7 @@ describe('CORS', () => {
 
     expect(allowed).toContain('content-type');
     expect(allowed).toContain('authorization');
-    // The defect, pinned:
-    expect(allowed).not.toContain('x-csrf-token');
+    expect(allowed).toContain('x-csrf-token');
   });
 
   test('credentials are allowed, so the cookie half of the double-submit pair would be sent', async () => {

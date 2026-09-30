@@ -3,9 +3,10 @@
  *
  * Every other suite runs in development, which is a materially different
  * application: rate limiting is not mounted, CORS accepts any origin, and
- * cookies are not marked secure. The CORS/CSRF header mismatch is the shape of
- * bug that lives only here — it cannot be reproduced locally, because Vite
- * proxies /api and makes every request same-origin, skipping preflight.
+ * cookies are not marked secure. The CORS/CSRF header mismatch (now fixed) was
+ * the shape of bug that lives only here — it cannot be reproduced locally,
+ * because Vite proxies /api and makes every request same-origin, skipping
+ * preflight.
  *
  * app.js reads isProduction() at module load for the rate limiters and the
  * morgan mount, so the flag has to be set before the app graph is required.
@@ -99,12 +100,12 @@ describe('CORS under production settings', () => {
     expect(res.headers['access-control-allow-origin']).toBeUndefined();
   });
 
-  test('X-CSRF-Token is STILL absent from the allowed headers in production', async () => {
+  test('X-CSRF-Token is allowed by the preflight in production', async () => {
     // The one that matters. In development this is masked by Vite's proxy
     // making requests same-origin; in production the frontend and API are on
-    // different origins, so the browser sends a preflight, asks permission for
-    // X-CSRF-Token, is refused, and never issues the request. Every POST, PUT,
-    // PATCH and DELETE from the app fails before it leaves the browser.
+    // different origins, so the browser sends a preflight and asks permission
+    // for X-CSRF-Token. When it was refused, every POST, PUT, PATCH and DELETE
+    // from the app failed before it left the browser.
     const res = await request(prodApp)
       .options('/api/sessions/book')
       .set('Origin', FRONTEND)
@@ -114,12 +115,12 @@ describe('CORS under production settings', () => {
     const allowed = String(res.headers['access-control-allow-headers'] || '').toLowerCase();
     expect(allowed).toContain('content-type');
     expect(allowed).toContain('authorization');
-    expect(allowed).not.toContain('x-csrf-token');
+    expect(allowed).toContain('x-csrf-token');
   });
 
   test('and the server still demands that header on a mutating request', async () => {
-    // So the two halves are mutually exclusive: the header is required by the
-    // CSRF middleware and forbidden by the CORS policy.
+    // The other half of the pair: the header the preflight now permits is
+    // still required by the CSRF middleware. Allowing it is not waiving it.
     const res = await request(prodApp)
       .post('/api/session-tools/journal')
       .set('Origin', FRONTEND)
