@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { API_CONFIG } from '../config/api';
-import { generateReportPDF } from '../utils/pdfGenerator';
+import { generateReportPdf } from '../utils/reportPdf';
 import logger from '../utils/logger';
 import { useQuery } from '@tanstack/react-query';
 import type { Report } from '../types';
@@ -28,7 +28,11 @@ const ReportsPage: React.FC = () => {
   });
 
   const handleDownload = (report: Report) => {
-    generateReportPDF(report);
+    // Same generator as the patient's other reports page. These two rendered
+    // the same object with two different layouts before.
+    generateReportPdf(report as any).catch((err) => {
+      console.error('Failed to generate PDF', err);
+    });
   };
 
   const handleLogout = () => {

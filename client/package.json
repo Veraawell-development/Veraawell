@@ -26,7 +26,6 @@
   },
   "dependencies": {
     "@heroicons/react": "^2.2.0",
-    "@react-pdf/renderer": "^4.3.2",
     "@tailwindcss/vite": "^4.1.11",
     "@tanstack/react-query": "^5.101.2",
     "axios": "^1.18.1",

@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
-import { IndianRupee, Video, Mic, Landmark, Clock, CheckCircle, XCircle, BarChart3, ArrowLeft, Lightbulb, Check, RotateCcw } from 'lucide-react';
+import { IndianRupee, Video, Mic, Landmark, Clock, CheckCircle, XCircle, BarChart3, ArrowLeft, Lightbulb, Check, RotateCcw, PenLine } from 'lucide-react';
 import { getAuthToken } from '../utils/authToken';
 // Was `import.meta.env.VITE_API_URL || '/api'` — the only use of VITE_API_URL
 // in the client, and the variable is not set. Locally the '/api' fallback
@@ -11,6 +11,7 @@ import { getAuthToken } from '../utils/authToken';
 // got index.html back from the Vercel SPA rewrite, and died on JSON.parse.
 // This entire page was inert in production.
 import { API_BASE_URL } from '../config/api';
+import SignaturePad from '../components/SignaturePad';
 
 /*
  * Design tokens, identical to the doctor and patient dashboards. This page is
@@ -116,7 +117,7 @@ const DoctorSettingsPage: React.FC = () => {
   const [platformFeePercent] = useState(20); // Default — can be fetched dynamically later
   const [isSavingPricing, setIsSavingPricing] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
-  const totalSteps = 3;
+  const totalSteps = 4;
   const [profileLoading, setProfileLoading] = useState(true);
   const [earnings, setEarnings] = useState<EarningsStats | null>(null);
 
@@ -209,11 +210,49 @@ const DoctorSettingsPage: React.FC = () => {
     }
   };
 
+  // ── Signature ─────────────────────────────────────────────────────────────
+  const [signature, setSignature] = useState<string | null>(null);
+  const [signatureSavedAt, setSignatureSavedAt] = useState<string | null>(null);
+  const [signatureDirty, setSignatureDirty] = useState(false);
+  const [savingSignature, setSavingSignature] = useState(false);
+  const [signatureError, setSignatureError] = useState<string | null>(null);
+
+  const handleSignatureChange = (dataUrl: string | null) => {
+    setSignature(dataUrl);
+    setSignatureDirty(true);
+    setSignatureError(null);
+  };
+
+  const handleSaveSignature = async () => {
+    if (!signature) return;
+    setSavingSignature(true);
+    setSignatureError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/profile/signature`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        credentials: 'include',
+        body: JSON.stringify({ signature })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error((data.errors && data.errors.signature) || data.message || 'Could not save your signature');
+      }
+      setSignatureSavedAt(data.updatedAt || new Date().toISOString());
+      setSignatureDirty(false);
+      toast.success('Signature saved');
+    } catch (err: any) {
+      setSignatureError(err.message || 'Could not save your signature');
+    } finally {
+      setSavingSignature(false);
+    }
+  };
+
   // ── Load current pricing, bank details and earnings on mount ──────────────
   useEffect(() => {
     const loadData = async () => {
       try {
-        const [profileRes, statsRes, bankRes] = await Promise.all([
+        const [profileRes, statsRes, bankRes, signatureRes] = await Promise.all([
           fetch(`${API_BASE_URL}/profile/setup`, {
             headers: { Authorization: `Bearer ${token}` }
           }),
@@ -222,8 +261,17 @@ const DoctorSettingsPage: React.FC = () => {
           }),
           fetch(`${API_BASE_URL}/payouts/bank-details`, {
             headers: { Authorization: `Bearer ${token}` }, credentials: 'include'
+          }),
+          fetch(`${API_BASE_URL}/profile/signature`, {
+            headers: { Authorization: `Bearer ${token}` }, credentials: 'include'
           })
         ]);
+
+        if (signatureRes.ok) {
+          const sig = await signatureRes.json();
+          setSignature(sig.signature || null);
+          setSignatureSavedAt(sig.updatedAt || null);
+        }
 
         if (bankRes.ok) {
           const bankData: BankDetailsState = await bankRes.json();
@@ -693,6 +741,68 @@ const DoctorSettingsPage: React.FC = () => {
                   <div style={{ fontSize: 11.5, color: T.muted, marginTop: 'auto' }}>{m.note}</div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── SIGNATURE CARD (STEP 4) ────────────────────────────────────────────── */}
+        {currentStep === 4 && (
+          <div style={{ ...cardStyle, overflow: 'hidden' }}>
+            <div className="px-6 py-5" style={{ borderBottom: `1px solid ${T.border}` }}>
+              <h2 className="flex items-center gap-2" style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, lineHeight: 1.2, color: T.text }}>
+                <PenLine className="w-[18px] h-[18px]" style={{ color: T.teal }} /> Signature
+              </h2>
+              <p className="mt-1" style={{ fontSize: 12.5, color: T.text2 }}>
+                Signed once here, then added to every report you file
+              </p>
+            </div>
+
+            <div className="p-6">
+              <SignaturePad
+                value={signature}
+                onChange={handleSignatureChange}
+                disabled={savingSignature}
+              />
+
+              {signatureError && (
+                <div className="mt-3" style={{ fontSize: 12.5, color: '#dc2626' }}>{signatureError}</div>
+              )}
+
+              <div className="flex items-center justify-between mt-5 flex-wrap gap-3">
+                <span style={{ fontSize: 12, color: T.muted }}>
+                  {signatureSavedAt && !signatureDirty
+                    ? `Saved ${new Date(signatureSavedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}`
+                    : 'Not saved yet'}
+                </span>
+                <button
+                  onClick={handleSaveSignature}
+                  disabled={!signature || !signatureDirty || savingSignature}
+                  style={{
+                    background: (!signature || !signatureDirty || savingSignature) ? T.muted : T.teal,
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 100,
+                    padding: '9px 22px',
+                    fontSize: 13,
+                    fontWeight: 600,
+                    cursor: (!signature || !signatureDirty || savingSignature) ? 'default' : 'pointer'
+                  }}
+                >
+                  {savingSignature ? 'Saving…' : 'Save signature'}
+                </button>
+              </div>
+
+              {/*
+                Said plainly rather than buried in terms. A drawn signature is
+                an image, not an identity check — what gives it meaning on a
+                report is the record of who was signed in when the report was
+                filed, which is printed beside it.
+              */}
+              <p className="mt-5" style={{ fontSize: 11.5, lineHeight: 1.5, color: T.muted }}>
+                Your reports carry this image alongside your name and the date they were
+                filed. Keep your account secure: anyone signed in as you can file a report
+                under this signature.
+              </p>
             </div>
           </div>
         )}

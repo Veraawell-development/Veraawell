@@ -6,7 +6,7 @@
 const User = require('../models/user');
 const DoctorProfile = require('../models/doctorProfile');
 const { asyncHandler } = require('../middleware/error.middleware');
-const { NotFoundError } = require('../utils/errors');
+const { NotFoundError, ValidationError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('PROFILE-CONTROLLER');
@@ -348,12 +348,106 @@ const updateProfile = asyncHandler(async (req, res) => {
   });
 });
 
+/* ───────────────────────── practitioner signature ───────────────────────── */
+
+/**
+ * The maximum a stored signature may be, in bytes of decoded PNG.
+ *
+ * A drawn signature trimmed to its ink is 5-20 KB. 256 KB is generous for a
+ * high-DPI canvas and still far below anything that would bloat the document
+ * or a report render. The cap exists because this endpoint accepts a blob of
+ * client-supplied data straight into the database.
+ */
+const MAX_SIGNATURE_BYTES = 256 * 1024;
+
+/** `data:image/png;base64,<payload>` and nothing else. */
+const PNG_DATA_URL = /^data:image\/png;base64,([A-Za-z0-9+/]+={0,2})$/;
+
+/**
+ * Validate a drawn signature.
+ *
+ * Deliberately strict about the prefix rather than "does it look like a data
+ * URL": this value is rendered into a PDF and echoed back to a browser, so
+ * accepting image/svg+xml would accept a document that can carry script, and
+ * accepting an arbitrary URL would let someone point the signature at a remote
+ * asset they control and change it after the fact.
+ */
+function validateSignature(dataUrl) {
+  if (typeof dataUrl !== 'string' || dataUrl.length === 0) {
+    throw new ValidationError('A signature image is required', { signature: 'Draw your signature before saving' });
+  }
+
+  const match = PNG_DATA_URL.exec(dataUrl.trim());
+  if (!match) {
+    throw new ValidationError('That is not a valid signature image', {
+      signature: 'The signature must be a PNG drawn in the signature pad'
+    });
+  }
+
+  // 4 base64 chars per 3 bytes, minus padding.
+  const b64 = match[1];
+  const bytes = Math.floor((b64.length * 3) / 4) - (b64.endsWith('==') ? 2 : b64.endsWith('=') ? 1 : 0);
+  if (bytes > MAX_SIGNATURE_BYTES) {
+    throw new ValidationError('That signature image is too large', {
+      signature: `Signatures must be under ${Math.round(MAX_SIGNATURE_BYTES / 1024)} KB`
+    });
+  }
+
+  return dataUrl.trim();
+}
+
+/** GET /api/profile/signature — the doctor's own signature */
+const getSignature = asyncHandler(async (req, res) => {
+  const profile = await DoctorProfile.findOne({ userId: req.actor.id })
+    .select('+signature signatureUpdatedAt');
+  if (!profile) throw new NotFoundError('Doctor profile');
+
+  res.json({
+    success: true,
+    signature: profile.signature || null,
+    updatedAt: profile.signatureUpdatedAt || null
+  });
+});
+
+/** PUT /api/profile/signature — save or replace it */
+const saveSignature = asyncHandler(async (req, res) => {
+  const signature = validateSignature(req.body && req.body.signature);
+
+  // updateOne with an explicit $set: the profile has a pre('validate') hook
+  // that revokes payout approval when bank details change, and a full save()
+  // of a re-read document is a needless way to get near it.
+  const result = await DoctorProfile.updateOne(
+    { userId: req.actor.id },
+    { $set: { signature, signatureUpdatedAt: new Date() } }
+  );
+  if (result.matchedCount === 0) throw new NotFoundError('Doctor profile');
+
+  logger.info('Signature saved', { doctorId: String(req.actor.id).substring(0, 8) });
+  res.json({ success: true, message: 'Signature saved', updatedAt: new Date() });
+});
+
+/** DELETE /api/profile/signature — remove it */
+const deleteSignature = asyncHandler(async (req, res) => {
+  const result = await DoctorProfile.updateOne(
+    { userId: req.actor.id },
+    { $set: { signature: null, signatureUpdatedAt: null } }
+  );
+  if (result.matchedCount === 0) throw new NotFoundError('Doctor profile');
+
+  res.json({ success: true, message: 'Signature removed' });
+});
+
 module.exports = {
   setupProfile,
   getProfileStatus,
   getProfile,
   updateProfile,
-  updatePricing
+  updatePricing,
+  getSignature,
+  saveSignature,
+  deleteSignature,
+  // exported for tests
+  validateSignature
 };
 
 

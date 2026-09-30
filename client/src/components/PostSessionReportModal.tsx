@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { API_CONFIG } from '../config/api';
-import { PDFDownloadLink } from '@react-pdf/renderer';
-import HospitalReportTemplate from './HospitalReportTemplate';
 import logger from '../utils/logger';
+import { generateReportPdf } from '../utils/reportPdf';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 interface PostSessionReportModalProps {
@@ -38,6 +37,7 @@ const PostSessionReportModal: React.FC<PostSessionReportModalProps> = ({
     });
     const [error, setError] = useState<string | null>(null);
     const [isSubmitted, setIsSubmitted] = useState(false);
+    const [createdReport, setCreatedReport] = useState<any>(null);
     
     const queryClient = useQueryClient();
 
@@ -98,8 +98,12 @@ const PostSessionReportModal: React.FC<PostSessionReportModalProps> = ({
             if (!response.ok) throw new Error('Failed to create report');
             return response.json();
         },
-        onSuccess: () => {
+        onSuccess: (data) => {
             setIsSubmitted(true);
+            // The stored report, including the signature snapshot taken at
+            // filing time. Downloading from this is the filed document, not a
+            // reconstruction of the form.
+            setCreatedReport(data?.report || null);
             logger.info('Post-session report created successfully');
             queryClient.invalidateQueries({ queryKey: ['doctor', 'reports'] });
             queryClient.invalidateQueries({ queryKey: ['doctor', 'stats'] });
@@ -126,6 +130,19 @@ const PostSessionReportModal: React.FC<PostSessionReportModalProps> = ({
     };
 
     const submitting = submitReportMutation.isPending;
+
+    /**
+     * The filed report, as the same PDF the patient will download.
+     *
+     * Driven by the document the server stored rather than the local form, so
+     * it carries the signature snapshot and the real created-at date.
+     */
+    const handleDownloadPdf = () => {
+        if (!createdReport) return;
+        generateReportPdf(createdReport).catch((err) => {
+            logger.error('Failed to generate report PDF:', err);
+        });
+    };
 
     if (!isOpen) return null;
 
@@ -284,30 +301,22 @@ const PostSessionReportModal: React.FC<PostSessionReportModalProps> = ({
                                     <p className="text-[13px] text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>The session records have been updated successfully.</p>
                                 </div>
                                 <div className="pt-2">
-                                    <PDFDownloadLink
-                                        document={
-                                            <HospitalReportTemplate
-                                                data={{
-                                                    ...formData,
-                                                    patientName,
-                                                    doctorName,
-                                                    date: new Date().toLocaleDateString(),
-                                                    duration: sessionDuration.toString(),
-                                                    sessionId
-                                                }}
-                                            />
-                                        }
-                                        fileName={`Report_${patientName.replace(/\s+/g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`}
+                                    {/*
+                                      Same generator the patient's download
+                                      uses. This used to be a fourth, separate
+                                      design built on @react-pdf/renderer, so a
+                                      doctor and their patient held two
+                                      different documents describing one
+                                      session.
+                                    */}
+                                    <button
+                                        onClick={handleDownloadPdf}
                                         className="w-full bg-teal-500 hover:bg-teal-600 text-white font-bold py-2.5 rounded-xl shadow-sm transition-colors flex items-center justify-center gap-2 text-[14px]"
                                         style={{ fontFamily: 'Inter, sans-serif' }}
                                     >
-                                        {({ loading }) => (
-                                            <>
-                                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                                                {loading ? 'Preparing PDF...' : 'Download PDF Prescription'}
-                                            </>
-                                        )}
-                                    </PDFDownloadLink>
+                                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
+                                        Download PDF
+                                    </button>
                                 </div>
                                 <button
                                     onClick={onSubmit}

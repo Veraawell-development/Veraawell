@@ -234,6 +234,33 @@ const doctorProfileSchema = new mongoose.Schema({
     index: true
   },
 
+  /**
+   * The practitioner's drawn signature, as a PNG data URL.
+   *
+   * Stored as data rather than uploaded to Cloudinary like the profile and
+   * banner images. Every Cloudinary asset here is public, unsigned delivery,
+   * and a signature is not a profile photo — it is the artifact people read as
+   * authorisation. Keeping it in the document means no URL exists to find,
+   * share or hotlink; it reaches exactly two places, the doctor's own settings
+   * page and the PDF their own reports are rendered into.
+   *
+   * `select: false`, and deliberately absent from PUBLIC_DOCTOR_FIELDS below —
+   * that allowlist is default-deny, so a signature can never be added to a
+   * public directory response by forgetting something.
+   *
+   * A drawn signature trimmed to its ink is on the order of 5-20 KB, well
+   * inside the document limit; the endpoint caps it regardless.
+   */
+  signature: {
+    type: String,
+    default: null,
+    select: false
+  },
+  signatureUpdatedAt: {
+    type: Date,
+    default: null
+  },
+
   // Doctor cancellation tracking
   cancellationCount: {
     type: Number,

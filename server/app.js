@@ -359,6 +359,17 @@ app.put('/api/profile', verifyToken, profileController.updateProfile);
 app.get('/api/profile/status', verifyToken, profileController.getProfileStatus);
 app.patch('/api/profile/pricing', verifyToken, profileController.updatePricing);
 
+// The practitioner's drawn signature, used on their generated reports.
+// Policy is declared on the route line — the older /api/profile routes above
+// predate that convention and are grandfathered in authz/UNDECLARED.js, which
+// only ever shrinks, so nothing new may be added to it. All three are
+// self-scoped by req.actor.id inside the handler: there is no addressable
+// other-doctor resource here, which makes the role gate the whole policy.
+const { requireRole } = require('./authz');
+app.get('/api/profile/signature', verifyToken, requireRole('doctor'), profileController.getSignature);
+app.put('/api/profile/signature', verifyToken, requireRole('doctor'), profileController.saveSignature);
+app.delete('/api/profile/signature', verifyToken, requireRole('doctor'), profileController.deleteSignature);
+
 
 // Patient profile route (alias for backward compatibility)
 app.post('/api/auth/patient-profile', verifyToken, profileController.setupProfile);

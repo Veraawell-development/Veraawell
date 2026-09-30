@@ -41,6 +41,24 @@ const reportSchema = new mongoose.Schema({
     type: Number,
     default: null
   },
+  /**
+   * The practitioner's signature AS IT WAS when this report was filed.
+   *
+   * A snapshot, not a join to DoctorProfile.signature, for the same reason the
+   * commission split is snapshotted onto a Session: a clinical record must
+   * keep saying what it said when it was signed. A doctor who redraws their
+   * signature next year has not re-signed every report they ever filed, and
+   * a join would silently rewrite all of them.
+   *
+   * It also means the patient's copy carries the signature without the
+   * signature field itself ever having to leave DoctorProfile, where it is
+   * select:false and doctor-only.
+   */
+  doctorSignature: {
+    type: String,
+    default: null
+  },
+
   isSharedWithPatient: {
     type: Boolean,
     default: true

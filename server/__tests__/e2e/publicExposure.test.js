@@ -58,7 +58,12 @@ const FORBIDDEN_KEYS = [
   'payoutBank',
   'payoutApproved',
   'payoutApprovedBy',
-  'payoutRejectionReason'
+  'payoutRejectionReason',
+  // The practitioner's drawn signature. Not money, but the artifact a reader
+  // treats as authorisation — it must never reach a public directory, where
+  // anyone could lift it and paste it onto a document of their own.
+  'signature',
+  'signatureUpdatedAt'
 ];
 
 /** Walk an arbitrary response body and collect every forbidden key found. */
@@ -106,7 +111,9 @@ beforeAll(async () => {
         payoutSetupCompleted: true,
         customFeePercentage: 12.5,
         cancellationCount: 3,
-        cancellationWarningIssued: true
+        cancellationWarningIssued: true,
+        signature: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==',
+        signatureUpdatedAt: new Date()
       }
     }
   );

@@ -21,8 +21,13 @@ const createReport = asyncHandler(async (req, res) => {
   // Server-derived from the authorized session — see authz/policies/clinicalRecords.policy.js
   const { sessionId, patientId } = req.authz.derived;
 
+  // Snapshot the signature at filing time — see the field's note on the model.
+  const DoctorProfile = require('../models/doctorProfile');
+  const signingProfile = await DoctorProfile.findOne({ userId: doctorId }).select('+signature');
+
   const report = new Report({
     sessionId, doctorId, patientId, title, reportType, content,
+    doctorSignature: (signingProfile && signingProfile.signature) || null,
     isSharedWithPatient: isSharedWithPatient !== undefined ? isSharedWithPatient : true
   });
   await report.save();

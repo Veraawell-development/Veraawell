@@ -1,4 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import toast from 'react-hot-toast';
+import { formatReportText } from '../utils/reportContent';
+import { generateReportPdf } from '../utils/reportPdf';
 import { FiDownload, FiMenu, FiEye } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import ViewContentModal from '../components/ViewContentModal';
@@ -53,132 +56,11 @@ const ReportsRecommendationPage: React.FC = () => {
     if (!report.viewedByPatient) {
       markAsViewedMutation.mutate(report._id);
     }
-
-    import('jspdf').then(({ jsPDF }) => {
-      const doc = new jsPDF();
-      const pageWidth = doc.internal.pageSize.width;
-      
-      // Colors and Fonts
-      doc.setFont('helvetica');
-      const teal = '#0D9488';
-      const gray = '#4B5563';
-      const black = '#111827';
-      
-      // Header Section
-      doc.setFillColor(13, 148, 136); // Teal header bar
-      doc.rect(0, 0, pageWidth, 25, 'F');
-      
-      doc.setTextColor('#FFFFFF');
-      doc.setFontSize(22);
-      doc.setFont('helvetica', 'bold');
-      doc.text('Veraawell', 15, 17);
-      
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
-      doc.text('Official Medical Report', pageWidth - 15, 16, { align: 'right' });
-
-      // Title
-      doc.setTextColor(black);
-      doc.setFontSize(18);
-      doc.setFont('helvetica', 'bold');
-      doc.text(report.title, 15, 40);
-
-      // Meta Info Card
-      doc.setFillColor(249, 250, 251);
-      doc.setDrawColor(229, 231, 235);
-      doc.roundedRect(15, 48, pageWidth - 30, 25, 3, 3, 'FD');
-      
-      doc.setFontSize(10);
-      doc.setTextColor(gray);
-      doc.text('REPORT TYPE:', 20, 56);
-      doc.text('DATE:', 20, 66);
-      doc.text('PSYCHOLOGIST:', pageWidth / 2, 56);
-
-      doc.setTextColor(black);
-      doc.setFont('helvetica', 'bold');
-      doc.text(report.reportType || 'Consultation Report', 50, 56);
-      doc.text(formatDate(report.createdAt), 50, 66);
-      doc.text(`Dr. ${report.doctorId?.firstName || 'Unknown'} ${report.doctorId?.lastName || ''}`, (pageWidth / 2) + 32, 56);
-
-      // Content Section
-      let currentY = 85;
-      
-      let parsedContent: any = null;
-      try {
-          if (report.content.trim().startsWith('{') && report.content.trim().endsWith('}')) {
-              parsedContent = JSON.parse(report.content);
-          }
-      } catch (e) {
-          parsedContent = null;
-      }
-
-      const drawSection = (title: string, text: string) => {
-        if (!text) return;
-        if (currentY > 260) {
-          doc.addPage();
-          currentY = 20;
-        }
-        
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
-        doc.setTextColor(teal);
-        doc.text(title.toUpperCase(), 15, currentY);
-        
-        currentY += 7;
-        
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(11);
-        doc.setTextColor(black);
-        const splitText = doc.splitTextToSize(text, pageWidth - 30);
-        doc.text(splitText, 15, currentY);
-        
-        currentY += (splitText.length * 5) + 10;
-      };
-
-      if (parsedContent) {
-        if (parsedContent.diagnosis) drawSection('Primary Diagnosis', parsedContent.diagnosis);
-        if (parsedContent.mood) drawSection('Mood Assessment', parsedContent.mood);
-        if (parsedContent.progress) drawSection('Overall Progress', `${parsedContent.progress} / 10`);
-        if (parsedContent.observations && Array.isArray(parsedContent.observations)) {
-          drawSection('Clinical Observations', parsedContent.observations.join('\n• '));
-        }
-        if (parsedContent.summary) drawSection('Consultation Summary', parsedContent.summary);
-        if (parsedContent.recommendations) drawSection('Recommendations', parsedContent.recommendations);
-      } else {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(11);
-        doc.setTextColor(black);
-        const splitText = doc.splitTextToSize(report.content, pageWidth - 30);
-        doc.text(splitText, 15, currentY);
-      }
-      
-      // Footer
-      const pageCount = (doc.internal as any).getNumberOfPages();
-      for (let i = 1; i <= pageCount; i++) {
-        doc.setPage(i);
-        doc.setFont('helvetica', 'italic');
-        doc.setFontSize(9);
-        doc.setTextColor(156, 163, 175);
-        doc.text(`Page ${i} of ${pageCount}`, pageWidth / 2, 285, { align: 'center' });
-        doc.text('This is an electronically generated report.', pageWidth / 2, 290, { align: 'center' });
-      }
-
-      const safeTitle = report.title.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
-      doc.save(`${safeTitle}.pdf`);
-    }).catch(err => {
+    // One generator for every report download — see utils/reportPdf.ts for
+    // why the four that existed before were a problem.
+    generateReportPdf(report as any).catch((err) => {
       console.error('Failed to generate PDF', err);
-      // Fallback
-      const content = `${report.title}\n\nType: ${report.reportType}\n\nDate: ${formatDate(report.createdAt)}\nDoctor: Dr. ${report.doctorId?.firstName || 'Unknown'} ${report.doctorId?.lastName || ''}\n\n${report.content}`;
-      const blob = new Blob([content], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      const safeTitle = report.title.replace(/[^a-zA-Z0-9]/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
-      a.download = `${safeTitle}.txt`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      toast.error('Could not generate the PDF. Please try again.');
     });
   };
 
@@ -305,7 +187,7 @@ const ReportsRecommendationPage: React.FC = () => {
         isOpen={viewModalOpen}
         onClose={() => setViewModalOpen(false)}
         title={selectedReport?.title || 'Report Details'}
-        content={selectedReport?.content || 'No content available.'}
+        content={formatReportText(selectedReport?.content) || 'No content available.'}
         date={selectedReport?.createdAt || ''}
         doctorName={selectedReport ? `Dr. ${selectedReport.doctorId?.firstName || 'Unknown'} ${selectedReport.doctorId?.lastName || ''}` : ''}
         type={selectedReport?.reportType || 'Report'}

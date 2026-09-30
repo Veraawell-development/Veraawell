@@ -22,72 +22,14 @@ interface Task {
     createdAt: string;
 }
 
-export const generateReportPDF = (report: Report) => {
-    const doc = new jsPDF();
-
-    // Header
-    doc.setFontSize(18);
-    doc.setTextColor(56, 171, 174); // Teal color #38ABAE
-    doc.text('VERAAWELL MENTAL HEALTH PLATFORM', 105, 20, { align: 'center' });
-
-    doc.setFontSize(14);
-    doc.text('Patient Report', 105, 30, { align: 'center' });
-
-    // Report Details
-    doc.setFontSize(12);
-    doc.setTextColor(0, 0, 0);
-
-    let yPos = 50;
-    doc.text(`Report Title: ${report.title}`, 20, yPos);
-    yPos += 10;
-    doc.text(`Report Type: ${report.reportType}`, 20, yPos);
-    yPos += 10;
-    doc.text(`Date: ${new Date(report.createdAt).toLocaleDateString()}`, 20, yPos);
-    yPos += 15;
-
-    doc.text(`Patient: ${report.patientId.firstName} ${report.patientId.lastName}`, 20, yPos);
-    yPos += 10;
-    doc.text(`Doctor: Dr. ${report.doctorId.firstName} ${report.doctorId.lastName}`, 20, yPos);
-    yPos += 15;
-
-    // Separator line
-    doc.setDrawColor(200, 200, 200);
-    doc.line(20, yPos, 190, yPos);
-    yPos += 10;
-
-    // Content
-    doc.setFontSize(11);
-    doc.text('Report Content:', 20, yPos);
-    yPos += 10;
-
-    const splitContent = doc.splitTextToSize(report.content, 170);
-    doc.text(splitContent, 20, yPos);
-
-    // Calculate position for footer
-    const contentHeight = splitContent.length * 7;
-    yPos += contentHeight + 15;
-
-    // Add new page if content is too long
-    if (yPos > 270) {
-        doc.addPage();
-        yPos = 20;
-    }
-
-    // Footer
-    doc.setDrawColor(200, 200, 200);
-    doc.line(20, yPos, 190, yPos);
-    yPos += 10;
-
-    doc.setFontSize(9);
-    doc.setTextColor(128, 128, 128);
-    doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, yPos);
-    doc.text(`Report ID: ${report._id}`, 20, yPos + 5);
-
-    // Save
-    const fileName = `Report_${report.title.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
-    doc.save(fileName);
-};
-
+/**
+ * The report PDF that lived here is gone — see utils/reportPdf.ts.
+ *
+ * There were four generators across two libraries, and two of them rendered
+ * the same Report with different layouts, so a patient and their doctor could
+ * download one session and hold two different-looking documents. This file
+ * now owns only the task/homework PDF, which is a genuinely different thing.
+ */
 export const generateTaskPDF = (task: Task) => {
     const doc = new jsPDF();
 
