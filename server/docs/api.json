@@ -1,0 +1,954 @@
+{
+  "name": "Veraawell API",
+  "baseUrl": "https://api.veraawell.com",
+  "generatedFrom": "the mounted Express router — regenerate with: npm run docs:api",
+  "generatedAt": "2026-09-30",
+  "notes": [
+    "Auth: an httpOnly `token` cookie, or `Authorization: Bearer <jwt>`. Admin routes use a separate realm and a separate secret.",
+    "Mutating requests (POST/PUT/PATCH/DELETE) require an `X-CSRF-Token` header; fetch the value from GET /api/csrf-token. Exempt: /api/auth/*, /api/admin/auth/*, /api/payments/webhook, /api/upload/doctor-document.",
+    "Request and response bodies are not listed: they are not inferable from the router. Read the controller named on the route line.",
+    "\"undeclared\" means the route predates the authz convention and is grandfathered in authz/UNDECLARED.js, which may only shrink. It does not mean unauthenticated."
+  ],
+  "routeCount": 177,
+  "groups": {
+    "admin/approvals": [
+      {
+        "method": "DELETE",
+        "path": "/api/admin/approvals/admins/:adminId",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/approvals/admins/:adminId/approve",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/approvals/admins/:adminId/reject",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/approvals/admins/all",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/approvals/admins/pending",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/approvals/analytics",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/admin/approvals/doctors/:doctorId",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/approvals/doctors/:doctorId/approve",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/approvals/doctors/:doctorId/reject",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/approvals/doctors/all",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/approvals/doctors/pending",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/approvals/statistics",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "admin/auth": [
+      {
+        "method": "POST",
+        "path": "/api/admin/auth/change-password",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/auth/create",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/auth/forgot-password",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/auth/login",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/auth/logout",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/auth/reset-password/:token",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/auth/setup",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/auth/status",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "admin/cleanup-sessions": [
+      {
+        "method": "POST",
+        "path": "/api/admin/cleanup-sessions",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "admin/debug-pending-doctors": [
+      {
+        "method": "GET",
+        "path": "/api/admin/debug-pending-doctors",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "admin/fix-doctor-approvals": [
+      {
+        "method": "POST",
+        "path": "/api/admin/fix-doctor-approvals",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "admin/payments": [
+      {
+        "method": "PATCH",
+        "path": "/api/admin/payments/doctors/:doctorId/fee",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/payments/onboarding-requests",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/payments/onboarding-requests/:doctorId/approve",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/payments/onboarding-requests/:doctorId/reject",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/payments/payouts/",
+        "access": "role: admin or super_admin"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/payments/payouts/:payoutId/lock",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/payments/payouts/:payoutId/mark-paid",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/payments/payouts/bank-details",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/payments/payouts/bank-details/:doctorId/approve",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/payments/payouts/bank-details/:doctorId/reject",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/payments/payouts/generate",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/payments/payouts/preview",
+        "access": "role: admin or super_admin"
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/payments/revenue",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/payments/sessions/:sessionId/refund",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "POST",
+        "path": "/api/admin/payments/sessions/:sessionId/retry-refund",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/payments/sessions/failed-refunds",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/payments/settings",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/admin/payments/settings/fee",
+        "access": "role: super_admin"
+      }
+    ],
+    "articles": [
+      {
+        "method": "GET",
+        "path": "/api/articles/",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/articles/:id/like",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/articles/:id/view",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/articles/:slug",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/articles/admin",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/articles/admin/:id",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "GET",
+        "path": "/api/articles/admin/:id",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/articles/admin/:id",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "POST",
+        "path": "/api/articles/admin/:id/feature",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "POST",
+        "path": "/api/articles/admin/:id/publish",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "GET",
+        "path": "/api/articles/admin/all",
+        "access": "role: super_admin"
+      }
+    ],
+    "assessments": [
+      {
+        "method": "GET",
+        "path": "/api/assessments/",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/assessments/",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/assessments/:id",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/assessments/:id",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/assessments/latest/:testType",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/assessments/stats/summary",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "auth": [
+      {
+        "method": "DELETE",
+        "path": "/api/auth/delete-account",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/forgot-password",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/auth/google",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/auth/google/callback",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/login",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/logout",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/patient-profile",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/auth/profile",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/register",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/reset-password",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/auth/update-password",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/validate-registration",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/verify-signup",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "availability": [
+      {
+        "method": "GET",
+        "path": "/api/availability/doctor/:doctorId",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/availability/doctor/current",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/availability/save",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/availability/slots/:doctorId/:date",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/availability/upcoming-sessions",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "chat": [
+      {
+        "method": "POST",
+        "path": "/api/chat/conversation",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/chat/conversation/:conversationId/read",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/chat/conversations",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/chat/message",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/chat/messages/:conversationId",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/chat/unread-count",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "csrf-token": [
+      {
+        "method": "GET",
+        "path": "/api/csrf-token",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "doctor-status": [
+      {
+        "method": "GET",
+        "path": "/api/doctor-status/online-doctors",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/doctor-status/set-offline",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/doctor-status/status",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/doctor-status/toggle-online",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "enquiries": [
+      {
+        "method": "GET",
+        "path": "/api/enquiries/",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "POST",
+        "path": "/api/enquiries/",
+        "access": "public — public enquiry form on the careers and contact pages"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/enquiries/:id",
+        "access": "role: super_admin"
+      }
+    ],
+    "health": [
+      {
+        "method": "GET",
+        "path": "/api/health",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "otp": [
+      {
+        "method": "POST",
+        "path": "/api/otp/resend",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/otp/send",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/otp/verify",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "patients": [
+      {
+        "method": "GET",
+        "path": "/api/patients/doctor-patients",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/patients/emergency-contact",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/patients/emergency-contact",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "payments": [
+      {
+        "method": "GET",
+        "path": "/api/payments/onboarding-status",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/payments/request-onboarding",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/payments/verify",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/payments/webhook",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "payouts": [
+      {
+        "method": "GET",
+        "path": "/api/payouts/bank-details",
+        "access": "role: doctor"
+      },
+      {
+        "method": "POST",
+        "path": "/api/payouts/bank-details",
+        "access": "role: doctor"
+      },
+      {
+        "method": "GET",
+        "path": "/api/payouts/my-payouts",
+        "access": "role: doctor"
+      }
+    ],
+    "profile": [
+      {
+        "method": "PUT",
+        "path": "/api/profile",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/profile/pricing",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/profile/setup",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/profile/setup",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/profile/signature",
+        "access": "role: doctor"
+      },
+      {
+        "method": "GET",
+        "path": "/api/profile/signature",
+        "access": "role: doctor"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/profile/signature",
+        "access": "role: doctor"
+      },
+      {
+        "method": "GET",
+        "path": "/api/profile/status",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "protected": [
+      {
+        "method": "GET",
+        "path": "/api/protected",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "reviews": [
+      {
+        "method": "PATCH",
+        "path": "/api/reviews/admin/:reviewId/approve",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "PATCH",
+        "path": "/api/reviews/admin/:reviewId/status",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/reviews/admin/all",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/reviews/admin/doctor-performance",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/reviews/check/:sessionId",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/reviews/doctor/:doctorId",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/reviews/my-reviews",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/reviews/platform",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/reviews/submit",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "session-reports": [
+      {
+        "method": "POST",
+        "path": "/api/session-reports/",
+        "access": "policy: session-report:create"
+      },
+      {
+        "method": "GET",
+        "path": "/api/session-reports/:reportId",
+        "access": "policy: session-report:read"
+      },
+      {
+        "method": "GET",
+        "path": "/api/session-reports/patient/:patientId",
+        "access": "scoped: session-report:list-by-patient"
+      },
+      {
+        "method": "GET",
+        "path": "/api/session-reports/session/:sessionId",
+        "access": "policy: session:read"
+      }
+    ],
+    "session-tools": [
+      {
+        "method": "POST",
+        "path": "/api/session-tools/journal",
+        "access": "role: patient"
+      },
+      {
+        "method": "DELETE",
+        "path": "/api/session-tools/journal/:journalId",
+        "access": "policy: journal:delete"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/session-tools/journal/:journalId",
+        "access": "policy: journal:update"
+      },
+      {
+        "method": "GET",
+        "path": "/api/session-tools/journal/patient/:patientId",
+        "access": "scoped: journal:list-own"
+      },
+      {
+        "method": "POST",
+        "path": "/api/session-tools/mood",
+        "access": "role: patient"
+      },
+      {
+        "method": "GET",
+        "path": "/api/session-tools/mood/history",
+        "access": "role: patient"
+      },
+      {
+        "method": "GET",
+        "path": "/api/session-tools/mood/today",
+        "access": "role: patient"
+      },
+      {
+        "method": "POST",
+        "path": "/api/session-tools/notes",
+        "access": "policy: note:create"
+      },
+      {
+        "method": "GET",
+        "path": "/api/session-tools/notes/doctor/:doctorId",
+        "access": "scoped: note:list-by-doctor"
+      },
+      {
+        "method": "GET",
+        "path": "/api/session-tools/notes/patient/:patientId",
+        "access": "scoped: note:list-by-patient"
+      },
+      {
+        "method": "GET",
+        "path": "/api/session-tools/notes/session/:sessionId",
+        "access": "scoped: note:list-by-session"
+      },
+      {
+        "method": "POST",
+        "path": "/api/session-tools/reports",
+        "access": "policy: report:create"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/session-tools/reports/:reportId/view",
+        "access": "policy: report:mark-viewed"
+      },
+      {
+        "method": "GET",
+        "path": "/api/session-tools/reports/doctor/:doctorId",
+        "access": "scoped: report:list-by-doctor"
+      },
+      {
+        "method": "GET",
+        "path": "/api/session-tools/reports/patient/:patientId",
+        "access": "scoped: report:list-by-patient"
+      },
+      {
+        "method": "GET",
+        "path": "/api/session-tools/reports/session/:sessionId",
+        "access": "policy: session:read"
+      },
+      {
+        "method": "POST",
+        "path": "/api/session-tools/tasks",
+        "access": "policy: task:create"
+      },
+      {
+        "method": "PUT",
+        "path": "/api/session-tools/tasks/:taskId",
+        "access": "policy: task:update"
+      },
+      {
+        "method": "GET",
+        "path": "/api/session-tools/tasks/doctor/:doctorId",
+        "access": "scoped: task:list-by-doctor"
+      },
+      {
+        "method": "GET",
+        "path": "/api/session-tools/tasks/patient/:patientId",
+        "access": "scoped: task:list-by-patient"
+      }
+    ],
+    "sessions": [
+      {
+        "method": "GET",
+        "path": "/api/sessions/:sessionId",
+        "access": "policy: session:read"
+      },
+      {
+        "method": "POST",
+        "path": "/api/sessions/:sessionId/accept",
+        "access": "policy: session:accept"
+      },
+      {
+        "method": "POST",
+        "path": "/api/sessions/:sessionId/cancel",
+        "access": "policy: session:cancel"
+      },
+      {
+        "method": "POST",
+        "path": "/api/sessions/:sessionId/complete",
+        "access": "policy: session:complete"
+      },
+      {
+        "method": "POST",
+        "path": "/api/sessions/:sessionId/delay",
+        "access": "policy: session:delay"
+      },
+      {
+        "method": "POST",
+        "path": "/api/sessions/:sessionId/missed",
+        "access": "policy: session:mark-missed"
+      },
+      {
+        "method": "POST",
+        "path": "/api/sessions/book",
+        "access": "policy: session:book"
+      },
+      {
+        "method": "POST",
+        "path": "/api/sessions/book-immediate",
+        "access": "policy: session:book"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sessions/calendar",
+        "access": "scoped: session:list-own"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sessions/calendar/:year/:month",
+        "access": "scoped: session:list-own"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sessions/call-history",
+        "access": "scoped: session:list-own"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sessions/delayed",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sessions/doctors",
+        "access": "public — public therapist directory"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sessions/doctors/:doctorId",
+        "access": "public — public therapist profile"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sessions/doctors/:doctorId/slots/:date",
+        "access": "public — public availability for booking"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sessions/instant-requests",
+        "access": "role: doctor"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sessions/join/:sessionId",
+        "access": "policy: session:join"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sessions/my-doctors",
+        "access": "role: patient"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sessions/my-sessions",
+        "access": "scoped: session:list-own"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sessions/my-therapists",
+        "access": "role: patient"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sessions/patients/:patientId/emergency-contact",
+        "access": "role: doctor"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sessions/pending-feedback",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sessions/stats",
+        "access": "role: doctor"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sessions/turn-credentials",
+        "access": "role: patient or doctor"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sessions/upcoming",
+        "access": "scoped: session:list-own"
+      }
+    ],
+    "test-google-routes": [
+      {
+        "method": "GET",
+        "path": "/api/test-google-routes",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ],
+    "upload": [
+      {
+        "method": "POST",
+        "path": "/api/upload/article-image",
+        "access": "role: super_admin"
+      },
+      {
+        "method": "POST",
+        "path": "/api/upload/banner-image",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/upload/doctor-document",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/upload/doctor-documents",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/upload/profile-image",
+        "access": "undeclared — see authz/UNDECLARED.js"
+      }
+    ]
+  }
+}

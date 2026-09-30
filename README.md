@@ -2,6 +2,16 @@
 
 A modern, secure mental health platform built with the MERN stack. Veraawell provides a safe, scalable, and confidential environment for mental health professionals and patients to connect. It features robust authentication, optimized scheduling, and secure communication channels.
 
+| If you are… | Read |
+|---|---|
+| **running the platform** — payouts, approvals, refunds, what is still unfinished | [`OPERATIONS.md`](OPERATIONS.md) |
+| **writing code here** — the conventions and the four ratchets that gate a build | [`CONTRIBUTING.md`](CONTRIBUTING.md) |
+| **setting up an environment** | [`server/example.env`](server/example.env) and [`render.yaml`](render.yaml), which are kept current alongside the code |
+| **calling the API** | [`server/docs/api.json`](server/docs/api.json) — 177 routes with the policy guarding each, generated from the running app via `npm run docs:api` |
+
+This README covers architecture. It is not the source of truth for environment
+variables or deployment — the two files above are.
+
 ## Technical Overview
 
 Our platform leverages cutting-edge technologies to ensure security, privacy, scalability, and a seamless user experience.

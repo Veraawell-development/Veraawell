@@ -60,7 +60,12 @@ function enumerateRoutes(app) {
             path: `${prefix}${layer.route.path}`.replace(/\/{2,}/g, '/') || '/',
             declared: !!tag,
             kind: tag ? tag.kind : null,
-            reason: tag && tag.reason ? tag.reason : null
+            reason: tag && tag.reason ? tag.reason : null,
+            // The whole tag, for callers that want the action or role names
+            // rather than just the kind — scripts/generate-api-doc.js. Added
+            // alongside the fields above rather than replacing them, so the
+            // ratchet tests that read `declared`/`kind` are untouched.
+            tag: tag || null
           });
         }
       } else if (layer.handle && layer.handle.stack) {
