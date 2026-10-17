@@ -322,3 +322,20 @@ describe('a refund interrupted between the gateway call and recording it', () =>
     expect((await Session.findById(fresh._id)).paymentStatus).toBe('refund_pending');
   });
 });
+
+describe('losing the claim', () => {
+  test('a caller holding a stale copy does not reach the gateway', async () => {
+    // The race the claim exists for, made deterministic: this caller read the
+    // session while it was 'paid', and someone else claimed the refund before
+    // it acted. Its compare-and-set misses, it re-reads, finds the refund
+    // already claimed, and must stop there.
+    const s = await paidSession();
+    const stale = await Session.findById(s._id);
+    await Session.updateOne({ _id: s._id }, { $set: { paymentStatus: 'refund_pending', refundAmount: 1000 } });
+
+    const result = await refundSession(stale, { actor: ACTOR.PATIENT, amount: 1000, reason: 'race' });
+    expect(result.refunded).toBe(false);
+    expect(result.skipped).toBe('claim-noop');
+    expect(mockRefund).not.toHaveBeenCalled();
+  });
+});
