@@ -16,6 +16,12 @@ require('../support/env');
 
 const fc = require('fast-check');
 
+// A fixed seed. Random inputs reach different branches on each run, so the
+// per-file coverage ratchet passed on one machine and failed on another with
+// no code change. Override with FC_SEED to explore; a failure prints its own
+// seed and path for replay either way.
+fc.configureGlobal({ seed: Number(process.env.FC_SEED) || 20261018 });
+
 const { calculateRefund, describeRefundPolicy } = require('../../services/refundPolicy');
 const {
   zonedToUtc, utcToZoned, normalizeTimeTo24h, to12hSlot, slotKey, normalizeDate
