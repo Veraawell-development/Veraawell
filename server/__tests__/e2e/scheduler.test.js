@@ -701,6 +701,28 @@ describe('instant requests that are never answered', () => {
   });
 });
 
+describe('boot catch-up', () => {
+  test('a restart runs the work that fell due while the server slept', async () => {
+    // The host sleeps when idle and every cron pauses with it. On boot the
+    // expiry, status sweep and refund reconciliation run once straight away.
+    const ended = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: new Date(Date.now() - 3 * 3600 * 1000), duration: 55, price: 1000,
+      status: 'scheduled', paymentStatus: 'paid', paymentId: 'pay_slept_through'
+    });
+    const abandoned = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: new Date(Date.now() + 3 * 864e5), duration: 55, price: 1000,
+      status: 'payment_pending', paymentStatus: 'pending', razorpayOrderId: 'order_slept', paymentId: null
+    });
+    await Session.collection.updateOne({ _id: abandoned._id }, { $set: { createdAt: new Date(Date.now() - 60 * 60 * 1000) } });
+
+    expect(await scheduler.runBootCatchUp()).toBe(true);
+    expect((await Session.findById(ended._id)).status).toBe('no-show');
+    expect((await Session.findById(abandoned._id)).status).toBe('cancelled');
+  });
+});
+
 describe('resilience', () => {
   test('stopScheduler is safe to call and leaves the module reusable', () => {
     expect(() => scheduler.stopScheduler()).not.toThrow();

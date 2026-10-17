@@ -43,7 +43,27 @@ async function createWithRetry(attempts = 5) {
   throw lastError;
 }
 
+/**
+ * Optional integrations whose presence changes which code runs. config/
+ * environment.js loads server/.env with dotenv, which fills in any variable
+ * that is not already set — so on a developer machine the suite silently ran
+ * with real Google OAuth, TURN and admin credentials, and on CI without them.
+ * Same tests, different code paths, different coverage: the ratchet passed
+ * locally and failed in CI. Setting them to '' here wins over dotenv (it never
+ * overwrites a set variable) and reads as "not configured" everywhere. Suites
+ * that need one set it themselves.
+ */
+const NEUTRALISED_ENV = [
+  'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET',
+  'METERED_DOMAIN', 'METERED_SECRET_KEY',
+  'ADMIN_ID', 'ADMIN_PASSWORD',
+  'INITIAL_ADMIN_EMAIL', 'INITIAL_ADMIN_PASSWORD',
+  'EMAIL_USER', 'EMAIL_PASS', 'CLOUDINARY_URL', 'PRERENDER_TOKEN', 'PAYOUT_EPOCH'
+];
+
 module.exports = async function globalSetup() {
+  for (const name of NEUTRALISED_ENV) process.env[name] = '';
+
   const mongod = await createWithRetry();
   const uri = mongod.getUri();
   if (!/(127\.0\.0\.1|localhost)/.test(uri)) {

@@ -366,15 +366,27 @@ const startScheduler = (io) => {
     // Catch up once at boot. The host sleeps when idle and every cron above
     // pauses with it; without this, work that fell due during the sleep
     // waits for the next tick of each schedule.
-    setTimeout(async () => {
-        try {
-            await runCheckoutExpiry(io);
-            await runSessionStatusUpdate();
-            await runClawbackReconciliation();
-        } catch (error) {
-            logger.error('Boot catch-up failed', { error: error.message });
-        }
-    }, 5000).unref();
+    //
+    // Not under Jest: a timer firing five seconds into whichever suite happens
+    // to be running sweeps that suite's data at an arbitrary moment, which
+    // made both behaviour and coverage depend on how fast the machine was.
+    // runBootCatchUp is exported and tested directly instead.
+    if (process.env.NODE_ENV !== 'test') {
+        setTimeout(() => runBootCatchUp(io), 5000).unref();
+    }
+};
+
+/** The work a restart may have missed: expiry, the status sweep, refunds and clawbacks. */
+const runBootCatchUp = async (io = null) => {
+    try {
+        await runCheckoutExpiry(io);
+        await runSessionStatusUpdate();
+        await runClawbackReconciliation();
+        return true;
+    } catch (error) {
+        logger.error('Boot catch-up failed', { error: error.message });
+        return false;
+    }
 };
 
 /**
@@ -410,5 +422,6 @@ module.exports = {
     runSessionStatusUpdate,
     runClawbackReconciliation,
     runStuckRefundReconciliation,
-    runCheckoutExpiry
+    runCheckoutExpiry,
+    runBootCatchUp
 };
