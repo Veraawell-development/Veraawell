@@ -50,7 +50,8 @@ function getStubClient() {
       create: async (payload) => {
         logger.warn('STUB PAYMENTS: fabricating an order — never in production', { amount: payload.amount });
         return { id: synthetic('order_stub_'), ...payload, status: 'created' };
-      }
+      },
+      fetchPayments: async () => ({ items: [] })
     },
     payments: {
       refund: async (paymentId, payload) => {

@@ -21,7 +21,7 @@ const {
   zonedToUtc, utcToZoned, normalizeTimeTo24h, to12hSlot, slotKey, normalizeDate
 } = require('../../utils/zonedTime');
 const { verifyWebhookSignature } = require('../../utils/webhookSignature');
-const { computeScore } = require('../../utils/assessmentScoring');
+const { computeScore, validateResponses } = require('../../utils/assessmentScoring');
 
 const RUNS = 500;
 
@@ -289,27 +289,83 @@ describe('assessment scoring', () => {
     ), { numRuns: RUNS });
   });
 
-  test('the percentage is NOT clamped, so an out-of-range answer exceeds 100%', () => {
+  test('computeScore is a pure sum, so the boundary must refuse out-of-range answers first', () => {
     // computeScore sums whatever `answer` values it is given and divides by the
-    // table's maxScore, with no clamp and no per-answer range check
-    // (assessmentScoring.js:55-58). POST /api/assessments validates the
-    // testType but never validates the answers, so a client can post values
-    // outside the question's options and store a severity of 'severe' with a
-    // percentage far above 100.
+    // table's maxScore, with no clamp and no per-answer range check. That is
+    // deliberate — client/src/__tests__/parity.test.ts compares it with the
+    // client's scorer on arbitrary input — but it means the stored severity is
+    // only as honest as the answers it is fed.
     //
-    // eating-disorder has maxScore 5, so three answers of 1/2/3 already
-    // overflow it.
-    const overflow = computeScore('eating-disorder', [
+    // This was a characterisation test: POST /api/assessments validated the
+    // testType and never the answers, so a client could store 'severe' at a
+    // percentage far above 100. validateResponses now sits in front of it, and
+    // refuses both inputs below.
+    //
+    // eating-disorder has maxScore 5, so three answers of 1/2/3 overflow it.
+    const overflowInput = [
       { questionId: 1, answer: 1 }, { questionId: 2, answer: 2 }, { questionId: 3, answer: 3 }
-    ]);
+    ];
+    const overflow = computeScore('eating-disorder', overflowInput);
     expect(overflow.total).toBe(6);
     expect(overflow.percentage).toBe(120);
-    expect(overflow.severity).toBe('severe');
+    expect(validateResponses('eating-disorder', overflowInput).error).toBeDefined();
 
-    // Taken to an extreme, the stored clinical label is meaningless.
-    const absurd = computeScore('depression', [{ questionId: 1, answer: 100000 }]);
-    expect(absurd.percentage).toBeGreaterThan(1000);
-    expect(absurd.severity).toBe('severe');
+    const absurdInput = [{ questionId: 1, answer: 100000 }];
+    expect(computeScore('depression', absurdInput).percentage).toBeGreaterThan(1000);
+    expect(validateResponses('depression', absurdInput).error).toBeDefined();
+  });
+
+  test('anything validateResponses accepts scores inside 0-100% and inside its own options', () => {
+    // The property the boundary exists for: generate arbitrary submissions,
+    // and whenever one is accepted, the score derived from it is in range.
+    const submission = fc.array(
+      fc.record({ questionId: fc.integer({ min: 0, max: 30 }), answer: fc.integer({ min: -1, max: 5 }) }),
+      { minLength: 1, maxLength: 30 }
+    );
+    fc.assert(fc.property(fc.constantFrom(...TYPES), submission, (type, rs) => {
+      const checked = validateResponses(type, rs);
+      if (checked.error) return true;
+      const scored = computeScore(type, checked.responses);
+      return scored.percentage >= 0 && scored.percentage <= 100;
+    }), { numRuns: RUNS });
+  });
+
+  test('a complete, maximal answer set is accepted for every test and stays within maxScore', () => {
+    // Anti-vacuity for the property above: without this, a validator that
+    // refused everything would pass it. Also pins the question table to the
+    // scoring table — every non-branching test reaches exactly its maxScore.
+    const { QUESTION_SETS, SCORING_TABLES } = require('../../utils/assessmentScoring');
+    for (const type of TYPES) {
+      const set = QUESTION_SETS[type];
+      const ids = set.branches ? [...set.always, ...set.branches[0]] : Object.keys(set.questions).map(Number);
+      const rs = ids.map((id) => ({ questionId: id, answer: Math.max(...set.questions[id]) }));
+      if (set.branches) rs[0].answer = 0; // the alcohol branch
+      const checked = validateResponses(type, rs);
+      expect([type, checked.error]).toEqual([type, undefined]);
+      const scored = computeScore(type, checked.responses);
+      if (!set.branches) expect([type, scored.total]).toEqual([type, SCORING_TABLES[type].maxScore]);
+      expect(scored.total).toBeLessThanOrEqual(SCORING_TABLES[type].maxScore);
+    }
+  });
+
+  test('the addiction test cannot reach its own moderate or severe band', () => {
+    // A characterisation of the TEST DEFINITION, shared with the client
+    // (client/src/data/mentalHealthTests.ts). Its maxScore is 10 and 'moderate'
+    // starts at 6, but the longest branch is Q1 plus five YES/NO questions:
+    // alcohol (Q1 = 0) tops out at 5, drugs (1 + 3) and behaviour (2 + 2) at 4.
+    // Q1 is a category picker, yet its option value is summed into the total.
+    // Every possible addiction result is therefore 'minimal' or 'mild'. Fixing
+    // it is a clinical decision for both scorers at once (the parity test pins
+    // them together), not something to change here alone.
+    const { QUESTION_SETS } = require('../../utils/assessmentScoring');
+    const set = QUESTION_SETS.addiction;
+    let best = 0;
+    for (const [branch, ids] of Object.entries(set.branches)) {
+      const rs = [{ questionId: 1, answer: Number(branch) }, ...ids.map((id) => ({ questionId: id, answer: 1 }))];
+      best = Math.max(best, computeScore('addiction', validateResponses('addiction', rs).responses).total);
+    }
+    expect(best).toBe(5);
+    expect(computeScore('addiction', [{ questionId: 1, answer: best }]).severity).toBe('mild');
   });
 
   test('within the answer range every test type does stay inside 0-100%', () => {
@@ -336,21 +392,21 @@ describe('assessment scoring', () => {
     expect(computeScore('dla20', [{ questionId: 1, answer: 2 }])).toBeNull();
   });
 
-  test('a prototype property name is mistaken for a scoring table and throws', () => {
-    // `SCORING_TABLES[testType]` is a bare object lookup
-    // (assessmentScoring.js:52), so 'valueOf', 'toString' and 'constructor'
-    // resolve up the prototype chain to truthy functions and slip past the
-    // `if (!table) return null` guard. The next line then reads
-    // `table.severityLevels`, which is undefined, and the function throws
+  test('a prototype property name is an unknown type, not a scoring table', () => {
+    // Was a characterisation test asserting a throw. `SCORING_TABLES[testType]`
+    // was a bare object lookup, so 'valueOf', 'toString' and 'constructor'
+    // resolved up the prototype chain to truthy functions and slipped past the
+    // `if (!table) return null` guard; the next line read
+    // `table.severityLevels`, which is undefined, and the function threw
     // instead of honouring its documented "returns null for an uncovered
     // type" contract.
     //
     // Not reachable over HTTP — assessment.controller.js checks testType
-    // against VALID_TEST_TYPES first — but the utility is exported and its
-    // contract is wrong. A null-prototype table or an own-property check
-    // would close it.
-    for (const name of ['valueOf', 'toString', 'constructor', 'hasOwnProperty']) {
-      expect(() => computeScore(name, [{ questionId: 1, answer: 1 }])).toThrow();
+    // against VALID_TEST_TYPES first — but the utility is exported. The lookup
+    // is now an own-property check, and validateResponses uses the same one.
+    for (const name of ['valueOf', 'toString', 'constructor', 'hasOwnProperty', '__proto__']) {
+      expect(computeScore(name, [{ questionId: 1, answer: 1 }])).toBeNull();
+      expect(validateResponses(name, [{ questionId: 1, answer: 1 }]).error).toBeDefined();
     }
 
     // For contrast, a name that is not on Object.prototype behaves correctly.

@@ -4,6 +4,7 @@
  */
 
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const User = require('../models/user');
 const { getJWTSecret, getAdminJWTSecret } = require('../config/auth');
 const { AuthenticationError, AuthorizationError } = require('../utils/errors');
@@ -13,62 +14,143 @@ const { normalizeActor, CHANNEL } = require('../authz/actor');
 const logger = createLogger('AUTH');
 
 /**
- * Extract token from request (cookie or Authorization header)
+ * The two credential realms. Each has its own cookie and its own secret.
+ *
+ * The secret used to be chosen by asking "does this request carry an
+ * adminToken cookie?" and, if so, verifying EVERY token with the admin
+ * secret. A browser that had signed in to both the app and the admin portal
+ * therefore failed verification on every user route — the `token` cookie and
+ * the user's Bearer were checked against the wrong key — and got a 401 on
+ * everything until it cleared cookies. The realm is now a property of the
+ * middleware, not of whichever cookies happen to be present:
+ *
+ *   verifyToken       Bearer header, then the `token` cookie       JWT_SECRET
+ *   verifyAdminToken  Bearer header, then the `adminToken` cookie  ADMIN_JWT_SECRET
+ *
+ * A Bearer header is tried against the realm's own secret only. Accepting an
+ * admin-realm token on user routes would erase the boundary that
+ * clinicalRecords.policy.js and the authz sweep rely on, and nothing in the
+ * client sends one there.
  */
-function extractToken(req) {
-  // Check cookies first
-  let token = null;
-  let tokenSource = null;
+const REALM = Object.freeze({
+  USER: { cookie: 'token', secret: getJWTSecret },
+  ADMIN: { cookie: 'adminToken', secret: getAdminJWTSecret }
+});
 
-  // Check Authorization header first (highest priority)
-  if (req.headers.authorization) {
-    const authHeader = req.headers.authorization;
-    if (authHeader.startsWith('Bearer ')) {
-      token = authHeader.substring(7);
-      tokenSource = 'header:Authorization';
-      logger.debug('Token extracted from Authorization header', {
-        source: tokenSource,
-        tokenPreview: token.substring(0, 20) + '...'
-      });
-      return token;
-    }
+/** Every credential this request offers for a realm, in priority order. */
+function credentialCandidates(req, realm) {
+  const out = [];
+  const header = req.headers && req.headers.authorization;
+  if (typeof header === 'string' && header.startsWith('Bearer ')) {
+    const token = header.substring(7).trim();
+    if (token) out.push({ token, source: 'header:Authorization' });
   }
-
-  // If no header, check cookies.
   // Guarded: `req.cookies` is undefined unless cookieParser has run. Reading
   // through it unguarded turned "no credentials" into a 500 with a stack
   // trace instead of a 401, and made every authenticated route depend on
   // middleware ordering that nothing asserted.
   const cookies = req.cookies || {};
-  token = cookies.token || cookies.adminToken;
-
-  if (token) {
-    tokenSource = cookies.token ? 'cookie:token' : 'cookie:adminToken';
-    logger.debug('Token extracted from cookie', {
-      source: tokenSource,
-      tokenPreview: token.substring(0, 20) + '...'
-    });
-  } else {
-    logger.debug('No token found in request', {
-      hasCookies: !!req.cookies,
-      hasAuthHeader: !!req.headers.authorization
-    });
-  }
-
-  return token;
+  if (cookies[realm.cookie]) out.push({ token: cookies[realm.cookie], source: `cookie:${realm.cookie}` });
+  return out;
 }
 
 /**
- * Determine which secret to use based on token type
+ * Is this token older than the account's last password change?
+ *
+ * Exported for the socket handshake, which loads a lean user. `iat` is whole
+ * seconds and passwordChangedAt is truncated to the second (models/user.js),
+ * so a token minted in the same second as the change — the fresh one a reset
+ * or update hands back — still verifies. A token with no `iat` at all cannot
+ * be placed in time and is treated as stale once a change has happened.
  */
-function getSecretForToken(req, token) {
-  // If adminToken cookie exists, use admin secret
-  if (req.cookies && req.cookies.adminToken) {
-    return getAdminJWTSecret();
+function tokenPredatesPasswordChange(user, decoded) {
+  if (!user || !user.passwordChangedAt) return false;
+  if (!decoded || typeof decoded.iat !== 'number') return true;
+  return decoded.iat * 1000 < new Date(user.passwordChangedAt).getTime();
+}
+
+/**
+ * Account-level refusals that hold whichever token was presented. Returns
+ * the error to raise, or null. Exported for the socket handshake.
+ */
+function accountProblem(user) {
+  // Account status was never checked here, only in verifyAdminToken. So
+  // suspending a patient or doctor did nothing at all: their existing token
+  // kept full access for its 30-day life, and they could continue booking,
+  // messaging and joining calls. Verified against the running server — a
+  // user with status 'suspended' got HTTP 200 from /api/protected.
+  if (user.status !== 'active') {
+    return new AuthorizationError('This account has been suspended');
+  }
+  // Login refuses a rejected doctor, but a token issued before the rejection
+  // (or at verify-signup, which hands a pending doctor a token so they can
+  // finish their profile) kept working for its whole 30-day life — a
+  // rejected practitioner could still edit a public profile and take calls.
+  // Pending stays allowed for that same profile-completion reason.
+  if (user.role === 'doctor' && user.approvalStatus === 'rejected') {
+    return new AuthorizationError('This practitioner account has been rejected');
+  }
+  return null;
+}
+
+/**
+ * Resolve the account behind the first credential that is actually valid.
+ *
+ * Each candidate is tried in turn and a failure falls through to the next.
+ * That matters after a password change: the client holds its Bearer token in
+ * memory, so for the rest of that page's life it keeps sending the token the
+ * change just retired alongside the fresh cookie the server set in the same
+ * response. Stopping at the first candidate would log the user out of the
+ * very session they changed their password from.
+ *
+ * @returns {Promise<{user, decoded, source}|null>} null when no credential
+ *          was offered at all
+ */
+async function authenticateRealm(req, realm) {
+  const candidates = credentialCandidates(req, realm);
+  if (candidates.length === 0) return null;
+
+  let failure = null;
+  for (const { token, source } of candidates) {
+    let decoded;
+    try {
+      decoded = jwt.verify(token, realm.secret());
+    } catch (error) {
+      logger.debug('Token verification failed', { source, error: error.message });
+      failure = failure || new AuthenticationError('Invalid or expired token');
+      continue;
+    }
+
+    // Tokens are looked up by userId and nothing else. A legacy branch used
+    // to resolve `{ username }` tokens by username — so anyone able to sign a
+    // token (a leaked secret, a dev fallback secret reaching production)
+    // could name any account without knowing its id, and every username is
+    // an email address. No issuer has minted that shape for a long time.
+    if (!decoded || !mongoose.isValidObjectId(decoded.userId)) {
+      failure = failure || new AuthenticationError('Invalid or expired token');
+      continue;
+    }
+
+    // eslint-disable-next-line no-await-in-loop
+    const user = await User.findById(decoded.userId);
+    if (!user) {
+      logger.warn('User not found for token', { source });
+      failure = new AuthenticationError('User not found');
+      continue;
+    }
+
+    if (tokenPredatesPasswordChange(user, decoded)) {
+      logger.info('Token predates a password change', {
+        userId: user._id.toString().substring(0, 8), source
+      });
+      failure = new AuthenticationError('Your password was changed. Please sign in again.');
+      continue;
+    }
+
+    return { user, decoded, source };
   }
 
-  // Otherwise use regular JWT secret
-  return getJWTSecret();
+  throw failure;
 }
 
 /**
@@ -76,50 +158,21 @@ function getSecretForToken(req, token) {
  */
 async function verifyToken(req, res, next) {
   try {
-    const token = extractToken(req);
-
-    if (!token) {
+    const resolved = await authenticateRealm(req, REALM.USER);
+    if (!resolved) {
       logger.warn('No token provided', { ip: req.ip });
       throw new AuthenticationError('No token provided');
     }
+    const { user, decoded } = resolved;
 
-    // Determine which secret to use
-    const secret = getSecretForToken(req, token);
-
-    // Verify token
-    let decoded;
-    try {
-      decoded = jwt.verify(token, secret);
-    } catch (error) {
-      logger.warn('Token verification failed', { error: error.message });
-      throw new AuthenticationError('Invalid or expired token');
-    }
-
-    // Find user in database
-    let user;
-    if (decoded.userId) {
-      user = await User.findById(decoded.userId);
-    } else if (decoded.username) {
-      // Legacy token format - find by username
-      user = await User.findOne({ username: decoded.username });
-    }
-
-    if (!user) {
-      logger.warn('User not found for token', { userId: decoded.userId });
-      throw new AuthenticationError('User not found');
-    }
-
-    // Account status was never checked here, only in verifyAdminToken. So
-    // suspending a patient or doctor did nothing at all: their existing token
-    // kept full access for its 30-day life, and they could continue booking,
-    // messaging and joining calls. Verified against the running server — a
-    // user with status 'suspended' got HTTP 200 from /api/protected.
-    if (user.status !== 'active') {
-      logger.warn('Suspended account attempted access', {
+    const problem = accountProblem(user);
+    if (problem) {
+      logger.warn('Refused account attempted access', {
         userId: user._id.toString().substring(0, 8),
-        status: user.status
+        status: user.status,
+        approvalStatus: user.approvalStatus
       });
-      throw new AuthorizationError('This account has been suspended');
+      throw problem;
     }
 
     // Attach user to request
@@ -147,19 +200,17 @@ async function verifyToken(req, res, next) {
  */
 async function verifyAdminToken(req, res, next) {
   try {
-    const token = extractToken(req);
-
-    if (!token) {
+    let resolved;
+    try {
+      resolved = await authenticateRealm(req, REALM.ADMIN);
+    } catch (error) {
+      // Keep the admin realm's single, uninformative refusal.
+      throw new AuthenticationError(error.message === 'User not found' ? 'Admin not found' : error.message);
+    }
+    if (!resolved) {
       throw new AuthenticationError('Admin authentication required');
     }
-
-    const secret = getAdminJWTSecret();
-    const decoded = jwt.verify(token, secret);
-
-    const admin = await User.findById(decoded.userId);
-    if (!admin) {
-      throw new AuthenticationError('Admin not found');
-    }
+    const { user: admin, decoded } = resolved;
 
     if (admin.status !== 'active') {
       throw new AuthorizationError('Admin account is suspended');
@@ -176,6 +227,11 @@ async function verifyAdminToken(req, res, next) {
         claimedRole: decoded.role, actualRole: admin.role
       });
       throw new AuthorizationError('Access denied');
+    }
+    // Same reasoning for approval: rejecting an admin who is already signed
+    // in should take effect on their next request, not when the token lapses.
+    if (admin.role === 'admin' && admin.approvalStatus !== 'approved') {
+      throw new AuthorizationError('Admin account is not approved');
     }
     if (decoded.role !== admin.role) {
       logger.warn('Admin role claim differs from the stored role — using the stored role', {
@@ -215,32 +271,24 @@ verifySuperAdmin.__authz = { kind: 'role', roles: ['super_admin'], legacy: true 
 
 /**
  * Optional token verification (doesn't fail if no token)
+ *
+ * Runs exactly the checks verifyToken does. Anything verifyToken would refuse
+ * — a bad signature, a token older than a password change, a suspended or
+ * rejected account — is treated as anonymous here rather than as an error,
+ * since this middleware is for endpoints that work either way.
  */
 async function optionalAuth(req, res, next) {
   try {
-    const token = extractToken(req);
-
-    if (token) {
-      const secret = getSecretForToken(req, token);
-      const decoded = jwt.verify(token, secret);
-
-      if (decoded.userId) {
-        const user = await User.findById(decoded.userId);
-        // A suspended account is treated as anonymous here rather than as an
-        // error, since this middleware is for endpoints that work either way.
-        if (user && user.status === 'active') {
-          req.user = user;
-          req.token = decoded;
-          req.actor = normalizeActor(user, CHANNEL.USER);
-        }
-      }
+    const resolved = await authenticateRealm(req, REALM.USER);
+    if (resolved && !accountProblem(resolved.user)) {
+      req.user = resolved.user;
+      req.token = resolved.decoded;
+      req.actor = normalizeActor(resolved.user, CHANNEL.USER);
     }
-
-    next();
   } catch (error) {
-    // Continue without authentication if token is invalid
-    next();
+    // Continue without authentication if the token is unusable.
   }
+  next();
 }
 
 /**
@@ -263,6 +311,6 @@ module.exports = {
   verifySuperAdmin,
   requireRole,
   optionalAuth,
-  extractToken
+  tokenPredatesPasswordChange,
+  accountProblem
 };
-

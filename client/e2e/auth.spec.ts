@@ -37,6 +37,29 @@ test.describe('Authentication — Login', () => {
     await expect(page).toHaveURL(/patient-dashboard/);
   });
 
+  test('a logged-out deep link survives login', async ({ page }) => {
+    // ProtectedRoute used to send a logged-out visitor to '/' and drop the
+    // destination; it now goes to /login?redirect=<path>, and login returns there.
+    await page.goto('/my-journal?from=e2e');
+    await page.waitForURL(/\/login\?redirect=/, { timeout: 20000 });
+    expect(new URL(page.url()).searchParams.get('redirect')).toBe('/my-journal?from=e2e');
+
+    await page.locator('button').filter({ hasText: /^Patient$/ }).first().click();
+    await page.fill('input[placeholder*="email"]', TEST_PATIENT.email);
+    await page.fill('input[type="password"]', TEST_PATIENT.password);
+    await page.click('button[type="submit"]');
+    await page.waitForURL('**/my-journal?from=e2e', { timeout: 20000 });
+  });
+
+  test('an off-site redirect parameter is ignored', async ({ page }) => {
+    await page.goto('/login?redirect=' + encodeURIComponent('//evil.example/phish'));
+    await page.locator('button').filter({ hasText: /^Patient$/ }).first().click();
+    await page.fill('input[placeholder*="email"]', TEST_PATIENT.email);
+    await page.fill('input[type="password"]', TEST_PATIENT.password);
+    await page.click('button[type="submit"]');
+    await page.waitForURL('**/patient-dashboard', { timeout: 20000 });
+  });
+
   test('doctor can log in and lands on doctor dashboard or profile setup', async ({ page }) => {
     await page.locator('button').filter({ hasText: /^Doctor$/ }).first().click();
     await page.fill('input[placeholder*="email"]', TEST_DOCTOR.email);

@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Calendar from '../components/Calendar';
 import WelcomeModal from '../components/WelcomeModal';
-import ConnectionStatus from '../components/ConnectionStatus';
 import { useAuth } from '../context/AuthContext';
 import SessionModal from '../components/SessionModal';
 import type { Session } from '../types';
@@ -11,7 +10,6 @@ import toast from 'react-hot-toast';
 import PostSessionReportModal from '../components/PostSessionReportModal';
 import DoctorSidebar from '../components/DoctorSidebar';
 import { API_BASE_URL } from '../config/api';
-import { getAuthToken } from '../utils/authToken';
 import { getGreeting, getGreetingPunctuation } from '../utils/dateUtils';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 
@@ -121,6 +119,11 @@ const DoctorDashboard: React.FC = () => {
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
   const [calendarRefreshTrigger, setCalendarRefreshTrigger] = useState<number>(0);
   const [delayedSessions, setDelayedSessions] = useState<(Session & { delayedUntil: Date })[]>([]);
+  // Banners the doctor closed. Kept apart from delayedSessions so a refresh
+  // from the server (which still lists the session until it resolves) doesn't
+  // bring a dismissed one back.
+  const [dismissedDelayedIds, setDismissedDelayedIds] = useState<Set<string>>(() => new Set());
+  const visibleDelayedSessions = delayedSessions.filter(s => !dismissedDelayedIds.has(s._id));
   const [showPostSessionReport, setShowPostSessionReport] = useState(false);
   const [pendingReportData, setPendingReportData] = useState<any>(null);
 
@@ -178,7 +181,11 @@ const DoctorDashboard: React.FC = () => {
   });
 
   const { data: recentReports = [] } = useQuery({
-    queryKey: ['doctor', 'reports', user?.userId],
+    // Its own key. DoctorReportsPage cached a differently-shaped list (no
+    // createdAt, patientId as a string) under the same ['doctor', 'reports',
+    // userId] key, so after visiting Reports this card read that copy and
+    // printed "NaNth Invalid Date, NaN".
+    queryKey: ['doctor', 'reports', user?.userId, 'recent'],
     queryFn: async () => {
       const res = await fetch(`${API_BASE_URL}/session-tools/reports/doctor/${user?.userId}`, { credentials: 'include' });
       if (!res.ok) throw new Error('Failed to fetch reports');
@@ -188,20 +195,53 @@ const DoctorDashboard: React.FC = () => {
     enabled: !!user?.userId,
   });
 
-  const { data: stats = { revenue: 0, sessions: 0, hours: 0 } } = useQuery({
+  const { data: stats = { revenue: 0, sessions: 0, minutes: 0, pendingPayout: 0 } } = useQuery({
     queryKey: ['doctor', 'stats', user?.userId],
     queryFn: async () => {
       const res = await fetch(`${API_BASE_URL}/sessions/stats`, { credentials: 'include' });
       if (!res.ok) throw new Error('Failed to fetch stats');
       const data = await res.json();
+
+      // The server rounds `totalHours` to a whole number, so one 40-minute
+      // session showed as "1". Prefer exact minutes when the response has
+      // them; otherwise add up the completed sessions' own durations.
+      let minutes: number;
+      if (typeof data.totalDurationMinutes === 'number') {
+        minutes = data.totalDurationMinutes;
+      } else {
+        minutes = (data.totalHours || 0) * 60;
+        try {
+          const sRes = await fetch(`${API_BASE_URL}/sessions/my-sessions?limit=1000`, { credentials: 'include' });
+          if (sRes.ok) {
+            const sessions = await sRes.json();
+            if (Array.isArray(sessions)) {
+              minutes = sessions
+                .filter((s: { status?: string }) => s.status === 'completed')
+                .reduce((sum: number, s: { actualDuration?: number; duration?: number }) => sum + (s.actualDuration || s.duration || 0), 0);
+            }
+          }
+        } catch {
+          // keep the server's rounded figure
+        }
+      }
+
       return {
         revenue: data.totalDoctorEarnings || 0,
         sessions: data.totalSessions || 0,
-        hours: data.totalHours || 0
+        minutes,
+        pendingPayout: data.pendingPayout || 0
       };
     },
     enabled: !!user?.userId,
   });
+
+  /** "40 min" under an hour, "1.5 h" above it. */
+  const formatSessionTime = (minutes: number) => {
+    if (!minutes) return '0 h';
+    if (minutes < 60) return `${Math.round(minutes)} min`;
+    const hours = Math.round((minutes / 60) * 10) / 10;
+    return `${hours.toLocaleString('en-IN', { maximumFractionDigits: 1 })} h`;
+  };
 
   const { data: unreadCount = 0 } = useQuery({
     queryKey: ['chat', 'unreadCount'],
@@ -373,8 +413,9 @@ const DoctorDashboard: React.FC = () => {
     toggleStatusMutation.mutate();
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
+  const formatDate = (dateString?: string) => {
+    const date = new Date(dateString ?? NaN);
+    if (Number.isNaN(date.getTime())) return '—';
     const day = date.getDate();
     const month = date.toLocaleString('en-US', { month: 'long' });
     const year = date.getFullYear();
@@ -400,11 +441,11 @@ const DoctorDashboard: React.FC = () => {
   // Timer for delayed sessions
   const [currentTime, setCurrentTime] = useState(Date.now());
   useEffect(() => {
-    if (delayedSessions.length === 0) return;
+    if (visibleDelayedSessions.length === 0) return;
     const interval = setInterval(() => {
       const now = Date.now();
       setCurrentTime(now);
-      delayedSessions.forEach(session => {
+      visibleDelayedSessions.forEach(session => {
         const diff = session.delayedUntil.getTime() - now;
         
         // Reminder logic based on diff
@@ -419,7 +460,8 @@ const DoctorDashboard: React.FC = () => {
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [delayedSessions]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [delayedSessions, dismissedDelayedIds]);
 
   const openTasksCount = assignedTasks.filter((t: any) => t.status !== 'completed').length;
   const visibleTasks = assignedTasks.slice(0, 4);
@@ -439,9 +481,9 @@ const DoctorDashboard: React.FC = () => {
       <div className="absolute pointer-events-none hidden lg:block" style={{ bottom: -140, right: -80, width: 340, height: 340, borderRadius: '48% 52% 55% 45%', background: T.teal, opacity: 0.14 }} />
       <div className="absolute pointer-events-none hidden lg:block" style={{ top: 200, left: -100, width: 300, height: 300, borderRadius: '50%', background: T.gold, opacity: 0.08 }} />
       {/* Delayed Sessions Banner */}
-      {delayedSessions.length > 0 && (
+      {visibleDelayedSessions.length > 0 && (
         <div className="fixed top-24 right-6 z-50 flex flex-col gap-3 w-80">
-          {delayedSessions.map(session => {
+          {visibleDelayedSessions.map(session => {
             const diff = Math.max(0, session.delayedUntil.getTime() - currentTime);
             const m = Math.floor(diff / 60000);
             const s = Math.floor((diff % 60000) / 1000);
@@ -478,15 +520,21 @@ const DoctorDashboard: React.FC = () => {
                   </div>
 
                   <div className="flex gap-2">
+                    {/* Dismiss only. This used to POST /missed, which cancels and
+                        refunds and is the patient's call to make — the server
+                        refused it with a 403 that nobody read, so "Cancel"
+                        silently did nothing. If the doctor doesn't join, the
+                        patient's waiting room offers a refund once the delay
+                        runs out. */}
                     <button
-                      onClick={async () => {
-                        const token = getAuthToken();
-                        await fetch(`${API_BASE_URL}/sessions/${session._id}/missed`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
-                        setDelayedSessions(prev => prev.filter(s => s._id !== session._id));
+                      onClick={() => {
+                        setDismissedDelayedIds(prev => new Set(prev).add(session._id));
+                        fetchDelayed();
                       }}
+                      title="Hide this reminder. The patient can cancel for a refund if you don't join."
                       className="w-1/3 py-2.5 rounded-xl text-sm font-bold text-slate-500 bg-white border border-slate-200 shadow-sm hover:bg-slate-50 transition-all flex items-center justify-center"
                     >
-                      Cancel
+                      Dismiss
                     </button>
                     <button
                       onClick={() => {
@@ -507,9 +555,6 @@ const DoctorDashboard: React.FC = () => {
           })}
         </div>
       )}
-
-      {/* Connection Status Indicator */}
-      <ConnectionStatus />
 
       {/* Welcome Modal */}
       <WelcomeModal
@@ -749,7 +794,7 @@ const DoctorDashboard: React.FC = () => {
             and the fourth had drifted twice — fontSize 18 against 24, and a
             stray justifyContent: 'space-between' that pushed its value to
             the bottom of the stretched row while the other three sat at the
-            top. That is why "DLA-20" rendered below "15".
+            top. That is why one value rendered below "15".
 
             auto-rows-fr makes both rows share one track height, so all four
             tiles are the same size regardless of which value is longest.
@@ -758,8 +803,11 @@ const DoctorDashboard: React.FC = () => {
             {[
               { label: 'Total Revenue', value: `₹${stats.revenue.toLocaleString()}` },
               { label: 'Total Sessions', value: String(stats.sessions) },
-              { label: 'Total Hours', value: String(stats.hours) },
-              { label: 'Self-Assessment', value: 'DLA-20' },
+              { label: 'Total Time', value: formatSessionTime(stats.minutes) },
+              // Was a "Self-Assessment: DLA-20" tile — an assessment the
+              // platform doesn't offer. Pending payout is a real figure from
+              // the same /sessions/stats response.
+              { label: 'Pending Payout', value: `₹${stats.pendingPayout.toLocaleString()}` },
             ].map((m) => (
               <div key={m.label} style={{ ...subCardStyle, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <div style={{ fontWeight: 600, fontSize: 9.5, letterSpacing: '.08em', color: T.muted, textTransform: 'uppercase' }}>{m.label}</div>

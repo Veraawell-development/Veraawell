@@ -6,14 +6,17 @@ import { API_BASE_URL } from '../config/api';
 import { getAuthToken } from '../utils/authToken';
 import { useAuth } from '../context/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { isToday, parseTime } from '../utils/dateUtils';
+import { resolveSessionStart } from '../utils/dateUtils';
+import { resolveSessionPrice, offeredDurations } from '../utils/sessionPricing';
+import type { SessionMode } from '../utils/sessionPricing';
 import { FiVideo, FiPhone, FiRadio, FiCheck } from 'react-icons/fi';
 import { getDoctorAccentColor } from '../utils/doctorColor';
 
 interface BookingState {
   mode: 'video' | 'voice';
   duration: number;
-  price: number;
+  /** null: this doctor doesn't offer the selected duration/mode. */
+  price: number | null;
   date: string;
   timeSlot: string;
 }
@@ -70,32 +73,31 @@ const DoctorProfilePage: React.FC = () => {
   const [booking, setBooking] = useState<BookingState>({
     mode: 'video',
     duration: 20, // Default to 20
-    price: 0,
+    price: null,
     date: '',
     timeSlot: ''
   });
 
-  const getPriceForDurationAndMode = (dur: number, selectedMode: 'video' | 'voice') => {
-    if (!doctorProfile) return 0;
+  // Same rule as the server's resolvePrice (utils/sessionPricing.ts): the
+  // first positive value along the fallback chain, or null when the doctor
+  // doesn't offer this combination. The old video branch tested `!= null`, so
+  // a slot saved as 0 ("not offered") was shown — and offered — at ₹0.
+  const getPriceForDurationAndMode = (dur: number, selectedMode: SessionMode): number | null =>
+    resolveSessionPrice(doctorProfile?.pricing, dur, selectedMode);
 
-    if (selectedMode === 'voice' && doctorProfile.pricing.audio) {
-      switch (dur) {
-        case 20: return doctorProfile.pricing.audio.session20 || doctorProfile.pricing.session20 || doctorProfile.pricing.min;
-        case 40: return doctorProfile.pricing.audio.session40 || doctorProfile.pricing.session40 || (doctorProfile.pricing.session20 || doctorProfile.pricing.min);
-        case 55: return doctorProfile.pricing.audio.session55 || doctorProfile.pricing.session55 || doctorProfile.pricing.max;
-        default: return doctorProfile.pricing.min;
-      }
+  /** The requested duration/mode if bookable, else the nearest one that is. */
+  const pickBookable = (mode: SessionMode, duration: number): Pick<BookingState, 'mode' | 'duration' | 'price'> => {
+    const pricing = doctorProfile?.pricing;
+    const price = resolveSessionPrice(pricing, duration, mode);
+    if (price !== null) return { mode, duration, price };
+    for (const m of [mode, mode === 'video' ? 'voice' : 'video'] as SessionMode[]) {
+      const [first] = offeredDurations(pricing, m);
+      if (first) return { mode: m, duration: first, price: resolveSessionPrice(pricing, first, m) };
     }
-
-    switch (dur) {
-      case 20: return (doctorProfile.pricing.session20 !== undefined && doctorProfile.pricing.session20 !== null) ? doctorProfile.pricing.session20 : doctorProfile.pricing.min;
-      case 40: return (doctorProfile.pricing.session40 !== undefined && doctorProfile.pricing.session40 !== null) ? doctorProfile.pricing.session40 : (doctorProfile.pricing.session20 || doctorProfile.pricing.min);
-      case 55: return (doctorProfile.pricing.session55 !== undefined && doctorProfile.pricing.session55 !== null) ? doctorProfile.pricing.session55 : doctorProfile.pricing.max;
-      default: return doctorProfile.pricing.min;
-    }
+    return { mode, duration, price: null };
   };
 
-  const [availableDates, setAvailableDates] = useState<Array<{ date: string; day: string; dayNum: number; monthName: string }>>([]);
+  const [availableDates, setAvailableDates] = useState<Array<{ date: string; weekday: string; dayNum: number; monthName: string }>>([]);
   const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
 
@@ -126,15 +128,13 @@ const DoctorProfilePage: React.FC = () => {
       const response = await fetch(`${API_BASE_URL}/sessions/doctors/${doctorId}/slots/${booking.date}`);
       if (!response.ok) throw new Error('Failed to fetch slots');
       const data = await response.json();
-      const now = new Date();
+      const now = Date.now();
 
-      return (data.availableSlots as string[]).filter((slot: string) => {
-        if (!isToday(booking.date)) return true;
-        const [h, m] = parseTime(slot);
-        const slotDate = new Date();
-        slotDate.setHours(h, m, 0, 0);
-        return slotDate > now;
-      });
+      // Slots are IST wall-clock times; hide the ones whose real instant has
+      // passed (not setHours on the viewer's own clock).
+      return (data.availableSlots as string[]).filter((slot: string) =>
+        resolveSessionStart({ sessionDate: booking.date, sessionTime: slot }).getTime() > now
+      );
     },
     enabled: !!doctorId && !!booking.date
   });
@@ -146,10 +146,7 @@ const DoctorProfilePage: React.FC = () => {
   // Update initial booking price once profile is loaded
   useEffect(() => {
     if (doctorProfile) {
-      setBooking(prev => ({
-        ...prev,
-        price: getPriceForDurationAndMode(prev.duration, prev.mode)
-      }));
+      setBooking(prev => ({ ...prev, ...pickBookable(prev.mode, prev.duration) }));
     }
   }, [doctorProfile]);
 
@@ -170,7 +167,7 @@ const DoctorProfilePage: React.FC = () => {
 
 
   const generateAvailableDates = () => {
-    const dates: Array<{ date: string; day: string; dayNum: number; monthName: string }> = [];
+    const dates: Array<{ date: string; weekday: string; dayNum: number; monthName: string }> = [];
     const today = new Date();
 
     for (let i = 0; i < 14; i++) {
@@ -179,12 +176,13 @@ const DoctorProfilePage: React.FC = () => {
 
       // Use local date parts to avoid UTC timezone shift
       const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-      const dayStr = date.toLocaleDateString('en-US', { weekday: 'short' });
+      const weekday = date.toLocaleDateString('en-US', { weekday: 'short' });
       const dayNum = date.getDate();
       const monthName = date.toLocaleDateString('en-US', { month: 'short' });
-      const dayMonth = date.toLocaleDateString('en-US', { day: '2-digit', month: 'short' });
 
-      dates.push({ date: dateStr, day: `${dayMonth} ${dayStr}`, dayNum, monthName });
+      // The chip used to read the weekday back out of a "Oct 18 Sat" string
+      // with split(' ')[1] — which is "18" — so it showed the day number twice.
+      dates.push({ date: dateStr, weekday, dayNum, monthName });
     }
 
     setAvailableDates(dates);
@@ -192,11 +190,15 @@ const DoctorProfilePage: React.FC = () => {
   };
 
   const handleModeChange = (newMode: 'video' | 'voice') => {
-    setBooking(prev => ({
-      ...prev,
-      mode: newMode,
-      price: getPriceForDurationAndMode(prev.duration, newMode)
-    }));
+    // Keep the duration if this mode offers it; otherwise move to one it does.
+    setBooking(prev => {
+      const price = getPriceForDurationAndMode(prev.duration, newMode);
+      if (price !== null) return { ...prev, mode: newMode, price };
+      const [first] = offeredDurations(doctorProfile?.pricing, newMode);
+      return first
+        ? { ...prev, mode: newMode, duration: first, price: getPriceForDurationAndMode(first, newMode) }
+        : { ...prev, mode: newMode, price: null };
+    });
   };
 
   const handleDurationChange = (duration: number) => {
@@ -259,11 +261,15 @@ const DoctorProfilePage: React.FC = () => {
           handler: async function (response: any) {
             try {
               // Cryptographic verification
+              const authToken = getAuthToken();
               const verifyRes = await fetch(`${API_BASE_URL}/payments/verify`, {
                 method: 'POST',
+                credentials: 'include',
                 headers: {
                   'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${getAuthToken()}`
+                  // Only with a token: "Bearer null" would override the
+                  // session cookie and fail the verify with a 401.
+                  ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {})
                 },
                 body: JSON.stringify({
                   razorpay_order_id: response.razorpay_order_id,
@@ -271,8 +277,14 @@ const DoctorProfilePage: React.FC = () => {
                   razorpay_signature: response.razorpay_signature,
                 })
               });
-              const verifyData = await verifyRes.json();
-              if (verifyData.success) {
+              const verifyData = await verifyRes.json().catch(() => ({}));
+              if (verifyRes.status === 409 && (verifyData.code === 'CHECKOUT_EXPIRED' || verifyData.code === 'DUPLICATE_PAYMENT')) {
+                // The server's own words: it says what happened to the money
+                // (expired checkout, or this session was already paid for).
+                toast.error(verifyData.message || 'This payment could not be applied to the session.', { duration: 8000 });
+                queryClient.invalidateQueries({ queryKey: ['patient'] });
+                setTimeout(() => navigate('/patient-dashboard'), 1500);
+              } else if (verifyRes.ok && verifyData.success) {
                 toast.success(isImmediate ? 'Payment confirmed! Joining session...' : 'Session scheduled successfully!');
                 queryClient.invalidateQueries({ queryKey: ['patient', 'sessions'] });
                 setTimeout(() => { 
@@ -333,6 +345,11 @@ const DoctorProfilePage: React.FC = () => {
   });
 
   const handleBookNow = () => {
+    if (booking.price === null) {
+      toast.error('This session length is not offered by this therapist.');
+      return;
+    }
+
     if (!isLoggedIn) {
       toast.error('Please log in or sign up to book a session');
       navigate('/login', {
@@ -355,6 +372,7 @@ const DoctorProfilePage: React.FC = () => {
       doctorId,
       mode: booking.mode,
       duration: booking.duration,
+      // Ignored by the server (it prices the booking itself); sent for older deployments.
       price: booking.price,
       ...(!isImmediate && {
         sessionDate: booking.date,
@@ -435,6 +453,9 @@ const DoctorProfilePage: React.FC = () => {
       ? { backgroundColor: doctorColor, color: '#fff', boxShadow: `0 4px 12px ${doctorColor}40` }
       : { backgroundColor: `${doctorColor}12`, color: doctorColor }),
   });
+  const videoOffered = offeredDurations(doctorProfile.pricing, 'video').length > 0;
+  const voiceOffered = offeredDurations(doctorProfile.pricing, 'voice').length > 0;
+
   const pillHoverHandlers = (active: boolean) => (
     active ? {} : {
       onMouseEnter: (e: React.MouseEvent<HTMLButtonElement>) => { e.currentTarget.style.backgroundColor = `${doctorColor}22`; },
@@ -687,18 +708,22 @@ const DoctorProfilePage: React.FC = () => {
                   <div className="flex flex-nowrap gap-2 w-full overflow-x-auto pb-1">
                     <button
                       onClick={() => handleModeChange('video')}
-                      className="flex items-center gap-2 font-semibold py-1.5 px-4 sm:py-2 sm:px-5 rounded-full transition-all duration-300 whitespace-nowrap text-sm sm:text-base"
+                      disabled={!videoOffered}
+                      title={videoOffered ? undefined : 'Not offered by this therapist'}
+                      className="flex items-center gap-2 font-semibold py-1.5 px-4 sm:py-2 sm:px-5 rounded-full transition-all duration-300 whitespace-nowrap text-sm sm:text-base disabled:opacity-40 disabled:cursor-not-allowed"
                       style={pillStyle(booking.mode === 'video')}
-                      {...pillHoverHandlers(booking.mode === 'video')}
+                      {...(videoOffered ? pillHoverHandlers(booking.mode === 'video') : {})}
                     >
                       <FiVideo size={15} />
                       Video Call
                     </button>
                     <button
                       onClick={() => handleModeChange('voice')}
-                      className="flex items-center gap-2 font-semibold py-1.5 px-4 sm:py-2 sm:px-5 rounded-full transition-all duration-300 whitespace-nowrap text-sm sm:text-base"
+                      disabled={!voiceOffered}
+                      title={voiceOffered ? undefined : 'Not offered by this therapist'}
+                      className="flex items-center gap-2 font-semibold py-1.5 px-4 sm:py-2 sm:px-5 rounded-full transition-all duration-300 whitespace-nowrap text-sm sm:text-base disabled:opacity-40 disabled:cursor-not-allowed"
                       style={pillStyle(booking.mode === 'voice')}
-                      {...pillHoverHandlers(booking.mode === 'voice')}
+                      {...(voiceOffered ? pillHoverHandlers(booking.mode === 'voice') : {})}
                     >
                       <FiPhone size={15} />
                       Voice Call
@@ -710,7 +735,8 @@ const DoctorProfilePage: React.FC = () => {
                 <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 items-start sm:items-center">
                   <h3 className="font-bold text-base sm:text-lg w-auto sm:w-36 shrink-0" style={{ color: 'var(--text)' }}>Select Duration:</h3>
                   <div className="flex flex-nowrap gap-2 w-full overflow-x-auto pb-1">
-                    {[20, 40, 55].map((dur) => (
+                    {/* Only the lengths this doctor actually prices in this mode. */}
+                    {offeredDurations(doctorProfile.pricing, booking.mode).map((dur) => (
                       <button
                         key={dur}
                         onClick={() => handleDurationChange(dur)}
@@ -722,6 +748,11 @@ const DoctorProfilePage: React.FC = () => {
                         <span className="text-xs sm:text-sm">Rs. {getPriceForDurationAndMode(dur, booking.mode)}</span>
                       </button>
                     ))}
+                    {offeredDurations(doctorProfile.pricing, booking.mode).length === 0 && (
+                      <p className="text-sm italic" style={{ color: 'var(--text-2)' }}>
+                        This therapist hasn't set prices for {booking.mode} sessions yet.
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -791,7 +822,7 @@ const DoctorProfilePage: React.FC = () => {
                             style={pillStyle(booking.date === dateObj.date)}
                             {...pillHoverHandlers(booking.date === dateObj.date)}
                           >
-                            <span className="text-[10px] font-bold uppercase opacity-80 mb-1">{dateObj.day.split(' ')[1]?.toUpperCase()}</span>
+                            <span className="text-[10px] font-bold uppercase opacity-80 mb-1">{dateObj.weekday.toUpperCase()}</span>
                             <span className="text-2xl font-bold leading-none mb-1">{dateObj.dayNum}</span>
                             <span className="text-[10px] font-medium opacity-80">{dateObj.monthName}</span>
                           </button>
@@ -827,7 +858,8 @@ const DoctorProfilePage: React.FC = () => {
               {/* Book Button */}
               <div className="mt-6 relative z-10 w-full">
                 {(() => {
-                  const bookDisabled = isImmediate ? isBooking : (isBooking || !booking.date || !booking.timeSlot);
+                  const bookDisabled = booking.price === null
+                    || (isImmediate ? isBooking : (isBooking || !booking.date || !booking.timeSlot));
                   return (
                     <button
                       onClick={handleBookNow}

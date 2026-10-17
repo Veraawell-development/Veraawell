@@ -17,10 +17,17 @@ const TOKEN_EXPIRY = {
 };
 
 const RATE_LIMITS = {
+  // Per IP, across all of /api. This was 100 per 15 minutes, which ordinary
+  // use exceeds on its own: the client polls /api/chat/unread-count every 10
+  // seconds (90 requests per window before the user does anything), and a
+  // dashboard load is a dozen more. Signed-in users were hitting 429 inside
+  // a quarter of an hour, and users behind one carrier-grade NAT or office
+  // network share the budget. This limiter is a flood guard, not an auth
+  // control — the strict limits are AUTH and PASSWORD_RESET below.
   GENERAL: {
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: {
-      production: 100,
+      production: 1000,
       development: 10000
     }
   },
@@ -31,6 +38,25 @@ const RATE_LIMITS = {
       development: 1000
     },
     skipSuccessfulRequests: true
+  },
+  // Reset-link requests send email to an address the caller names, so this
+  // is also what stops the endpoint being used to mail-bomb someone.
+  PASSWORD_RESET: {
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: {
+      production: 3,
+      development: 1000
+    }
+  },
+  // "Resend code" on the signup screen. Keyed on email + IP: the per-signup
+  // resend cap (MAX_SIGNUP_OTP_RESENDS) bounds guesses on one code sequence,
+  // and this bounds how often anyone can make the server mail an address.
+  SIGNUP_OTP_RESEND: {
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: {
+      production: 5,
+      development: 1000
+    }
   },
   // The doctor-document upload endpoints are intentionally public (a career-page
   // applicant uploads verification documents before they have an account), so

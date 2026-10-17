@@ -160,15 +160,15 @@ const MessagesPage: React.FC = () => {
       }
     });
 
-    socketRef.current.on('reconnect', (attemptNumber) => {
+    // 'reconnect' is a Manager event in socket.io-client v4 — on the Socket,
+    // where this used to listen, it never fires. Re-joining the open
+    // conversation doesn't depend on it: 'connect' above fires again on every
+    // successful reconnect and does that already, so this only logs.
+    const manager = socketRef.current.io;
+    const onManagerReconnect = (attemptNumber: number) => {
       console.log('[MESSAGES]  Socket reconnected after', attemptNumber, 'attempts');
-      // Same as above — read the live value from the ref, not the closure.
-      const activeConvId = selectedConvRef.current;
-      if (activeConvId) {
-        socketRef.current?.emit('conversation:join', activeConvId);
-        markConversationReadRef.current(activeConvId);
-      }
-    });
+    };
+    manager.on('reconnect', onManagerReconnect);
 
     // Listen for incoming messages
     socketRef.current.on('message:receive', (message: Message) => {
@@ -218,6 +218,8 @@ const MessagesPage: React.FC = () => {
 
     // Cleanup on unmount or token change
     return () => {
+      // The Manager may be shared with other sockets to the same host.
+      manager.off('reconnect', onManagerReconnect);
       if (socketRef.current) {
         socketRef.current.disconnect();
       }

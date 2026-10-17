@@ -29,6 +29,21 @@ const clean = (value) => (
     : DOMPurify.sanitize(String(value), { ALLOWED_TAGS: [] }).trim()
 );
 
+/**
+ * Who triaged an enquiry. User has no `name` field — the populate used to ask
+ * for one, so `handledBy` came back as a bare `{ _id, email }` and the
+ * dashboard type's `name` was always undefined. `name` is composed here so the
+ * client's existing `handledBy.name` starts working without a client change.
+ */
+const HANDLER_FIELDS = 'firstName lastName email';
+function withHandlerName(enquiry) {
+  const h = enquiry && enquiry.handledBy;
+  if (h && typeof h === 'object' && (h.firstName || h.lastName)) {
+    h.name = [h.firstName, h.lastName].filter(Boolean).join(' ');
+  }
+  return enquiry;
+}
+
 /** POST /api/enquiries — Submit an enquiry (public) */
 const submitEnquiry = asyncHandler(async (req, res) => {
   const { type, name, email, phone, organisation, subject, message } = req.body;
@@ -69,7 +84,7 @@ const listEnquiries = asyncHandler(async (req, res) => {
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
       .limit(limit)
-      .populate('handledBy', 'name email')
+      .populate('handledBy', HANDLER_FIELDS)
       .lean(),
     Enquiry.countDocuments(filter),
     Enquiry.countDocuments({ status: 'new' })
@@ -78,7 +93,7 @@ const listEnquiries = asyncHandler(async (req, res) => {
   res.json({
     success: true,
     data: {
-      enquiries,
+      enquiries: enquiries.map(withHandlerName),
       newCount,
       pagination: { page, limit, total, pages: Math.ceil(total / limit) || 1 }
     }
@@ -106,12 +121,13 @@ const updateEnquiry = asyncHandler(async (req, res) => {
   if (adminNotes !== undefined) update.adminNotes = clean(adminNotes);
 
   const enquiry = await Enquiry.findByIdAndUpdate(req.params.id, update, { new: true, runValidators: true })
-    .populate('handledBy', 'name email');
+    .populate('handledBy', HANDLER_FIELDS)
+    .lean();
 
   if (!enquiry) throw new NotFoundError('Enquiry');
 
   logger.info('Enquiry updated', { id: enquiry._id.toString(), status: enquiry.status });
-  res.json({ success: true, data: enquiry });
+  res.json({ success: true, data: withHandlerName(enquiry) });
 });
 
 module.exports = { submitEnquiry, listEnquiries, updateEnquiry };

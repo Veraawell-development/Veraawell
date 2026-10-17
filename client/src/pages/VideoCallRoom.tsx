@@ -7,19 +7,35 @@ import { toast } from 'react-hot-toast';
 import SessionToolsModal from '../components/SessionToolsModal';
 import SessionChat from '../components/SessionChat';
 import { API_BASE_URL, SOCKET_URL } from '../config/api';
-import { getAuthToken } from '../utils/authToken';
 import { useQuery } from '@tanstack/react-query';
+
+/** Fallback when a session predates server-stamped acceptanceDeadline (server: INSTANT_ACCEPT_WINDOW_MINUTES). */
+const INSTANT_ACCEPT_WINDOW_MS = 2 * 60 * 1000;
+/** After a doctor's "delay", how long past the promised time before the request counts as missed. */
+const DELAY_GRACE_MS = 3 * 60 * 1000;
 
 const VideoCallRoom: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const { user, token } = useAuth();
+  const { user, token, checkAuth } = useAuth();
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const iceCandidateQueue = useRef<RTCIceCandidateInit[]>([]);
+  // Refs, not state, for everything teardown touches: cleanup runs from the
+  // unmount effect and from socket handlers registered once in
+  // initializeCall, and a closure over `localStream` state there sees the
+  // null from the first render — which is how the camera stayed on after the
+  // other side ended the call or the user left with Back.
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const unmountedRef = useRef(false);
+  const sessionDataRef = useRef<any>(null);
+  /** The other participant was in the room at least once — the call happened. */
+  const metRemoteRef = useRef(false);
+  /** Latest endCall, for handlers registered once at socket creation. */
+  const endCallRef = useRef<(reason?: string) => void>(() => {});
 
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
@@ -27,7 +43,15 @@ const VideoCallRoom: React.FC = () => {
   const [remoteVideoEnabled, setRemoteVideoEnabled] = useState(true);
   const [remoteAudioEnabled, setRemoteAudioEnabled] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [duration, setDuration] = useState(0);
+  // The signalling socket dropped and is being re-established. Not an error:
+  // the media connection usually survives, and the room is rejoined on
+  // reconnect. (A transient "xhr post error" used to be shown as a fatal
+  // "Failed to connect to video call server".)
+  const [isReconnecting, setIsReconnecting] = useState(false);
+  // Remaining seconds from the server's timer-sync. null until the first
+  // sync arrives (the server only starts the clock once both sides join), so
+  // the header doesn't flash a red 00:00 on entry.
+  const [duration, setDuration] = useState<number | null>(null);
   const [connectionState, setConnectionState] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [remoteUserJoined, setRemoteUserJoined] = useState(false);
   const [connectionQuality, setConnectionQuality] = useState<'excellent' | 'good' | 'poor' | 'disconnected'>('excellent');
@@ -88,13 +112,24 @@ const VideoCallRoom: React.FC = () => {
       }
     };
 
+    // The /data socket also carries cancellations (an auto-cancelled instant
+    // request, or the other party cancelling) — the call socket only gets
+    // them while it is connected to this room.
+    const handleCancelled = (data: { sessionId?: string; message?: string }) => {
+      if (data?.sessionId !== sessionId) return;
+      setError(data.message || 'Session was cancelled.');
+      setTimeout(() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard'), 3000);
+    };
+
     dataSocket.on('session:status-update', handleStatusUpdate);
+    dataSocket.on('session:cancelled', handleCancelled);
     return () => {
       dataSocket.off('session:status-update', handleStatusUpdate);
+      dataSocket.off('session:cancelled', handleCancelled);
     };
   }, [dataSocket, sessionId]);
 
-  const { data: fetchResult, isLoading: loadingSession, isError } = useQuery({
+  const { data: fetchResult, isLoading: loadingSession, isError, refetch: refetchSession } = useQuery({
     queryKey: ['video-call', sessionId],
     queryFn: async () => {
       console.log(' Fetching session data for:', sessionId);
@@ -126,6 +161,7 @@ const VideoCallRoom: React.FC = () => {
   useEffect(() => {
     if (fetchResult?.sessionData) {
       const data = fetchResult.sessionData;
+      sessionDataRef.current = data;
       setSessionData(data);
       if (data.acceptanceStatus) setAcceptanceStatus(data.acceptanceStatus);
       if (data.delayMinutes) setDelayMinutes(data.delayMinutes);
@@ -151,6 +187,33 @@ const VideoCallRoom: React.FC = () => {
 
   const autoCancelled = useRef(false);
 
+  // Patient side of an unanswered instant request. The server sweep expires
+  // these on its own (acceptanceDeadline), so this is only a faster path: if
+  // /missed is refused (already expired, or the doctor accepted meanwhile)
+  // just reload the session and let its real state drive the screen.
+  const markMissed = async (manual = false) => {
+    if (user?.role !== 'patient') return;
+    if (autoCancelled.current && !manual) return;
+    autoCancelled.current = true;
+    try {
+      const res = await fetch(`${API_BASE_URL}/sessions/${sessionId}/missed`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      if (res.ok) {
+        toast.error('Session auto-cancelled as doctor is unreachable.');
+      } else {
+        // Our clock may be ahead of the server's; try again shortly.
+        setTimeout(() => { autoCancelled.current = false; }, 30000);
+      }
+    } catch (err) {
+      console.warn('[VIDEO-CALL] /missed failed', err);
+      setTimeout(() => { autoCancelled.current = false; }, 30000);
+    } finally {
+      refetchSession();
+    }
+  };
+
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
 
@@ -160,15 +223,10 @@ const VideoCallRoom: React.FC = () => {
 
         if (acceptanceStatus === 'delayed' && delayedUntil) {
           const diff = delayedUntil.getTime() - now;
-          if (diff <= -180000) { // 3 minutes past delay
+          if (diff <= -DELAY_GRACE_MS) {
             setIsGracePeriod(true);
             setCountdown('00:00');
-            if (user?.role === 'patient' && !autoCancelled.current) {
-              autoCancelled.current = true;
-              const token = getAuthToken();
-              fetch(`${API_BASE_URL}/sessions/${sessionId}/missed`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } })
-                .then(() => toast.error('Session auto-cancelled as doctor is unreachable.'));
-            }
+            void markMissed();
           } else if (diff <= 0) {
             setCountdown('00:00');
           } else {
@@ -176,21 +234,24 @@ const VideoCallRoom: React.FC = () => {
             const s = Math.floor((diff % 60000) / 1000);
             setCountdown(`${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`);
           }
-        } else if (acceptanceStatus === 'pending') {
-          const startTime = sessionData?.createdAt ? new Date(sessionData.createdAt).getTime() : now;
-          if (now - startTime > 10 * 60 * 1000) { // 10 minutes timeout for immediate sessions
-            if (user?.role === 'patient' && !autoCancelled.current) {
-              autoCancelled.current = true;
-              const token = getAuthToken();
-              fetch(`${API_BASE_URL}/sessions/${sessionId}/missed`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } })
-                .then(() => toast.error('Session auto-cancelled as doctor is unreachable.'));
-            }
+        } else if (acceptanceStatus === 'pending' && sessionData?.sessionType === 'immediate') {
+          // The server stamps acceptanceDeadline when payment lands; the same
+          // timestamp drives the doctor's popup and the expiry sweep.
+          const deadline = sessionData?.acceptanceDeadline
+            ? new Date(sessionData.acceptanceDeadline).getTime()
+            : sessionData?.createdAt
+              ? new Date(sessionData.createdAt).getTime() + INSTANT_ACCEPT_WINDOW_MS
+              : null;
+          if (deadline !== null && now > deadline) {
+            void markMissed();
           }
         }
       }, 1000);
     }
-    
+
     return () => clearInterval(interval);
+    // markMissed is recreated each render; its guard lives in a ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [acceptanceStatus, delayedUntil, remoteUserJoined, sessionData, user, sessionId]);
 
   const saveEmergencyContact = async (e: React.FormEvent) => {
@@ -214,8 +275,11 @@ const VideoCallRoom: React.FC = () => {
 
       if (response.ok) {
         setShowEmergencyModal(false);
-        // We'll also update the local user object manually if we can, 
-        // but Since we don't have a setter for user in AuthContext we rely on modal closure.
+        // Refresh the session user so the saved contact is what the app sees —
+        // otherwise the next visit to a call (or a re-render here) still finds
+        // no contact and asks again. Doesn't toggle the auth loading state, so
+        // the call stays mounted.
+        void checkAuth({ force: true });
       } else {
         const data = await response.json();
         setError(data.message || 'Failed to save emergency contact');
@@ -247,57 +311,32 @@ const VideoCallRoom: React.FC = () => {
         setShowEmergencyModal(true);
       }
     }
+    // No teardown here: AuthContext hands out a new `user` object on every
+    // auth refresh, and tearing the call down on that would drop it.
+  }, [sessionId, user]);
 
-
-
+  // Teardown on unmount only (route change, browser back). Reads refs, so it
+  // always sees the live stream and sockets.
+  useEffect(() => {
+    unmountedRef.current = false;
     return () => {
+      unmountedRef.current = true;
+      leaveRoom();
       cleanup();
     };
-  }, [sessionId, user]);
+    // Mount/unmount only: leaveRoom and cleanup read nothing but refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (remoteUserJoined) metRemoteRef.current = true;
+  }, [remoteUserJoined]);
 
   useEffect(() => {
     if (sessionData && !socketRef.current) {
       initializeCall();
     }
   }, [sessionData]);
-
-  useEffect(() => {
-    // Listen for server timer sync when connected
-    if (connectionState === 'connected' && socketRef.current) {
-      const socket = socketRef.current;
-
-      const handleTimerSync = (data: { remainingSeconds: number }) => {
-        setDuration(data.remainingSeconds);
-        
-        // Warnings based on server-synchronized time
-        if (data.remainingSeconds === 300) {
-          setQualityMessage('5 minutes remaining');
-          setTimeout(() => setQualityMessage(null), 3000);
-        } else if (data.remainingSeconds === 120) {
-          setQualityMessage(' 2 minutes remaining');
-          setTimeout(() => setQualityMessage(null), 3000);
-        } else if (data.remainingSeconds === 60) {
-          setQualityMessage(' 1 minute remaining!');
-          setTimeout(() => setQualityMessage(null), 3000);
-        }
-      };
-
-      const handleTimeUp = () => {
-        setQualityMessage(' Time\'s up! Session ending...');
-        setTimeout(() => {
-          endCall('timer_expired');
-        }, 2000);
-      };
-
-      socket.on('timer-sync', handleTimerSync);
-      socket.on('session-time-up', handleTimeUp);
-
-      return () => {
-        socket.off('timer-sync', handleTimerSync);
-        socket.off('session-time-up', handleTimeUp);
-      };
-    }
-  }, [connectionState]);
 
   //  FIX: Force chat closed on mount and when modals appear
   useEffect(() => {
@@ -308,17 +347,12 @@ const VideoCallRoom: React.FC = () => {
 
   const initializeCall = async () => {
     try {
-      // Validate authentication before proceeding
+      // No in-memory token is not fatal: the socket handshake falls back to
+      // the session cookie (withCredentials below). If neither works the
+      // server rejects the connection and connect_error sends us to login.
       if (!token) {
-        console.error('[VIDEO-CALL]  No authentication token available');
-        setError('Authentication error: Please log in again');
-        setTimeout(() => {
-          navigate(user?.role === 'patient' ? '/patient-dashboard' : '/doctor-dashboard');
-        }, 2000);
-        return;
+        console.warn('[VIDEO-CALL] No in-memory token; relying on the session cookie');
       }
-
-      console.log('[VIDEO-CALL]  Initializing with token:', token.substring(0, 20) + '...');
 
       // Determine media constraints based on call mode
       const isVoiceCall = sessionData?.callMode === 'Voice Calling';
@@ -330,6 +364,13 @@ const VideoCallRoom: React.FC = () => {
         audio: true
       });
 
+      // The user may have left while the permission prompt was open.
+      if (unmountedRef.current) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+
+      localStreamRef.current = stream;
       setLocalStream(stream);
 
       // Only set video src if video is enabled
@@ -344,32 +385,85 @@ const VideoCallRoom: React.FC = () => {
       // Connect to Socket.IO server with authentication
       console.log('[VIDEO-CALL]  Connecting to:', SOCKET_URL);
       const socket = io(SOCKET_URL, {
-        auth: {
-          token: token
-        },
+        auth: token ? { token } : {},
+        withCredentials: true,
+        // WebSocket first: long-polling's XHR POSTs are what failed mid-call
+        // ("xhr post error") on flaky networks. Polling stays as a fallback.
+        transports: ['websocket', 'polling'],
         reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        // Its own connection: otherwise this shares the /data socket's
+        // Manager and silently inherits its options (5 attempts, polling first).
+        forceNew: true
       });
       socketRef.current = socket;
+
+      socket.io.on('reconnect_attempt', () => setIsReconnecting(true));
+      socket.io.on('reconnect', () => setIsReconnecting(false));
+
+      // Server-synchronised session clock. Registered here rather than once
+      // the peer connection is up: the server sends the current value the
+      // moment we join a room the other side already opened.
+      socket.on('timer-sync', (data: { remainingSeconds: number }) => {
+        setDuration(data.remainingSeconds);
+
+        // Warnings based on server-synchronized time
+        if (data.remainingSeconds === 300) {
+          setQualityMessage('5 minutes remaining');
+          setTimeout(() => setQualityMessage(null), 3000);
+        } else if (data.remainingSeconds === 120) {
+          setQualityMessage(' 2 minutes remaining');
+          setTimeout(() => setQualityMessage(null), 3000);
+        } else if (data.remainingSeconds === 60) {
+          setQualityMessage(' 1 minute remaining!');
+          setTimeout(() => setQualityMessage(null), 3000);
+        }
+      });
+
+      socket.on('session-time-up', () => {
+        setQualityMessage(' Time\'s up! Session ending...');
+        setTimeout(() => {
+          endCallRef.current('timer_expired');
+        }, 2000);
+      });
 
       // Handle connection errors
       socket.on('connect_error', (err) => {
         console.error('[VIDEO-CALL] Connection error:', err.message);
-        setError('Failed to connect to video call server: ' + err.message);
 
-        // If authentication error, redirect to login
-        if (err.message.includes('Authentication')) {
+        // A rejected credential won't fix itself by retrying.
+        if (/Authentication|No token/.test(err.message)) {
+          setIsReconnecting(false);
+          setError('Your session has expired. Please log in again.');
           setTimeout(() => {
-            navigate('/auth');
+            navigate('/login');
           }, 2000);
+          return;
         }
+
+        // Anything else (network blip, server restarting): keep retrying and
+        // say so, rather than showing a fatal error over a call that may
+        // well still be flowing peer-to-peer.
+        setIsReconnecting(true);
       });
 
       socket.on('connect', () => {
         console.log('[VIDEO-CALL]  Connected to server, Socket ID:', socket.id);
-        // Join the room after successful connection
+        setIsReconnecting(false);
+        // (Re)join the room. 'connect' fires again after every reconnect, so
+        // this is also what puts us back in the room after a drop.
         socket.emit('join-room', { sessionId });
+      });
+
+      socket.on('disconnect', (reason) => {
+        console.warn('[VIDEO-CALL] Signalling socket disconnected:', reason);
+        // Our own disconnect() (leaving the call) — nothing to recover.
+        if (reason === 'io client disconnect') return;
+        setIsReconnecting(true);
+        // The server closed it; socket.io does not retry that by itself.
+        if (reason === 'io server disconnect') socket.connect();
       });
 
       // Socket event handlers
@@ -527,21 +621,14 @@ const VideoCallRoom: React.FC = () => {
         const otherUser = data.userName || (user?.role === 'doctor' ? 'Patient' : 'Doctor');
         toast.error(`${otherUser} has ended the session`, { duration: 4000 });
 
+        // Stop the camera and mic now, not after the 2s notice: the other
+        // side has already gone.
+        cleanup();
+
         // After 2 seconds, navigate to dashboard with appropriate state
         setTimeout(async () => {
-          cleanup();
-
           if (user?.role === 'doctor') {
-            navigate('/doctor-dashboard', {
-              state: {
-                pendingReport: {
-                  sessionId: sessionId || '',
-                  patientId: sessionData?.patientId?._id || sessionData?.patientId,
-                  patientName: `${sessionData?.patientId?.firstName || ''} ${sessionData?.patientId?.lastName || ''}`.trim(),
-                  sessionDuration: sessionData?.duration || 60
-                }
-              }
-            });
+            navigate('/doctor-dashboard', { state: { pendingReport: buildPendingReport() } });
           } else {
             // Patient Side: Mark complete BEFORE navigating, not fire-and-forget —
             // the dashboard checks server-side status === 'completed' on mount to
@@ -945,6 +1032,35 @@ const VideoCallRoom: React.FC = () => {
     }
   };
 
+  /** What DoctorDashboard needs to open the post-session report modal. */
+  const buildPendingReport = () => {
+    const data = sessionDataRef.current;
+    return {
+      sessionId: sessionId || '',
+      patientId: data?.patientId?._id || data?.patientId,
+      patientName: `${data?.patientId?.firstName || ''} ${data?.patientId?.lastName || ''}`.trim(),
+      sessionDuration: data?.duration || 60
+    };
+  };
+
+  // "Back to Dashboard": leave properly rather than just navigating away.
+  // Unlike End, this doesn't complete the session — the user can rejoin.
+  const handleBack = () => {
+    setShowChat(false);
+    leaveRoom();
+    cleanup();
+    if (user?.role === 'doctor') {
+      // If the call happened, the report is due — same as the normal end path.
+      if (metRemoteRef.current) {
+        navigate('/doctor-dashboard', { state: { pendingReport: buildPendingReport() } });
+      } else {
+        navigate('/doctor-dashboard');
+      }
+    } else {
+      navigate('/patient-dashboard');
+    }
+  };
+
   const endCall = async (reason: string = 'user_action') => {
     console.log(`[VIDEO-CALL]  Ending call (Reason: ${reason})...`, { role: user?.role, sessionId });
 
@@ -966,16 +1082,7 @@ const VideoCallRoom: React.FC = () => {
 
     // For doctors: Navigate to dashboard with state to trigger mandatory report
     if (user?.role === 'doctor') {
-      navigate('/doctor-dashboard', {
-        state: {
-          pendingReport: {
-            sessionId: sessionId || '',
-            patientId: sessionData?.patientId?._id || sessionData?.patientId,
-            patientName: `${sessionData?.patientId?.firstName || ''} ${sessionData?.patientId?.lastName || ''}`.trim(),
-            sessionDuration: sessionData?.duration || 60
-          }
-        }
-      });
+      navigate('/doctor-dashboard', { state: { pendingReport: buildPendingReport() } });
       return;
     }
 
@@ -1002,6 +1109,8 @@ const VideoCallRoom: React.FC = () => {
 
 
 
+
+  endCallRef.current = endCall;
 
   const isVoiceMode = sessionData?.callMode === 'Voice Calling';
 
@@ -1084,10 +1193,7 @@ const VideoCallRoom: React.FC = () => {
             <span className="font-semibold text-white">Delayed: {countdown}</span>
             {doctorNote && <p className="mt-2 text-slate-400 font-light italic">"{doctorNote}"</p>}
             {isGracePeriod && (
-              <button onClick={() => {
-                const token = getAuthToken();
-                fetch(`${API_BASE_URL}/sessions/${sessionId}/missed`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
-              }} className="mt-4 px-4 py-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-full font-medium transition-colors text-xs">
+              <button onClick={() => { void markMissed(true); }} className="mt-4 px-4 py-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-full font-medium transition-colors text-xs">
                 Doctor is unreachable. Cancel & Refund
               </button>
             )}
@@ -1114,16 +1220,28 @@ const VideoCallRoom: React.FC = () => {
     </div>
   );
 
-  const cleanup = () => {
+  // Function declarations (hoisted) so the unmount effect above can name them.
+  function leaveRoom() {
+    // Tell the room we're going, so the other side sees it and the server
+    // pauses the clock.
+    if (socketRef.current && sessionId) {
+      socketRef.current.emit('leave-room', { sessionId });
+    }
+  }
+
+  function cleanup() {
     console.log('[VIDEO-CALL]  Cleaning up resources...');
 
-    // Stop all local stream tracks (camera and microphone)
-    if (localStream) {
-      localStream.getTracks().forEach(track => {
+    // Stop all local stream tracks (camera and microphone). From the ref:
+    // this runs from closures that never saw the stream in state.
+    const stream = localStreamRef.current;
+    if (stream) {
+      stream.getTracks().forEach(track => {
         console.log('[VIDEO-CALL] Stopping track:', track.kind);
         track.stop();
       });
-      setLocalStream(null);
+      localStreamRef.current = null;
+      if (!unmountedRef.current) setLocalStream(null);
     }
 
     // Clear queue
@@ -1154,14 +1272,14 @@ const VideoCallRoom: React.FC = () => {
     }
 
     console.log('[VIDEO-CALL]  Cleanup complete');
-  };
+  }
 
   return (
     <div className="min-h-screen bg-[#09090B] flex flex-col p-4 md:p-6 gap-4">
       {/* Minimal Header */}
       <div className="flex justify-between items-center z-10 shrink-0">
         <button
-          onClick={() => navigate(user?.role === 'patient' ? '/patient-dashboard' : '/doctor-dashboard')}
+          onClick={handleBack}
           className="flex items-center gap-2 text-white/70 hover:text-white transition-colors group px-4 py-2 bg-white/5 hover:bg-white/10 rounded-full border border-white/10 backdrop-blur-md"
         >
           <svg className="w-5 h-5 transform group-hover:-translate-x-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1175,18 +1293,28 @@ const VideoCallRoom: React.FC = () => {
             {getSignalIcon()}
           </div>
           <div className="w-[1px] h-4 bg-white/20"></div>
-          <div className={`w-2 h-2 rounded-full ${duration < 60 ? 'bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]' :
+          <div className={`w-2 h-2 rounded-full ${duration === null ? 'bg-white/30' :
+            duration < 60 ? 'bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.8)]' :
             duration < 300 ? 'bg-amber-400 animate-pulse shadow-[0_0_8px_rgba(251,191,36,0.8)]' :
               'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]'
             }`}></div>
-          <span className={`text-sm font-sans font-medium tracking-wide ${duration < 60 ? 'text-red-400' :
+          <span className={`text-sm font-sans font-medium tracking-wide ${duration === null ? 'text-white/50' :
+            duration < 60 ? 'text-red-400' :
             duration < 300 ? 'text-amber-400' :
               'text-white/90'
             }`}>
-            {formatDuration(duration)}
+            {duration === null ? '--:--' : formatDuration(duration)}
           </span>
         </div>
       </div>
+
+      {/* Reconnecting (non-fatal) */}
+      {isReconnecting && !error && (
+        <div role="status" aria-live="polite" className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-amber-500/90 text-white px-5 py-2 rounded-full shadow-lg z-20 text-sm flex items-center gap-2">
+          <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" aria-hidden="true"></span>
+          Reconnecting…
+        </div>
+      )}
 
       {/* Error Message */}
       {error && (
@@ -1326,10 +1454,7 @@ const VideoCallRoom: React.FC = () => {
                               <p className="text-amber-400 font-medium text-sm mb-1">Doctor will join in {countdown}</p>
                               {doctorNote && <p className="text-white/70 text-xs italic">"{doctorNote}"</p>}
                               {isGracePeriod && (
-                                <button onClick={() => {
-                                  const token = getAuthToken();
-                                  fetch(`${API_BASE_URL}/sessions/${sessionId}/missed`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
-                                }} className="mt-4 px-4 py-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-full font-medium transition-colors text-xs w-full">
+                                <button onClick={() => { void markMissed(true); }} className="mt-4 px-4 py-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-full font-medium transition-colors text-xs w-full">
                                   Doctor is unreachable. Cancel & Refund
                                 </button>
                               )}

@@ -11,21 +11,42 @@ function escapeRegex(str) {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/**
+ * Fields that never leave through the public article endpoints.
+ *
+ * `likedBy` is the like-toggle's memory of who has liked an article, and for
+ * an anonymous visitor that identity is their IP address — so the public list
+ * and detail responses were publishing the IP of everyone who had ever liked
+ * anything. `likes` already carries the count. `authorId` is the internal
+ * account id of the super admin who filed the article; the byline is `author`.
+ */
+const PUBLIC_EXCLUDE = '-likedBy -authorId';
+
+/** A query value as a plain string — `?search=a&search=b` arrives as an array. */
+const asString = (v) => (typeof v === 'string' ? v : '');
+
+/** Bounded paging. An unbounded `?limit=` let one request ask for every article. */
+function pageParams(query, maxLimit) {
+    const page = Math.max(parseInt(query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(query.limit, 10) || 10, 1), maxLimit);
+    return { page, limit, skip: (page - 1) * limit };
+}
+
 
 // @desc    Get all published articles (public)
 // @route   GET /api/articles
 // @access  Public
 exports.getPublishedArticles = asyncHandler(async (req, res) => {
     try {
-        const {
-            page = 1,
-            limit = 10,
-            search = '',
-            category = '',
-            featured
-        } = req.query;
+        const { page, limit, skip } = pageParams(req.query, 50);
+        const search = asString(req.query.search).trim();
+        const category = asString(req.query.category);
+        const featured = asString(req.query.featured) || undefined;
 
-        const cacheKey = `articles_list_${JSON.stringify(req.query)}`;
+        // Keyed on the normalised parameters, not the raw query string: any
+        // unrecognised `?x=` used to mint a fresh cache entry, so the cache
+        // could be grown without bound by varying a parameter nobody reads.
+        const cacheKey = `articles_list_${JSON.stringify({ page, limit, search, category, featured })}`;
         const cachedData = cache.get(cacheKey);
         if (cachedData) {
             return res.json(cachedData);
@@ -43,27 +64,26 @@ exports.getPublishedArticles = asyncHandler(async (req, res) => {
         }
 
         if (search) {
-            filter.$text = { $search: search.trim() };
+            filter.$text = { $search: search };
         }
-
-        const skip = (parseInt(page) - 1) * parseInt(limit);
 
         const [articles, total] = await Promise.all([
             Article.find(filter)
                 .sort(search ? { score: { $meta: 'textScore' } } : { publishedDate: -1 })
                 .skip(skip)
-                .limit(parseInt(limit))
-                .select('-content'), // Exclude content for list view
+                .limit(limit)
+                .select(`-content ${PUBLIC_EXCLUDE}`) // Exclude content for list view
+                .lean(),
             Article.countDocuments(filter)
         ]);
 
         const responseData = {
             articles,
             pagination: {
-                page: parseInt(page),
-                limit: parseInt(limit),
+                page,
+                limit,
                 total,
-                pages: Math.ceil(total / parseInt(limit))
+                pages: Math.ceil(total / limit)
             }
         };
 
@@ -71,7 +91,7 @@ exports.getPublishedArticles = asyncHandler(async (req, res) => {
         res.json(responseData);
     } catch (error) {
         logger.error('Error fetching published articles:', error);
-        res.status(500).json({ message: 'Failed to fetch articles', error: error.message });
+        res.status(500).json({ message: 'Failed to fetch articles' });
     }
 });
 
@@ -88,7 +108,7 @@ exports.getArticleBySlug = asyncHandler(async (req, res) => {
             return res.json(cachedData);
         }
 
-        const article = await Article.findOne({ slug, status: 'published' });
+        const article = await Article.findOne({ slug, status: 'published' }).select(PUBLIC_EXCLUDE).lean();
 
         if (!article) {
             return res.status(404).json({ message: 'Article not found' });
@@ -98,7 +118,7 @@ exports.getArticleBySlug = asyncHandler(async (req, res) => {
         res.json(article);
     } catch (error) {
         logger.error('Error fetching article:', error);
-        res.status(500).json({ message: 'Failed to fetch article', error: error.message });
+        res.status(500).json({ message: 'Failed to fetch article' });
     }
 });
 
@@ -109,10 +129,12 @@ exports.incrementViews = asyncHandler(async (req, res) => {
     try {
         const { id } = req.params;
 
-        const article = await Article.findByIdAndUpdate(
-            id,
+        // Published only: a draft's id is not public, and its counters should
+        // not move before it is.
+        const article = await Article.findOneAndUpdate(
+            { _id: id, status: 'published' },
             { $inc: { views: 1 } },
-            { new: true }
+            { new: true, projection: { views: 1 } }
         );
 
         if (!article) {
@@ -122,7 +144,7 @@ exports.incrementViews = asyncHandler(async (req, res) => {
         res.json({ views: article.views });
     } catch (error) {
         logger.error('Error incrementing views:', error);
-        res.status(500).json({ message: 'Failed to increment views', error: error.message });
+        res.status(500).json({ message: 'Failed to increment views' });
     }
 });
 
@@ -132,30 +154,31 @@ exports.incrementViews = asyncHandler(async (req, res) => {
 exports.incrementLikes = asyncHandler(async (req, res) => {
     try {
         const { id } = req.params;
+        // No auth middleware runs on this route, so this is the caller's IP in
+        // practice. That is why likedBy must never be returned publicly.
         const clientId = req.user?._id?.toString() || req.ip;
 
-        const article = await Article.findById(id);
+        // Two conditional updates instead of load, edit, save. The read-modify-
+        // write version wrote `likes` back as an absolute number, so two
+        // visitors liking at once each saved n+1 and one like was lost.
+        const liked = await Article.findOneAndUpdate(
+            { _id: id, status: 'published', likedBy: { $ne: clientId } },
+            { $addToSet: { likedBy: clientId }, $inc: { likes: 1 } },
+            { new: true, projection: { likes: 1 } }
+        );
+        if (liked) return res.json({ likes: liked.likes, hasLiked: true });
 
-        if (!article) {
-            return res.status(404).json({ message: 'Article not found' });
-        }
+        const unliked = await Article.findOneAndUpdate(
+            { _id: id, status: 'published', likedBy: clientId },
+            { $pull: { likedBy: clientId }, $inc: { likes: -1 } },
+            { new: true, projection: { likes: 1 } }
+        );
+        if (unliked) return res.json({ likes: Math.max(0, unliked.likes), hasLiked: false });
 
-        const hasLiked = article.likedBy.includes(clientId);
-
-        if (hasLiked) {
-            article.likedBy = article.likedBy.filter(uid => uid !== clientId);
-            article.likes = Math.max(0, article.likes - 1);
-        } else {
-            article.likedBy.push(clientId);
-            article.likes += 1;
-        }
-
-        await article.save();
-
-        res.json({ likes: article.likes, hasLiked: !hasLiked });
+        return res.status(404).json({ message: 'Article not found' });
     } catch (error) {
         logger.error('Error incrementing likes:', error);
-        res.status(500).json({ message: 'Failed to increment likes', error: error.message });
+        res.status(500).json({ message: 'Failed to increment likes' });
     }
 });
 
@@ -166,13 +189,10 @@ exports.incrementLikes = asyncHandler(async (req, res) => {
 // @access  Super Admin
 exports.getAllArticles = asyncHandler(async (req, res) => {
     try {
-        const {
-            page = 1,
-            limit = 10,
-            search = '',
-            category = '',
-            status = ''
-        } = req.query;
+        const { page, limit, skip } = pageParams(req.query, 100);
+        const search = asString(req.query.search);
+        const category = asString(req.query.category);
+        const status = asString(req.query.status);
 
         // Build filter
         const filter = {};
@@ -193,29 +213,27 @@ exports.getAllArticles = asyncHandler(async (req, res) => {
             ];
         }
 
-        const skip = (parseInt(page) - 1) * parseInt(limit);
-
         const [articles, total] = await Promise.all([
             Article.find(filter)
                 .sort({ createdAt: -1 })
                 .skip(skip)
-                .limit(parseInt(limit))
-                .select('-content'), // Exclude content for list view
+                .limit(limit)
+                .select('-content -likedBy'), // Exclude content for list view
             Article.countDocuments(filter)
         ]);
 
         res.json({
             articles,
             pagination: {
-                page: parseInt(page),
-                limit: parseInt(limit),
+                page,
+                limit,
                 total,
-                pages: Math.ceil(total / parseInt(limit))
+                pages: Math.ceil(total / limit)
             }
         });
     } catch (error) {
         logger.error('Error fetching all articles for admin:', error);
-        res.status(500).json({ message: 'Failed to fetch articles', error: error.message });
+        res.status(500).json({ message: 'Failed to fetch articles' });
     }
 });
 
@@ -235,7 +253,7 @@ exports.getArticleById = asyncHandler(async (req, res) => {
         res.json(article);
     } catch (error) {
         logger.error('Error fetching article:', error);
-        res.status(500).json({ message: 'Failed to fetch article', error: error.message });
+        res.status(500).json({ message: 'Failed to fetch article' });
     }
 });
 
@@ -324,7 +342,12 @@ exports.createArticle = asyncHandler(async (req, res) => {
             });
         }
 
-        res.status(500).json({ message: 'Failed to create article', error: error.message });
+        // e.g. a `status` outside the enum — the caller's mistake, not ours.
+        if (error.name === 'ValidationError') {
+            return res.status(400).json({ message: 'Invalid article fields' });
+        }
+
+        res.status(500).json({ message: 'Failed to create article' });
     }
 });
 
@@ -398,7 +421,11 @@ exports.updateArticle = asyncHandler(async (req, res) => {
             });
         }
 
-        res.status(500).json({ message: 'Failed to update article', error: error.message });
+        if (error.name === 'ValidationError') {
+            return res.status(400).json({ message: 'Invalid article fields' });
+        }
+
+        res.status(500).json({ message: 'Failed to update article' });
     }
 });
 
@@ -439,7 +466,7 @@ exports.deleteArticle = asyncHandler(async (req, res) => {
         res.json({ message: 'Article deleted successfully' });
     } catch (error) {
         logger.error('Error deleting article:', error);
-        res.status(500).json({ message: 'Failed to delete article', error: error.message });
+        res.status(500).json({ message: 'Failed to delete article' });
     }
 });
 
@@ -497,7 +524,7 @@ exports.publishArticle = asyncHandler(async (req, res) => {
         });
     } catch (error) {
         logger.error('Error publishing article:', error);
-        res.status(500).json({ message: 'Failed to publish article', error: error.message });
+        res.status(500).json({ message: 'Failed to publish article' });
     }
 });
 
@@ -516,6 +543,11 @@ exports.toggleFeatured = asyncHandler(async (req, res) => {
 
         article.featured = !article.featured;
         await article.save();
+        // The public list filters and orders on `featured`; without this the
+        // change was invisible for up to the cache's five-minute TTL, unlike
+        // every other write here.
+        cache.clearPrefix('articles_list');
+        cache.del(`article_slug_${article.slug}`);
 
         logger.info(`Article featured status toggled: ${article.title} - ${article.featured}`);
 
@@ -525,7 +557,7 @@ exports.toggleFeatured = asyncHandler(async (req, res) => {
         });
     } catch (error) {
         logger.error('Error toggling featured status:', error);
-        res.status(500).json({ message: 'Failed to toggle featured status', error: error.message });
+        res.status(500).json({ message: 'Failed to toggle featured status' });
     }
 });
 

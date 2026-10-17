@@ -4,20 +4,34 @@
  * Real-time messaging is handled by socket/chat.socket.js
  */
 
+const mongoose = require('mongoose');
 const Conversation = require('../models/conversation');
 const Message = require('../models/message');
 const Session = require('../models/session');
 const { asyncHandler } = require('../middleware/error.middleware');
-const { NotFoundError, AuthorizationError } = require('../utils/errors');
+const { NotFoundError, AuthorizationError, ValidationError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
 const { sendMessageAndNotify } = require('../services/chat.service');
 
 const logger = createLogger('CHAT-CTRL');
 
+/**
+ * Which sessions count as a real doctor–patient relationship for opening a
+ * chat: one where money actually changed hands (or none was owed), or one
+ * that was actually held.
+ *
+ * Any Session at all used to qualify — and a Session is created the moment
+ * checkout opens, before payment. So a patient could open a Razorpay checkout
+ * with any doctor, close it, and from then on message that doctor directly,
+ * without ever paying for or attending a session. `refunded` and the refund
+ * states stay in: that booking was paid, so the two really were matched.
+ */
+const RELATIONSHIP_PAYMENT_STATES = ['paid', 'not_required', 'refunded', 'refund_pending', 'refund_failed'];
+
 /** GET /api/chat/conversations — All conversations for the logged-in user */
 const getConversations = asyncHandler(async (req, res) => {
-  const userId = req.user._id.toString();
-  logger.debug('Fetching conversations', { userId: userId.substring(0, 8), role: req.user.role });
+  const userId = req.actor.id;
+  logger.debug('Fetching conversations', { userId: userId.substring(0, 8), role: req.actor.role });
 
   const conversations = await Conversation.getConversationsForUser(userId);
   logger.debug('Conversations found', { count: conversations.length });
@@ -25,7 +39,7 @@ const getConversations = asyncHandler(async (req, res) => {
   // Batch fetch all unread counts in a single aggregation instead of N separate queries
   const convIds = conversations.map(c => c._id);
   const unreadAgg = await Message.aggregate([
-    { $match: { conversationId: { $in: convIds }, receiverId: req.user._id, isRead: false } },
+    { $match: { conversationId: { $in: convIds }, receiverId: new mongoose.Types.ObjectId(userId), isRead: false } },
     { $group: { _id: '$conversationId', count: { $sum: 1 } } }
   ]);
   const unreadMap = {};
@@ -53,13 +67,12 @@ const getConversations = asyncHandler(async (req, res) => {
 /** GET /api/chat/messages/:conversationId — Messages for a conversation */
 const getMessages = asyncHandler(async (req, res) => {
   const { conversationId } = req.params;
-  const userId = req.user._id.toString();
-  const limit = parseInt(req.query.limit) || 50;
-  const skip = parseInt(req.query.skip) || 0;
-
-  const conversation = await Conversation.findById(conversationId);
-  if (!conversation) throw new NotFoundError('Conversation');
-  if (!conversation.participants.some(p => p.userId && p.userId.toString() === userId)) throw new AuthorizationError('Access denied');
+  // authorize('conversation:participate') has loaded the conversation and
+  // confirmed the caller is in it.
+  const userId = req.actor.id;
+  // Bounded: an unbounded ?limit= let one request page in an entire thread.
+  const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 50, 1), 100);
+  const skip = Math.max(parseInt(req.query.skip, 10) || 0, 0);
 
   const messages = await Message.getMessagesForConversation(conversationId, limit, skip);
   const formattedMessages = messages.map(msg => ({
@@ -78,10 +91,15 @@ const getMessages = asyncHandler(async (req, res) => {
 /** POST /api/chat/conversation — Find or create a conversation with another user */
 const findOrCreateConversation = asyncHandler(async (req, res) => {
   const { otherUserId } = req.body;
-  const userId = req.user._id.toString();
+  const userId = req.actor.id;
   if (!otherUserId) return res.status(400).json({ success: false, message: 'Other user ID is required' });
 
-  const session = await Session.findOne({ $or: [{ patientId: userId, doctorId: otherUserId }, { patientId: otherUserId, doctorId: userId }] });
+  const session = await Session.findOne({
+    $and: [
+      { $or: [{ patientId: userId, doctorId: otherUserId }, { patientId: otherUserId, doctorId: userId }] },
+      { $or: [{ paymentStatus: { $in: RELATIONSHIP_PAYMENT_STATES } }, { status: 'completed' }] }
+    ]
+  }).select('_id').sort({ createdAt: -1 });
   if (!session) return res.status(403).json({ success: false, message: 'Cannot create conversation. Users must have had a session together.' });
 
   const conversation = await Conversation.findOrCreateConversation(userId, otherUserId, session._id);
@@ -91,8 +109,8 @@ const findOrCreateConversation = asyncHandler(async (req, res) => {
 /** POST /api/chat/message — Send a message (REST fallback) */
 const sendMessage = asyncHandler(async (req, res) => {
   const { conversationId, text } = req.body;
-  const senderId = req.user._id.toString();
-  if (!conversationId || !text) return res.status(400).json({ success: false, message: 'Conversation ID and text are required' });
+  const senderId = req.actor.id;
+  if (!conversationId || typeof text !== 'string' || !text.trim()) return res.status(400).json({ success: false, message: 'Conversation ID and text are required' });
 
   // Shared with the socket 'message:send' handler (server/socket/chat.socket.js)
   // via chat.service.js — this used to persist the message but skip all
@@ -107,6 +125,7 @@ const sendMessage = asyncHandler(async (req, res) => {
   } catch (err) {
     if (err.code === 'CONVERSATION_NOT_FOUND') throw new NotFoundError('Conversation');
     if (err.code === 'ACCESS_DENIED') throw new AuthorizationError('Access denied');
+    if (err.code === 'INVALID_MESSAGE') throw new ValidationError(err.message);
     throw err;
   }
 
@@ -116,7 +135,7 @@ const sendMessage = asyncHandler(async (req, res) => {
 /** PUT /api/chat/conversation/:conversationId/read — Mark conversation as read */
 const markAsRead = asyncHandler(async (req, res) => {
   const { conversationId } = req.params;
-  const userId = req.user._id;
+  const userId = req.actor.id;
 
   // This was the one chat route with no membership check — it took
   // conversationId straight from the params and wrote. It was not exploitable,
@@ -124,20 +143,15 @@ const markAsRead = asyncHandler(async (req, res) => {
   // their own participant entry, so a stranger's call matched nothing. But it
   // answered 200 to a stranger, and it stopped being dead code the moment the
   // client started calling it on every read, so it gets the same check every
-  // sibling route already has.
-  const conversation = await Conversation.findById(conversationId);
-  if (!conversation) throw new NotFoundError('Conversation');
-  if (!conversation.participants.some(p => p.userId && p.userId.toString() === userId.toString())) {
-    throw new AuthorizationError('Access denied');
-  }
-
-  await Message.markAsRead(conversationId, userId.toString());
+  // sibling route already has — now authorize('conversation:participate') on
+  // the route line.
+  await Message.markAsRead(conversationId, userId);
   // arrayFilters is not reliably cast by Mongoose, so pass the ObjectId the
   // participant entry actually stores rather than a string.
   await Conversation.findByIdAndUpdate(
     conversationId,
     { $set: { 'participants.$[elem].lastReadAt': new Date() } },
-    { arrayFilters: [{ 'elem.userId': userId }] }
+    { arrayFilters: [{ 'elem.userId': new mongoose.Types.ObjectId(userId) }] }
   );
   res.json({ success: true, message: 'Marked as read' });
 });
@@ -146,7 +160,7 @@ const markAsRead = asyncHandler(async (req, res) => {
 const getUnreadCount = asyncHandler(async (req, res) => {
   // Single aggregation instead of N+1 queries
   const result = await Message.aggregate([
-    { $match: { receiverId: req.user._id, isRead: false } },
+    { $match: { receiverId: new mongoose.Types.ObjectId(req.actor.id), isRead: false } },
     { $count: 'total' }
   ]);
   const totalUnread = result.length > 0 ? result[0].total : 0;

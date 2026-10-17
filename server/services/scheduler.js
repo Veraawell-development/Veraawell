@@ -1,13 +1,21 @@
 const cron = require('node-cron');
 const Session = require('../models/session');
-const DoctorAvailability = require('../models/doctorAvailability');
 const { sendSessionReminderEmail } = require('./email.service');
 const { createLogger } = require('../utils/logger');
 const { resolveStartsAt, resolveEndsAt } = require('../services/sessionTime');
-const { CHECKOUT_TTL_MINUTES } = require('../config/time');
+const { NO_SHOW_GRACE_MINUTES } = require('../config/time');
 const { tryTransition } = require('./sessionTransition');
 const { EVENT, ACTOR } = require('./sessionState');
-const { refundSession } = require('./sessionRefund');
+const { refundSession, reconcileStuckRefund, STUCK_REFUND_MINUTES } = require('./sessionRefund');
+const { expireStaleCheckouts } = require('./sessionPayment');
+
+/**
+ * How far back the status sweep looks. It was 24 hours, and the server sleeps
+ * when idle on its current host: a session that ended during a longer sleep
+ * was never completed, never paid out and never no-show refunded. The query
+ * is an indexed range scan on { status, endsAt }, so a wide window is cheap.
+ */
+const STATUS_SWEEP_LOOKBACK_DAYS = 30;
 
 const logger = createLogger('SCHEDULER');
 
@@ -29,13 +37,17 @@ let clawbackSweepRunning = false;
 
 /**
  * Sweep past sessions and mark them completed/no-show.
- * Only processes sessions that ended in the last 24 hours to avoid
- * scanning the entire sessions collection.
+ *
+ * A session is swept NO_SHOW_GRACE_MINUTES after its end, not at it: the
+ * constant existed for exactly this and nothing read it, so a call running a
+ * minute over was swept mid-conversation, and a late joiner who arrived
+ * inside the join window could already be recorded as a no-show.
  */
 const runSessionStatusUpdate = async () => {
     try {
         const now = new Date();
-        const cutoff = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        const cutoff = new Date(now.getTime() - STATUS_SWEEP_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+        const sweepBefore = new Date(now.getTime() - NO_SHOW_GRACE_MINUTES * 60 * 1000);
 
         // "Every live session whose end time has passed" is now one indexed
         // range scan on endsAt. It used to load every scheduled session from a
@@ -44,7 +56,7 @@ const runSessionStatusUpdate = async () => {
         // IST session was swept 5h30m early or late.
         const scheduledSessions = await Session.find({
             status: { $in: ['scheduled', 'active'] },
-            endsAt: { $gte: cutoff, $lte: now }
+            endsAt: { $gte: cutoff, $lte: sweepBefore }
         });
 
         if (scheduledSessions.length === 0) return 0;
@@ -52,7 +64,7 @@ const runSessionStatusUpdate = async () => {
         let updatedCount = 0;
         let refundedCount = 0;
         for (const session of scheduledSessions) {
-            if (resolveEndsAt(session) >= now) continue;
+            if (resolveEndsAt(session) > sweepBefore) continue;
 
             // Routed through the transition table rather than a bare
             // `session.status = ...; save()`. The table already decides
@@ -136,6 +148,12 @@ const runClawbackReconciliation = async () => {
     if (clawbackSweepRunning) return 0;
     clawbackSweepRunning = true;
     try {
+        // Refunds orphaned in refund_pending by a crash between the gateway
+        // call and recording it. reconcileStuckRefund asks Razorpay before
+        // sending anything, so this cannot refund twice. Before the clawbacks,
+        // because resolving one can create one.
+        await runStuckRefundReconciliation();
+
         const { reconcileClawbacks } = require('./payoutLedger');
         const recorded = await reconcileClawbacks();
         if (recorded > 0) logger.info('Payout clawback reconciliation complete', { recorded });
@@ -148,6 +166,43 @@ const runClawbackReconciliation = async () => {
         return 0;
     } finally {
         clawbackSweepRunning = false;
+    }
+};
+
+/** Resolve every refund claimed more than STUCK_REFUND_MINUTES ago and never recorded. */
+const runStuckRefundReconciliation = async (now = new Date()) => {
+    const cutoff = new Date(now.getTime() - STUCK_REFUND_MINUTES * 60 * 1000);
+    const stuck = await Session.find({
+        paymentStatus: 'refund_pending',
+        $or: [{ refundRequestedAt: { $lte: cutoff } }, { refundRequestedAt: null, updatedAt: { $lte: cutoff } }]
+    }).select('_id').limit(100).lean();
+
+    let resolved = 0;
+    for (const { _id } of stuck) {
+        try {
+            const result = await reconcileStuckRefund(_id, { now });
+            if (['recorded-existing', 'refunded'].includes(result.resolved)) resolved += 1;
+        } catch (err) {
+            logger.error('Stuck refund reconciliation failed', { sessionId: String(_id).substring(0, 8), error: err.message });
+        }
+    }
+    if (resolved > 0) logger.info('Stuck refunds resolved', { resolved });
+    return resolved;
+};
+
+/** Expire unpaid checkouts and free their slots. Named for the same reason as the others: testable. */
+const runCheckoutExpiry = async (io = null) => {
+    if (paymentCleanupRunning) return 0;
+    paymentCleanupRunning = true;
+    try {
+        const expired = await expireStaleCheckouts({ io });
+        if (expired > 0) logger.info('Expired unpaid checkouts', { expired });
+        return expired;
+    } catch (error) {
+        logger.error('Error in checkout expiry', { error: error.message });
+        return 0;
+    } finally {
+        paymentCleanupRunning = false;
     }
 };
 
@@ -203,6 +258,9 @@ const startScheduler = (io) => {
                 .populate('doctorId', 'firstName lastName');
 
             for (const session of sessions) {
+              // Per session: one failed email used to abort the loop and
+              // leave every later session in the window without a reminder.
+              try {
                 if (!session.patientId || !session.patientId.email) {
                     logger.debug(`Skipping session ${session._id}: Patient has no email`);
                     continue;
@@ -235,7 +293,18 @@ const startScheduler = (io) => {
                     }
                 }
 
-                if (changed) await session.save();
+                // Only the flags, not a save() of a document read up to a
+                // minute ago — that could not revert status today, but it is
+                // the shape every revert bug in this codebase started from.
+                if (changed) {
+                    await Session.updateOne(
+                        { _id: session._id },
+                        { $set: { notificationStatus: session.notificationStatus } }
+                    );
+                }
+              } catch (err) {
+                logger.error('Reminder failed for one session', { sessionId: String(session._id).substring(0, 8), error: err.message });
+              }
             }
         } catch (error) {
             logger.error('Error in notification scheduler', { error: error.message });
@@ -284,62 +353,28 @@ const startScheduler = (io) => {
     // safe.
     clawbackTask = cron.schedule('0 * * * *', runClawbackReconciliation);
 
-    logger.info('All schedulers started successfully (notifications: 1min, status-sweep: 5min, payment-cleanup: 30min, stuck-sessions: 2min, clawbacks: hourly)');
+    // --- Unpaid checkout expiry: every minute ---
+    // It ran every 30 minutes against a 20-minute TTL, so an abandoned
+    // checkout held its slot for up to 50 minutes; a public request-driven
+    // copy papered over that with a non-atomic rewrite of the doctor's
+    // bookedSlots. Every minute is cheap — it is an indexed query that is
+    // almost always empty.
+    paymentCleanupTask = cron.schedule('* * * * *', () => runCheckoutExpiry(io));
 
-    // ── Phase 9: Expired Payment Cleanup (every 30 minutes) ──────────────────
-    // Sessions where the patient opened Razorpay but didn't pay within 30 mins.
-    // Mark them 'failed' and release the booked slot.
-    paymentCleanupTask = cron.schedule('*/30 * * * *', async () => {
-        if (paymentCleanupRunning) return;
-        paymentCleanupRunning = true;
+    logger.info('All schedulers started (reminders: 1min, checkout expiry: 1min, instant requests: 1min, status sweep: 5min, refunds+clawbacks: hourly)');
+
+    // Catch up once at boot. The host sleeps when idle and every cron above
+    // pauses with it; without this, work that fell due during the sleep
+    // waits for the next tick of each schedule.
+    setTimeout(async () => {
         try {
-            const cutoff = new Date(Date.now() - CHECKOUT_TTL_MINUTES * 60 * 1000);
-
-            const staleSessions = await Session.find({
-                paymentStatus: 'pending',
-                razorpayOrderId: { $ne: null }, // Only sessions that went through Razorpay
-                createdAt: { $lte: cutoff },
-                status: { $nin: ['cancelled', 'completed'] }
-            });
-
-            if (staleSessions.length === 0) return;
-
-            let cleaned = 0;
-            for (const session of staleSessions) {
-                try {
-                    // Mark as failed
-                    session.paymentStatus = 'failed';
-                    session.status = 'cancelled';
-                    await session.save();
-
-                    // Release by the session's own local slot key. Deriving a
-                    // date with toISOString() put a 00:30 IST session on the
-                    // previous day, so the release silently matched nothing.
-                    const avail = await DoctorAvailability.findOne({ doctorId: session.doctorId });
-                    if (avail && session.localDate && session.localTime) {
-                        const released = await avail.releaseSlot(session.localDate, session.localTime, session._id);
-                        if (!released) {
-                            logger.warn('Expired-checkout slot release matched nothing', {
-                                sessionId: String(session._id).substring(0, 8)
-                            });
-                        }
-                    }
-
-                    cleaned++;
-                } catch (err) {
-                    logger.error('Cleanup error for session', { sessionId: session._id, error: err.message });
-                }
-            }
-
-            if (cleaned > 0) {
-                logger.info('Expired payment cleanup complete', { cleaned });
-            }
+            await runCheckoutExpiry(io);
+            await runSessionStatusUpdate();
+            await runClawbackReconciliation();
         } catch (error) {
-            logger.error('Error in payment cleanup job', { error: error.message });
-        } finally {
-            paymentCleanupRunning = false;
+            logger.error('Boot catch-up failed', { error: error.message });
         }
-    });
+    }, 5000).unref();
 };
 
 /**
@@ -373,5 +408,7 @@ module.exports = {
     startScheduler,
     stopScheduler,
     runSessionStatusUpdate,
-    runClawbackReconciliation
+    runClawbackReconciliation,
+    runStuckRefundReconciliation,
+    runCheckoutExpiry
 };

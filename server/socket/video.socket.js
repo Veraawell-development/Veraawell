@@ -9,7 +9,26 @@ const { createLogger } = require('../utils/logger');
 const { createSocketAuthMiddleware } = require('./authMiddleware');
 const { createGuardedRegistrar, grantRoom, revokeRoom } = require('../authz/socket');
 const { tryTransition } = require('../services/sessionTransition');
-const { EVENT, ACTOR } = require('../services/sessionState');
+const { EVENT, ACTOR, LIVE_STATUSES } = require('../services/sessionState');
+const { isWithinJoinWindow, deriveFields } = require('../services/sessionTime');
+const { PLATFORM_TIMEZONE } = require('../config/time');
+
+/**
+ * Finish a call whose booked minutes are used up. Through the transition
+ * table, as every other completion is: the timer and the disconnect handler
+ * both used to write `status = 'completed'` with a raw save() of a document
+ * read before an await, and the disconnect path wrote `status = 'scheduled'`
+ * for a short call — which revived sessions the sweep had already marked
+ * no-show or that had been refunded, and demoted a live instant session.
+ */
+async function completeCall(sessionId, extraSet) {
+  const result = await tryTransition(sessionId, {
+    event: EVENT.COMPLETE,
+    actor: ACTOR.SYSTEM,
+    extraSet: { callStatus: 'completed', callEndTime: new Date(), ...extraSet }
+  });
+  return result;
+}
 
 const logger = createLogger('SOCKET-HANDLER');
 
@@ -48,50 +67,43 @@ module.exports = (io) => {
           log.info('User socket left room', { socketId: socket.id, userId, role, sessionId: socket.roomId });
           
           const uniqueUsers = new Set(Array.from(room.users.values()).map(u => u.userId)).size;
-          // Mark session as completed immediately when last user leaves
+          // The last person left. Record how much of the call was used; if
+          // all of it, the session is over. Otherwise it is only paused —
+          // status is never touched here, so a rejoin works and nothing that
+          // happened to the session meanwhile (a sweep, a refund) is undone.
           if (uniqueUsers === 0) {
             try {
-              const session = await Session.findById(socket.roomId);
+              const session = await Session.findById(socket.roomId)
+                .select('callStatus callStartTime duration status');
               if (session && session.callStatus === 'in-progress') {
-                session.callEndTime = new Date();
-                
-                // Calculate used minutes purely based on the synchronized remaining seconds memory!
-                // This ignores any paused time accurately.
-                const sessionDurationInMinutes = session.duration || 60;
+                const callEndTime = new Date();
+                const bookedMinutes = session.duration || 60;
                 let usedMinutes = 0;
-                
                 if (room.remainingSeconds !== undefined) {
-                  usedMinutes = sessionDurationInMinutes - Math.ceil(room.remainingSeconds / 60);
+                  usedMinutes = bookedMinutes - Math.ceil(room.remainingSeconds / 60);
                 } else if (session.callStartTime) {
-                  const durationMs = session.callEndTime - session.callStartTime;
-                  usedMinutes = Math.max(1, Math.round(durationMs / 60000));
+                  usedMinutes = Math.max(1, Math.round((callEndTime - session.callStartTime) / 60000));
                 }
-                
-                // Update duration (max it at session duration)
-                session.actualDuration = Math.max(0, Math.min(sessionDurationInMinutes, usedMinutes));
-                
-                // Check if session is actually completed (time is up)
-                if (session.actualDuration >= session.duration) {
-                  session.callStatus = 'completed';
-                  session.status = 'completed';
+                const actualDuration = Math.max(0, Math.min(bookedMinutes, usedMinutes));
+
+                if (actualDuration >= bookedMinutes) {
+                  await completeCall(session._id, { actualDuration });
                 } else {
-                  session.callStatus = 'paused';
-                  // Keep status as 'scheduled' so they can rejoin!
-                  session.status = 'scheduled';
+                  await Session.updateOne(
+                    { _id: session._id, status: { $in: LIVE_STATUSES } },
+                    { $set: { callStatus: 'paused', callEndTime, actualDuration } }
+                  );
                 }
-                
-                await session.save();
-                log.info('Call paused or completed', { 
+                log.info('Call paused or completed', {
                   sessionId: socket.roomId.substring(0, 8),
-                  duration: session.actualDuration,
-                  status: session.status
+                  duration: actualDuration
                 });
               }
             } catch (error) {
               log.error('Failed to update call tracking', { error: error.message });
             }
           }
-          
+
           // Clean up empty rooms
           if (uniqueUsers === 0) {
             if (room.timerInterval) {
@@ -138,6 +150,19 @@ module.exports = (io) => {
           return;
         }
 
+        // Only a live session can be joined, and a booked one only inside
+        // its window — the same rule GET /join/:id applies. The socket did
+        // not check either, so a cancelled, completed or no-show session (or
+        // one next week) could be opened straight from its URL.
+        if (!LIVE_STATUSES.includes(session.status)) {
+          socket.emit('error', { message: `This session is ${session.status} and can no longer be joined.` });
+          return;
+        }
+        if (session.sessionType !== 'immediate' && !isWithinJoinWindow(session)) {
+          socket.emit('error', { message: 'This session can be joined from 15 minutes before its start time.' });
+          return;
+        }
+
         log.info('User authorized for video call', {
           userId: userId.substring(0, 8),
           role: isPatient ? 'patient' : (isDoctor ? 'doctor' : 'self-session'),
@@ -181,16 +206,37 @@ module.exports = (io) => {
         // navigates. Matching only 'pending' left those sessions delayed
         // forever, so the banner came back on every dashboard remount long
         // after the call had happened.
+        //
+        // Same compare-and-set as POST /accept: only a request that is still
+        // waiting can be accepted, so a doctor opening the link a moment after
+        // the expiry sweep cancelled and refunded it is told so, rather than
+        // being let into a call nobody is paying for.
         if (isDoctor && session.sessionType === 'immediate' && session.acceptanceStatus !== 'accepted') {
-          set.acceptanceStatus = 'accepted';
-          set.acceptanceDeadline = null;
+          const now = new Date();
+          const accepted = await Session.findOneAndUpdate(
+            { _id: session._id, status: 'active', acceptanceStatus: { $in: ['pending', 'delayed'] } },
+            {
+              $set: {
+                acceptanceStatus: 'accepted',
+                acceptanceDeadline: null,
+                ...deriveFields(now, session.duration || 20, session.timezone || PLATFORM_TIMEZONE)
+              }
+            },
+            { new: true }
+          );
+          if (!accepted) {
+            socket.emit('error', { message: 'This request is no longer waiting — it was withdrawn or has expired.' });
+            return;
+          }
           log.info('Instant session accepted by the doctor joining the room', {
             sessionId: sessionId.substring(0, 8)
           });
         }
 
         if (Object.keys(set).length > 0) {
-          await Session.updateOne({ _id: session._id }, { $set: set });
+          // Conditional on the session still being live: the read above was
+          // before at least one await.
+          await Session.updateOne({ _id: session._id, status: { $in: LIVE_STATUSES } }, { $set: set });
           Object.assign(session, set);
           log.info('Call/join state updated', { sessionId: sessionId.substring(0, 8), isDoctor, isPatient });
         }
@@ -268,16 +314,11 @@ module.exports = (io) => {
               clearInterval(currentRoom.timerInterval);
               currentRoom.timerInterval = null;
 
-              // Force database update to complete session
               try {
-                const endingSession = await Session.findById(sessionId);
+                const endingSession = await Session.findById(sessionId).select('duration');
                 if (endingSession) {
-                  endingSession.callStatus = 'completed';
-                  endingSession.status = 'completed';
-                  endingSession.actualDuration = endingSession.duration;
-                  endingSession.callEndTime = new Date();
-                  await endingSession.save();
-                  log.info('Session auto-completed due to timer', { sessionId });
+                  const result = await completeCall(sessionId, { actualDuration: endingSession.duration });
+                  log.info('Session auto-completed due to timer', { sessionId, changed: result.changed });
                 }
               } catch (err) {
                 log.error('Failed to auto-complete session', { error: err.message });

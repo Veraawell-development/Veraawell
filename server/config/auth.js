@@ -109,6 +109,40 @@ function getCookieConfig() {
 }
 
 /**
+ * The admin cookie. Host-only (no domain) and short-lived: admin tokens last
+ * 1-8 hours, and nothing outside the API host needs to see this one.
+ *
+ * It used to be spelled out by hand at each of the three places that set or
+ * cleared it, and the logout copy had drifted (no sameSite, no secure), which
+ * is exactly how a cookie ends up never actually being cleared.
+ */
+function getAdminCookieConfig(maxAgeMs = 60 * 60 * 1000) {
+  return {
+    httpOnly: true,
+    secure: isProduction(),
+    sameSite: isProduction() ? 'none' : 'lax',
+    maxAge: maxAgeMs,
+    path: '/'
+  };
+}
+
+/**
+ * Options for res.clearCookie that match how the cookie was SET.
+ *
+ * A browser only removes a cookie when the clearing Set-Cookie names the same
+ * domain and path; in production the auth cookie is scoped to
+ * `.veraawell.com`, and a bare res.clearCookie('token') targets the API host
+ * instead, so it cleared nothing and "delete account" left the session alive.
+ * maxAge is stripped because Express 4 lets it override the immediate expiry
+ * clearCookie sets — passing the set-time config straight through would
+ * re-issue the cookie for another 30 days.
+ */
+function toClearOptions(config) {
+  const { maxAge, expires, ...rest } = config;
+  return rest;
+}
+
+/**
  * Get session cookie configuration
  */
 function getSessionCookieConfig() {
@@ -138,6 +172,8 @@ module.exports = {
   getSessionSecret,
   getOAuthConfig,
   getCookieConfig,
+  getAdminCookieConfig,
+  toClearOptions,
   getSessionCookieConfig,
   getFrontendUrl
 };

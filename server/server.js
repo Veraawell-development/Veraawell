@@ -115,17 +115,55 @@ async function startServer() {
   }
 }
 
+// Render sends SIGTERM and waits 30 seconds before SIGKILL. Finishing inside
+// that window with our own non-zero exit is better than being killed mid-write
+// with no log line saying why.
+const SHUTDOWN_TIMEOUT_MS = 10000;
+let shuttingDown = false;
+
 /**
  * Graceful shutdown handler
+ *
+ * Order matters: stop starting new work (scheduler jobs, socket events, HTTP
+ * requests) before closing the database those would write to. This used to
+ * close only the HTTP listener — without waiting for it — and then the
+ * database, while the cron jobs and every open socket kept running against a
+ * connection that was going away.
  */
 async function gracefulShutdown(signal) {
+  if (shuttingDown) return;
+  shuttingDown = true;
   logger.info(`${signal} received, shutting down gracefully...`);
 
+  // A hung close (a socket that never drains, a database that never
+  // answers) must not keep a dead instance holding the port.
+  setTimeout(() => {
+    logger.error('Graceful shutdown timed out — forcing exit', { timeoutMs: SHUTDOWN_TIMEOUT_MS });
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS).unref();
+
   try {
-    // Close HTTP server
-    httpServer.close(() => {
-      logger.info('HTTP server closed');
+    try {
+      const scheduler = require('./services/scheduler');
+      if (typeof scheduler.stopScheduler === 'function') {
+        scheduler.stopScheduler();
+        logger.info('Scheduler stopped');
+      }
+    } catch (error) {
+      logger.error('Could not stop the scheduler', { error: error.message });
+    }
+
+    // io.close() disconnects every socket and then closes the HTTP server it
+    // is attached to, so the listener is closed exactly once, here.
+    await new Promise((resolve) => {
+      io.close((err) => {
+        if (err && err.code !== 'ERR_SERVER_NOT_RUNNING') {
+          logger.warn('HTTP server close reported an error', { error: err.message });
+        }
+        resolve();
+      });
     });
+    logger.info('Socket.IO and HTTP server closed');
 
     // Close database connection
     await closeDatabase();
@@ -139,9 +177,16 @@ async function gracefulShutdown(signal) {
 }
 
 // Process error handlers
+//
+// An uncaught exception means some piece of state — a half-applied write, a
+// lock never released, a socket handler midway through — is now unknown.
+// This used to log "Server will continue running..." and do exactly that,
+// serving requests from a process in a state nobody could describe. Exiting
+// is the safe choice: Render restarts the service, and a clean process is
+// better than a wrong one.
 process.on('uncaughtException', (error) => {
-  logger.error('Uncaught Exception', { error: error.message, stack: error.stack });
-  logger.info('Server will continue running...');
+  logger.error('Uncaught Exception — exiting', { error: error.message, stack: error.stack });
+  process.exit(1);
 });
 
 process.on('unhandledRejection', (reason, promise) => {
@@ -161,4 +206,4 @@ if (require.main === module) {
   startServer();
 }
 
-module.exports = { httpServer, io, startServer };
+module.exports = { httpServer, io, startServer, gracefulShutdown };

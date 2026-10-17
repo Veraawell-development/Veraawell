@@ -1,10 +1,11 @@
 /**
- * The admin surface: the master-credential login path, doctor approvals,
- * payout onboarding and the destructive maintenance endpoints.
+ * The admin surface: the master-credential login path, admin account
+ * management, doctor approvals, payout onboarding, and the removal of the
+ * destructive maintenance endpoints.
  *
- * None of this is covered today, and it contains the most privileged code in
- * the application — including a super-admin login that bypasses the database
- * entirely and an endpoint that deletes every session.
+ * It contains the most privileged code in the application — including a
+ * super-admin login that bypasses the database entirely, and (until it was
+ * removed) an endpoint that deleted every session.
  */
 
 require('../support/env');
@@ -26,8 +27,16 @@ jest.mock('razorpay', () => jest.fn().mockImplementation(() => ({
   payments: { refund: jest.fn().mockResolvedValue({ id: 'rfnd_admin', status: 'processed' }), fetchMultipleRefund: jest.fn().mockResolvedValue({ items: [] }) },
   accounts: { create: jest.fn().mockResolvedValue({ id: 'acc_live_onboarded' }) }
 })));
+// Named mocks for the mails these tests assert on; everything else is a sink.
+const mockMail = {
+  sendAdminCredentialsEmail: jest.fn().mockResolvedValue({ id: 'sink' }),
+  sendAdminPasswordResetEmail: jest.fn().mockResolvedValue({ id: 'sink' }),
+  sendDoctorApprovedEmail: jest.fn().mockResolvedValue({ id: 'sink' })
+};
 jest.mock('../../services/email.service', () => new Proxy({}, {
-  get: () => jest.fn().mockResolvedValue({ id: 'sink' })
+  get: (_t, name) => (mockMail[name]
+    ? (...a) => mockMail[name](...a)
+    : jest.fn().mockResolvedValue({ id: 'sink' }))
 }));
 jest.mock('isomorphic-dompurify', () => ({ sanitize: (s) => s }));
 
@@ -178,7 +187,7 @@ describe('doctor approvals', () => {
 });
 
 describe('payout onboarding', () => {
-  test('a doctor requests onboarding and an admin approves it', async () => {
+  test('approving a legacy onboarding request does NOT make a doctor bookable', async () => {
     const jwt = require('jsonwebtoken');
     const { getJWTSecret } = require('../../config/auth');
     const docTok = jwt.sign({ userId: String(f.doctorB._id), username: f.doctorB.username, role: 'doctor' }, getJWTSecret(), { expiresIn: '1h' });
@@ -201,18 +210,16 @@ describe('payout onboarding', () => {
     const queue = await call('get', '/api/admin/payments/onboarding-requests', adminToken);
     expect(queue.status).toBe(200);
 
+    // This used to set payoutApproved — the switch that makes a doctor
+    // bookable and tells the payout run where to send money — with no bank
+    // details on file, from any admin. Bank-details approval is now the only
+    // way in, so this answers with where to go instead.
     const approved = await call('post', `/api/admin/payments/onboarding-requests/${f.doctorB._id}/approve`, adminToken, {});
-    expect(approved.status).toBeLessThan(400);
+    expect(approved.status).toBe(409);
+    expect(approved.body.message).toMatch(/bank details/i);
 
     const after = await DoctorProfile.findOne({ userId: f.doctorB._id });
-    // Approval is a recorded decision, not a gateway integration. It used to
-    // call Razorpay to create a Route linked account and, on any error,
-    // fabricate `acc_mock_<hex>` while still reporting success — which is how
-    // doctors ended up "active" with an id no money could route to.
-    expect(after.payoutApproved).toBe(true);
-    expect(after.payoutApprovedAt).toBeInstanceOf(Date);
-    expect(after.razorpayOnboardingStatus).toBe('active');
-    // Nothing fabricated an account id.
+    expect(after.payoutApproved).toBe(false);
     expect(after.razorpayAccountId).toBeFalsy();
   });
 
@@ -263,7 +270,7 @@ describe('payout onboarding', () => {
     expect(res.body.message).toMatch(/already approved/i);
   });
 
-  test('approving a doctor with no phone number is refused', async () => {
+  test('approving through the legacy path is refused even with a request pending', async () => {
     await DoctorProfile.updateOne(
       { userId: f.doctorB._id },
       { $set: { payoutApproved: false, razorpayOnboardingStatus: 'pending_admin_approval' } }
@@ -271,8 +278,7 @@ describe('payout onboarding', () => {
     await User.updateOne({ _id: f.doctorB._id }, { $unset: { phoneNumber: 1 } });
 
     const res = await call('post', `/api/admin/payments/onboarding-requests/${f.doctorB._id}/approve`, adminToken, {});
-    expect(res.status).toBe(400);
-    expect(res.body.message).toMatch(/phone number/i);
+    expect(res.status).toBe(409);
 
     const after = await DoctorProfile.findOne({ userId: f.doctorB._id });
     expect(after.payoutApproved).toBe(false);
@@ -410,33 +416,79 @@ describe('payout onboarding', () => {
     expect(after.paymentStatus).toBe('refunded');
   });
 
-  test('an out-of-range override is SILENTLY ignored and a different amount is refunded', async () => {
-    // adminPayments.controller.js:350 reads
-    //   if (typeof overrideAmount === 'number' && >= 0 && <= session.price)
-    //     use it
-    //   else
-    //     fall back to the tier calculation
-    //
-    // There is no rejecting branch. An admin who enters 10000 instead of 1000,
-    // or any value above the price, gets HTTP 200 and a refund at a DIFFERENT
-    // amount than they typed, with nothing in the response saying so. For a
-    // money operation the input should be rejected, not quietly replaced.
+  // Both of these were characterisation tests: an out-of-range or
+  // non-numeric override was silently replaced by the policy amount and
+  // answered 200, so an admin who typed 10000 for 1000 was refunded a
+  // different figure with nothing saying so. For money, refuse the input.
+  test('an out-of-range override is rejected and nothing is refunded', async () => {
     const s = await refundableSession('pay_admin_refund_03');
     const res = await call('post', `/api/admin/payments/sessions/${s._id}/refund`, superAdminToken, { refundAmount: 999999 });
 
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
     const after = await Session.findById(s._id);
-    // 48h out => the patient tier is 100%, i.e. the full price, not 999999.
-    expect(after.refundAmount).toBe(1000);
-    expect(after.paymentStatus).toBe('refunded');
+    expect(after.paymentStatus).toBe('paid');
+    expect(after.refundAmount).toBe(0);
   });
 
-  test('a non-numeric override is likewise ignored rather than rejected', async () => {
+  test('a non-numeric override is rejected the same way', async () => {
     const s = await refundableSession('pay_admin_refund_04');
     const res = await call('post', `/api/admin/payments/sessions/${s._id}/refund`, superAdminToken, { refundAmount: 'five hundred' });
 
+    expect(res.status).toBe(400);
+    expect((await Session.findById(s._id)).paymentStatus).toBe('paid');
+  });
+
+  test('a refund on a live booking cancels it and frees its slot first', async () => {
+    const s = await refundableSession('pay_admin_refund_05');
+    const res = await call('post', `/api/admin/payments/sessions/${s._id}/refund`, superAdminToken, {});
     expect(res.status).toBe(200);
-    expect((await Session.findById(s._id)).refundAmount).toBe(1000);
+
+    const after = await Session.findById(s._id);
+    expect(after.status).toBe('cancelled');
+    expect(after.cancelledBy).toBe('admin');
+    expect(after.paymentStatus).toBe('refunded');
+    expect(after.refundId).toBeTruthy();
+  });
+
+  test('the failed-refunds queue shows Razorpay\'s reason, and a retry clears it', async () => {
+    const s = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: new Date(Date.now() + 48 * 3600 * 1000),
+      duration: 55, price: 1000, status: 'cancelled', cancelledBy: 'patient',
+      paymentStatus: 'refund_failed', paymentId: 'pay_admin_retry_01',
+      refundAmount: 1000, refundFailureReason: 'Gateway timeout'
+    });
+
+    const queue = await call('get', '/api/admin/payments/sessions/failed-refunds', adminToken);
+    expect(queue.status).toBe(200);
+    const row = queue.body.sessions.find((r) => String(r._id) === String(s._id));
+    expect(row.failureReason).toBe('Gateway timeout');
+
+    const res = await call('post', `/api/admin/payments/sessions/${s._id}/retry-refund`, superAdminToken, {});
+    expect(res.status).toBe(200);
+    const after = await Session.findById(s._id);
+    expect(after.paymentStatus).toBe('refunded');
+    expect(after.refundId).toBe('rfnd_admin');
+  });
+
+  test('a retry on a refund stuck mid-flight asks Razorpay before sending anything', async () => {
+    const s = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: new Date(Date.now() + 48 * 3600 * 1000),
+      duration: 55, price: 1000, status: 'cancelled', cancelledBy: 'patient',
+      paymentStatus: 'refund_pending', paymentId: 'pay_admin_retry_02',
+      refundAmount: 1000, refundRequestedAt: new Date(Date.now() - 30 * 60 * 1000)
+    });
+    const res = await call('post', `/api/admin/payments/sessions/${s._id}/retry-refund`, superAdminToken, {});
+    expect(res.status).toBe(200);
+    expect((await Session.findById(s._id)).paymentStatus).toBe('refunded');
+  });
+
+  test('a retry on a session that is not a failed refund is refused', async () => {
+    const s = await refundableSession('pay_admin_retry_03');
+    const res = await call('post', `/api/admin/payments/sessions/${s._id}/retry-refund`, superAdminToken, {});
+    expect(res.status).toBe(400);
+    expect((await Session.findById(s._id)).paymentStatus).toBe('paid');
   });
 
   test('a session that was never paid cannot be refunded', async () => {
@@ -451,27 +503,41 @@ describe('payout onboarding', () => {
   });
 });
 
-describe('destructive maintenance endpoints', () => {
-  test('cleanup-sessions deletes EVERY session, and outside production a plain admin may do it', async () => {
-    // admin.controller.js:20 gates the super_admin requirement on
-    // isProduction(). In development, staging, or any environment where
-    // NODE_ENV is unset, an ordinary admin token wipes the whole collection.
+describe('destructive maintenance endpoints are gone', () => {
+  test('cleanup-sessions no longer exists, and every booking survives a call to it', async () => {
+    // Regression. This test used to pin that POST /api/admin/cleanup-sessions
+    // deleted EVERY therapy session — it ran deleteMany({}) on the `sessions`
+    // collection, which the login store shared with bookings — and that
+    // outside production a plain admin could do it (admin.controller.js gated
+    // the super_admin check on isProduction()).
     await Session.create({
       patientId: f.patientA._id, doctorId: f.doctorA._id,
       startsAt: new Date(Date.now() + 72 * 3600 * 1000),
       duration: 60, price: 1000, status: 'scheduled',
-      paymentStatus: 'paid', paymentId: 'pay_will_be_wiped'
+      paymentStatus: 'paid', paymentId: 'pay_must_survive'
     });
-    expect(await Session.countDocuments({})).toBeGreaterThan(0);
+    const before = await Session.countDocuments({});
+    expect(before).toBeGreaterThan(0);
 
-    const res = await call('post', '/api/admin/cleanup-sessions', adminToken, {});
-    expect(res.status).toBeLessThan(300);
-    expect(await Session.countDocuments({})).toBe(0);
+    for (const token of [adminToken, superAdminToken]) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await call('post', '/api/admin/cleanup-sessions', token, {});
+      expect(res.status).toBe(404);
+    }
+    expect(await Session.countDocuments({})).toBe(before);
   });
 
-  test('a patient token cannot reach cleanup-sessions', async () => {
-    const res = await call('post', '/api/admin/cleanup-sessions', patientToken, {});
-    expect(res.status).toBeGreaterThanOrEqual(400);
+  test('fix-doctor-approvals no longer exists, and approved doctors stay approved', async () => {
+    // It bulk-reset every approved, non-Google doctor with no approvedBy to
+    // 'pending' — which is every seeded or legacy doctor — de-listing them.
+    const res = await call('post', '/api/admin/fix-doctor-approvals', superAdminToken, {});
+    expect(res.status).toBe(404);
+    expect((await User.findById(f.doctorA._id)).approvalStatus).toBe('approved');
+  });
+
+  test('debug-pending-doctors no longer exists', async () => {
+    const res = await call('get', '/api/admin/debug-pending-doctors', adminToken);
+    expect(res.status).toBe(404);
   });
 });
 
@@ -484,5 +550,387 @@ describe('admin realm boundary', () => {
   test('a user-realm token is not accepted on the admin status route', async () => {
     const res = await call('get', '/api/admin/auth/status', patientToken);
     expect(res.status).toBeGreaterThanOrEqual(400);
+  });
+
+  test('a browser holding both cookies is served in both realms', async () => {
+    // Regression. The secret used to be chosen by "is there an adminToken
+    // cookie?", and then applied to EVERY token: with both cookies present,
+    // the user's `token` was checked against the admin secret and every user
+    // route answered 401. The admin side failed the other way — it read the
+    // `token` cookie first and checked a user token against the admin
+    // secret. Anyone who had used both portals in one browser was locked out.
+    const { csrf, cookie } = await csrfPair();
+    const csrfCookie = String(cookie).split(';')[0];
+    const both = `${csrfCookie}; token=${patientToken}; adminToken=${adminToken}`;
+
+    const user = await request(server).get('/api/auth/profile').set('Cookie', both).set('X-CSRF-Token', csrf);
+    expect(user.status).toBe(200);
+    expect(user.body.user.email).toBe(f.patientA.email);
+
+    const admin = await request(server).get('/api/admin/auth/status').set('Cookie', both);
+    expect(admin.status).toBe(200);
+    expect(admin.body.admin.email).toBe(f.admin.email);
+  });
+
+  test('a stale Bearer header falls through to a valid cookie instead of failing the request', async () => {
+    const res = await request(server)
+      .get('/api/auth/profile')
+      .set('Authorization', 'Bearer not.a.token')
+      .set('Cookie', `token=${patientToken}`);
+    expect(res.status).toBe(200);
+  });
+
+  test('a token that names an account by username alone is refused', async () => {
+    // Regression. verifyToken used to fall back to User.findOne({ username })
+    // for tokens with no userId. Usernames are email addresses, so anyone
+    // able to sign a token at all could name any account without its id.
+    const jwt = require('jsonwebtoken');
+    const { getJWTSecret } = require('../../config/auth');
+    const forged = jwt.sign({ username: f.patientA.username, role: 'patient' }, getJWTSecret(), { expiresIn: '1h' });
+
+    const res = await request(server).get('/api/auth/profile').set('Authorization', `Bearer ${forged}`);
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('master credential hardening', () => {
+  const login = (email, password) => request(server).post('/api/admin/auth/login').send({ email, password });
+
+  test('the master row never keeps a usable copy of ADMIN_PASSWORD', async () => {
+    // Simulate a row left by the old code, which stored a bcrypt copy of the
+    // master password.
+    const row = await User.findOne({ email: process.env.ADMIN_ID, role: 'super_admin' });
+    row.password = process.env.ADMIN_PASSWORD;
+    await row.save();
+
+    expect((await login(process.env.ADMIN_ID, process.env.ADMIN_PASSWORD)).status).toBe(200);
+
+    const after = await User.findById(row._id);
+    expect(await after.comparePassword(process.env.ADMIN_PASSWORD)).toBe(false);
+  });
+
+  test('rotating ADMIN_PASSWORD retires the old value at once', async () => {
+    // Regression. The old password kept working after a rotation: the
+    // database row held a hash of it, and the regular admin path accepted
+    // the master account like any other.
+    const old = process.env.ADMIN_PASSWORD;
+    process.env.ADMIN_PASSWORD = 'a-freshly-rotated-master-password';
+    try {
+      const withOld = await login(process.env.ADMIN_ID, old);
+      expect(withOld.status).toBe(401);
+      expect(withOld.body.token).toBeUndefined();
+
+      expect((await login(process.env.ADMIN_ID, process.env.ADMIN_PASSWORD)).status).toBe(200);
+    } finally {
+      process.env.ADMIN_PASSWORD = old;
+    }
+  });
+
+  test('ADMIN_ID is matched case-insensitively, and finds its own row on the next login', async () => {
+    // Regression. The supplied email was lowercased and compared byte-for-byte
+    // with ADMIN_ID as configured, so a capital anywhere in ADMIN_ID made the
+    // master login unreachable.
+    const original = process.env.ADMIN_ID;
+    process.env.ADMIN_ID = 'Second.Master@Veraawell.TEST';
+    try {
+      expect((await login('second.master@veraawell.test', process.env.ADMIN_PASSWORD)).status).toBe(200);
+      expect((await login('SECOND.MASTER@veraawell.test', process.env.ADMIN_PASSWORD)).status).toBe(200);
+      expect(await User.countDocuments({ email: 'second.master@veraawell.test' })).toBe(1);
+    } finally {
+      process.env.ADMIN_ID = original;
+      await User.deleteMany({ email: 'second.master@veraawell.test' });
+    }
+  });
+
+  test('admin tokens are signed with getAdminJWTSecret(), the key they are verified with', async () => {
+    // Regression. Signing read process.env.ADMIN_JWT_SECRET directly while
+    // verification used getAdminJWTSecret(), which falls back to JWT_SECRET
+    // outside production. With the variable unset, jwt.sign got an undefined
+    // key and every admin login was a 500.
+    const saved = process.env.ADMIN_JWT_SECRET;
+    delete process.env.ADMIN_JWT_SECRET;
+    try {
+      const res = await login(process.env.ADMIN_ID, process.env.ADMIN_PASSWORD);
+      expect(res.status).toBe(200);
+
+      const status = await request(server).get('/api/admin/auth/status').set('Authorization', `Bearer ${res.body.token}`);
+      expect(status.status).toBe(200);
+    } finally {
+      process.env.ADMIN_JWT_SECRET = saved;
+    }
+  });
+});
+
+describe('admin login says nothing before the password checks out', () => {
+  // Regressions. The account's role, its approval state and an admin's
+  // free-text rejection reason were all returned before the password was
+  // compared — to anyone who typed the address.
+  const login = (email, password) => request(server).post('/api/admin/auth/login').send({ email, password });
+
+  test('a non-admin account and a missing one get the same answer', async () => {
+    const patient = await login(f.patientA.email, 'not-the-password');
+    const nobody = await login('nobody.at.all@test.local', 'not-the-password');
+
+    expect(patient.status).toBe(401);
+    expect(nobody.status).toBe(401);
+    expect(patient.body.message).toBe(nobody.body.message);
+    expect(JSON.stringify(patient.body)).not.toMatch(/patient/i);
+  });
+
+  test('a pending or rejected admin learns its state only with the right password', async () => {
+    const stamp = Date.now();
+    const pending = await User.create({
+      firstName: 'Pending', lastName: 'Admin', email: `pending.admin.${stamp}@test.local`,
+      username: `pending.admin.${stamp}@test.local`, password: 'pending-admin-pass', role: 'admin', approvalStatus: 'pending'
+    });
+    const rejected = await User.create({
+      firstName: 'Rejected', lastName: 'Admin', email: `rejected.admin.${stamp}@test.local`,
+      username: `rejected.admin.${stamp}@test.local`, password: 'rejected-admin-pass', role: 'admin',
+      approvalStatus: 'rejected', rejectionReason: 'an internal note about this applicant'
+    });
+
+    for (const u of [pending, rejected]) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await login(u.email, 'wrong-password-entirely');
+      expect(res.status).toBe(401);
+      expect(JSON.stringify(res.body)).not.toMatch(/pending|rejected|internal note/i);
+    }
+
+    const pendingRight = await login(pending.email, 'pending-admin-pass');
+    expect(pendingRight.status).toBe(403);
+    expect(pendingRight.body.message).toMatch(/pending/i);
+
+    const rejectedRight = await login(rejected.email, 'rejected-admin-pass');
+    expect(rejectedRight.status).toBe(403);
+    expect(rejectedRight.body.message).toMatch(/internal note/);
+  });
+});
+
+describe('creating admins', () => {
+  beforeEach(() => {
+    mockMail.sendAdminCredentialsEmail.mockClear();
+  });
+
+  test('a super admin creates an approved admin who can sign in with the emailed password', async () => {
+    // Regression. /create never set `username`, which User requires, so it
+    // failed validation on every call; and an admin it did create would have
+    // been left 'pending' by the schema default.
+    const res = await call('post', '/api/admin/auth/create', superAdminToken, {
+      email: 'New.Colleague@Veraawell.test', firstName: 'New', lastName: 'Colleague'
+    });
+    expect(res.status).toBe(201);
+    expect(JSON.stringify(res.body)).not.toMatch(/password/i);
+
+    const created = await User.findOne({ email: 'new.colleague@veraawell.test' });
+    expect(created.role).toBe('admin');
+    expect(created.approvalStatus).toBe('approved');
+    expect(created.username).toBe('new.colleague@veraawell.test');
+    expect(String(created.approvedBy)).toBe(String(f.superAdmin._id));
+
+    expect(mockMail.sendAdminCredentialsEmail).toHaveBeenCalledTimes(1);
+    const [to, tempPassword] = mockMail.sendAdminCredentialsEmail.mock.calls[0];
+    expect(to).toBe('new.colleague@veraawell.test');
+
+    const signIn = await request(server).post('/api/admin/auth/login').send({ email: to, password: tempPassword });
+    expect(signIn.status).toBe(200);
+    expect(signIn.body.admin.requiresPasswordChange).toBe(true);
+  });
+
+  test('the role is never taken from the body', async () => {
+    // Regression: `role: role || 'admin'` let the request choose.
+    for (const role of ['super_admin', 'doctor']) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await call('post', '/api/admin/auth/create', superAdminToken, {
+        email: `escalate.${role}@veraawell.test`, firstName: 'Esc', role
+      });
+      expect(res.status).toBe(400);
+      // eslint-disable-next-line no-await-in-loop
+      expect(await User.countDocuments({ email: `escalate.${role}@veraawell.test` })).toBe(0);
+    }
+  });
+
+  test('if the credentials cannot be emailed, no account is left behind', async () => {
+    mockMail.sendAdminCredentialsEmail.mockRejectedValueOnce(new Error('provider down'));
+    const res = await call('post', '/api/admin/auth/create', superAdminToken, {
+      email: 'undeliverable@veraawell.test', firstName: 'Un'
+    });
+    expect(res.status).toBe(502);
+    expect(await User.countDocuments({ email: 'undeliverable@veraawell.test' })).toBe(0);
+  });
+
+  test('a plain admin cannot create admins', async () => {
+    const res = await call('post', '/api/admin/auth/create', adminToken, { email: 'nope@veraawell.test', firstName: 'No' });
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('first-time setup', () => {
+  test('creates the super admin when none exists (it used to 500 on the missing username)', async () => {
+    const roles = { $in: ['admin', 'super_admin'] };
+    const stash = await User.find({ role: roles }).lean();
+    await User.deleteMany({ role: roles });
+    try {
+      const res = await request(server).post('/api/admin/auth/setup').send({});
+      expect(res.status).toBe(200);
+
+      const created = await User.findOne({ email: process.env.INITIAL_ADMIN_EMAIL });
+      expect(created.role).toBe('super_admin');
+      expect(created.username).toBe(process.env.INITIAL_ADMIN_EMAIL);
+      expect(await created.comparePassword(process.env.INITIAL_ADMIN_PASSWORD)).toBe(true);
+
+      expect((await request(server).post('/api/admin/auth/setup').send({})).status).toBe(403);
+    } finally {
+      await User.deleteMany({ role: roles });
+      await User.insertMany(stash);
+    }
+  });
+});
+
+describe('admin password recovery', () => {
+  beforeEach(() => {
+    mockMail.sendAdminPasswordResetEmail.mockClear();
+  });
+
+  test('a real admin and an unknown address get the same answer, and the link uses FRONTEND_URL', async () => {
+    // Regressions: an unknown address got a 404 ("No admin account found"),
+    // and the link pointed at a hardcoded Vercel host.
+    const known = await request(server).post('/api/admin/auth/forgot-password').send({ email: f.admin.email });
+    const unknown = await request(server).post('/api/admin/auth/forgot-password').send({ email: 'not.an.admin@test.local' });
+
+    expect(known.status).toBe(200);
+    expect(unknown.status).toBe(200);
+    expect(known.body).toEqual(unknown.body);
+
+    expect(mockMail.sendAdminPasswordResetEmail).toHaveBeenCalledTimes(1);
+    const [admin, url] = mockMail.sendAdminPasswordResetEmail.mock.calls[0];
+    expect(admin.email).toBe(f.admin.email);
+    expect(url.startsWith(`${process.env.FRONTEND_URL}/admin/reset-password/`)).toBe(true);
+  });
+
+  test('a failed email does not change the answer', async () => {
+    mockMail.sendAdminPasswordResetEmail.mockRejectedValueOnce(new Error('provider down'));
+    const res = await request(server).post('/api/admin/auth/forgot-password').send({ email: f.admin.email });
+    expect(res.status).toBe(200);
+    expect(res.body.message).toMatch(/If that address belongs to an admin account/);
+  });
+});
+
+describe('admin sessions end when the password or approval changes', () => {
+  const jwt = require('jsonwebtoken');
+
+  async function freshAdmin() {
+    const stamp = `${Date.now()}.${Math.random().toString(36).slice(2, 7)}`;
+    const admin = await User.create({
+      firstName: 'Rotating', lastName: 'Admin', email: `rotating.${stamp}@test.local`,
+      username: `rotating.${stamp}@test.local`, password: 'original-admin-pass', role: 'admin',
+      approvalStatus: 'approved', isPasswordChanged: true
+    });
+    const { getAdminJWTSecret } = require('../../config/auth');
+    // Issued a minute ago, as a token from an earlier sign-in would be.
+    const token = jwt.sign(
+      { userId: String(admin._id), role: 'admin', iat: Math.floor(Date.now() / 1000) - 60 },
+      getAdminJWTSecret(), { expiresIn: '1h' }
+    );
+    return { admin, token };
+  }
+
+  test('changing the password retires older tokens and re-issues this one', async () => {
+    const { token } = await freshAdmin();
+
+    const tooShort = await call('post', '/api/admin/auth/change-password', token, { currentPassword: 'original-admin-pass', newPassword: 'short' });
+    expect(tooShort.status).toBe(400);
+
+    const ok = await call('post', '/api/admin/auth/change-password', token, { currentPassword: 'original-admin-pass', newPassword: 'a-brand-new-admin-pass' });
+    expect(ok.status).toBe(200);
+    expect(ok.body.token).toBeTruthy();
+
+    expect((await call('get', '/api/admin/auth/status', token)).status).toBe(401);
+    expect((await call('get', '/api/admin/auth/status', ok.body.token)).status).toBe(200);
+  });
+
+  test('a reset through the emailed link retires older tokens too', async () => {
+    const { admin, token } = await freshAdmin();
+    const resetToken = await admin.initializeResetToken();
+
+    const res = await request(server).post(`/api/admin/auth/reset-password/${resetToken}`).send({ password: 'reset-admin-password' });
+    expect(res.status).toBe(200);
+
+    expect((await call('get', '/api/admin/auth/status', token)).status).toBe(401);
+  });
+
+  test('revoking an admin\'s approval takes effect on their next request', async () => {
+    const { admin, token } = await freshAdmin();
+    expect((await call('get', '/api/admin/auth/status', token)).status).toBe(200);
+
+    await User.updateOne({ _id: admin._id }, { $set: { approvalStatus: 'rejected' } });
+    expect((await call('get', '/api/admin/auth/status', token)).status).toBe(403);
+  });
+});
+
+describe('approval responses never carry credentials', () => {
+  test('the doctor queues omit password and reset token, even while a reset is live', async () => {
+    // Regression. These projected only `-password`, so every admin — not just
+    // super admins — could read each doctor's live resetToken and use it to
+    // take the account over.
+    const stamp = Date.now();
+    const doctor = await User.create({
+      firstName: 'Resetting', lastName: 'Doc', email: `resetting.${stamp}@test.local`,
+      username: `resetting.${stamp}@test.local`, password: 'password123', role: 'doctor', approvalStatus: 'pending'
+    });
+    const liveToken = await doctor.initializeResetToken();
+
+    for (const path of ['/api/admin/approvals/doctors/pending', '/api/admin/approvals/doctors/all']) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await call('get', path, adminToken);
+      expect(res.status).toBe(200);
+      const body = JSON.stringify(res.body);
+      expect(body).toContain(doctor.email);
+      expect(body).not.toContain(liveToken);
+      expect(body).not.toMatch(/"(password|resetToken|resetTokenExpiry)"/);
+    }
+  });
+
+  test('so do the admin lists', async () => {
+    const stamp = Date.now();
+    const pendingAdmin = await User.create({
+      firstName: 'Queued', lastName: 'Admin', email: `queued.${stamp}@test.local`,
+      username: `queued.${stamp}@test.local`, password: 'password123', role: 'admin', approvalStatus: 'pending'
+    });
+    const liveToken = await pendingAdmin.initializeResetToken();
+
+    for (const path of ['/api/admin/approvals/admins/pending', '/api/admin/approvals/admins/all']) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await call('get', path, superAdminToken);
+      expect(res.status).toBe(200);
+      const body = JSON.stringify(res.body);
+      expect(body).toContain(pendingAdmin.email);
+      expect(body).not.toContain(liveToken);
+      expect(body).not.toMatch(/"(password|resetToken|resetTokenExpiry)"/);
+    }
+  });
+
+  test('User documents serialise without credentials wherever they are returned', async () => {
+    const doc = await User.findById(f.patientA._id);
+    const json = JSON.parse(JSON.stringify(doc));
+    expect(json).not.toHaveProperty('password');
+    expect(json).not.toHaveProperty('resetToken');
+    // toObject is untouched — internal code reads these.
+    expect(doc.toObject()).toHaveProperty('password');
+  });
+
+  test('an approval stands even if its notification email fails', async () => {
+    // Regression. The approval email was awaited bare after the save, so a
+    // mail failure turned a completed approval into a 500 — and the retry
+    // then 400'd with "already approved".
+    const stamp = Date.now();
+    const doctor = await User.create({
+      firstName: 'Mailfail', lastName: 'Doc', email: `mailfail.${stamp}@test.local`,
+      username: `mailfail.${stamp}@test.local`, password: 'password123', role: 'doctor', approvalStatus: 'pending'
+    });
+    mockMail.sendDoctorApprovedEmail.mockRejectedValueOnce(new Error('provider down'));
+
+    const res = await call('post', `/api/admin/approvals/doctors/${doctor._id}/approve`, adminToken);
+    expect(res.status).toBe(200);
+    expect((await User.findById(doctor._id)).approvalStatus).toBe('approved');
   });
 });

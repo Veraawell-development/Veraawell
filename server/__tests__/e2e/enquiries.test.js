@@ -304,6 +304,20 @@ describe('triaging an enquiry', () => {
     expect(res.body.data.handledAt).toBeTruthy();
   });
 
+  test('the handler is populated with a real name, in the update and in the list', async () => {
+    // The populate asked for `name email`, and User has no `name` — so the
+    // dashboard's handledBy.name was always undefined.
+    const res = await call('patch', `/api/enquiries/${id}`, superAdminToken, { status: 'closed' });
+    const expected = `${f.superAdmin.firstName} ${f.superAdmin.lastName}`;
+    expect(res.body.data.handledBy).toMatchObject({
+      firstName: f.superAdmin.firstName, lastName: f.superAdmin.lastName, name: expected
+    });
+
+    const list = await call('get', '/api/enquiries', superAdminToken);
+    const row = list.body.data.enquiries.find((e) => String(e._id) === id);
+    expect(row.handledBy.name).toBe(expected);
+  });
+
   test('admin notes are stored and sanitised', async () => {
     const res = await call('patch', `/api/enquiries/${id}`, superAdminToken, {
       adminNotes: 'Called back <script>alert(1)</script> on Tuesday'

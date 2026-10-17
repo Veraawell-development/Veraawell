@@ -72,11 +72,20 @@ module.exports = {
     'session-report:create': ownsSession,
 
     // ── single-record access ──────────────────────────────────────────────
+    // Shared reports only. The handler answers with the whole report, so this
+    // route was also a READ: a patient could fetch the content of a report
+    // their doctor had not shared by "marking it viewed".
     'report:mark-viewed': ({ actor, resource }) =>
-      actor.id === idOf(resource.patientId) || notYours,
+      (actor.id === idOf(resource.patientId) && resource.isSharedWithPatient === true) || notYours,
 
+    // The authoring doctor always; the patient only once it is shared with
+    // them. The patient branch used to ignore isSharedWithPatient, so a report
+    // the doctor had deliberately withheld was readable by id — while the
+    // list-by-patient scope below already hid it.
     'session-report:read': ({ actor, resource }) =>
-      actor.id === idOf(resource.patientId) || actor.id === idOf(resource.doctorId) || notYours,
+      actor.id === idOf(resource.doctorId)
+      || (actor.id === idOf(resource.patientId) && resource.isSharedWithPatient === true)
+      || notYours,
 
     'task:update': ({ actor, resource }) =>
       actor.id === idOf(resource.patientId) || actor.id === idOf(resource.doctorId) || notYours

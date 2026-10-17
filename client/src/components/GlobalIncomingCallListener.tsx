@@ -74,10 +74,21 @@ const GlobalIncomingCallListener: React.FC = () => {
     };
   }, [isLoggedIn, socket, user, fetchPending]);
 
-  const authHeaders = () => ({
-    'Content-Type': 'application/json',
-    Authorization: `Bearer ${getAuthToken()}`,
-  });
+  // `Authorization` only when there is a token to send: the server prefers
+  // the header over the cookie, so "Bearer null" (the in-memory token is
+  // empty after a refresh) would turn a valid cookie session into a 401.
+  function authHeaders(): Record<string, string> {
+    const token = getAuthToken();
+    return {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    };
+  }
+
+  /** Body of a JSON error response, or {} when there isn't one. */
+  const readJson = async (res: Response): Promise<{ success?: boolean; message?: string }> => {
+    try { return await res.json(); } catch { return {}; }
+  };
 
   const handleAcceptRequest = async (sessionId: string) => {
     setIncomingRequest(null);
@@ -87,11 +98,14 @@ const GlobalIncomingCallListener: React.FC = () => {
         headers: authHeaders(),
         credentials: 'include',
       });
-      const data = await res.json();
+      const data = await readJson(res);
+      // 409: the request is no longer waiting (expired, or the patient
+      // cancelled). The server's message says which.
       if (!res.ok || !data.success) throw new Error(data.message || 'Failed to accept session');
       navigate(`/video-call/${sessionId}`);
     } catch (err: any) {
       toast.error(err.message || 'Could not accept the session');
+      fetchPending();
     }
   };
 
@@ -104,25 +118,22 @@ const GlobalIncomingCallListener: React.FC = () => {
         credentials: 'include',
         body: JSON.stringify({ delayMinutes: minutes, doctorNote: note }),
       });
-      const data = await res.json();
+      const data = await readJson(res);
       if (!res.ok || !data.success) throw new Error(data.message || 'Failed to delay session');
       toast.success(`Patient notified — joining in ${minutes} minutes.`);
     } catch (err: any) {
       toast.error(err.message || 'Could not delay the session');
+      fetchPending();
     }
   };
 
-  const handleMissedRequest = async (sessionId: string) => {
+  // The countdown ran out. Expiry belongs to the server: its sweep cancels
+  // and refunds at acceptanceDeadline. This used to POST /missed, which is
+  // the patient's action — the server answered 403 and nobody read it. Just
+  // take the modal down and ask what (if anything) is still waiting.
+  const handleRequestExpired = () => {
     setIncomingRequest(null);
-    try {
-      await fetch(`${API_BASE_URL}/sessions/${sessionId}/missed`, {
-        method: 'POST',
-        headers: authHeaders(),
-        credentials: 'include',
-      });
-    } catch (err) {
-      console.error('Failed to mark session as missed:', err);
-    }
+    fetchPending();
   };
 
   if (!incomingRequest) return null;
@@ -133,7 +144,7 @@ const GlobalIncomingCallListener: React.FC = () => {
       isOpen={true}
       onAccept={handleAcceptRequest}
       onDelay={handleDelayRequest}
-      onMissed={handleMissedRequest}
+      onExpired={handleRequestExpired}
       onClose={() => setIncomingRequest(null)}
     />
   );

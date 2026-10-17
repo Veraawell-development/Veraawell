@@ -1,4 +1,5 @@
 import { reportFields } from './reportContent';
+import { COMPANY_LEGAL_NAME } from '../config/company';
 
 /**
  * The one clinical report PDF.
@@ -56,7 +57,7 @@ const MARGIN = 20;
 const CONTENT_W = PAGE_W - MARGIN * 2;
 const FOOTER_Y = PAGE_H - 14;
 
-const COMPANY = 'Veraawell Live Care Limited';
+const COMPANY = COMPANY_LEGAL_NAME;
 const LOGO_PATH = '/logo/1.png';
 
 /** Raw enum values must never reach the page — "other" is not a report type. */

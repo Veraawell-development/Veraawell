@@ -52,8 +52,6 @@ const requiredEnvVars = {
 const optionalEnvVars = [
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
-  'EMAIL_USER',
-  'EMAIL_PASS',
   'METERED_DOMAIN',
   'METERED_SECRET_KEY',
   'PORT',
@@ -86,6 +84,24 @@ function validateEnvironment() {
       logger.error(`  Missing: ${varName}`);
     });
     logger.error(`See server/example.env for the full list. Required in ${env}: ${required.join(', ')}`);
+    process.exit(1);
+  }
+
+  // The payment-mode guard. config/payments.js has always said it is "called
+  // from validateEnvironment()", and it never was — so PAYMENTS_MODE=stub in
+  // production, the one setting that creates sessions nobody paid for,
+  // booted without complaint. Required lazily: config/payments imports this
+  // module, and a top-level require would hand it a half-built export.
+  const { assertPaymentsConfigured, getMode } = require('./payments');
+  try {
+    const payments = assertPaymentsConfigured();
+    if (!payments.ok) {
+      logger.warn('Razorpay credentials are incomplete — live bookings will fail. Set PAYMENTS_MODE=stub for local development without them.', {
+        missing: payments.missing
+      });
+    }
+  } catch (error) {
+    logger.error('Payment configuration is unsafe — refusing to start', { error: error.message, mode: getMode() });
     process.exit(1);
   }
 

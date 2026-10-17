@@ -13,6 +13,9 @@ import { getAuthToken } from '../utils/authToken';
 import { API_BASE_URL } from '../config/api';
 import SignaturePad from '../components/SignaturePad';
 
+/** Standard platform fee, used only for the earnings ESTIMATE on this page. */
+const ESTIMATED_PLATFORM_FEE_PERCENT = 20;
+
 /*
  * Design tokens, identical to the doctor and patient dashboards. This page is
  * entered from the dashboard's "Pricing & Payouts" button, so it should look
@@ -101,6 +104,8 @@ interface EarningsStats {
   totalGross: number;
   totalSessions: number;
   pendingPayout: number;
+  /** The fee this doctor's bookings are charged at. Absent from older servers. */
+  platformFeePercent?: number;
 }
 
 const DoctorSettingsPage: React.FC = () => {
@@ -114,12 +119,16 @@ const DoctorSettingsPage: React.FC = () => {
     audio: { session20: '', session40: '', session55: '' }
   });
 
-  const [platformFeePercent] = useState(20); // Default — can be fetched dynamically later
+  const [earnings, setEarnings] = useState<EarningsStats | null>(null);
+  // The doctor's own fee comes back with /sessions/stats (a per-doctor rate an
+  // admin can set, falling back to the platform default). Until it loads —
+  // or if the request fails — the standard rate is shown as an estimate.
+  const feeIsKnown = typeof earnings?.platformFeePercent === 'number';
+  const platformFeePercent = feeIsKnown ? (earnings!.platformFeePercent as number) : ESTIMATED_PLATFORM_FEE_PERCENT;
   const [isSavingPricing, setIsSavingPricing] = useState(false);
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 4;
   const [profileLoading, setProfileLoading] = useState(true);
-  const [earnings, setEarnings] = useState<EarningsStats | null>(null);
 
   const [bank, setBank] = useState<BankDetailsState | null>(null);
   const [bankForm, setBankForm] = useState<BankForm>({
@@ -131,6 +140,10 @@ const DoctorSettingsPage: React.FC = () => {
 
 
   const token = getAuthToken();
+  // Only send Authorization when there is a token: the server prefers the
+  // header over the session cookie, so "Bearer null" (the in-memory token is
+  // empty after a refresh) turned every request here into a 401.
+  const authHeader = (): Record<string, string> => (token ? { Authorization: `Bearer ${token}` } : {});
 
   /*
    * Mirrors the server's validation in controllers/payout.controller.js.
@@ -176,7 +189,7 @@ const DoctorSettingsPage: React.FC = () => {
     try {
       const res = await fetch(`${API_BASE_URL}/payouts/bank-details`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
         credentials: 'include',
         body: JSON.stringify(bankForm)
       });
@@ -201,7 +214,7 @@ const DoctorSettingsPage: React.FC = () => {
   const loadBankDetails = async () => {
     try {
       const res = await fetch(`${API_BASE_URL}/payouts/bank-details`, {
-        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        headers: { ...authHeader() },
         credentials: 'include'
       });
       if (res.ok) setBank(await res.json());
@@ -230,13 +243,17 @@ const DoctorSettingsPage: React.FC = () => {
     try {
       const res = await fetch(`${API_BASE_URL}/profile/signature`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        headers: { 'Content-Type': 'application/json', ...authHeader() },
         credentials: 'include',
         body: JSON.stringify({ signature })
       });
-      const data = await res.json();
+      // A proxy error or an oversized body comes back as HTML/text; don't
+      // surface a JSON parse error as the reason.
+      const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        throw new Error((data.errors && data.errors.signature) || data.message || 'Could not save your signature');
+        const reason = (data.errors && data.errors.signature) || data.message
+          || (res.status === 413 ? 'This signature image is too large. Please clear it and sign again.' : null);
+        throw new Error(reason || 'Could not save your signature');
       }
       setSignatureSavedAt(data.updatedAt || new Date().toISOString());
       setSignatureDirty(false);
@@ -254,16 +271,16 @@ const DoctorSettingsPage: React.FC = () => {
       try {
         const [profileRes, statsRes, bankRes, signatureRes] = await Promise.all([
           fetch(`${API_BASE_URL}/profile/setup`, {
-            headers: { Authorization: `Bearer ${token}` }
+            headers: { ...authHeader() }
           }),
           fetch(`${API_BASE_URL}/sessions/stats`, {
-            headers: { Authorization: `Bearer ${token}` }
+            headers: { ...authHeader() }
           }),
           fetch(`${API_BASE_URL}/payouts/bank-details`, {
-            headers: { Authorization: `Bearer ${token}` }, credentials: 'include'
+            headers: { ...authHeader() }, credentials: 'include'
           }),
           fetch(`${API_BASE_URL}/profile/signature`, {
-            headers: { Authorization: `Bearer ${token}` }, credentials: 'include'
+            headers: { ...authHeader() }, credentials: 'include'
           })
         ]);
 
@@ -319,6 +336,8 @@ const DoctorSettingsPage: React.FC = () => {
 
 
     loadData();
+    // authHeader is derived from token alone.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -326,7 +345,7 @@ const DoctorSettingsPage: React.FC = () => {
     const p = parseFloat(price);
     if (!p || isNaN(p)) return '—';
     const earned = Math.round(p * (1 - platformFeePercent / 100));
-    return `₹${earned.toLocaleString('en-IN')}`;
+    return `≈ ₹${earned.toLocaleString('en-IN')}`;
   };
 
   // ── Save Pricing ─────────────────────────────────────────────────────────────
@@ -335,9 +354,10 @@ const DoctorSettingsPage: React.FC = () => {
     try {
       const res = await fetch(`${API_BASE_URL}/profile/pricing`, {
         method: 'PATCH',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`
+          ...authHeader()
         },
         body: JSON.stringify({
           pricing: {
@@ -452,7 +472,7 @@ const DoctorSettingsPage: React.FC = () => {
                         />
                       </div>
                       <span className="shrink-0" style={{ fontSize: 11.5, color: T.muted }}>
-                        You earn: <span style={{ ...figure, fontSize: 13.5, color: T.teal }}>{doctorEarns(pricing[key])}</span>
+                        Est. you earn: <span style={{ ...figure, fontSize: 13.5, color: T.teal }}>{doctorEarns(pricing[key])}</span>
                       </span>
                     </div>
                   </div>
@@ -488,7 +508,7 @@ const DoctorSettingsPage: React.FC = () => {
                         />
                       </div>
                       <span className="shrink-0" style={{ fontSize: 11.5, color: T.muted }}>
-                        You earn: <span style={{ ...figure, fontSize: 13.5, color: T.teal }}>{doctorEarns(pricing.audio[key])}</span>
+                        Est. you earn: <span style={{ ...figure, fontSize: 13.5, color: T.teal }}>{doctorEarns(pricing.audio[key])}</span>
                       </span>
                     </div>
                   </div>
@@ -501,7 +521,9 @@ const DoctorSettingsPage: React.FC = () => {
             <div className="rounded-xl p-4 mt-auto flex items-start gap-3" style={{ background: T.tealSoft, border: `1px solid ${T.border}` }}>
               <Lightbulb className="w-5 h-5 shrink-0 mt-0.5" style={{ color: T.teal }} />
               <p className="leading-relaxed" style={{ fontSize: 12, color: T.text2 }}>
-                Platform fee: <strong className="font-semibold">{platformFeePercent}%</strong>. The "You earn" amount is transferred to your bank account within 3 business days after each completed session.
+                {feeIsKnown
+                  ? <>Earnings shown are after your <strong className="font-semibold">{platformFeePercent}%</strong> platform fee. Each session's exact split is fixed when it's booked.</>
+                  : <>Earnings shown are <strong className="font-semibold">estimates</strong> at the standard {platformFeePercent}% platform fee — your agreed fee may differ, and each session's exact split appears in your earnings once it's booked.</>} Earnings are transferred to your bank account within 3 business days after each completed session. Leave a price at 0 to not offer that session length.
               </p>
             </div>
 

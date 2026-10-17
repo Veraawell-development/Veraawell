@@ -4,6 +4,41 @@ const User = require('../../models/user');
 const DoctorProfile = require('../../models/doctorProfile');
 const { verifyAdminToken, verifySuperAdmin } = require('../../middleware/auth.middleware');
 const emailService = require('../../services/email.service');
+const { createLogger } = require('../../utils/logger');
+
+const logger = createLogger('ADMIN-APPROVALS');
+
+/**
+ * The User fields an admin screen may see — an allowlist, not `-password`.
+ *
+ * These queries used to project only `-password`, so every admin (not just
+ * super admins) could read each doctor's live `resetToken` from
+ * /doctors/pending and /doctors/all. A reset token is a password: request a
+ * reset for any doctor, read the token here, set a new password, sign in as
+ * them. The model's toJSON now strips credentials as a backstop, but the
+ * query is where the decision belongs, and an allowlist is what keeps the
+ * next sensitive field added to User from leaking the same way.
+ */
+const ADMIN_USER_VIEW = [
+  '_id', 'firstName', 'lastName', 'email', 'username', 'role', 'status',
+  'createdAt', 'updatedAt', 'approvalStatus', 'approvedBy', 'approvedAt', 'rejectionReason',
+  'phoneNumber', 'countryCode', 'gender', 'dateOfBirth', 'profileImage',
+  'specialization', 'licenseNumber', 'jobRole', 'professionalMessage', 'heardAboutUs', 'documents',
+  'profileCompleted', 'isVerified', 'isOnline', 'lastActiveAt', 'lastLogin'
+].join(' ');
+
+/**
+ * Status emails follow a decision that is already saved. A mail failure must
+ * not turn a completed approval into a 500 — the admin would retry, and the
+ * second attempt would 400 with "already approved".
+ */
+async function notify(label, send) {
+  try {
+    await send();
+  } catch (error) {
+    logger.error(`Could not send ${label} email`, { error: error.message });
+  }
+}
 
 // ==================== ADMIN APPROVALS (Super Admin Only) ====================
 
@@ -13,11 +48,11 @@ router.get('/admins/pending', verifyAdminToken, verifySuperAdmin, async (req, re
     const pendingAdmins = await User.find({
       role: 'admin',
       approvalStatus: 'pending'
-    }).select('-password').sort({ createdAt: -1 });
+    }).select(ADMIN_USER_VIEW).sort({ createdAt: -1 });
 
     res.json(pendingAdmins);
   } catch (error) {
-    console.error('Error fetching pending admins:', error);
+    logger.error('Error fetching pending admins', { error: error.message });
     res.status(500).json({ message: 'Failed to fetch pending admins' });
   }
 });
@@ -28,13 +63,13 @@ router.get('/admins/all', verifyAdminToken, verifySuperAdmin, async (req, res) =
     const admins = await User.find({
       role: 'admin'
     })
-      .select('-password')
+      .select(ADMIN_USER_VIEW)
       .populate('approvedBy', 'firstName lastName email')
       .sort({ createdAt: -1 });
 
     res.json(admins);
   } catch (error) {
-    console.error('Error fetching admins:', error);
+    logger.error('Error fetching admins', { error: error.message });
     res.status(500).json({ message: 'Failed to fetch admins' });
   }
 });
@@ -80,7 +115,7 @@ router.post('/admins/:adminId/approve', verifyAdminToken, verifySuperAdmin, asyn
       }
     });
   } catch (error) {
-    console.error('Error approving admin:', error);
+    logger.error('Error approving admin', { error: error.message });
     res.status(500).json({ message: 'Failed to approve admin' });
   }
 });
@@ -121,7 +156,7 @@ router.post('/admins/:adminId/reject', verifyAdminToken, verifySuperAdmin, async
       }
     });
   } catch (error) {
-    console.error('Error rejecting admin:', error);
+    logger.error('Error rejecting admin', { error: error.message });
     res.status(500).json({ message: 'Failed to reject admin' });
   }
 });
@@ -131,25 +166,15 @@ router.post('/admins/:adminId/reject', verifyAdminToken, verifySuperAdmin, async
 // Get all pending doctor requests
 router.get('/doctors/pending', verifyAdminToken, async (req, res) => {
   try {
-    console.log('[ADMIN] Fetching pending doctors...');
-    console.log('[ADMIN] Admin user:', req.admin);
-
+    // This handler used to console.log the whole req.admin document — the
+    // signed-in admin's password hash, reset token and activity log — on
+    // every dashboard load, straight into the hosting provider's log store.
     const pendingDoctors = await User.find({
       role: 'doctor',
       approvalStatus: 'pending'
     })
-      .select('-password')
+      .select(ADMIN_USER_VIEW)
       .sort({ createdAt: -1 });
-
-    console.log(`[ADMIN] Found ${pendingDoctors.length} pending doctors`);
-    if (pendingDoctors.length > 0) {
-      console.log('[ADMIN] First doctor:', {
-        id: pendingDoctors[0]._id,
-        email: pendingDoctors[0].email,
-        firstName: pendingDoctors[0].firstName,
-        approvalStatus: pendingDoctors[0].approvalStatus
-      });
-    }
 
     // Also get their doctor profiles if they exist in a single query
     const doctorIds = pendingDoctors.map(d => d._id);
@@ -161,10 +186,9 @@ router.get('/doctors/pending', verifyAdminToken, async (req, res) => {
       profile: profileMap.get(doctor._id.toString()) || null
     }));
 
-    console.log('[ADMIN] Returning doctors with profiles');
     res.json(doctorsWithProfiles);
   } catch (error) {
-    console.error('[ADMIN] Error fetching pending doctors:', error);
+    logger.error('Error fetching pending doctors', { error: error.message });
     res.status(500).json({ message: 'Failed to fetch pending doctors' });
   }
 });
@@ -175,7 +199,7 @@ router.get('/doctors/all', verifyAdminToken, async (req, res) => {
     const doctors = await User.find({
       role: 'doctor'
     })
-      .select('-password')
+      .select(ADMIN_USER_VIEW)
       .populate('approvedBy', 'firstName lastName email')
       .sort({ createdAt: -1 });
 
@@ -191,7 +215,7 @@ router.get('/doctors/all', verifyAdminToken, async (req, res) => {
 
     res.json(doctorsWithProfiles);
   } catch (error) {
-    console.error('Error fetching doctors:', error);
+    logger.error('Error fetching doctors', { error: error.message });
     res.status(500).json({ message: 'Failed to fetch doctors' });
   }
 });
@@ -239,13 +263,12 @@ router.post('/doctors/:doctorId/approve', verifyAdminToken, async (req, res) => 
         timestamp: new Date()
       });
 
-      console.log('Doctor approval broadcasted', {
+      logger.info('Doctor approval broadcasted', {
         doctorId: doctor._id.toString().substring(0, 8)
       });
     }
 
-    // Send email notification
-    await emailService.sendDoctorApprovedEmail(doctor.email, doctor.firstName);
+    await notify('doctor approval', () => emailService.sendDoctorApprovedEmail(doctor.email, doctor.firstName));
 
     res.json({
       message: 'Doctor approved successfully',
@@ -257,7 +280,7 @@ router.post('/doctors/:doctorId/approve', verifyAdminToken, async (req, res) => 
       }
     });
   } catch (error) {
-    console.error('Error approving doctor:', error);
+    logger.error('Error approving doctor', { error: error.message });
     res.status(500).json({ message: 'Failed to approve doctor' });
   }
 });
@@ -300,13 +323,12 @@ router.post('/doctors/:doctorId/reject', verifyAdminToken, async (req, res) => {
         timestamp: new Date()
       });
 
-      console.log('Doctor rejection broadcasted', {
+      logger.info('Doctor rejection broadcasted', {
         doctorId: doctor._id.toString().substring(0, 8)
       });
     }
 
-    // Send email notification
-    await emailService.sendDoctorRejectedEmail(doctor.email, doctor.firstName);
+    await notify('doctor rejection', () => emailService.sendDoctorRejectedEmail(doctor.email, doctor.firstName));
 
     res.json({
       message: 'Doctor rejected successfully',
@@ -318,7 +340,7 @@ router.post('/doctors/:doctorId/reject', verifyAdminToken, async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Error rejecting doctor:', error);
+    logger.error('Error rejecting doctor', { error: error.message });
     res.status(500).json({ message: 'Failed to reject doctor' });
   }
 });
@@ -372,7 +394,7 @@ router.get('/statistics', verifyAdminToken, async (req, res) => {
 
     res.json(stats);
   } catch (error) {
-    console.error('Error fetching statistics:', error);
+    logger.error('Error fetching statistics', { error: error.message });
     res.status(500).json({ message: 'Failed to fetch statistics' });
   }
 });
@@ -480,7 +502,7 @@ router.get('/analytics', verifyAdminToken, async (req, res) => {
 
     res.json(analytics);
   } catch (error) {
-    console.error('Error fetching analytics:', error);
+    logger.error('Error fetching analytics', { error: error.message });
     res.status(500).json({ message: 'Failed to fetch analytics' });
   }
 });
@@ -512,7 +534,7 @@ router.delete('/doctors/:doctorId', verifyAdminToken, verifySuperAdmin, async (r
       }
     });
   } catch (error) {
-    console.error('Error removing doctor:', error);
+    logger.error('Error removing doctor', { error: error.message });
     res.status(500).json({ message: 'Failed to remove doctor' });
   }
 });
@@ -559,7 +581,7 @@ router.delete('/admins/:adminId', verifyAdminToken, verifySuperAdmin, async (req
       }
     });
   } catch (error) {
-    console.error('Error removing admin:', error);
+    logger.error('Error removing admin', { error: error.message });
     res.status(500).json({ message: 'Failed to remove admin' });
   }
 });

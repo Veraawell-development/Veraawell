@@ -45,11 +45,19 @@ const authLimiter = rateLimit({
 });
 
 /**
- * Password reset rate limiter
+ * Password reset rate limiter — see PASSWORD_RESET in config/constants.js.
+ *
+ * Mounted on the user forgot-password route in production (app.js) and
+ * directly on the admin one. It used to be 3 per hour in every environment:
+ * harmless where app.js mounts it production-only, but a router that mounts
+ * it unconditionally would throttle a development or test run after three
+ * requests.
  */
 const passwordResetLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 3, // 3 requests per hour
+  windowMs: RATE_LIMITS.PASSWORD_RESET.windowMs,
+  max: isProduction()
+    ? RATE_LIMITS.PASSWORD_RESET.max.production
+    : RATE_LIMITS.PASSWORD_RESET.max.development,
   message: 'Too many password reset attempts, please try again later.',
   skip: (req) => req.method === 'OPTIONS', // Skip rate limiting for OPTIONS requests
   standardHeaders: true,
@@ -81,8 +89,11 @@ const publicUploadLimiter = rateLimit({
  * Public enquiry-form limiter — see ENQUIRY in config/constants.js.
  *
  * Keyed on the submitted email address where there is one, so a shared office
- * NAT does not lock out a whole building, with the IP as the fallback. Same
- * shape as the OTP limiters in middleware/rateLimiter.js.
+ * NAT does not lock out a whole building, with the IP as the fallback.
+ *
+ * (middleware/rateLimiter.js held the OTP limiters this was modelled on. It
+ * went with the dead /api/otp routes that were its only user, so this file is
+ * now the one place rate limits live.)
  */
 const enquiryLimiter = rateLimit({
   windowMs: RATE_LIMITS.ENQUIRY.windowMs,
@@ -94,10 +105,36 @@ const enquiryLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => {
     const email = req.body && typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
-    return email || ipKeyGenerator(req);
+    // ipKeyGenerator takes the IP string. It was being handed the request
+    // object, which made the fallback key a fresh object per request — so a
+    // submission without an email was never counted at all.
+    return email || ipKeyGenerator(req.ip);
   },
   handler: () => {
     throw new RateLimitError('Too many enquiries from this address, please try again later.');
+  }
+});
+
+/**
+ * Signup "Resend code" limiter — see SIGNUP_OTP_RESEND in config/constants.js.
+ * Keyed on the address AND the caller's IP, so one person retrying cannot
+ * lock a shared network out, and one network cannot mail an address
+ * without bound.
+ */
+const signupOtpResendLimiter = rateLimit({
+  windowMs: RATE_LIMITS.SIGNUP_OTP_RESEND.windowMs,
+  max: isProduction()
+    ? RATE_LIMITS.SIGNUP_OTP_RESEND.max.production
+    : RATE_LIMITS.SIGNUP_OTP_RESEND.max.development,
+  skip: (req) => req.method === 'OPTIONS',
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const email = req.body && typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    return `${email}|${ipKeyGenerator(req.ip)}`;
+  },
+  handler: () => {
+    throw new RateLimitError('Too many verification codes requested. Please wait a few minutes and try again.');
   }
 });
 
@@ -106,5 +143,6 @@ module.exports = {
   authLimiter,
   passwordResetLimiter,
   publicUploadLimiter,
-  enquiryLimiter
+  enquiryLimiter,
+  signupOtpResendLimiter
 };

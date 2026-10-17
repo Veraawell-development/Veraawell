@@ -14,15 +14,66 @@ const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('REVIEW-CTRL');
 
-/** Recalculate a doctor's aggregated rating after a new doctor review */
+/** `?limit=` / `?skip=` for a list, bounded so one request cannot ask for the table. */
+function pageParams(query, defaultLimit, maxLimit) {
+  const limit = Math.min(Math.max(parseInt(query.limit, 10) || defaultLimit, 1), maxLimit);
+  const skip = Math.max(parseInt(query.skip, 10) || 0, 0);
+  return { limit, skip };
+}
+
+/**
+ * The shape a review takes on an unauthenticated page.
+ *
+ * Both public list endpoints used to return the whole document with the
+ * patient populated as `firstName lastName` — so anyone could read the full
+ * name of a person in therapy, and with whom, next to their account id, the
+ * moderator's private notes and the "areas for improvement" the patient wrote
+ * for the doctor. The client only ever rendered a first name and a last
+ * initial; the rest was published by accident.
+ *
+ * `patientId` keeps its object shape because every client renderer reads
+ * `patientId.firstName` and `patientId.lastName.charAt(0)`. A deleted account
+ * populates as null, which used to crash those renderers; it is "Anonymous".
+ */
+function toPublicReview(review) {
+  const patient = review.patientId;
+  const first = patient && typeof patient.firstName === 'string' ? patient.firstName.trim() : '';
+  const last = patient && typeof patient.lastName === 'string' ? patient.lastName.trim() : '';
+  return {
+    _id: review._id,
+    rating: review.rating,
+    feedback: review.feedback,
+    positives: review.positives,
+    wouldRecommend: review.wouldRecommend,
+    reviewType: review.reviewType,
+    createdAt: review.createdAt,
+    patientId: first
+      ? { firstName: first, lastName: last ? last.charAt(0).toUpperCase() : '' }
+      : { firstName: 'Anonymous', lastName: '' }
+  };
+}
+
+/**
+ * Mirror a doctor's PUBLIC rating onto DoctorProfile.rating, which
+ * GET /api/sessions/my-doctors hands to patients as stored.
+ *
+ * It used to be rebuilt from every Session.rating.score, so a review an admin
+ * had flagged or hidden still moved the published number, and a fractional
+ * score wrote NaN into the distribution. It is derived from
+ * Review.getDoctorStats now — the same figure the profile page shows — and
+ * re-run on submission and whenever moderation changes what is public.
+ */
 async function _syncDoctorRating(doctorId) {
-  const sessions = await Session.find({ doctorId, 'rating.score': { $exists: true, $ne: null } });
-  if (!sessions.length) return;
-  const distribution = { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 };
-  let total = 0;
-  sessions.forEach(s => { total += s.rating.score; distribution[s.rating.score]++; });
-  const average = parseFloat((total / sessions.length).toFixed(2));
-  await DoctorProfile.findOneAndUpdate({ userId: doctorId }, { rating: { average, totalReviews: sessions.length, distribution } });
+  const s = await Review.getDoctorStats(doctorId);
+  await DoctorProfile.updateOne({ userId: doctorId }, {
+    $set: {
+      rating: {
+        average: Math.round((s.averageRating || 0) * 100) / 100,
+        totalReviews: s.totalReviews,
+        distribution: { 5: s.fiveStars, 4: s.fourStars, 3: s.threeStars, 2: s.twoStars, 1: s.oneStar }
+      }
+    }
+  });
 }
 
 /** POST /api/reviews/submit — Submit a session review (Patient only) */
@@ -30,16 +81,21 @@ const submitReview = asyncHandler(async (req, res) => {
   const { sessionId, rating, feedback, positives, improvements, wouldRecommend, reviewType } = req.body;
   const patientId = req.actor.id;
 
-  if (req.actor.role !== 'patient') throw new AuthorizationError('Only patients can submit reviews');
+  // requireRole('patient') is declared on the route.
   if (!sessionId || !rating || !feedback) return res.status(400).json({ success: false, message: 'Session ID, rating, and feedback are required' });
   // A non-numeric rating (e.g. the string "abc") used to slip past both
   // range checks below silently — "abc" < 1 and "abc" > 5 both evaluate to
   // false in JS, so neither branch rejected it, and it would have been
   // persisted as-is.
-  const numericRating = Number(rating);
-  if (!Number.isFinite(numericRating) || numericRating < 1 || numericRating > 5) {
-    return res.status(400).json({ success: false, message: 'Rating must be a number between 1 and 5' });
+  //
+  // It must also be a whole number. 4.5 passed the range check, and then
+  // _syncDoctorRating's `distribution[4.5]++` wrote NaN into the doctor's
+  // star breakdown. Booleans are refused outright: Number(true) is 1.
+  const numericRating = typeof rating === 'number' || typeof rating === 'string' ? Number(rating) : NaN;
+  if (!Number.isInteger(numericRating) || numericRating < 1 || numericRating > 5) {
+    return res.status(400).json({ success: false, message: 'Rating must be a whole number from 1 to 5' });
   }
+  if (typeof feedback !== 'string') return res.status(400).json({ success: false, message: 'Feedback must be text' });
   if (reviewType && !['doctor', 'platform'].includes(reviewType)) return res.status(400).json({ success: false, message: 'Review type must be either "doctor" or "platform"' });
 
   const session = await Session.findById(sessionId);
@@ -56,8 +112,13 @@ const submitReview = asyncHandler(async (req, res) => {
     positives: positives || '', improvements: improvements || '',
     wouldRecommend: wouldRecommend !== undefined ? wouldRecommend : true,
     reviewType: effectiveType,
-    approvedForDisplay: effectiveType === 'platform',
-    isPublic: effectiveType === 'platform'
+    // A doctor review is the patient of a completed session rating that
+    // session — verified by construction — so it is public on submission and
+    // an admin can take it down (see Review.publicFilter). A platform review
+    // is a landing-page testimonial and waits for an admin; it used to be
+    // approved here and go straight onto the landing page, unread.
+    approvedForDisplay: effectiveType === 'doctor',
+    isPublic: effectiveType === 'doctor'
   });
   await review.save();
 
@@ -84,18 +145,17 @@ const checkReview = asyncHandler(async (req, res) => {
 
 /** GET /api/reviews/platform — Public platform reviews for landing page */
 const getPlatformReviews = asyncHandler(async (req, res) => {
-  const limit = parseInt(req.query.limit) || 10;
-  const skip = parseInt(req.query.skip) || 0;
-  const reviews = await Review.find({ reviewType: 'platform', approvedForDisplay: true }).populate('patientId', 'firstName lastName').sort({ createdAt: -1 }).limit(limit).skip(skip);
-  const total = await Review.countDocuments({ reviewType: 'platform', approvedForDisplay: true });
-  res.json({ success: true, reviews, total });
+  const { limit, skip } = pageParams(req.query, 10, 50);
+  const filter = Review.publicFilter('platform');
+  const reviews = await Review.find(filter).populate('patientId', 'firstName lastName').sort({ createdAt: -1 }).limit(limit).skip(skip).lean();
+  const total = await Review.countDocuments(filter);
+  res.json({ success: true, reviews: reviews.map(toPublicReview), total });
 });
 
 /** GET /api/reviews/doctor/:doctorId — Get reviews for a doctor profile */
 const getDoctorReviews = asyncHandler(async (req, res) => {
   const { doctorId } = req.params;
-  const limit = Math.min(parseInt(req.query.limit) || 10, 50);
-  const skip = Math.max(parseInt(req.query.skip) || 0, 0);
+  const { limit, skip } = pageParams(req.query, 10, 50);
 
   // This is an unauthenticated public endpoint, and it used to honour
   // `?includeAll=true` by dropping the moderation filter — so anyone could
@@ -103,20 +163,28 @@ const getDoctorReviews = asyncHandler(async (req, res) => {
   // is the entire point of holding them back. Verified: default returned 0
   // reviews, `?includeAll=true` returned the unapproved one.
   //
-  // The parameter is ignored. A doctor who wants to see their own unapproved
-  // reviews has GET /api/reviews/my-reviews; admins have /api/reviews/admin/all.
-  const filter = { doctorId, reviewType: 'doctor', approvedForDisplay: true };
-  const reviews = await Review.find(filter).populate('patientId', 'firstName lastName').sort({ createdAt: -1 }).limit(limit).skip(skip);
+  // The parameter is ignored. Doctor reviews are now public by default, so
+  // what it would reveal is the ones an admin took down. A doctor sees all of
+  // their own at GET /api/reviews/my-reviews; admins at /api/reviews/admin/all.
+  //
+  // The same stages feed getDoctorStats, so the list and the rating above it
+  // always count the same reviews.
+  const [page] = await Review.aggregate([
+    ...Review.publicDoctorReviewStages(doctorId),
+    { $sort: { createdAt: -1, _id: -1 } },
+    { $facet: { rows: [{ $skip: skip }, { $limit: limit }], total: [{ $count: 'n' }] } }
+  ]);
+  const reviews = await Review.populate(page.rows, { path: 'patientId', select: 'firstName lastName' });
   const stats = await Review.getDoctorStats(doctorId);
-  res.json({ success: true, reviews, stats, total: await Review.countDocuments(filter) });
+  const total = page.total.length ? page.total[0].n : 0;
+  res.json({ success: true, reviews: reviews.map(toPublicReview), stats, total });
 });
 
 /** GET /api/reviews/my-reviews — Doctor's own received reviews */
 const getMyReviews = asyncHandler(async (req, res) => {
-  if (req.actor.role !== 'doctor') throw new AuthorizationError('Only doctors can access this endpoint');
+  // requireRole('doctor') is declared on the route.
   const doctorId = req.actor.id;
-  const limit = parseInt(req.query.limit) || 20;
-  const skip = parseInt(req.query.skip) || 0;
+  const { limit, skip } = pageParams(req.query, 20, 100);
   const reviews = await Review.find({ doctorId, reviewType: 'doctor' }).populate('patientId', 'firstName lastName').populate('sessionId', 'sessionDate sessionTime').sort({ createdAt: -1 }).limit(limit).skip(skip);
   const stats = await Review.getDoctorStats(doctorId);
   const total = await Review.countDocuments({ doctorId, reviewType: 'doctor' });
@@ -128,11 +196,10 @@ const getMyReviews = asyncHandler(async (req, res) => {
 /** GET /api/reviews/admin/all — All reviews with filters (Admin) */
 const adminGetAllReviews = asyncHandler(async (req, res) => {
   const { status, doctorId, minRating, maxRating } = req.query;
-  const limit = parseInt(req.query.limit) || 50;
-  const skip = parseInt(req.query.skip) || 0;
+  const { limit, skip } = pageParams(req.query, 50, 100);
   const filter = {};
-  if (status) filter.reviewStatus = status;
-  if (doctorId) filter.doctorId = doctorId;
+  if (typeof status === 'string' && ['pending', 'reviewed', 'flagged'].includes(status)) filter.reviewStatus = status;
+  if (typeof doctorId === 'string' && /^[0-9a-fA-F]{24}$/.test(doctorId)) filter.doctorId = doctorId;
   if (minRating) filter.rating = { ...filter.rating, $gte: parseInt(minRating) };
   if (maxRating) filter.rating = { ...filter.rating, $lte: parseInt(maxRating) };
   const reviews = await Review.find(filter).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').populate('sessionId', 'sessionDate sessionTime').sort({ createdAt: -1 }).limit(limit).skip(skip);
@@ -189,8 +256,11 @@ const adminUpdateReviewStatus = asyncHandler(async (req, res) => {
   const { reviewId } = req.params;
   const { status, adminNotes } = req.body;
   if (!['pending', 'reviewed', 'flagged'].includes(status)) return res.status(400).json({ success: false, message: 'Invalid status' });
+  if (adminNotes !== undefined && typeof adminNotes !== 'string') return res.status(400).json({ success: false, message: 'Admin notes must be text' });
   const review = await Review.findByIdAndUpdate(reviewId, { reviewStatus: status, adminNotes: adminNotes || '', reviewedBy: req.actor.id, reviewedAt: new Date() }, { new: true });
   if (!review) throw new NotFoundError('Review');
+  // Flagging (or un-flagging) changes what is public, so the stored rating follows.
+  if (review.reviewType === 'doctor') await _syncDoctorRating(review.doctorId);
   res.json({ success: true, message: 'Review status updated', review });
 });
 
@@ -198,8 +268,12 @@ const adminUpdateReviewStatus = asyncHandler(async (req, res) => {
 const adminApproveReview = asyncHandler(async (req, res) => {
   const { reviewId } = req.params;
   const { approved } = req.body;
+  // Anything but a real boolean is a malformed request, not a "no". An absent
+  // `approved` used to be written through as undefined.
+  if (typeof approved !== 'boolean') return res.status(400).json({ success: false, message: '`approved` must be true or false' });
   const review = await Review.findByIdAndUpdate(reviewId, { approvedForDisplay: approved, isPublic: approved, reviewedBy: req.actor.id, reviewedAt: new Date() }, { new: true });
   if (!review) throw new NotFoundError('Review');
+  if (review.reviewType === 'doctor') await _syncDoctorRating(review.doctorId);
   res.json({ success: true, message: approved ? 'Review approved for display' : 'Review hidden from display', review });
 });
 

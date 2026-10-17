@@ -2,14 +2,14 @@
   "name": "Veraawell API",
   "baseUrl": "https://api.veraawell.com",
   "generatedFrom": "the mounted Express router — regenerate with: npm run docs:api",
-  "generatedAt": "2026-09-30",
+  "generatedAt": "2026-10-17",
   "notes": [
     "Auth: an httpOnly `token` cookie, or `Authorization: Bearer <jwt>`. Admin routes use a separate realm and a separate secret.",
-    "Mutating requests (POST/PUT/PATCH/DELETE) require an `X-CSRF-Token` header; fetch the value from GET /api/csrf-token. Exempt: /api/auth/*, /api/admin/auth/*, /api/payments/webhook, /api/upload/doctor-document.",
+    "Mutating requests (POST/PUT/PATCH/DELETE) require an `X-CSRF-Token` header matching the csrfToken cookie; both come from GET /api/csrf-token, the only place a token is minted. Exempt (pre-session or server-to-server): /api/admin/auth/forgot-password, /api/admin/auth/login, /api/admin/auth/setup, /api/auth/forgot-password, /api/auth/google, /api/auth/google/callback, /api/auth/login, /api/auth/register, /api/auth/resend-signup-otp, /api/auth/reset-password, /api/auth/validate-registration, /api/auth/verify-signup, /api/payments/webhook, /api/upload/doctor-document, /api/upload/doctor-documents, /api/admin/auth/reset-password/:token.",
     "Request and response bodies are not listed: they are not inferable from the router. Read the controller named on the route line.",
     "\"undeclared\" means the route predates the authz convention and is grandfathered in authz/UNDECLARED.js, which may only shrink. It does not mean unauthenticated."
   ],
-  "routeCount": 177,
+  "routeCount": 171,
   "groups": {
     "admin/approvals": [
       {
@@ -115,27 +115,6 @@
         "access": "undeclared — see authz/UNDECLARED.js"
       }
     ],
-    "admin/cleanup-sessions": [
-      {
-        "method": "POST",
-        "path": "/api/admin/cleanup-sessions",
-        "access": "undeclared — see authz/UNDECLARED.js"
-      }
-    ],
-    "admin/debug-pending-doctors": [
-      {
-        "method": "GET",
-        "path": "/api/admin/debug-pending-doctors",
-        "access": "undeclared — see authz/UNDECLARED.js"
-      }
-    ],
-    "admin/fix-doctor-approvals": [
-      {
-        "method": "POST",
-        "path": "/api/admin/fix-doctor-approvals",
-        "access": "undeclared — see authz/UNDECLARED.js"
-      }
-    ],
     "admin/payments": [
       {
         "method": "PATCH",
@@ -232,22 +211,22 @@
       {
         "method": "GET",
         "path": "/api/articles/",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "public — published articles on the resources page"
       },
       {
         "method": "POST",
         "path": "/api/articles/:id/like",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "public — anonymous like toggle on a published article"
       },
       {
         "method": "POST",
         "path": "/api/articles/:id/view",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "public — anonymous view counter on a published article"
       },
       {
         "method": "GET",
         "path": "/api/articles/:slug",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "public — a published article, by slug"
       },
       {
         "method": "POST",
@@ -289,32 +268,32 @@
       {
         "method": "GET",
         "path": "/api/assessments/",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: patient"
       },
       {
         "method": "POST",
         "path": "/api/assessments/",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: patient"
       },
       {
         "method": "DELETE",
         "path": "/api/assessments/:id",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: patient"
       },
       {
         "method": "GET",
         "path": "/api/assessments/:id",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: patient"
       },
       {
         "method": "GET",
         "path": "/api/assessments/latest/:testType",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: patient"
       },
       {
         "method": "GET",
         "path": "/api/assessments/stats/summary",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: patient"
       }
     ],
     "auth": [
@@ -362,6 +341,11 @@
         "method": "POST",
         "path": "/api/auth/register",
         "access": "undeclared — see authz/UNDECLARED.js"
+      },
+      {
+        "method": "POST",
+        "path": "/api/auth/resend-signup-otp",
+        "access": "public — signup verification: resend a code to a pending, unverified signup"
       },
       {
         "method": "POST",
@@ -415,32 +399,32 @@
       {
         "method": "POST",
         "path": "/api/chat/conversation",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: patient or doctor"
       },
       {
         "method": "PUT",
         "path": "/api/chat/conversation/:conversationId/read",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "policy: conversation:participate"
       },
       {
         "method": "GET",
         "path": "/api/chat/conversations",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: patient or doctor"
       },
       {
         "method": "POST",
         "path": "/api/chat/message",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "policy: conversation:participate"
       },
       {
         "method": "GET",
         "path": "/api/chat/messages/:conversationId",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "policy: conversation:participate"
       },
       {
         "method": "GET",
         "path": "/api/chat/unread-count",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: patient or doctor"
       }
     ],
     "csrf-token": [
@@ -493,23 +477,6 @@
       {
         "method": "GET",
         "path": "/api/health",
-        "access": "undeclared — see authz/UNDECLARED.js"
-      }
-    ],
-    "otp": [
-      {
-        "method": "POST",
-        "path": "/api/otp/resend",
-        "access": "undeclared — see authz/UNDECLARED.js"
-      },
-      {
-        "method": "POST",
-        "path": "/api/otp/send",
-        "access": "undeclared — see authz/UNDECLARED.js"
-      },
-      {
-        "method": "POST",
-        "path": "/api/otp/verify",
         "access": "undeclared — see authz/UNDECLARED.js"
       }
     ],
@@ -622,47 +589,47 @@
       {
         "method": "PATCH",
         "path": "/api/reviews/admin/:reviewId/approve",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: admin or super_admin"
       },
       {
         "method": "PATCH",
         "path": "/api/reviews/admin/:reviewId/status",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: admin or super_admin"
       },
       {
         "method": "GET",
         "path": "/api/reviews/admin/all",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: admin or super_admin"
       },
       {
         "method": "GET",
         "path": "/api/reviews/admin/doctor-performance",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: admin or super_admin"
       },
       {
         "method": "GET",
         "path": "/api/reviews/check/:sessionId",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: patient"
       },
       {
         "method": "GET",
         "path": "/api/reviews/doctor/:doctorId",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "public — moderated reviews on a public therapist profile"
       },
       {
         "method": "GET",
         "path": "/api/reviews/my-reviews",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: doctor"
       },
       {
         "method": "GET",
         "path": "/api/reviews/platform",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "public — moderated platform testimonials on the landing page"
       },
       {
         "method": "POST",
         "path": "/api/reviews/submit",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: patient"
       }
     ],
     "session-reports": [
@@ -916,13 +883,6 @@
         "access": "scoped: session:list-own"
       }
     ],
-    "test-google-routes": [
-      {
-        "method": "GET",
-        "path": "/api/test-google-routes",
-        "access": "undeclared — see authz/UNDECLARED.js"
-      }
-    ],
     "upload": [
       {
         "method": "POST",
@@ -932,22 +892,22 @@
       {
         "method": "POST",
         "path": "/api/upload/banner-image",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: doctor"
       },
       {
         "method": "POST",
         "path": "/api/upload/doctor-document",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "public — careers-page applicants upload verification documents before they have an account"
       },
       {
         "method": "POST",
         "path": "/api/upload/doctor-documents",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "public — careers-page applicants upload verification documents before they have an account"
       },
       {
         "method": "POST",
         "path": "/api/upload/profile-image",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: patient or doctor"
       }
     ]
   }

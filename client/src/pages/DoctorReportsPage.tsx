@@ -1,10 +1,19 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FiDownload } from 'react-icons/fi';
+import { FiDownload, FiEdit3 } from 'react-icons/fi';
+import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config/api';
 import { getAuthToken } from '../utils/authToken';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import PostSessionReportModal from '../components/PostSessionReportModal';
+import { resolveSessionStart, formatSessionDay } from '../utils/dateUtils';
+import type { Session } from '../types';
+
+/** A completed session whose post-session report hasn't been filed. */
+interface UnreportedSession extends Session {
+  postSessionReportCompleted?: boolean;
+}
 
 interface PatientReport {
   _id: string;
@@ -19,6 +28,31 @@ interface PatientReport {
 const DoctorReportsPage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [writingFor, setWritingFor] = useState<UnreportedSession | null>(null);
+
+  /**
+   * "Reports to write": completed sessions with no post-session report.
+   *
+   * Skipping the report modal after a call said "write it later from the
+   * Reports section", but nothing here let a doctor do that — a skip, a
+   * refresh or the call room's Back button lost the report for good. Built on
+   * the existing doctor-scoped /sessions/my-sessions list (newest first),
+   * filtered on the session's own postSessionReportCompleted flag, which the
+   * server sets when a report is filed against it.
+   */
+  const { data: reportsToWrite = [] } = useQuery<UnreportedSession[]>({
+    queryKey: ['doctor', 'reports-to-write', user?.userId],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE_URL}/sessions/my-sessions?limit=200`, { credentials: 'include' });
+      if (!response.ok) throw new Error('Failed to fetch sessions');
+      const sessions = await response.json();
+      return (Array.isArray(sessions) ? sessions : []).filter((s: UnreportedSession) =>
+        s.status === 'completed' && !s.postSessionReportCompleted && !!s.patientId
+      );
+    },
+    enabled: !!user
+  });
 
   const formatDateStr = (date: Date) => {
     const day = date.getDate();
@@ -39,7 +73,9 @@ const DoctorReportsPage: React.FC = () => {
   };
 
   const { data: reports = [], isLoading: loading } = useQuery({
-    queryKey: ['doctor', 'reports', user?.userId],
+    // Distinct from DoctorDashboard's ['doctor', 'reports', userId, 'recent']:
+    // this caches a reshaped list, and sharing a key mixed the two shapes.
+    queryKey: ['doctor', 'reports', user?.userId, 'by-patient'],
     queryFn: async () => {
       if (!user) return [];
       const token = getAuthToken();
@@ -122,6 +158,64 @@ const DoctorReportsPage: React.FC = () => {
             View and download reports for your patients.
           </p>
         </div>
+
+        {reportsToWrite.length > 0 && (
+          <section className="mb-8 shrink-0" aria-labelledby="reports-to-write-heading">
+            <div className="flex items-baseline gap-3 mb-4">
+              <h2 id="reports-to-write-heading" className="text-[18px] font-bold text-gray-800" style={{ fontFamily: 'Inter, sans-serif' }}>
+                Reports to write
+              </h2>
+              <span className="text-[12px] font-semibold text-amber-700 bg-amber-50 border border-amber-100 rounded-full px-2 py-0.5" style={{ fontFamily: 'Inter, sans-serif' }}>
+                {reportsToWrite.length}
+              </span>
+            </div>
+            <ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[40vh] overflow-y-auto pr-2">
+              {reportsToWrite.map((session) => {
+                const name = `${session.patientId?.firstName || ''} ${session.patientId?.lastName || ''}`.trim() || 'Patient';
+                const start = resolveSessionStart(session);
+                return (
+                  <li key={session._id} className="bg-white rounded-[14px] border border-amber-100 shadow-sm p-4 flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center shrink-0">
+                      <span className="text-[11px] font-bold text-amber-700 tracking-wider">{getInitials(name)}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[14px] font-bold text-gray-800 truncate" style={{ fontFamily: 'Inter, sans-serif' }}>{name}</p>
+                      <p className="text-[12px] text-gray-400 font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        {Number.isNaN(start.getTime()) ? 'Session' : formatSessionDay(start)} · {session.duration || 60} min
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => setWritingFor(session)}
+                      className="inline-flex items-center gap-1.5 font-bold text-white bg-teal-600 hover:bg-teal-700 transition-colors text-[11px] uppercase tracking-wider px-3 py-2 rounded-lg shrink-0"
+                    >
+                      <FiEdit3 className="w-3.5 h-3.5" />
+                      Write
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
+
+        {writingFor && (
+          <PostSessionReportModal
+            // Keyed so each session starts from an empty form.
+            key={writingFor._id}
+            isOpen={true}
+            sessionId={writingFor._id}
+            patientId={writingFor.patientId?._id}
+            patientName={`${writingFor.patientId?.firstName || ''} ${writingFor.patientId?.lastName || ''}`.trim()}
+            doctorName={`${user?.firstName || ''} ${user?.lastName || ''}`.trim()}
+            sessionDuration={writingFor.duration || 60}
+            onSubmit={() => {
+              setWritingFor(null);
+              queryClient.invalidateQueries({ queryKey: ['doctor'] });
+              toast.success('Report submitted successfully!');
+            }}
+            onCancel={() => setWritingFor(null)}
+          />
+        )}
 
         {reports.length === 0 ? (
           <div className="bg-white rounded-[24px] border border-gray-100 shadow-sm p-16 text-center max-w-3xl mx-auto mt-4 shrink-0">

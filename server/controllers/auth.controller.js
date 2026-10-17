@@ -6,14 +6,97 @@
 const authService = require('../services/auth.service');
 const emailService = require('../services/email.service');
 const oauthService = require('../services/oauth.service');
+const bcrypt = require('bcryptjs');
 const { asyncHandler } = require('../middleware/error.middleware');
-const { NotFoundError } = require('../utils/errors');
+const { AppError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
 const { generateOTP, hashOTP, verifyOTP } = require('../utils/otpGenerator');
 
-const MAX_SIGNUP_OTP_ATTEMPTS = 5;
+const { MAX_SIGNUP_OTP_ATTEMPTS, MAX_SIGNUP_OTP_RESENDS } = authService;
 
 const logger = createLogger('AUTH-CONTROLLER');
+
+/**
+ * Email a signup code, or fail the request in a way the person can act on.
+ *
+ * This is the one email that is not best-effort: without it the account
+ * cannot be verified. Before the mail helper checked Resend's `error`, a
+ * failed send was indistinguishable from a sent one, so signup answered
+ * "check your email" for codes that never left.
+ */
+async function sendSignupCode(email, otp, role) {
+  try {
+    await emailService.sendOTPEmail(email, otp, role);
+  } catch (error) {
+    logger.error('Signup code could not be sent', { email, error: error.message });
+    throw new AppError('We could not send your verification code. Please try again in a few minutes.', 502);
+  }
+}
+
+const RESENDS_EXHAUSTED = Object.freeze({
+  success: false,
+  message: 'Too many verification codes have been requested for this signup. Please wait 15 minutes and register again.',
+  maxResendsReached: true
+});
+
+/**
+ * Replace a pending signup's code and email the new one. Returns false,
+ * without sending anything, once the signup has used its resend budget.
+ *
+ * Each new code resets the per-code attempt counter, so issuing them has to
+ * be capped too. Uncapped — as the login path used to be — it was unlimited
+ * guessing: five wrong codes, ask for another, five more, forever, and every
+ * new code also pushed createdAt forward so the 15-minute TTL never arrived.
+ * The login path and the "Resend code" button share this budget.
+ */
+async function issueReplacementCode(pendingUser) {
+  if ((pendingUser.resendCount || 0) >= MAX_SIGNUP_OTP_RESENDS) return false;
+
+  // Store only the hash; the plaintext exists just long enough to email.
+  const otp = generateOTP();
+  pendingUser.otp = await hashOTP(otp);
+  pendingUser.attempts = 0;
+  pendingUser.resendCount = (pendingUser.resendCount || 0) + 1;
+  // createdAt is the TTL field; restarting it gives the new code its full 15
+  // minutes. Bounded by the cap above.
+  pendingUser.createdAt = new Date();
+  await pendingUser.save();
+
+  await sendSignupCode(pendingUser.email, otp, pendingUser.role);
+  return true;
+}
+
+/**
+ * POST /api/auth/resend-signup-otp — the "Resend code" button.
+ *
+ * Answers the same for an address with no signup in progress as for one
+ * with, so it cannot be used to discover who is registering. The two
+ * refusals it does make are the per-signup resend cap (here) and the
+ * email+IP rate limit in front of it (app.js).
+ */
+const RESEND_RESPONSE = Object.freeze({
+  success: true,
+  message: 'If a signup is waiting for verification at that address, a new code is on its way.'
+});
+
+const resendSignupOtp = asyncHandler(async (req, res) => {
+  const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  if (!email) {
+    return res.status(400).json({ success: false, message: 'Email is required' });
+  }
+
+  const PendingUser = require('../models/pendingUser');
+  const pendingUser = await PendingUser.findOne({ email });
+  if (!pendingUser) {
+    return res.json(RESEND_RESPONSE);
+  }
+
+  if (!(await issueReplacementCode(pendingUser))) {
+    return res.status(429).json(RESENDS_EXHAUSTED);
+  }
+
+  res.json(RESEND_RESPONSE);
+});
 
 /**
  * Register new user
@@ -23,7 +106,16 @@ const register = asyncHandler(async (req, res) => {
 
   // Send OTP Email via Resend — pendingUser.otp is now a bcrypt hash, never the
   // real code; the plaintext is only ever available transiently right here.
-  await emailService.sendOTPEmail(pendingUser.email, pendingUser.plainOtp, pendingUser.role);
+  // If it cannot be sent the pending row goes too: the request failed, and a
+  // row nobody holds a code for would only route their next login into
+  // "verify your email".
+  try {
+    await sendSignupCode(pendingUser.email, pendingUser.plainOtp, pendingUser.role);
+  } catch (error) {
+    const PendingUser = require('../models/pendingUser');
+    await PendingUser.deleteOne({ _id: pendingUser._id });
+    throw error;
+  }
 
   res.status(201).json({
     success: true,
@@ -40,25 +132,29 @@ const login = asyncHandler(async (req, res) => {
   const { username, password, role } = req.body;
   const PendingUser = require('../models/pendingUser');
   let user;
-  
+
   try {
     user = await authService.authenticateUser(username, password, role);
   } catch (error) {
     if (error.name === 'AuthenticationError' && error.message.includes('User not found')) {
       // Check if they are in pending state
       const pendingUser = await PendingUser.findOne({ $or: [{ email: username.toLowerCase() }, { username: username.toLowerCase() }] });
-      if (pendingUser) {
-        // Generate new OTP — store only its hash, reset the attempt counter
-        // since this is a fresh code.
-        const otp = generateOTP();
-        pendingUser.otp = await hashOTP(otp);
-        pendingUser.attempts = 0;
-        // TTL extends automatically if we save? Wait, createdAt is what TTL uses. We should update createdAt.
-        pendingUser.createdAt = new Date();
-        await pendingUser.save();
 
-        await emailService.sendOTPEmail(pendingUser.email, otp, pendingUser.role);
-        
+      // Only the person who registered may ask for a new code. This used to
+      // skip the password entirely, so anyone who knew an address that was
+      // mid-signup could make the server mail it a fresh code on demand.
+      const ownsSignup = pendingUser && typeof password === 'string'
+        && await bcrypt.compare(password, pendingUser.password);
+
+      if (ownsSignup) {
+        if (!(await issueReplacementCode(pendingUser))) {
+          return res.status(429).json({
+            ...RESENDS_EXHAUSTED,
+            requiresVerification: true,
+            email: pendingUser.email
+          });
+        }
+
         return res.status(403).json({
           success: false,
           message: 'Please verify your email first. A new OTP has been sent.',
@@ -94,8 +190,8 @@ const login = asyncHandler(async (req, res) => {
  */
 const verifySignup = asyncHandler(async (req, res) => {
   const { email, otp } = req.body;
-  
-  if (!email || !otp) {
+
+  if (typeof email !== 'string' || !email || otp === undefined || otp === null || otp === '') {
     return res.status(400).json({ success: false, message: 'Email and OTP are required' });
   }
 
@@ -180,27 +276,10 @@ const logout = asyncHandler(async (req, res) => {
     logger.error('Error setting doctor offline on logout', { error: error.message });
   }
 
-  // Clear cookies
-  const { getCookieConfig } = require('../config/auth');
-  const cookieConfig = getCookieConfig();
-  
-  const clearOptionsWithDomain = {
-    httpOnly: cookieConfig.httpOnly,
-    secure: cookieConfig.secure,
-    sameSite: cookieConfig.sameSite,
-    path: cookieConfig.path,
-    domain: cookieConfig.domain
-  };
-
-  const clearOptionsWithoutDomain = {
-    httpOnly: cookieConfig.httpOnly,
-    secure: cookieConfig.secure,
-    sameSite: cookieConfig.sameSite,
-    path: cookieConfig.path
-  };
-
-  res.clearCookie('token', clearOptionsWithDomain);
-  res.clearCookie('adminToken', clearOptionsWithoutDomain);
+  // Clear cookies — each with the attributes it was set with.
+  const { getAdminCookieConfig, toClearOptions } = require('../config/auth');
+  authService.clearAuthCookie(res);
+  res.clearCookie('adminToken', toClearOptions(getAdminCookieConfig()));
 
   // Destroy session
   if (req.session) {
@@ -322,9 +401,17 @@ const updatePassword = asyncHandler(async (req, res) => {
 
   await authService.updatePassword(userId, currentPassword, newPassword);
 
+  // The change stamps passwordChangedAt, which retires every token issued
+  // before it — that is the point: a stolen session ends when the password
+  // does. The session making the change is the one exception, so it gets a
+  // fresh token rather than being logged out by its own request.
+  const token = authService.generateToken(req.user);
+  authService.setAuthCookie(res, token);
+
   res.json({
     success: true,
-    message: 'Password updated successfully'
+    message: 'Password updated successfully',
+    token
   });
 });
 
@@ -336,8 +423,10 @@ const deleteAccount = asyncHandler(async (req, res) => {
 
   await authService.deleteAccount(userId);
 
-  // Clear cookie and log out
-  res.clearCookie('token');
+  // Clear cookie and log out. This was a bare clearCookie('token'), which in
+  // production targets the API host while the cookie lives on .veraawell.com
+  // — the account was gone but the browser kept presenting its token.
+  authService.clearAuthCookie(res);
 
   res.json({
     success: true,
@@ -349,6 +438,7 @@ module.exports = {
   register,
   login,
   verifySignup,
+  resendSignupOtp,
   logout,
   forgotPassword,
   resetPassword,

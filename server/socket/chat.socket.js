@@ -6,7 +6,6 @@
  * This ensures consistent authentication across all socket namespaces.
  */
 
-const Conversation = require('../models/conversation');
 const Message = require('../models/message');
 const { sendMessageAndNotify } = require('../services/chat.service');
 const { createSocketAuthMiddleware } = require('./authMiddleware');
@@ -49,23 +48,14 @@ const initializeChatSocket = (io) => {
     socket.join(`user:${socket.userId}`);
 
     // Handle joining a conversation room
-    on('conversation:join', { mode: 'policy', action: 'conversation:participate', key: 'conversationId' }, async (conversationId) => {
+    on('conversation:join', { mode: 'policy', action: 'conversation:participate', key: 'conversationId' }, async (payload, { resource }) => {
       try {
-        // Verify user is part of this conversation
-        const conversation = await Conversation.findById(conversationId);
-        if (!conversation) {
-          socket.emit('error', { message: 'Conversation not found' });
-          return;
-        }
-
-        const isParticipant = conversation.participants.some(
-          p => p.userId.toString() === socket.userId
-        );
-
-        if (!isParticipant) {
-          socket.emit('error', { message: 'Access denied to this conversation' });
-          return;
-        }
+        // The registrar has already loaded this conversation and run the
+        // participant policy on it — `resource` is that document. The id is
+        // taken from it rather than from the payload, which the client may
+        // send either bare or as { conversationId }; the handler used to
+        // assume the bare form and look up the whole object as an id.
+        const conversationId = String(resource._id);
 
         // Join the conversation room
         socket.join(`conversation:${conversationId}`);
@@ -86,7 +76,8 @@ const initializeChatSocket = (io) => {
     });
 
     // Handle leaving a conversation room
-    on('conversation:leave', { mode: 'policy', action: 'conversation:participate', key: 'conversationId' }, (conversationId) => {
+    on('conversation:leave', { mode: 'policy', action: 'conversation:participate', key: 'conversationId' }, (payload, { resource }) => {
+      const conversationId = String(resource._id);
       socket.leave(`conversation:${conversationId}`);
       logger.info('User left conversation', { userId: socket.userId?.substring(0, 8), conversationId: conversationId?.substring(0, 8) });
     });
@@ -113,7 +104,11 @@ const initializeChatSocket = (io) => {
         logger.info('Message sent', { conversationId: conversationId?.substring(0, 8), senderId: senderId?.substring(0, 8) });
       } catch (error) {
         logger.error('Error sending message', { error: error.message });
-        socket.emit('error', { message: 'Failed to send message', error: error.message });
+        // The raw error text used to ride along to the client — Mongoose
+        // validation and cast messages included. It stays in the log.
+        socket.emit('error', {
+          message: error.code === 'INVALID_MESSAGE' ? 'Invalid message data' : 'Failed to send message'
+        });
       }
     });
 

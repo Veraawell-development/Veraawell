@@ -15,6 +15,79 @@ export const parseTime = (timeString: string): [number, number] => {
   return timeString.split(':').map(Number) as [number, number];
 };
 
+// ── Session instants ────────────────────────────────────────────────────────
+//
+// A session's `startsAt` is the authoritative UTC instant (server:
+// services/sessionTime.js). `sessionDate` is a UTC midnight and `sessionTime`
+// an IST wall-clock string, so `new Date(sessionDate).setHours(h, m)` applies
+// the VIEWER's offset: correct only in IST, and 5h30m off on a UTC machine.
+
+/** The zone every slot is published in (server: PLATFORM_TIMEZONE). */
+export const PLATFORM_TIMEZONE = 'Asia/Kolkata';
+/** Asia/Kolkata is UTC+05:30 all year — no DST — so a fixed offset is exact. */
+const PLATFORM_OFFSET_MINUTES = 330;
+
+export interface SessionTimeFields {
+  startsAt?: string | Date | null;
+  sessionDate?: string | Date | null;
+  sessionTime?: string | null;
+}
+
+/**
+ * When a session starts, as a real instant. Client mirror of the server's
+ * resolveStartsAt: `startsAt` when present; otherwise the legacy pair read as
+ * IST wall clock; an immediate session's `sessionDate` (already an instant,
+ * not a midnight) as-is.
+ */
+export const resolveSessionStart = (session: SessionTimeFields | null | undefined): Date => {
+  if (!session) return new Date(NaN);
+  if (session.startsAt) return new Date(session.startsAt);
+
+  const raw = session.sessionDate ? new Date(session.sessionDate) : new Date(NaN);
+  if (Number.isNaN(raw.getTime())) return raw;
+
+  const isInstant = raw.getUTCHours() !== 0 || raw.getUTCMinutes() !== 0 || raw.getUTCSeconds() !== 0;
+  if (isInstant || !session.sessionTime) return raw;
+
+  const [h, m] = parseTime(session.sessionTime);
+  if (Number.isNaN(h) || Number.isNaN(m)) return raw;
+  return new Date(
+    Date.UTC(raw.getUTCFullYear(), raw.getUTCMonth(), raw.getUTCDate(), h, m) - PLATFORM_OFFSET_MINUTES * 60000
+  );
+};
+
+/** When a session ends: `endsAt`, else start + duration (default 60 min). */
+export const resolveSessionEnd = (session: SessionTimeFields & { endsAt?: string | Date | null; duration?: number | null }): Date => {
+  if (session.endsAt) return new Date(session.endsAt);
+  return new Date(resolveSessionStart(session).getTime() + (session.duration || 60) * 60000);
+};
+
+/** The session's calendar day in IST as 'YYYY-MM-DD' (for grouping by day). */
+export const sessionLocalDateKey = (session: SessionTimeFields): string => {
+  const start = resolveSessionStart(session);
+  if (Number.isNaN(start.getTime())) return '';
+  return new Date(start.getTime() + PLATFORM_OFFSET_MINUTES * 60000).toISOString().slice(0, 10);
+};
+
+/** Whole calendar days (IST) from today to the session's day: 0 today, 1 tomorrow, negative if past. */
+export const daysUntilSession = (session: SessionTimeFields, now: Date = new Date()): number => {
+  const key = sessionLocalDateKey(session);
+  if (!key) return 0;
+  const todayKey = new Date(now.getTime() + PLATFORM_OFFSET_MINUTES * 60000).toISOString().slice(0, 10);
+  return Math.round((Date.parse(`${key}T00:00:00Z`) - Date.parse(`${todayKey}T00:00:00Z`)) / 86400000);
+};
+
+/** A session date for display, in IST. Options as for toLocaleDateString. */
+export const formatSessionDay = (
+  start: Date,
+  options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' },
+  locale = 'en-IN'
+): string => start.toLocaleDateString(locale, { ...options, timeZone: PLATFORM_TIMEZONE });
+
+/** A session time for display, in IST, e.g. "2:30 pm". */
+export const formatSessionClock = (start: Date, locale = 'en-IN'): string =>
+  start.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: PLATFORM_TIMEZONE });
+
 /**
  * Formats a date string into a readable format with ordinal suffix
  * @example "2025-01-15" → "15th January 2025"

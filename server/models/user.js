@@ -73,6 +73,15 @@ const userSchema = new mongoose.Schema({
     default: null
   },
   isPasswordChanged: { type: Boolean, default: false },
+  // When the password last changed, truncated to the whole second. Tokens
+  // carry `iat` in whole seconds, and verifyToken/verifyAdminToken refuse a
+  // token issued before this instant — that is what makes a password reset
+  // actually end the sessions an attacker holding the old password had
+  // opened. Without it a reset changed the password and left every existing
+  // 30-day token working. Set by the pre-save hook below, so every path that
+  // changes a password (reset, update, admin change, admin reset) gets it
+  // without having to remember to.
+  passwordChangedAt: { type: Date, default: null },
   lastLogin: { type: Date },
   status: { type: String, enum: ['active', 'suspended'], default: 'active' },
   activityLog: [{ action: String, timestamp: { type: Date, default: Date.now }, details: mongoose.Schema.Types.Mixed }],
@@ -129,6 +138,21 @@ const userSchema = new mongoose.Schema({
   },
   rejectionReason: {
     type: String,
+    default: null
+  },
+  // upload.controller writes this on a profile-image upload. It was missing
+  // from the schema, and with strict mode on Mongoose dropped the write
+  // without an error — the upload succeeded and the image never stuck.
+  profileImage: {
+    type: String,
+    default: null
+  },
+  // Set when a patient deletes an account that has sessions with payment
+  // history: the row is kept as an anonymised tombstone so those sessions
+  // (and the payouts that depend on them) still resolve. See
+  // services/auth.service.js deleteAccount.
+  deletedAt: {
+    type: Date,
     default: null
   },
   // Online status fields (for doctors)
@@ -226,7 +250,24 @@ const userSchema = new mongoose.Schema({
 }, {
   timestamps: true,
   strict: true,
-  strictQuery: true
+  strictQuery: true,
+  // Credentials never leave through res.json(user). Several admin endpoints
+  // returned whole User documents with only `-password` projected, which
+  // published live password-reset tokens to every admin — enough to take
+  // over any account in one request. Projections at the query are still the
+  // first line (routes/admin/approvals.js); this is the backstop for the
+  // next query that forgets one.
+  //
+  // toJSON only, deliberately not toObject: internal code calls toObject()
+  // to read these fields, and the reset flow depends on it.
+  toJSON: {
+    transform(doc, ret) {
+      delete ret.password;
+      delete ret.resetToken;
+      delete ret.resetTokenExpiry;
+      return ret;
+    }
+  }
 });
 
 // Indexes for efficient queries
@@ -256,6 +297,19 @@ userSchema.pre('save', async function (next) {
       this.resetToken = null;
       this.resetTokenExpiry = null;
     }
+  }
+  next();
+});
+
+// Stamp passwordChangedAt on every password change of an existing account.
+// Runs before the hashing hook below, which returns early for Google accounts
+// — a password change must invalidate old tokens either way. Truncated to the
+// second because JWT `iat` is in seconds: a token minted later in the same
+// second as the change (the fresh one a reset or update hands back) must
+// still verify.
+userSchema.pre('save', function (next) {
+  if (!this.isNew && this.isModified('password')) {
+    this.passwordChangedAt = new Date(Math.floor(Date.now() / 1000) * 1000);
   }
   next();
 });

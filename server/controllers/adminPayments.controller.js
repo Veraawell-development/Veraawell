@@ -10,7 +10,10 @@ const PlatformSettings = require('../models/platformSettings');
 const { calculateRefund } = require('../services/refundPolicy');
 const { payableSessionMatch } = require('../services/earnings');
 const { hoursUntilStart } = require('../services/sessionTime');
-const { getRazorpay } = require('../services/razorpay.client');
+const { refundSession, reconcileStuckRefund, STUCK_REFUND_MINUTES } = require('../services/sessionRefund');
+const { releaseSessionSlot } = require('../services/sessionPayment');
+const { applyTransition } = require('../services/sessionTransition');
+const { EVENT, ACTOR, LIVE_STATUSES, isTerminalStatus } = require('../services/sessionState');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('ADMIN-PAYMENTS');
@@ -190,54 +193,14 @@ exports.approveOnboarding = async (req, res) => {
       });
     }
 
-    const doctor = doctorProfile.userId;
-    if (!doctor.phoneNumber) {
-      return res.status(400).json({
-        message: 'Doctor has no phone number set. They must add one before onboarding.'
-      });
-    }
-
-    // No Razorpay call.
-    //
-    // This function used to create a Razorpay Route linked account, and — on
-    // ANY error from that call — fabricate `acc_mock_<hex>` and mark the
-    // doctor 'active' anyway. That is how every doctor on the platform ended
-    // up holding an id no money could ever route to, while their own Pricing &
-    // Payouts page told them "Your payout account is active". Meanwhile
-    // resolveBookingPaymentState refused to book them precisely because the id
-    // was synthetic. The two halves contradicted each other and the doctor was
-    // shown the reassuring one.
-    //
-    // Route is not available to this platform anyway (it now requires an RBI
-    // Payment Aggregator turnover threshold), so payments land in the platform
-    // account and doctors are paid by bank transfer on a weekly cycle.
-    // Approval is therefore a decision an admin records, not an integration
-    // that can half-succeed — and it cannot silently claim to have worked.
-    doctorProfile.payoutApproved = true;
-    doctorProfile.payoutApprovedAt = new Date();
-    doctorProfile.payoutApprovedBy = req.admin ? req.admin._id : null;
-    doctorProfile.razorpayOnboardingStatus = 'active';
-    doctorProfile.razorpayActivatedAt = new Date();
-    doctorProfile.razorpayKYCRejectionReason = null;
-    await doctorProfile.save();
-
-    logger.info('[Admin] Doctor approved for payouts', { doctorId: String(doctorId).substring(0, 8) });
-
-    // Notify doctor by email
-    try {
-      const emailService = require('../services/email.service');
-      if (emailService.sendOnboardingApprovedEmail) {
-        await emailService.sendOnboardingApprovedEmail(doctor.email, doctor.firstName);
-      }
-    } catch (e) {
-      logger.warn('[Admin] Onboarding approval email failed:', { error: e.message });
-    }
-
-    res.json({
-      success: true,
-      message: 'Doctor approved for payouts. They can now be booked.',
-      payoutApproved: true,
-      status: 'active'
+    // This used to set payoutApproved = true. That is the switch that makes a
+    // therapist bookable and tells the weekly payout run where to send their
+    // money — and this path flipped it with no bank details on file at all,
+    // reachable by any admin. Payout approval now happens in exactly one
+    // place, approving the therapist's bank details (super admin only), where
+    // the account the money will go to is actually reviewed.
+    return res.status(409).json({
+      message: 'Payout approval now happens by approving the therapist\'s bank details (Super Admin → Bank Details). Ask them to submit their bank details from Settings.'
     });
   } catch (error) {
     logger.error('[Admin] approveOnboarding error:', { error: error.message });
@@ -298,95 +261,89 @@ exports.rejectOnboarding = async (req, res) => {
 
 /**
  * POST /api/admin/payments/sessions/:sessionId/refund
- * Admin triggers a manual refund for a session
+ * Admin triggers a manual refund for a session.
+ *
+ * Through sessionRefund, like every other refund. This used to call Razorpay
+ * and then write `refunded` with a raw save(): no claim, so a double-clicked
+ * button refunded twice; a fabricated `refund_zero_<ts>` id when the policy
+ * gave nothing, recording a refund that never happened; and a live booking
+ * marked refunded and cancelled without its slot being released.
  */
 exports.adminRefundSession = async (req, res) => {
   try {
     const { sessionId } = req.params;
-    // Admins can pass an explicit override amount (goodwill/support refunds), but by
-    // default this now applies the SAME tiered policy the patient-facing cancellation
-    // flow uses (server/services/refundPolicy.js), rather than always refunding the
-    // full price regardless of how close to the session it is — that inconsistency
-    // meant a session cancelled 2 hours out (0% tier) still got refunded in full when
-    // an admin processed it, which is a real financial-policy disagreement between
-    // the two paths, not just a hypothetical one.
+    // Admins can pass an explicit amount (goodwill/support refunds). By
+    // default the patient-facing policy applies, so the two paths agree.
     const { reason = 'Admin initiated refund', refundAmount: overrideAmount } = req.body;
 
-    const session = await Session.findById(sessionId)
-      .populate('patientId', 'firstName lastName email')
-      .populate('doctorId', 'firstName lastName email');
+    let session = await Session.findById(sessionId);
+    if (!session) return res.status(404).json({ message: 'Session not found' });
 
-    if (!session) {
-      return res.status(404).json({ message: 'Session not found' });
-    }
-
-    if (session.paymentStatus !== 'paid') {
-      return res.status(400).json({
-        message: `Cannot refund — payment status is "${session.paymentStatus}"`
-      });
-    }
-
-    if (!session.paymentId) {
-      return res.status(400).json({ message: 'No payment ID on record. Cannot process refund.' });
+    if (!['paid', 'refund_failed'].includes(session.paymentStatus)) {
+      return res.status(400).json({ message: `Cannot refund — payment status is "${session.paymentStatus}"` });
     }
 
     let refundAmount;
-    if (typeof overrideAmount === 'number' && overrideAmount >= 0 && overrideAmount <= session.price) {
-      refundAmount = overrideAmount;
+    if (overrideAmount !== undefined && overrideAmount !== null && overrideAmount !== '') {
+      const amount = Number(overrideAmount);
+      if (!(amount > 0) || amount > session.price) {
+        return res.status(400).json({ message: `Refund amount must be more than 0 and at most ₹${session.price}` });
+      }
+      refundAmount = Math.round(amount * 100) / 100;
       logger.warn('Admin override refund amount used', {
         sessionId: sessionId.toString().substring(0, 8),
-        overrideAmount,
-        adminId: req.admin?._id?.toString().substring(0, 8)
+        overrideAmount: refundAmount,
+        adminId: req.actor.id ? String(req.actor.id).substring(0, 8) : null
       });
     } else {
-      // Same tier calculation the patient-facing cancel path uses, from the
-      // same authoritative instant — the two used to compute it separately.
-      const hoursUntil = hoursUntilStart(session);
-      // An admin manually processing a refund is standing in for whichever side
-      // actually triggered/deserves the cancellation; since that context isn't
-      // captured here, use the patient-tier calculation — the more common case
-      // for this tool (resolving a stuck/failed refund) inherits the same tiers
-      // the patient was already shown at cancellation time.
-      refundAmount = calculateRefund(session.price, hoursUntil, 'patient');
+      refundAmount = calculateRefund(session.price, hoursUntilStart(session), 'patient');
+      if (!(refundAmount > 0)) {
+        return res.status(400).json({
+          message: 'The refund policy gives nothing for this session. Enter an amount to refund it anyway.'
+        });
+      }
     }
 
-    // Skip mock payments
-    if (session.paymentId.startsWith('mock_') || session.paymentId.startsWith('immediate_')) {
-      session.paymentStatus = 'refunded';
-      session.status = 'cancelled';
-      session.refundId = `refund_mock_${Date.now()}`;
-      session.refundedAt = new Date();
-      session.refundAmount = refundAmount;
-      await session.save();
-      return res.json({ success: true, message: 'Mock refund processed.', refundId: session.refundId, amount: refundAmount });
+    // A refunded booking cannot stay live: cancel it (and free its slot)
+    // first. The transition table only accepts money events on a terminal
+    // session for exactly this reason.
+    if (LIVE_STATUSES.includes(session.status)) {
+      const cancelled = await applyTransition(session, {
+        event: EVENT.CANCEL,
+        actor: ACTOR.ADMIN,
+        payload: { cancelledBy: 'admin' }
+      });
+      session = cancelled.session;
+      if (cancelled.changed) await releaseSessionSlot(session);
+    }
+    if (!isTerminalStatus(session.status)) {
+      return res.status(400).json({ message: `Cannot refund a session that is "${session.status}"` });
     }
 
-    // Real Razorpay refund
-    const refund = refundAmount > 0
-      ? await getRazorpay().payments.refund(session.paymentId, {
-          amount: refundAmount * 100, // paise
-          speed: 'normal',
-          notes: { reason, sessionId: sessionId.toString(), adminId: req.admin?._id?.toString() }
-        })
-      : null;
+    const result = await refundSession(session, { actor: ACTOR.ADMIN, amount: refundAmount, reason });
+    if (result.skipped) {
+      const messages = {
+        'no-real-payment': 'This session has no real payment to refund.',
+        'claim-noop': 'A refund for this session is already in progress or done.'
+      };
+      return res.status(409).json({ message: messages[result.skipped] || `Refund not issued (${result.skipped})` });
+    }
+    if (result.failed) {
+      return res.status(502).json({
+        message: `Razorpay rejected the refund: ${result.session && result.session.refundFailureReason ? result.session.refundFailureReason : 'unknown error'}. It is in the failed-refunds queue.`
+      });
+    }
 
-    session.paymentStatus = 'refunded';
-    session.status = 'cancelled';
-    session.refundId = refund ? refund.id : `refund_zero_${Date.now()}`;
-    session.refundedAt = new Date();
-    session.refundAmount = refundAmount;
-    await session.save();
+    logger.info('Admin refund issued', { refundId: result.refundId, sessionId: sessionId.toString().substring(0, 8), amount: refundAmount });
 
-    logger.info('Admin refund issued', { refundId: session.refundId, sessionId: sessionId.toString().substring(0, 8), amount: refundAmount });
-
-    // Send refund email to patient
     try {
+      const patient = await User.findById(session.patientId).select('firstName email');
       const emailService = require('../services/email.service');
-      if (session.patientId?.email) {
-        await emailService.sendRefundInitiatedEmail(session.patientId.email, {
-          patientName: session.patientId.firstName,
+      if (patient && patient.email) {
+        await emailService.sendRefundInitiatedEmail(patient.email, {
+          patientName: patient.firstName,
           amount: refundAmount,
-          refundId: session.refundId,
+          refundId: result.refundId,
           date: new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
         });
       }
@@ -395,23 +352,29 @@ exports.adminRefundSession = async (req, res) => {
     res.json({
       success: true,
       message: `Refund of ₹${refundAmount} initiated successfully.`,
-      refundId: session.refundId,
-      amount: refundAmount,
-      status: refund ? refund.status : 'not_applicable'
+      refundId: result.refundId,
+      amount: refundAmount
     });
   } catch (error) {
     logger.error('adminRefundSession error', { error: error.message });
-    res.status(500).json({ message: 'Failed to process refund', error: error.message });
+    res.status(error.statusCode || 500).json({ message: error.statusCode ? error.message : 'Failed to process refund' });
   }
 };
 
 /**
  * GET /api/admin/payments/sessions/failed-refunds
- * List all sessions with paymentStatus = 'refund_failed' for admin review
+ * Refunds that need a person: those Razorpay rejected, and those claimed and
+ * never recorded (a crash mid-refund) that the hourly sweep has not resolved.
  */
 exports.getFailedRefunds = async (req, res) => {
   try {
-    const sessions = await Session.find({ paymentStatus: 'refund_failed' })
+    const stuckBefore = new Date(Date.now() - STUCK_REFUND_MINUTES * 60 * 1000);
+    const sessions = await Session.find({
+      $or: [
+        { paymentStatus: 'refund_failed' },
+        { paymentStatus: 'refund_pending', updatedAt: { $lte: stuckBefore } }
+      ]
+    })
       .populate('patientId', 'firstName lastName email')
       .populate('doctorId', 'firstName lastName email')
       .sort({ updatedAt: -1 })
@@ -428,7 +391,10 @@ exports.getFailedRefunds = async (req, res) => {
         sessionDate: s.sessionDate,
         sessionTime: s.sessionTime,
         price: s.price,
+        refundAmount: s.refundAmount,
         paymentId: s.paymentId,
+        paymentStatus: s.paymentStatus,
+        failureReason: s.refundFailureReason || null,
         cancelledBy: s.cancelledBy,
         updatedAt: s.updatedAt
       }))
@@ -441,58 +407,61 @@ exports.getFailedRefunds = async (req, res) => {
 
 /**
  * POST /api/admin/payments/sessions/:sessionId/retry-refund
- * Retry a stuck refund_failed session
+ * Retry a refund Razorpay rejected, or resolve one stuck mid-flight.
  */
 exports.retryRefund = async (req, res) => {
   try {
     const { sessionId } = req.params;
-    const session = await Session.findById(sessionId)
-      .populate('patientId', 'firstName lastName email')
-      .populate('doctorId', 'firstName lastName email');
-
+    const session = await Session.findById(sessionId);
     if (!session) return res.status(404).json({ message: 'Session not found' });
+
+    if (session.paymentStatus === 'refund_pending') {
+      // Never blind: asks Razorpay whether the money already moved first.
+      const result = await reconcileStuckRefund(session);
+      const messages = {
+        'recorded-existing': 'Razorpay had already processed this refund — it is now recorded.',
+        refunded: 'Refund sent.',
+        failed: 'Razorpay rejected the refund again. See the failure reason.',
+        'too-recent': 'This refund was started moments ago and may still be in flight. Try again in a few minutes.',
+        'gateway-unavailable': 'Could not reach Razorpay to check this refund. Try again shortly.'
+      };
+      const ok = ['recorded-existing', 'refunded'].includes(result.resolved);
+      return res.status(ok ? 200 : 409).json({ success: ok, message: messages[result.resolved] || result.resolved });
+    }
+
     if (session.paymentStatus !== 'refund_failed') {
-      return res.status(400).json({ message: `Session paymentStatus is "${session.paymentStatus}", not "refund_failed"` });
-    }
-    if (!session.paymentId || session.paymentId.startsWith('mock_') || session.paymentId.startsWith('immediate_')) {
-      // Mock payment — just mark refunded
-      session.paymentStatus = 'refunded';
-      session.refundedAt = new Date();
-      session.refundAmount = session.price;
-      await session.save();
-      return res.json({ success: true, message: 'Mock refund marked as complete.' });
+      return res.status(400).json({ message: `Session paymentStatus is "${session.paymentStatus}", not a failed refund` });
     }
 
-    const refund = await getRazorpay().payments.refund(session.paymentId, {
-      amount: (session.refundAmount || session.price) * 100,
-      speed: 'normal',
-      notes: { reason: 'Admin retry refund', sessionId: sessionId.toString() }
-    });
+    const amount = session.refundAmount > 0 ? session.refundAmount : session.price;
+    const result = await refundSession(session, { actor: ACTOR.ADMIN, amount, reason: 'Admin retry refund' });
+    if (result.skipped === 'no-real-payment') {
+      return res.status(409).json({ message: 'This session has no real payment to refund.' });
+    }
+    if (!result.refunded) {
+      return res.status(502).json({
+        message: `Refund retry failed: ${result.session && result.session.refundFailureReason ? result.session.refundFailureReason : (result.skipped || 'unknown error')}`
+      });
+    }
 
-    session.paymentStatus = 'refunded';
-    session.refundId = refund.id;
-    session.refundedAt = new Date();
-    session.refundAmount = session.refundAmount || session.price;
-    await session.save();
-
-    // Notify patient
     try {
+      const patient = await User.findById(session.patientId).select('firstName email');
       const emailService = require('../services/email.service');
-      if (session.patientId?.email) {
-        await emailService.sendRefundInitiatedEmail(session.patientId.email, {
-          patientName: session.patientId.firstName,
-          amount: session.refundAmount,
-          refundId: refund.id,
+      if (patient && patient.email) {
+        await emailService.sendRefundInitiatedEmail(patient.email, {
+          patientName: patient.firstName,
+          amount,
+          refundId: result.refundId,
           date: new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
         });
       }
     } catch (e) { logger.warn('[Admin] Retry refund email failed:', { error: e.message }); }
 
-    logger.info(`[Admin] Retry refund ${refund.id} for session ${sessionId}`);
-    res.json({ success: true, message: `Refund retried successfully. Refund ID: ${refund.id}`, refundId: refund.id });
+    logger.info('[Admin] Refund retried', { sessionId: String(sessionId).substring(0, 8), refundId: result.refundId });
+    res.json({ success: true, message: `Refund retried successfully. Refund ID: ${result.refundId}`, refundId: result.refundId });
   } catch (error) {
     logger.error('[Admin] retryRefund error:', { error: error.message });
-    res.status(500).json({ message: 'Refund retry failed', error: error.message });
+    res.status(500).json({ message: 'Refund retry failed' });
   }
 };
 

@@ -1,94 +1,163 @@
-import React, { useEffect, useState } from 'react';
-import PatientSettingsPage from './pages/PatientSettingsPage';
+import React, { Suspense, lazy, useEffect, useRef } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { DataSocketProvider } from './context/DataSocketContext';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AdminProvider, useAdmin } from './context/AdminContext';
-import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, useParams, Navigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import LoadingScreen from './components/LoadingScreen';
 import { wakeUpBackend } from './utils/backendWakeup';
+import { consumeOAuthRedirect, getRedirectFromSearch, loginPathFor } from './utils/safeRedirect';
 import GlobalIncomingCallListener from './components/GlobalIncomingCallListener';
+import PatientSessionNotifier from './components/PatientSessionNotifier';
+// The two entry points stay in the main bundle so the first paint of / and
+// /login doesn't wait on a second request. Every other page is its own chunk,
+// fetched on first navigation (the bundle used to be a single ~2 MB file).
 import LandingPage from './pages/LandingPage';
 import AuthPage from './pages/AuthPage';
-import CareerPage from './pages/CareerPage';
-import AboutPage from './pages/AboutPage';
-import ServicesPage from './pages/ServicesPage';
-import DoctorProfilePage from './pages/DoctorProfilePage';
-import ChooseProfessionalPage from './pages/ChooseProfessionalPage';
-import PatientDashboard from './pages/PatientDashboard';
-import DoctorDashboard from './pages/DoctorDashboard';
-import ForgotPasswordPage from './pages/ForgotPasswordPage';
-import ResetPasswordPage from './pages/ResetPasswordPage';
-import AdminLoginPage from './pages/AdminLoginPage';
-import AdminSignupPage from './pages/AdminSignupPage';
-import SuperAdminDashboard from './pages/SuperAdminDashboard';
-import PartnerPage from './pages/PartnerPage';
-import ResourcesPage from './pages/ResourcesPage';
-import BookSessionPage from './pages/BookSessionPage';
-import ReportsPage from './pages/ReportsPage';
-import MentalHealthTestPage from './pages/MentalHealthTestPage';
-import MentalHealthDashboard from './pages/MentalHealthDashboard';
-import TestResultsPage from './pages/TestResultsPage';
-import VideoCallRoom from './pages/VideoCallRoom';
-import CallHistoryPage from './pages/CallHistoryPage';
-import PendingTasksPage from './pages/PendingTasksPage';
-import MyJournalPage from './pages/MyJournalPage';
-import ReportsRecommendationPage from './pages/ReportsRecommendationPage';
-import PatientDetailsPage from './pages/PatientDetailsPage';
-import DoctorReportsPage from './pages/DoctorReportsPage';
-import DoctorReportsDetailPage from './pages/DoctorReportsDetailPage';
-import DoctorTasksPage from './pages/DoctorTasksPage';
-import DoctorTasksDetailPage from './pages/DoctorTasksDetailPage';
-import DoctorSessionNotesPage from './pages/DoctorSessionNotesPage';
-import DoctorSessionNotesDetailPage from './pages/DoctorSessionNotesDetailPage';
-import ProfileSetupPage from './pages/ProfileSetupPage';
-import PatientProfileSetupPage from './pages/PatientProfileSetupPage';
-import ManageCalendar from './pages/ManageCalendar';
-import MessagesPage from './pages/MessagesPage';
-import MyTestsPage from './pages/MyTestsPage';
-import MyTherapistPage from './pages/MyTherapistPage';
-import FAQPage from './pages/FAQPage';
-import ContactPage from './pages/ContactPage';
-import PrivacyPage from './pages/PrivacyPage';
-import TermsPage from './pages/TermsPage';
-import RefundPolicyPage from './pages/RefundPolicyPage';
-import ArticlesPage from './pages/ArticlesPage';
-import ArticleDetailPage from './pages/ArticleDetailPage';
-import AdminArticleEditorPage from './pages/AdminArticleEditorPage';
-import VideosPage from './pages/VideosPage';
-import NotFoundPage from './pages/NotFoundPage';
-import DoctorSettingsPage from './pages/DoctorSettingsPage';
 
+/**
+ * React.lazy, plus one automatic reload when a chunk fails to load.
+ *
+ * Chunk file names are content-hashed, so after a deploy a tab that is still
+ * running the previous build asks for chunks that no longer exist (and the
+ * SPA rewrite answers with index.html, which fails as a module). Reloading
+ * picks up the new build; the sessionStorage flag stops a genuinely broken
+ * chunk from reloading forever — the second failure reaches ErrorBoundary.
+ */
+const CHUNK_RELOAD_KEY = 'veraawell:chunkReload';
+function lazyPage<T extends React.ComponentType<object>>(load: () => Promise<{ default: T }>) {
+  return lazy(async () => {
+    try {
+      const mod = await load();
+      try { sessionStorage.removeItem(CHUNK_RELOAD_KEY); } catch { /* storage blocked */ }
+      return mod;
+    } catch (err) {
+      let alreadyReloaded = true;
+      try {
+        alreadyReloaded = sessionStorage.getItem(CHUNK_RELOAD_KEY) === '1';
+        if (!alreadyReloaded) sessionStorage.setItem(CHUNK_RELOAD_KEY, '1');
+      } catch { /* storage blocked: don't risk a reload loop */ }
+      if (!alreadyReloaded) {
+        window.location.reload();
+        return new Promise<{ default: T }>(() => { /* the reload replaces the page */ });
+      }
+      throw err;
+    }
+  });
+}
+const CareerPage = lazyPage(() => import('./pages/CareerPage'));
+const AboutPage = lazyPage(() => import('./pages/AboutPage'));
+const ServicesPage = lazyPage(() => import('./pages/ServicesPage'));
+const DoctorProfilePage = lazyPage(() => import('./pages/DoctorProfilePage'));
+const ChooseProfessionalPage = lazyPage(() => import('./pages/ChooseProfessionalPage'));
+const PatientDashboard = lazyPage(() => import('./pages/PatientDashboard'));
+const DoctorDashboard = lazyPage(() => import('./pages/DoctorDashboard'));
+const ForgotPasswordPage = lazyPage(() => import('./pages/ForgotPasswordPage'));
+const ResetPasswordPage = lazyPage(() => import('./pages/ResetPasswordPage'));
+const AdminLoginPage = lazyPage(() => import('./pages/AdminLoginPage'));
+const AdminSignupPage = lazyPage(() => import('./pages/AdminSignupPage'));
+const SuperAdminDashboard = lazyPage(() => import('./pages/SuperAdminDashboard'));
+const PartnerPage = lazyPage(() => import('./pages/PartnerPage'));
+const ResourcesPage = lazyPage(() => import('./pages/ResourcesPage'));
+const ReportsPage = lazyPage(() => import('./pages/ReportsPage'));
+const MentalHealthTestPage = lazyPage(() => import('./pages/MentalHealthTestPage'));
+const MentalHealthDashboard = lazyPage(() => import('./pages/MentalHealthDashboard'));
+const TestResultsPage = lazyPage(() => import('./pages/TestResultsPage'));
+const VideoCallRoom = lazyPage(() => import('./pages/VideoCallRoom'));
+const CallHistoryPage = lazyPage(() => import('./pages/CallHistoryPage'));
+const PendingTasksPage = lazyPage(() => import('./pages/PendingTasksPage'));
+const MyJournalPage = lazyPage(() => import('./pages/MyJournalPage'));
+const ReportsRecommendationPage = lazyPage(() => import('./pages/ReportsRecommendationPage'));
+const PatientDetailsPage = lazyPage(() => import('./pages/PatientDetailsPage'));
+const DoctorReportsPage = lazyPage(() => import('./pages/DoctorReportsPage'));
+const DoctorReportsDetailPage = lazyPage(() => import('./pages/DoctorReportsDetailPage'));
+const DoctorTasksPage = lazyPage(() => import('./pages/DoctorTasksPage'));
+const DoctorTasksDetailPage = lazyPage(() => import('./pages/DoctorTasksDetailPage'));
+const DoctorSessionNotesPage = lazyPage(() => import('./pages/DoctorSessionNotesPage'));
+const DoctorSessionNotesDetailPage = lazyPage(() => import('./pages/DoctorSessionNotesDetailPage'));
+const ProfileSetupPage = lazyPage(() => import('./pages/ProfileSetupPage'));
+const PatientProfileSetupPage = lazyPage(() => import('./pages/PatientProfileSetupPage'));
+const ManageCalendar = lazyPage(() => import('./pages/ManageCalendar'));
+const MessagesPage = lazyPage(() => import('./pages/MessagesPage'));
+const MyTestsPage = lazyPage(() => import('./pages/MyTestsPage'));
+const MyTherapistPage = lazyPage(() => import('./pages/MyTherapistPage'));
+const FAQPage = lazyPage(() => import('./pages/FAQPage'));
+const ContactPage = lazyPage(() => import('./pages/ContactPage'));
+const PrivacyPage = lazyPage(() => import('./pages/PrivacyPage'));
+const TermsPage = lazyPage(() => import('./pages/TermsPage'));
+const RefundPolicyPage = lazyPage(() => import('./pages/RefundPolicyPage'));
+const ArticlesPage = lazyPage(() => import('./pages/ArticlesPage'));
+const ArticleDetailPage = lazyPage(() => import('./pages/ArticleDetailPage'));
+const AdminArticleEditorPage = lazyPage(() => import('./pages/AdminArticleEditorPage'));
+const VideosPage = lazyPage(() => import('./pages/VideosPage'));
+const NotFoundPage = lazyPage(() => import('./pages/NotFoundPage'));
+const DoctorSettingsPage = lazyPage(() => import('./pages/DoctorSettingsPage'));
+const PatientSettingsPage = lazyPage(() => import('./pages/PatientSettingsPage'));
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
   allowedRoles?: string[];
 }
 
-const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
-  const { isLoggedIn, user, loading } = useAuth();
-  const location = useLocation();
+/** Shown instead of a login redirect when the auth check never reached the server. */
+const ServerUnreachable: React.FC<{ onRetry: () => void }> = ({ onRetry }) => (
+  <div className="min-h-screen flex items-center justify-center px-6" style={{ background: 'var(--bg)' }}>
+    <div className="max-w-sm text-center space-y-4">
+      <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>We can't reach Veraawell right now</h1>
+      <p className="text-sm" style={{ color: 'var(--text-2)' }}>
+        Our servers may be starting up, or your connection dropped. Try again in a moment.
+      </p>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white"
+        style={{ background: 'var(--teal)' }}
+      >
+        Try again
+      </button>
+    </div>
+  </div>
+);
 
-  console.log('[ProtectedRoute]', location.pathname, '| loading:', loading, '| isLoggedIn:', isLoggedIn, '| role:', user?.role, '| allowedRoles:', allowedRoles);
+const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, allowedRoles }) => {
+  const { isLoggedIn, user, loading, serverUnreachable, checkAuth } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return <LoadingScreen />;
   }
 
   if (!isLoggedIn) {
-    console.log('[ProtectedRoute] REDIRECTING to / - not logged in');
-    return <Navigate to="/" state={{ from: location }} replace />;
+    // Couldn't tell either way (API asleep / offline): don't throw a
+    // possibly-logged-in user out to the login page.
+    if (serverUnreachable) {
+      return <ServerUnreachable onRetry={() => { void checkAuth(); }} />;
+    }
+    // Keep the destination so a deep link (a call, a report) survives login.
+    return <Navigate to={loginPathFor(location.pathname, location.search)} replace />;
   }
 
   if (allowedRoles && user && !allowedRoles.includes(user.role)) {
-    console.log('[ProtectedRoute] REDIRECTING to / - role mismatch:', user.role, 'not in', allowedRoles);
     return <Navigate to="/" replace />;
   }
 
   return <>{children}</>;
+};
+
+/** The old booking page; booking now happens on the doctor's profile. */
+const BookSessionRedirect: React.FC = () => {
+  const { doctorId } = useParams();
+  return <Navigate to={doctorId ? `/doctor/${encodeURIComponent(doctorId)}` : '/choose-professional'} replace />;
+};
+
+const dashboardFor = (role?: string): string => {
+  if (role === 'patient') return '/patient-dashboard';
+  if (role === 'doctor') return '/doctor-dashboard';
+  if (role && ['admin', 'super_admin'].includes(role)) return '/super-admin-dashboard';
+  return '/';
 };
 
 const AdminProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -140,17 +209,28 @@ function AppRoutes() {
       });
     }
 
+    // Returning from Google sign-in: the OAuth effect below runs the check
+    // once the URL token (cookie-blocked fallback) is in memory. Starting one
+    // here first would be deduplicated with it and go out without that token.
+    if (new URLSearchParams(window.location.search).get('auth') === 'success') return;
+
     // Check auth silently in background (don't block UI)
     checkAuth().catch((error) => {
       console.log('[App] Auth check failed:', error?.message || 'Unknown error');
     });
   }, [checkAuth]);
 
+  // StrictMode runs effects twice; the parked redirect must be consumed once.
+  const handledOAuthReturn = useRef<string | null>(null);
+
   useEffect(() => {
     // If the user lands on the site with auth success params from Google OAuth,
     // we trigger a re-check of authentication status.
     const urlParams = new URLSearchParams(location.search);
     if (urlParams.has('auth') && urlParams.get('auth') === 'success') {
+      if (handledOAuthReturn.current === location.key) return;
+      handledOAuthReturn.current = location.key;
+
       const roleFromUrl = urlParams.get('role');
       const tokenFromUrl = urlParams.get('token');
 
@@ -167,37 +247,15 @@ function AppRoutes() {
       const cleanUrl = window.location.pathname;
       window.history.replaceState({}, '', cleanUrl);
 
-      // Retry auth check with exponential backoff
-      const retryAuthCheck = async (attempt = 1, maxAttempts = 3) => {
-        try {
-          await checkAuth();
-
-          // Redirect to appropriate dashboard based on role
-          if (roleFromUrl === 'patient') {
-            navigate('/patient-dashboard', { replace: true });
-          } else if (roleFromUrl === 'doctor') {
-            navigate('/doctor-dashboard', { replace: true });
-          } else {
-            // Fallback: let the redirect effect handle it
-            navigate('/', { replace: true });
-          }
-        } catch (error) {
-          if (attempt < maxAttempts) {
-            // Wait before retrying (exponential backoff: 500ms, 1000ms, 2000ms)
-            const delay = 500 * Math.pow(2, attempt - 1);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            return retryAuthCheck(attempt + 1, maxAttempts);
-          } else {
-            console.error('[OAuth] All auth check attempts failed');
-            // Clean the URL even if all attempts fail
-            navigate('/', { replace: true });
-          }
-        }
-      };
-
-      retryAuthCheck();
+      // checkAuth retries a cold-starting API itself and never throws.
+      void checkAuth().then(() => {
+        // A deep link the user was sent to /login from, parked by AuthPage
+        // before leaving for Google.
+        const target = consumeOAuthRedirect() ?? dashboardFor(roleFromUrl ?? undefined);
+        navigate(target, { replace: true });
+      });
     }
-  }, [location, checkAuth, navigate]);
+  }, [location, checkAuth, navigate, setAuthToken]);
 
   // Redirect authenticated users from landing page and auth pages to their dashboards
   useEffect(() => {
@@ -206,16 +264,11 @@ function AppRoutes() {
       const isAuthPage = location.pathname === '/login' || location.pathname === '/signup';
 
       if (isAuthPage) {
-        if (role === 'patient') {
-          navigate('/patient-dashboard', { replace: true });
-        } else if (role === 'doctor') {
-          navigate('/doctor-dashboard', { replace: true });
-        } else if (['admin', 'super_admin'].includes(role)) {
-          navigate('/super-admin-dashboard', { replace: true });
-        }
+        const target = getRedirectFromSearch(location.search) ?? dashboardFor(role);
+        if (target !== '/') navigate(target, { replace: true });
       }
     }
-  }, [isLoggedIn, user, location.pathname, navigate]);
+  }, [isLoggedIn, user, location.pathname, location.search, navigate]);
 
   const handleAuthSuccess = async () => {
     await checkAuth();
@@ -233,6 +286,7 @@ function AppRoutes() {
   return (
     <main className="flex-1 flex flex-col">
       {!isAuthRoute && !isVideoCallRoute && <Navbar />}
+      <Suspense fallback={<LoadingScreen />}>
       <Routes>
         <Route
           path="/"
@@ -275,7 +329,7 @@ function AppRoutes() {
         <Route path="/resources/articles/:slug" element={<ArticleDetailPage />} />
         <Route path="/resources/videos" element={<VideosPage />} />
         <Route path="/faq" element={<FAQPage />} />
-        <Route path="/book-session/:doctorId" element={<ProtectedRoute allowedRoles={['patient']}><BookSessionPage /></ProtectedRoute>} />
+        <Route path="/book-session/:doctorId" element={<BookSessionRedirect />} />
         <Route path="/reports" element={<ProtectedRoute allowedRoles={['patient']}><ReportsPage /></ProtectedRoute>} />
         <Route path="/mental-health" element={<ProtectedRoute allowedRoles={['patient']}><MentalHealthDashboard /></ProtectedRoute>} />
         <Route path="/mental-health/:testType" element={<ProtectedRoute allowedRoles={['patient']}><MentalHealthTestPage /></ProtectedRoute>} />
@@ -303,6 +357,7 @@ function AppRoutes() {
         <Route path="/super-admin-dashboard/articles/edit/:id" element={<AdminProtectedRoute><AdminArticleEditorPage /></AdminProtectedRoute>} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
+      </Suspense>
     </main>
   );
 }
@@ -346,6 +401,7 @@ export default function App() {
         <DataSocketProvider>
         <AdminProvider>
           <GlobalIncomingCallListener />
+          <PatientSessionNotifier />
           <Toaster
             position="top-right"
             reverseOrder={false}

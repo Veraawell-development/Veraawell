@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { COMPANY_LEGAL_NAME } from '../config/company';
 
 const Footer: React.FC = () => {
   const year = new Date().getFullYear();
@@ -186,7 +187,7 @@ const Footer: React.FC = () => {
             className="text-xs"
             style={{ color: 'var(--dark-text-2)', fontFamily: 'var(--font-mono)' }}
           >
-            © {year} Veraawell. All rights reserved.
+            © {year} {COMPANY_LEGAL_NAME}. All rights reserved.
           </p>
           <div className="flex gap-6">
             {[

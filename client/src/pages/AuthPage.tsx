@@ -9,6 +9,8 @@ import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config/api';
 import toast from 'react-hot-toast';
 import LeafDecor from '../components/ui/LeafDecor';
+import ResendCodeButton from '../components/ResendCodeButton';
+import { getRedirectFromSearch, sanitizeRedirect, rememberOAuthRedirect } from '../utils/safeRedirect';
 
 // ── Animation variants ────────────────────────────────────────────────────────
 const fadeUp = {
@@ -109,6 +111,11 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   const redirectFrom = location.state?.from;
   const redirectServiceType = location.state?.serviceType;
   const redirectBookingType = location.state?.bookingType;
+  // Where to go after signing in: `?redirect=` (set by ProtectedRoute for a
+  // deep link), else a `state.from` path (set by DoctorProfilePage's "Book").
+  // Both are validated as same-origin relative paths.
+  const redirectTarget = getRedirectFromSearch(location.search)
+    ?? sanitizeRedirect(typeof redirectFrom === 'string' ? redirectFrom : null);
 
   useEffect(() => {
     if (mode === 'signup') setRegisterMode(true);
@@ -144,7 +151,8 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
       }
       if (data.token) setAuthToken(data.token);
       if (onSuccess) onSuccess();
-      if (redirectFrom) navigate(redirectFrom, { state: { serviceType: redirectServiceType, bookingType: redirectBookingType } });
+      // Without a target, App's logged-in-on-/login effect picks the dashboard.
+      if (redirectTarget) navigate(redirectTarget, { replace: true, state: { serviceType: redirectServiceType, bookingType: redirectBookingType } });
     },
     onError: (err: any) => { setError(err.message || 'Network error. Please try again.'); }
   });
@@ -182,7 +190,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
       if (data.token) setAuthToken(data.token);
       await checkAuth();
       setFirstName(''); setEmail(''); setPhoneNo(''); setRegisterPassword(''); setRegisterConfirm('');
-      navigate('/patient-dashboard');
+      navigate(redirectTarget ?? '/patient-dashboard', { replace: true });
     },
     onError: (err: any) => { setRegisterMsg(err.message || 'Network error. Please try again.'); }
   });
@@ -201,7 +209,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
       toast.success('Email verified successfully!');
       if (data.token) setAuthToken(data.token);
       await checkAuth();
-      navigate(isProfessional ? '/doctor-dashboard' : '/patient-dashboard');
+      navigate(redirectTarget ?? (isProfessional ? '/doctor-dashboard' : '/patient-dashboard'), { replace: true });
     },
     onError: (err: any) => { setError(err.message || 'Network error. Please try again.'); }
   });
@@ -224,6 +232,8 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   };
 
   const handleGoogleAuth = () => {
+    // Google returns to /?auth=success, not here — park the destination.
+    rememberOAuthRedirect(redirectTarget);
     window.location.href = `${API_BASE_URL}/auth/google?role=${isProfessional ? 'doctor' : 'patient'}`;
   };
 
@@ -426,9 +436,14 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
                   style={{ background: 'var(--teal)' }}>
                   {isMutationLoading ? <Spinner text="Verifying..." /> : 'Verify Account'}
                 </motion.button>
-                <button type="button" onClick={() => setStep('auth')} className="text-[12px] text-neutral-400 hover:text-neutral-600 font-medium mt-2">
-                  Back to login
-                </button>
+                <div className="flex items-center justify-center gap-4 mt-2">
+                  {/* Keyed so going back and signing up again restarts the cooldown. */}
+                  <ResendCodeButton key={registeredEmail} email={registeredEmail} />
+                  <span className="text-neutral-300" aria-hidden="true">·</span>
+                  <button type="button" onClick={() => setStep('auth')} className="text-[12px] text-neutral-400 hover:text-neutral-600 font-medium">
+                    Back to login
+                  </button>
+                </div>
               </motion.form>
             ) : registerMode ? (
               <motion.form key="register" variants={stagger} initial="initial" animate="animate" exit="exit"

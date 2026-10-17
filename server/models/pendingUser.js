@@ -17,6 +17,11 @@ const pendingUserSchema = new mongoose.Schema({
   // never the plaintext code. `attempts` caps brute-force guessing.
   otp: { type: String, required: true },
   attempts: { type: Number, default: 0 },
+  // How many replacement codes a login attempt has issued for this signup.
+  // Each replacement resets `attempts`, so without a ceiling on these the
+  // per-code guess limit bought nothing: log in, get five fresh guesses,
+  // repeat. See MAX_SIGNUP_OTP_RESENDS in controllers/auth.controller.js.
+  resendCount: { type: Number, default: 0 },
 
   // Automatically delete unverified accounts after 15 minutes (900 seconds)
   createdAt: { type: Date, default: Date.now, expires: 900 }

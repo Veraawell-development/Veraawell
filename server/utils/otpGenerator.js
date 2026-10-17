@@ -3,15 +3,18 @@
  * Handles OTP generation, hashing, and verification
  */
 
+const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 
 /**
  * Generate a 6-digit numeric OTP
+ *
+ * crypto.randomInt, not Math.random. Math.random is a non-cryptographic
+ * PRNG whose internal state can be recovered from a handful of outputs; a
+ * signup code drawn from it is guessable by anyone who has seen a few others.
  */
 function generateOTP() {
-    // Generate random 6-digit number (100000 to 999999)
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    return otp;
+    return String(crypto.randomInt(100000, 1000000));
 }
 
 /**
@@ -27,38 +30,22 @@ async function hashOTP(otp) {
 
 /**
  * Verify if input OTP matches hashed OTP
+ *
+ * The input is coerced to a string: a client that posts the code as a JSON
+ * number made bcrypt throw "Illegal arguments", which surfaced as a 500
+ * instead of a wrong-code answer.
+ *
  * @param {string} inputOTP - Plain text OTP from user
  * @param {string} hashedOTP - Hashed OTP from database
  * @returns {Promise<boolean>} - True if match, false otherwise
  */
 async function verifyOTP(inputOTP, hashedOTP) {
-    const isMatch = await bcrypt.compare(inputOTP, hashedOTP);
-    return isMatch;
-}
-
-/**
- * Check if OTP is expired
- * @param {Date} expiresAt - Expiry timestamp
- * @returns {boolean} - True if expired
- */
-function isExpired(expiresAt) {
-    return new Date() > expiresAt;
-}
-
-/**
- * Generate expiry time (5 minutes from now)
- * @returns {Date} - Expiry timestamp
- */
-function getExpiryTime() {
-    const expiryMinutes = 5;
-    const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1000);
-    return expiresAt;
+    if (inputOTP === null || inputOTP === undefined || typeof hashedOTP !== 'string') return false;
+    return bcrypt.compare(String(inputOTP), hashedOTP);
 }
 
 module.exports = {
     generateOTP,
     hashOTP,
-    verifyOTP,
-    isExpired,
-    getExpiryTime
+    verifyOTP
 };

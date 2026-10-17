@@ -256,14 +256,12 @@ test.describe('the screening tiles line up', () => {
 });
 
 test.describe('the DLA-20 screening', () => {
-  test('the dashboard offers a test the client cannot render', async ({ page }) => {
-    // The server's VALID_TEST_TYPES accepts 'dla20' and assessmentScoring
-    // deliberately defers to the client's score for it, but the client's
-    // MENTAL_HEALTH_TESTS registry has no dla20 entry — so
-    // calculateTestScore('dla20') throws and MentalHealthTestPage cannot
-    // build the questionnaire.
+  test('the dashboard does not offer a test the client cannot render', async ({ page }) => {
+    // The client's MENTAL_HEALTH_TESTS registry has no dla20 entry, so a
+    // DLA-20 tile could only bounce. It is not offered anywhere any more.
     await arriveAtDashboard(page);
-    await expect(page.getByText('DLA-20').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('Upcoming Session').first()).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByText('DLA-20')).toHaveCount(0);
   });
 
   test('opening it bounces back instead of starting a questionnaire', async ({ page }) => {

@@ -78,12 +78,6 @@ services:
         sync: false
       - key: METERED_SECRET_KEY
         sync: false
-      # Legacy Gmail/nodemailer path used only by the admin password-reset
-      # route. Slated for consolidation onto Resend.
-      - key: EMAIL_USER
-        sync: false
-      - key: EMAIL_PASS
-        sync: false
       # Super-admin master login. Both halves are credentials — neither may be
       # a literal in this file.
       - key: ADMIN_ID
@@ -106,15 +100,13 @@ services:
         sync: false
 
       # Leave UNSET. 'stub' fabricates payments; anything else is live, which
-      # is the default. The production refusal that config/payments.js
-      # documents (assertPaymentsConfigured) is defined but never called —
-      # __tests__/e2e/payments.stubMode.test.js pins that as known-broken — so
-      # nothing would stop a stubbed deploy except not setting this.
+      # is the default. validateEnvironment() refuses to boot production with
+      # 'stub' (config/payments.js assertPaymentsConfigured).
       - key: PAYMENTS_MODE
         sync: false
 
-      # One-time bootstrap for POST /api/admin/auth/setup. Without the
-      # password, one is generated and logged exactly once.
+      # One-time bootstrap for POST /api/admin/auth/setup. Both are required
+      # for setup to run.
       - key: INITIAL_ADMIN_EMAIL
         sync: false
       - key: INITIAL_ADMIN_PASSWORD

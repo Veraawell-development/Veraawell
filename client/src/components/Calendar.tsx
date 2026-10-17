@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { API_CONFIG } from '../config/api';
 import logger from '../utils/logger';
 import type { Session } from '../types';
-import { parseTime } from '../utils/dateUtils';
+import { resolveSessionStart, sessionLocalDateKey } from '../utils/dateUtils';
 
 interface CalendarProps {
   userRole: 'patient' | 'doctor';
@@ -53,13 +53,11 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
     return new Date(date.getFullYear(), date.getMonth(), 1).getDay();
   };
 
+  // A session belongs to its IST calendar day. Reading the UTC-midnight
+  // sessionDate in the viewer's zone moved it to the previous day west of UTC.
   const getSessionsForDate = (day: number) => {
-    return sessions.filter(session => {
-      const sessionLocalDate = new Date(session.sessionDate);
-      return sessionLocalDate.getFullYear() === currentDate.getFullYear() &&
-             sessionLocalDate.getMonth() === currentDate.getMonth() &&
-             sessionLocalDate.getDate() === day;
-    });
+    const key = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return sessions.filter(session => sessionLocalDateKey(session) === key);
   };
 
   const monthNames = [
@@ -75,11 +73,7 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
     if (session.status === 'cancelled' || session.status === 'completed' || session.status === 'no-show') return false;
 
     const now = new Date();
-    const sessionDateTime = new Date(session.sessionDate);
-    if (session.sessionTime) {
-      const [hours, minutes] = parseTime(session.sessionTime);
-      sessionDateTime.setHours(hours, minutes, 0, 0);
-    }
+    const sessionDateTime = resolveSessionStart(session);
 
     const durationInMs = (session.duration || 60) * 60 * 1000;
     const timeDiff = sessionDateTime.getTime() - now.getTime(); // Positive if future, negative if past
@@ -117,11 +111,7 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
     // If it's not joinable, and it's in the past (duration has elapsed), it shouldn't say "upcoming".
     // This acts as a robust visual fallback against stale caching.
     const now = new Date();
-    const sessionDateTime = new Date(session.sessionDate);
-    if (session.sessionTime) {
-      const [hours, minutes] = parseTime(session.sessionTime);
-      sessionDateTime.setHours(hours, minutes, 0, 0);
-    }
+    const sessionDateTime = resolveSessionStart(session);
     const durationInMs = (session.duration || 60) * 60 * 1000;
     
     if (now.getTime() > sessionDateTime.getTime() + durationInMs) {

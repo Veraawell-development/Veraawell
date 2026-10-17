@@ -144,6 +144,27 @@ describe('a non-participant cannot act on a call', () => {
     const suspended = await makeUser('patient', { status: 'suspended' });
     await expect(connect(tokenFor(suspended))).rejects.toThrow(/connect_error/);
   });
+
+  // The handshake now makes the same two checks verifyToken does, from the
+  // same helpers. Before, a password reset or a doctor's rejection ended
+  // their HTTP access but left real-time access — chat, calls — open.
+  test('a token issued before the last password change cannot complete the handshake', async () => {
+    const changedAt = new Date(Math.floor(Date.now() / 1000) * 1000 - 5000);
+    const user = await makeUser('patient', { passwordChangedAt: changedAt });
+    const older = jwt.sign(
+      { userId: user._id.toString(), role: user.role, iat: Math.floor(changedAt.getTime() / 1000) - 60 },
+      getJWTSecret(), { expiresIn: '1h' }
+    );
+    await expect(connect(older)).rejects.toThrow(/password changed/);
+
+    const fresh = await connect(tokenFor(user));
+    fresh.close();
+  });
+
+  test('a rejected doctor cannot complete the handshake', async () => {
+    const rejected = await makeUser('doctor', { approvalStatus: 'rejected' });
+    await expect(connect(tokenFor(rejected))).rejects.toThrow(/rejected/);
+  });
 });
 
 /** Both parties join the room and wait for the join to land. */
@@ -170,7 +191,8 @@ describe('ending a call is bound by the same completion rule as HTTP', () => {
     // completed session cannot be cancelled) and made it count toward the
     // doctor's payout. POST /:id/complete already refused this; the socket
     // path now goes through the same transition guard.
-    const { patient, doctor, session } = await seed({ hoursFromNow: 1 });
+    // Ten minutes out: inside the 15-minute join window, before the start.
+    const { patient, doctor, session } = await seed({ hoursFromNow: 10 / 60 });
     const sid = String(session._id);
     const { pSock, dSock } = await joinBoth(patient, doctor, sid);
 
@@ -220,5 +242,46 @@ describe('the real call still works', () => {
 
     pSock.close();
     dSock.close();
+  });
+});
+
+describe('only a live session, inside its window, can be joined', () => {
+  test('a cancelled session cannot be opened from its URL', async () => {
+    const { patient, session } = await seed({ hoursFromNow: -0.25 });
+    await Session.updateOne({ _id: session._id }, { $set: { status: 'cancelled', cancelledBy: 'patient' } });
+
+    const sock = await connect(tokenFor(patient));
+    const err = once(sock, 'error');
+    const joined = once(sock, 'room-joined', 1500);
+    sock.emit('join-room', { sessionId: String(session._id) });
+    expect((await err).message).toMatch(/can no longer be joined/i);
+    expect(await joined).toBeNull();
+    sock.close();
+  });
+
+  test('a session next week cannot be joined yet', async () => {
+    const { patient, session } = await seed({ hoursFromNow: 24 * 7 });
+    const sock = await connect(tokenFor(patient));
+    const err = once(sock, 'error');
+    sock.emit('join-room', { sessionId: String(session._id) });
+    expect((await err).message).toMatch(/15 minutes before/i);
+    sock.close();
+  });
+
+  test('leaving a short call pauses it without touching what happened to the session meanwhile', async () => {
+    // The disconnect handler used to write status 'scheduled' for any call
+    // shorter than its booking, from a document read before an await — which
+    // revived a session the sweep had just marked no-show.
+    const { patient, doctor, session } = await seed({ hoursFromNow: -0.25 });
+    const sid = String(session._id);
+    const { pSock, dSock } = await joinBoth(patient, doctor, sid);
+
+    await Session.updateOne({ _id: session._id }, { $set: { status: 'no-show' } });
+    pSock.close();
+    dSock.close();
+    await new Promise((r) => setTimeout(r, 800));
+
+    const after = await Session.findById(sid);
+    expect(after.status).toBe('no-show');
   });
 });

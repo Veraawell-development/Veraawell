@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'react-hot-toast';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { API_BASE_URL } from '../config/api';
+import { formatSessionDay, resolveSessionStart } from '../utils/dateUtils';
 
 interface PendingUser {
   _id: string;
@@ -1804,7 +1805,7 @@ const SuperAdminDashboard: React.FC = () => {
                                 <tr key={session._id} className="hover:bg-red-50/10 transition-colors">
                                   <td className="p-4 pl-6">
                                     <div className="text-[11px] text-neutral-500 font-mono mb-0.5">{session._id.substring(0, 8)}...</div>
-                                    <div className="text-sm font-semibold text-neutral-900">{new Date(session.sessionDate).toLocaleDateString()}</div>
+                                    <div className="text-sm font-semibold text-neutral-900">{formatSessionDay(resolveSessionStart(session))}</div>
                                   </td>
                                   <td className="p-4">
                                     <div className="text-sm font-semibold text-neutral-900">{session.patientName}</div>

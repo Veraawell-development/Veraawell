@@ -93,24 +93,3 @@ export const fetchWithRetry = async (
   // All retries failed
   throw lastError || new Error('All retry attempts failed');
 };
-
-/**
- * Check if the backend is accessible
- * Returns true if backend is reachable, false otherwise
- */
-export const checkBackendHealth = async (): Promise<boolean> => {
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-    
-    const response = await fetch(`${API_BASE_URL}/health`, {
-      method: 'GET',
-      signal: controller.signal,
-    });
-    
-    clearTimeout(timeoutId);
-    return response.ok;
-  } catch (error) {
-    return false;
-  }
-};

@@ -9,7 +9,7 @@ import EmergencyHotlineModal from '../components/EmergencyHotlineModal';
 import PatientCalendarModal from '../components/PatientCalendarModal';
 import { useAuth } from '../context/AuthContext';
 import { API_CONFIG } from '../config/api';
-import { formatDate, getGreeting, getDaysUntil, parseTime } from '../utils/dateUtils';
+import { formatDate, getGreeting, resolveSessionStart, resolveSessionEnd, sessionLocalDateKey, daysUntilSession, PLATFORM_TIMEZONE } from '../utils/dateUtils';
 import logger from '../utils/logger';
 import type { Session, Report, Task, JournalEntry } from '../types';
 import { useDataSocket } from '../hooks/useDataSocket';
@@ -86,15 +86,13 @@ const getSeverityLabel = (score: number, maxScore: number) => {
   return 'Minimal';
 };
 
-const getSessionDateTime = (session: { sessionDate: string; sessionTime: string }) => {
-  const d = new Date(session.sessionDate);
-  const [h, m] = parseTime(session.sessionTime);
-  d.setHours(h, m, 0, 0);
-  return d;
-};
+// startsAt when the server sent it; the legacy (sessionDate, sessionTime)
+// pair read as IST otherwise — never setHours on the UTC-midnight date, which
+// applies the viewer's own offset.
+const getSessionDateTime = (session: Session) => resolveSessionStart(session);
 
-const relativeDayLabel = (dateStr: string) => {
-  const daysUntil = getDaysUntil(dateStr);
+const relativeDayLabel = (session: Session) => {
+  const daysUntil = daysUntilSession(session);
   if (daysUntil <= 0) return 'today';
   if (daysUntil === 1) return 'tomorrow';
   return `in ${daysUntil} days`;
@@ -102,17 +100,17 @@ const relativeDayLabel = (dateStr: string) => {
 
 const formatSessionChip = (session: UpcomingSession) => {
   const dt = getSessionDateTime(session);
-  const dayOfWeek = dt.toLocaleDateString('en-US', { weekday: 'short' });
-  const dayMonth = dt.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
-  const time = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
-  return `${dayOfWeek}, ${dayMonth} · ${time} — ${relativeDayLabel(session.sessionDate)}`;
+  const dayOfWeek = dt.toLocaleDateString('en-US', { weekday: 'short', timeZone: PLATFORM_TIMEZONE });
+  const dayMonth = dt.toLocaleDateString('en-US', { day: 'numeric', month: 'short', timeZone: PLATFORM_TIMEZONE });
+  const time = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: PLATFORM_TIMEZONE });
+  return `${dayOfWeek}, ${dayMonth} · ${time} — ${relativeDayLabel(session)}`;
 };
 
 const formatMoreSessionWhen = (session: UpcomingSession) => {
   const dt = getSessionDateTime(session);
-  const dayOfWeek = dt.toLocaleDateString('en-US', { weekday: 'short' });
-  const dayMonth = dt.toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
-  const time = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  const dayOfWeek = dt.toLocaleDateString('en-US', { weekday: 'short', timeZone: PLATFORM_TIMEZONE });
+  const dayMonth = dt.toLocaleDateString('en-US', { day: 'numeric', month: 'short', timeZone: PLATFORM_TIMEZONE });
+  const time = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: PLATFORM_TIMEZONE });
   return `${dayOfWeek}, ${dayMonth} · ${time}`;
 };
 
@@ -347,15 +345,27 @@ const PatientDashboard: React.FC = () => {
       if (!res.ok) throw new Error('Failed to fetch sessions');
       const data: UpcomingSession[] = await res.json();
       const now = Date.now();
+      // A session in progress ('active') stays listed whatever the clock
+      // says — an instant session the doctor delayed can run past its nominal
+      // end — and a scheduled one stays until its end, not its start, so
+      // today's current session doesn't vanish from "upcoming".
       return data
         .filter((s) => s.status === 'scheduled' || s.status === 'active')
-        .filter((s) => getSessionDateTime(s).getTime() + (s.duration || 60) * 60000 >= now)
-        .sort((a, b) => getSessionDateTime(a).getTime() - getSessionDateTime(b).getTime());
+        .filter((s) => s.status === 'active' || resolveSessionEnd(s).getTime() >= now)
+        .sort((a, b) => {
+          if ((a.status === 'active') !== (b.status === 'active')) return a.status === 'active' ? -1 : 1;
+          return getSessionDateTime(a).getTime() - getSessionDateTime(b).getTime();
+        });
     },
     enabled: !!user?.userId,
   });
 
   const nextSession = upcomingSessionsList[0];
+  // A paid instant session that is under way: the patient needs a way back
+  // into the call room from here (they may have left the waiting lounge).
+  const activeInstantSession = upcomingSessionsList.find(
+    (s) => s.sessionType === 'immediate' && s.status === 'active'
+  );
   const moreSessions = upcomingSessionsList.slice(1, 3);
 
   //  REAL-TIME: Listen for session events
@@ -375,8 +385,9 @@ const PatientDashboard: React.FC = () => {
       invalidateSessionData();
     };
 
+    // Toasts for these two come from PatientSessionNotifier (app-wide, with
+    // a Join action); here they only refresh the lists.
     const onCancelled = () => {
-      toast('A session was cancelled');
       invalidateSessionData();
     };
 
@@ -448,9 +459,9 @@ const PatientDashboard: React.FC = () => {
   const sessionsByDay = useMemo(() => {
     const map = new Map<number, Session[]>();
     monthSessions.forEach((s) => {
-      const d = new Date(s.sessionDate);
-      if (d.getFullYear() === year && d.getMonth() + 1 === month) {
-        const day = d.getDate();
+      // The session's IST calendar day, not the viewer's reading of a UTC midnight.
+      const [y, mo, day] = sessionLocalDateKey(s).split('-').map(Number);
+      if (y === year && mo === month) {
         if (!map.has(day)) map.set(day, []);
         map.get(day)!.push(s);
       }
@@ -485,7 +496,11 @@ const PatientDashboard: React.FC = () => {
   // nor the server's spelling 'dla20'. Every patient who tapped it was bounced
   // silently back to the list. Removed until the assessment itself exists.
   const defaultTestIds = ['depression', 'anxiety', 'adhd'];
-  const allTestIds = Array.from(new Set([...defaultTestIds, ...Object.keys(latestScores)]));
+  // Only tests this client can actually run: history can hold types it
+  // doesn't define (a 'dla20' record from before the server stopped accepting
+  // it), and a tile for one would just bounce off /mental-health/:testType.
+  const allTestIds = Array.from(new Set([...defaultTestIds, ...Object.keys(latestScores)]))
+    .filter((id) => !!MENTAL_HEALTH_TESTS[id]);
   const sortedTestIds = allTestIds.sort((a, b) => {
     const scoreA = latestScores[a];
     const scoreB = latestScores[b];
@@ -510,7 +525,7 @@ const PatientDashboard: React.FC = () => {
         ? 'mood'
         : null;
 
-  const nextSessionRelative = nextSession ? relativeDayLabel(nextSession.sessionDate) : null;
+  const nextSessionRelative = nextSession ? relativeDayLabel(nextSession) : null;
 
   return (
     <div
@@ -746,6 +761,41 @@ const PatientDashboard: React.FC = () => {
         </div>
       </div>
       </header>
+
+      {activeInstantSession && (
+        <div className="relative z-10 px-4 sm:px-6 lg:px-11 max-w-[1600px] mx-auto w-full" role="status" aria-live="polite">
+          <div
+            className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between"
+            style={{ ...cardStyle, padding: '14px 20px', borderLeft: `4px solid ${T.teal}` }}
+          >
+            <div className="min-w-0">
+              <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.teal, textTransform: 'uppercase', marginBottom: 3 }}>— Instant session in progress</div>
+              <div style={{ fontSize: 14, color: T.text, fontWeight: 600 }}>
+                {activeInstantSession.doctorId?.firstName
+                  ? `Dr. ${activeInstantSession.doctorId.firstName} ${activeInstantSession.doctorId.lastName || ''}`.trim()
+                  : 'Your therapist'}
+                {' · '}
+                <span style={{ fontWeight: 500, color: T.text2 }}>
+                  {activeInstantSession.acceptanceStatus === 'accepted'
+                    ? 'has accepted and is joining'
+                    : activeInstantSession.acceptanceStatus === 'delayed' && activeInstantSession.delayedUntil
+                      ? `will join at ${new Date(activeInstantSession.delayedUntil).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: PLATFORM_TIMEZONE })}`
+                      : 'is being notified'}
+                </span>
+              </div>
+              {activeInstantSession.doctorNote && (
+                <div style={{ fontSize: 12.5, color: T.text2, fontStyle: 'italic', marginTop: 2 }}>“{activeInstantSession.doctorNote}”</div>
+              )}
+            </div>
+            <button
+              onClick={() => navigate(`/video-call/${activeInstantSession._id}`)}
+              style={{ background: T.teal, color: '#fff', border: 'none', borderRadius: 100, padding: '10px 22px', fontWeight: 600, fontSize: 13, cursor: 'pointer', whiteSpace: 'nowrap' }}
+            >
+              Join session
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Main content ── */}
       <main className="flex-1 lg:min-h-0 relative z-10 px-4 sm:px-6 lg:px-11 py-3 pb-8 lg:pb-3 grid grid-cols-1 lg:grid-cols-[1.6fr_1fr] gap-4 lg:gap-5 max-w-[1600px] mx-auto w-full">

@@ -43,6 +43,25 @@ const logger = createLogger('PAYOUT-LEDGER');
  */
 const PAYOUT_EPOCH = new Date(process.env.PAYOUT_EPOCH || '2026-09-01T00:00:00.000Z');
 
+/** A lock older than this that never computed its totals is presumed dead and may be resumed. */
+const LOCK_RESUME_AFTER_MS = 2 * 60 * 1000;
+
+/**
+ * The lower bound of what a payout run claims: the epoch, NOT the start of
+ * the period being generated.
+ *
+ * A session becomes payable when it is swept to completed/no-show, which can
+ * be after its week's payout was locked (a sweep delayed by downtime, an
+ * admin correcting a status). With a period-bounded claim it then matched no
+ * future run — its week's payout was frozen, and later weeks' ranges started
+ * after it — so the doctor was never paid for it. Claiming everything unpaid
+ * up to the period's end carries it into the next draft instead. Sessions
+ * already claimed carry a payoutId, so nothing is claimed twice.
+ */
+function claimFloor() {
+  return PAYOUT_EPOCH;
+}
+
 class PayoutStateError extends AppError {
   constructor(message) { super(message, 409); this.code = 'PAYOUT_STATE'; }
 }
@@ -57,7 +76,7 @@ class PayoutStateError extends AppError {
 async function previewPeriod(periodKey) {
   const Session = require('../models/session');
   const period = periodFromKey(periodKey);
-  const from = period.periodStart < PAYOUT_EPOCH ? PAYOUT_EPOCH : period.periodStart;
+  const from = claimFloor();
 
   const rows = await Session.aggregate([
     { $match: payableSessionMatch({ unpaidOnly: true, period: { from, to: period.periodEnd } }) },
@@ -178,7 +197,7 @@ async function generatePayouts(periodKey, { adminId } = {}) {
   const Session = require('../models/session');
   const Payout = require('../models/payout');
   const period = periodFromKey(periodKey);
-  const from = period.periodStart < PAYOUT_EPOCH ? PAYOUT_EPOCH : period.periodStart;
+  const from = claimFloor();
 
   const doctorIds = await Session.distinct('doctorId',
     payableSessionMatch({ unpaidOnly: true, period: { from, to: period.periodEnd } }));
@@ -236,16 +255,42 @@ async function generatePayouts(periodKey, { adminId } = {}) {
  * `{ payoutId: this }`, so a crash part-way through converges on the same
  * answer rather than double-counting.
  */
-async function lockPayout(payoutId) {
+async function lockPayout(payoutId, { now = new Date() } = {}) {
   const Session = require('../models/session');
   const Payout = require('../models/payout');
   const PayoutAdjustment = require('../models/payoutAdjustment');
   const DoctorProfile = require('../models/doctorProfile');
 
-  const payout = await Payout.findById(payoutId);
-  if (!payout) throw new PayoutStateError('Payout not found');
-  if (payout.status === 'paid') throw new PayoutStateError('This payout has already been paid');
+  // ── 1. Claim the lock. ──────────────────────────────────────────────────
+  // This used to settle adjustments into the payout FIRST and compare-and-set
+  // draft -> locked LAST. Locking an already-locked payout passed the
+  // "not paid" check, marked every new unsettled adjustment (a fresh
+  // clawback, say) as settled into it, and only then failed the CAS — so
+  // those adjustments were recorded as deducted from a payout whose frozen
+  // total never included them. They were never collected. Claiming first
+  // means only the request that owns the lock touches anything.
+  let payout = await Payout.findOneAndUpdate(
+    { _id: payoutId, status: 'draft' },
+    { $set: { status: 'locked', lockedAt: now, totalsComputedAt: null } },
+    { new: true }
+  );
+  if (!payout) {
+    const current = await Payout.findById(payoutId).lean();
+    if (!current) throw new PayoutStateError('Payout not found');
+    if (current.status === 'paid') throw new PayoutStateError('This payout has already been paid');
+    // A lock that died between claiming and computing (a crash, a deploy)
+    // is resumable — but only once it is clearly dead, or two requests would
+    // compute it at once.
+    const interrupted = current.status === 'locked'
+      && current.totalsComputedAt === null
+      && current.lockedAt
+      && now.getTime() - new Date(current.lockedAt).getTime() > LOCK_RESUME_AFTER_MS;
+    if (!interrupted) throw new PayoutStateError('This payout was locked or paid by another request');
+    payout = await Payout.findById(payoutId);
+    logger.warn('Resuming an interrupted payout lock', { payoutId: String(payoutId).substring(0, 8) });
+  }
 
+  // ── 2. Compute, as the sole owner of the lock. ─────────────────────────
   // Pull in any clawback the inline hook missed before freezing the number.
   await reconcileClawbacks({ doctorId: payout.doctorId });
 
@@ -280,11 +325,10 @@ async function lockPayout(payoutId) {
   const account = (profile && profile.payoutBank && profile.payoutBank.accountNumber) || '';
 
   const updated = await Payout.findOneAndUpdate(
-    { _id: payout._id, status: 'draft' },
+    { _id: payout._id, status: 'locked', totalsComputedAt: null },
     {
       $set: {
-        status: 'locked',
-        lockedAt: new Date(),
+        totalsComputedAt: new Date(),
         sessionCount: (sums && sums.sessionCount) || 0,
         grossPrice: (sums && sums.grossPrice) || 0,
         platformFeeTotal: (sums && sums.platformFeeTotal) || 0,
@@ -350,7 +394,14 @@ async function markPaid(payoutId, { transferReference, adminId }) {
   if (!ref) throw new AppError('A transfer reference (UTR) is required to mark a payout paid', 400);
 
   const updated = await Payout.findOneAndUpdate(
-    { _id: payoutId, status: 'locked' },
+    {
+      _id: payoutId,
+      status: 'locked',
+      // Never pay a payout whose amounts were not frozen (a lock that died
+      // half-way). Payouts locked before totalsComputedAt existed have no
+      // such field and were frozen in the same write as the lock.
+      $or: [{ totalsComputedAt: { $exists: false } }, { totalsComputedAt: { $ne: null } }]
+    },
     { $set: { status: 'paid', paidAt: new Date(), paidBy: adminId || null, transferReference: ref } },
     { new: true }
   );
@@ -363,6 +414,9 @@ async function markPaid(payoutId, { transferReference, adminId }) {
       throw new PayoutStateError(
         `This payout has already been paid${current.transferReference ? ` (ref ${current.transferReference})` : ''}`
       );
+    }
+    if (current.status === 'locked') {
+      throw new PayoutStateError('This payout is still being locked — lock it again to finish, then mark it paid');
     }
     throw new PayoutStateError(`Cannot mark paid — this payout is "${current.status}", not "locked"`);
   }

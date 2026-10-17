@@ -29,27 +29,43 @@ const SCORING_TABLES = {
 };
 
 /**
- * dla20 is intentionally excluded: it's scored via a different flow (a
- * different max score / structure — see client/src/pages/MentalHealthTestPage.tsx
- * and the DLA-20-specific handling in PatientDashboard.tsx) that hasn't been
- * ported into this shared table. Requests for this test type still fall back
- * to trusting the client-supplied scores, same as before this fix — do not
- * silently assume it fits the generic table above without verifying its
- * actual scoring rules first.
+ * dla20 is intentionally excluded. It has a different structure, and the
+ * client has no definition for it at all — MENTAL_HEALTH_TESTS holds ten tests
+ * and the DLA-20 is not one of them, so no browser can administer it. Saves for
+ * it used to fall back to storing the client-supplied score verbatim, which
+ * made it the one test type whose clinical severity the caller simply chose.
+ * POST /api/assessments now refuses it (see isScorable). Do not add it to the
+ * generic table above without verifying its actual scoring rules first.
  */
 const UNVERIFIED_TEST_TYPES = new Set(['dla20']);
+
+/**
+ * An own-property lookup. A bare `SCORING_TABLES[testType]` resolved
+ * 'constructor', 'toString' and friends up the prototype chain to functions,
+ * which passed the "is there a table?" check and then threw on the next line.
+ */
+const own = (obj, key) => (typeof key === 'string' && Object.prototype.hasOwnProperty.call(obj, key) ? obj[key] : undefined);
+
+/** Whether the server can score this test type itself. */
+function isScorable(testType) {
+  return !UNVERIFIED_TEST_TYPES.has(testType) && !!own(SCORING_TABLES, testType);
+}
 
 /**
  * @param {string} testType
  * @param {{questionId: number, answer: number}[]} responses
  * @returns {{total: number, severity: string, percentage: number} | null}
- *   null means "not covered by this table" — caller should fall back to the
- *   client-supplied scores for that test type only.
+ *   null means "not covered by this table".
+ *
+ * A pure sum over whatever it is given — it does not range-check. That is
+ * validateResponses' job, and it must run first on anything a client sent;
+ * computeScore stays total so that client/src/__tests__/parity.test.ts can
+ * compare the two scorers on arbitrary input.
  */
 function computeScore(testType, responses) {
   if (UNVERIFIED_TEST_TYPES.has(testType)) return null;
 
-  const table = SCORING_TABLES[testType];
+  const table = own(SCORING_TABLES, testType);
   if (!table) return null;
 
   const total = Array.isArray(responses)
@@ -72,4 +88,107 @@ function computeScore(testType, responses) {
   return { total, severity, percentage };
 }
 
-module.exports = { computeScore, SCORING_TABLES };
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Answer validation                                                          */
+/* ────────────────────────────────────────────────────────────────────────── */
+
+const range = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+const answersFor = (ids, values) => Object.fromEntries(ids.map((id) => [id, values]));
+
+const FREQUENCY = [0, 1, 2, 3];
+const YES_NO = [0, 1];
+const FIVE_POINT = [0, 1, 2, 3, 4];
+
+/**
+ * Which questions each test asks, and the answer values each one can take.
+ * Server-side mirror of the `questions`, `options`/`defaultOptions` and
+ * `sections[].condition` of each test in client/src/data/mentalHealthTests.ts.
+ *
+ * Without it the server summed whatever `answer` values arrived: one answer of
+ * 100000 to a single depression question stored 'severe' at 333333%, and an
+ * empty-ish submission stored 'minimal'. A doctor reading the result could not
+ * tell either from a real one. So the severity was still client-controlled,
+ * just one step removed from the `scores` field the earlier fix stopped
+ * trusting.
+ *
+ * `branchOn` / `branches` model a conditional section: the answer to question
+ * `branchOn` decides which further questions apply (the addiction test asks
+ * about alcohol, drugs or a behaviour depending on Q1).
+ *
+ * Keep in step with the client file, as for SCORING_TABLES above.
+ */
+const QUESTION_SETS = {
+  depression: { questions: answersFor(range(1, 10), FREQUENCY) },
+  anxiety: { questions: answersFor(range(1, 7), FREQUENCY) },
+  adhd: { questions: { ...answersFor(range(1, 7), YES_NO), ...answersFor(range(8, 25), FIVE_POINT) } },
+  ptsd: { questions: answersFor(range(1, 24), YES_NO) },
+  addiction: {
+    questions: { 1: [0, 1, 2], ...answersFor([2, 3, 4, 10, 11, 5, 6, 7, 8, 9], YES_NO) },
+    always: [1],
+    branchOn: 1,
+    branches: { 0: [2, 3, 4, 10, 11], 1: [5, 6, 7], 2: [8, 9] }
+  },
+  'social-anxiety': { questions: { ...answersFor(range(1, 10), FIVE_POINT), ...answersFor([11, 12], YES_NO) } },
+  'post-partum': { questions: answersFor(range(1, 10), FREQUENCY) },
+  bipolar: { questions: { ...answersFor(range(1, 19), YES_NO), 20: FREQUENCY, ...answersFor([21, 22], YES_NO) } },
+  gambling: { questions: answersFor(range(1, 23), YES_NO) },
+  'eating-disorder': { questions: answersFor(range(1, 5), YES_NO) }
+};
+
+/** The question ids that apply, given the answers so far. */
+function applicableQuestions(set, answerById) {
+  if (!set.branches) return Object.keys(set.questions).map(Number);
+  const branch = own(set.branches, String(answerById.get(set.branchOn))) || [];
+  return [...set.always, ...branch];
+}
+
+/**
+ * Check a submission against the test definition before it is scored.
+ *
+ * Every answer must be an integer from its question's own option values, no
+ * question may be answered twice, and every question that applies must be
+ * answered — so the stored total is one a patient could actually have reached.
+ *
+ * Answers to questions in a branch that does NOT apply are dropped rather than
+ * refused. The client keeps every answer it has seen in one map, so a patient
+ * who picks "alcohol", answers a question, goes Back and switches to "drugs"
+ * submits the stale alcohol answer too. Refusing that would lose a genuine
+ * result; scoring it would count a question the patient was never asked.
+ *
+ * @returns {{ responses: {questionId:number, answer:number}[] } | { error: string }}
+ *   `responses` is what should be scored and stored.
+ */
+function validateResponses(testType, responses) {
+  const set = isScorable(testType) ? own(QUESTION_SETS, testType) : undefined;
+  if (!set) return { error: 'This assessment cannot be scored' };
+  if (!Array.isArray(responses) || responses.length === 0) return { error: 'responses must be a non-empty array' };
+  // No test has more than 25 questions; this only bounds the work below.
+  if (responses.length > 100) return { error: 'Too many responses' };
+
+  const answerById = new Map();
+  for (const r of responses) {
+    if (!r || typeof r !== 'object') return { error: 'Each response must be an object' };
+    const { questionId, answer } = r;
+    if (!Number.isInteger(questionId) || !Number.isInteger(answer)) {
+      return { error: 'questionId and answer must be integers' };
+    }
+    const allowed = own(set.questions, String(questionId));
+    if (!allowed) return { error: `Question ${questionId} is not part of this assessment` };
+    if (!allowed.includes(answer)) return { error: `Answer ${answer} is not a valid option for question ${questionId}` };
+    if (answerById.has(questionId)) return { error: `Question ${questionId} was answered more than once` };
+    answerById.set(questionId, answer);
+  }
+
+  const applicable = applicableQuestions(set, answerById);
+  const missing = applicable.filter((id) => !answerById.has(id));
+  if (missing.length) return { error: `Missing answers for question(s) ${missing.join(', ')}` };
+
+  const wanted = new Set(applicable);
+  return {
+    responses: responses
+      .filter((r) => wanted.has(r.questionId))
+      .map((r) => ({ questionId: r.questionId, answer: r.answer }))
+  };
+}
+
+module.exports = { computeScore, validateResponses, isScorable, SCORING_TABLES, QUESTION_SETS };

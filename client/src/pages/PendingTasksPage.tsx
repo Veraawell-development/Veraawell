@@ -152,7 +152,12 @@ const PendingTasksPage: React.FC = () => {
     updateTaskStatusMutation.mutate({ taskId, newStatus });
   };
 
-  const handleDownload = (task: Task) => generateTaskPDF(task);
+  const handleDownload = (task: Task) => {
+    generateTaskPDF(task).catch((err) => {
+      logger.error('Failed to generate task PDF', err);
+      showError('Could not create the PDF. Please try again.');
+    });
+  };
   const handleView = (task: Task) => { setSelectedTask(task); setViewModalOpen(true); };
 
   // --- Drag and Drop Handlers ---

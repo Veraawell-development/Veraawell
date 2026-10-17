@@ -287,6 +287,71 @@ describe('lock freezes the money from what was actually claimed', () => {
   });
 });
 
+describe('locking cannot lose money', () => {
+  test('re-locking a locked payout does not swallow a new adjustment', async () => {
+    // Lock used to settle every unsettled adjustment into the payout BEFORE
+    // its draft->locked compare-and-set. On an already-locked payout that
+    // marked a fresh clawback as deducted from a total that was already
+    // frozen without it — and it was never collected from anyone.
+    await payableSession(doctorA);
+    const { created } = await ledger.generatePayouts(PERIOD.periodKey);
+    await ledger.lockPayout(created[0].payoutId);
+
+    const clawback = await PayoutAdjustment.create({
+      doctorId: doctorA, amount: -300, kind: 'refund_clawback',
+      idempotencyKey: 'clawback:relock-test', reason: 'test'
+    });
+    await expect(ledger.lockPayout(created[0].payoutId)).rejects.toThrow(/locked or paid/i);
+
+    expect((await PayoutAdjustment.findById(clawback._id)).settledInPayoutId).toBeNull();
+  });
+
+  test('a lock that died before computing its totals cannot be paid, and can be resumed', async () => {
+    await payableSession(doctorA);
+    const { created } = await ledger.generatePayouts(PERIOD.periodKey);
+    // Simulate a crash between claiming the lock and freezing the amounts.
+    await Payout.updateOne(
+      { _id: created[0].payoutId },
+      { $set: { status: 'locked', lockedAt: new Date(Date.now() - 10 * 60 * 1000), totalsComputedAt: null } }
+    );
+
+    await expect(ledger.markPaid(created[0].payoutId, { transferReference: 'UTR1' })).rejects.toThrow(/still being locked/i);
+
+    const resumed = await ledger.lockPayout(created[0].payoutId);
+    expect(resumed.grossEarnings).toBe(800);
+    expect(resumed.totalsComputedAt).toBeInstanceOf(Date);
+    const paid = await ledger.markPaid(created[0].payoutId, { transferReference: 'UTR1' });
+    expect(paid.status).toBe('paid');
+  });
+
+  test('a payout locked before totalsComputedAt existed can still be paid', async () => {
+    await payableSession(doctorA);
+    const { created } = await ledger.generatePayouts(PERIOD.periodKey);
+    await ledger.lockPayout(created[0].payoutId);
+    await Payout.collection.updateOne({ _id: created[0].payoutId }, { $unset: { totalsComputedAt: 1 } });
+
+    const paid = await ledger.markPaid(created[0].payoutId, { transferReference: 'UTR-LEGACY' });
+    expect(paid.status).toBe('paid');
+  });
+
+  test('a session that becomes payable after its week was locked is carried into the next draft', async () => {
+    // Claims used to be bounded to the period being generated, so a session
+    // swept to completed after its own week's payout froze matched no run,
+    // ever, and the doctor was never paid for it.
+    await payableSession(doctorA);
+    const { created } = await ledger.generatePayouts(PERIOD.periodKey);
+    await ledger.lockPayout(created[0].payoutId);
+
+    const late = await payableSession(doctorA);
+
+    const next = periodFor(new Date(PERIOD.periodEnd.getTime() + 2 * 864e5));
+    const generated = await ledger.generatePayouts(next.periodKey);
+    expect(generated.created).toHaveLength(1);
+    expect(generated.created[0].claimed).toBe(1);
+    expect(String((await Session.findById(late._id)).payoutId)).toBe(String(generated.created[0].payoutId));
+  });
+});
+
 describe('mark paid', () => {
   async function lockedPayout() {
     await payableSession(doctorA);

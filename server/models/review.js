@@ -16,11 +16,15 @@ const reviewSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  // Whole stars only. A fractional rating passed min/max, and then fell
+  // outside every bucket of the star distribution — `distribution[4.5]++`
+  // is NaN — so the doctor's breakdown stopped adding up to their total.
   rating: {
     type: Number,
     required: true,
     min: 1,
-    max: 5
+    max: 5,
+    validate: { validator: Number.isInteger, message: 'Rating must be a whole number from 1 to 5' }
   },
   feedback: {
     type: String,
@@ -71,9 +75,12 @@ const reviewSchema = new mongoose.Schema({
     trim: true,
     default: ''
   },
+  // An admin's User id. This ref used to name an 'Admin' model that does not
+  // exist (admins are Users with an admin role), so populating it threw
+  // MissingSchemaError instead of returning the moderator.
   reviewedBy: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Admin',
+    ref: 'User',
     default: null
   },
   reviewedAt: {
@@ -91,10 +98,82 @@ reviewSchema.index({ reviewStatus: 1 });
 reviewSchema.index({ reviewType: 1, approvedForDisplay: 1 });
 reviewSchema.index({ doctorId: 1, approvedForDisplay: 1 });
 
-// Static method to calculate doctor's average rating
+/**
+ * What a review must satisfy before anyone outside its own parties and the
+ * admins may see it — the public profile, the landing page, and every rating
+ * aggregate shown beside them. The two review types answer differently.
+ *
+ * DOCTOR reviews are public by default and hidden by exception. One can only
+ * be written by the patient of a completed session with that doctor, so it is
+ * verified by construction; holding every one for an admin meant a patient's
+ * review never appeared on the profile at all (found in end-to-end testing),
+ * because nothing in the client moderates them. An admin can still take one
+ * down: flagging it, or `approve` with `approved: false`, which stamps
+ * `reviewedAt`. Rows written before this rule sit at approvedForDisplay:false
+ * with no `reviewedAt` — never looked at, not rejected — so they count as
+ * visible without a migration. publicDoctorReviewStages adds the
+ * completed-session check.
+ *
+ * PLATFORM reviews stay moderated: they are landing-page testimonials, and
+ * nothing ties their wording to a session. `approvedForDisplay` alone is not
+ * proof a human approved one — submitReview used to set it on every platform
+ * review at submission — but an admin approval always stamps `reviewedAt`, so
+ * requiring both hides those self-approved rows without a migration.
+ *
+ * A flagged review of either type is never public. A function rather than a
+ * shared constant because Mongoose casts query filters in place.
+ */
+function publicFilter(reviewType) {
+  if (reviewType === 'platform') {
+    return {
+      reviewType: 'platform',
+      approvedForDisplay: true,
+      reviewStatus: { $ne: 'flagged' },
+      reviewedAt: { $ne: null }
+    };
+  }
+  return {
+    reviewType: 'doctor',
+    reviewStatus: { $ne: 'flagged' },
+    $or: [{ approvedForDisplay: true }, { reviewedAt: null }]
+  };
+}
+reviewSchema.statics.publicFilter = publicFilter;
+
+/**
+ * Aggregation stages selecting one doctor's public reviews: publicFilter, and
+ * a session that really was completed. submitReview already refuses anything
+ * else, but the legacy rows admitted above were never looked at, so the claim
+ * "verified by construction" is checked rather than assumed.
+ *
+ * Shared by the public list and getDoctorStats so the reviews shown and the
+ * rating printed above them can never disagree.
+ */
+function publicDoctorReviewStages(doctorId) {
+  // Required here rather than at the top: it only registers the model, and
+  // keeps this file loadable on its own.
+  const Session = require('./session');
+  return [
+    { $match: { doctorId: new mongoose.Types.ObjectId(doctorId), ...publicFilter('doctor') } },
+    { $lookup: { from: Session.collection.name, localField: 'sessionId', foreignField: '_id', as: '_session' } },
+    { $match: { '_session.status': 'completed' } },
+    { $project: { _session: 0 } }
+  ];
+}
+reviewSchema.statics.publicDoctorReviewStages = publicDoctorReviewStages;
+
+/**
+ * A doctor's public rating summary — exactly the reviews their public profile
+ * lists.
+ *
+ * It used to match on doctorId alone, so the published average included
+ * flagged reviews, which moderation exists to take down, and platform
+ * reviews, which also carry the session's doctorId but rate the product, not
+ * the therapist.
+ */
 reviewSchema.statics.getDoctorStats = async function (doctorId) {
   const stats = await this.aggregate([
-    { $match: { doctorId: new mongoose.Types.ObjectId(doctorId) } },
+    ...publicDoctorReviewStages(doctorId),
     {
       $group: {
         _id: '$doctorId',

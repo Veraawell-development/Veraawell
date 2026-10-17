@@ -391,7 +391,7 @@ describe('concurrent slot booking', () => {
     const payload = {
       doctorId: String(f.doctorA._id),
       sessionDate: day, sessionTime: '11:00 AM',
-      price: 1500, mode: 'video', duration: 60
+      price: 1500, mode: 'video', duration: 55
     };
 
     const results = await Promise.all([
@@ -457,21 +457,19 @@ describe('concurrent webhook delivery', () => {
 
 describe('where the state machine is NOT used', () => {
   test('the state machine is used by the paths that have been converted, and no others', () => {
-    // The wrapper enforces the invariants and the compare-and-set guard.
-    // Coverage is still partial: payment capture, the webhook handlers, the
-    // instant-session auto-cancel and the admin refund paths all still use
-    // session.save() directly and get none of those guarantees.
+    // Pinned as numbers so that adding or removing a path shows up here as a
+    // deliberate, visible change.
     //
-    // Pinned as a number so that converting a path shows up here as a
-    // deliberate, visible change — which is what these two lines record.
-    //
-    // Converted so far:
-    //   controllers/session.controller.js  completeSession, cancelSession
-    //   services/sessionRefund.js          the claim / succeed / fail sequence,
-    //                                      shared by the no-show auto-refund,
-    //                                      cancelSession and (in time) the
-    //                                      remaining refund paths
-    // The scheduler's sweep and the socket call-ended handler go through
+    // Every path that moves status or paymentStatus now goes through it:
+    //   controllers/session.controller.js   complete, cancel, instant-request
+    //                                       withdraw/expiry
+    //   controllers/adminPayments.controller.js  the cancel before an admin refund
+    //   services/sessionRefund.js           claim / fail / succeed, and the
+    //                                       stuck-refund reconciliation
+    //   services/sessionPayment.js          payment confirmed, late capture,
+    //                                       checkout expiry, and a refund made
+    //                                       outside the app (cancel + observe)
+    // The scheduler's sweep and the video socket's completions go through
     // tryTransition, the non-throwing wrapper, so they do not appear in this
     // grep.
     const { execSync } = require('child_process');
@@ -482,16 +480,19 @@ describe('where the state machine is NOT used', () => {
       { cwd: root, encoding: 'utf8' }
     ).trim().split('\n').filter(Boolean);
 
-    expect(callSites).toHaveLength(5);
-    expect(callSites.filter((l) => /session\.controller\.js/.test(l))).toHaveLength(2);
-    expect(callSites.filter((l) => /sessionRefund\.js/.test(l))).toHaveLength(3);
+    expect(callSites).toHaveLength(13);
+    expect(callSites.filter((l) => /session\.controller\.js/.test(l))).toHaveLength(3);
+    expect(callSites.filter((l) => /sessionRefund\.js/.test(l))).toHaveLength(4);
+    expect(callSites.filter((l) => /sessionPayment\.js/.test(l))).toHaveLength(5);
+    expect(callSites.filter((l) => /adminPayments\.controller\.js/.test(l))).toHaveLength(1);
 
     const directSaves = execSync(
-      'grep -rn "session\\.save()" controllers services socket --include="*.js" | wc -l',
+      'grep -rn "session\\.save()" controllers services socket --include="*.js" | grep -v "^[^:]*:[0-9]*: *//" | wc -l',
       { cwd: root, encoding: 'utf8' }
     ).trim();
-    // Still high, and each one is a money path that has not been converted.
-    // This number should fall as they are; it must never rise.
-    expect(Number(directSaves)).toBeLessThanOrEqual(17);
+    // Was 17, each one a money path. The two left INSERT a new session
+    // (bookSession, bookImmediate); none moves an existing one. It must never
+    // rise.
+    expect(Number(directSaves)).toBeLessThanOrEqual(2);
   });
 });

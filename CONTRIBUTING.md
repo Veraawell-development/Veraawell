@@ -17,8 +17,9 @@ cd server  && npm test && npm run test:tz
 cd client  && npx tsc -b && npm run build && npm run test:unit
 ```
 
-**There is no CI yet**, so those commands are the only thing standing between a
-mistake and production. Run them.
+CI (`.github/workflows/ci.yml`) runs the same checks — the coverage ratchet
+and both timezones included — on every push and pull request. Run them
+locally anyway; it is faster than waiting for a red build.
 
 ---
 
@@ -55,9 +56,14 @@ payment id, `refunded` needs a refund id and a non-zero amount.
 Assigning the fields and calling `session.save()` bypasses all of it, and a
 direct save is how a session ended up `refunded` with no refund ever issued.
 
+Every path that moves either field now goes through it — booking payment
+(`services/sessionPayment.js`), refunds (`services/sessionRefund.js`), cancel,
+complete, instant-request expiry, admin refunds, and the video socket. The only
+remaining `session.save()` calls insert a new session.
+
 `__tests__/e2e/concurrency.test.js` pins the number of call sites deliberately,
-so converting another path shows up as a visible, intentional change. If that
-test fails because you converted one, bump the number and name the new site.
+so adding or removing one shows up as a visible, intentional change. If that
+test fails because you added one, bump the number and name the new site.
 
 ## 3. Public responses are an allowlist
 
@@ -121,6 +127,13 @@ For those, read the controller named on the route line.
 README. `render.yaml` lists every variable the server reads, including optional
 ones, so a new environment cannot be provisioned with a silently missing key.
 
+**CSRF tokens are minted in exactly one place**, `GET /api/csrf-token`. Every
+other request leaves the cookie alone — minting on any cookie-less request let
+parallel first requests race and desync the token from the cookie ("Invalid
+CSRF token" after paying). The client's fetch wrapper
+(`client/src/utils/csrfFetchInterceptor.ts`) sends credentials, the header,
+and retries once on a CSRF 403; raw `fetch` to the API goes through it.
+
 **The `/data` socket is shared app-wide.** `socket.off('event')` without a
 handler reference removes *every* component's listener for that event. Always
 pass the handler.
@@ -129,7 +142,7 @@ pass the handler.
 
 ## Tests
 
-42 suites, ~720 tests. `npm test` runs under `TZ=UTC`; `npm run test:tz` runs
+47 server suites, ~910 tests; client unit tests run with `npm run test:unit`. `npm test` runs under `TZ=UTC`; `npm run test:tz` runs
 the whole suite again under `America/Los_Angeles`, because timezone bugs here
 are the kind that only appear for some users at some hours.
 

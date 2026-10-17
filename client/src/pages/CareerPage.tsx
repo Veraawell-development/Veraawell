@@ -9,6 +9,7 @@ import SparkDecor from '../components/ui/SparkDecor';
 import RippleDecor from '../components/ui/RippleDecor';
 import WaveDecor from '../components/ui/WaveDecor';
 import EnquiryForm from '../components/EnquiryForm';
+import ResendCodeButton from '../components/ResendCodeButton';
 
 const CAREER_MARQUEE_ITEMS = [
   'Join Us As A Professional',
@@ -915,6 +916,12 @@ const CareerPage: React.FC = () => {
                             'Verify & Complete Application'
                           )}
                         </button>
+                        <div className="mt-4">
+                          <ResendCodeButton
+                            email={formData.email}
+                            className="text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                          />
+                        </div>
                       </div>
                     </div>
                   )}

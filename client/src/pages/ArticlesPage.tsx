@@ -83,17 +83,21 @@ const ArticlesPage: React.FC = () => {
 
     useEffect(() => {
         if (!socket) return;
-        socket.on('article:new', ({ article }) => {
+        const onArticleNew = ({ article }: { article: { title: string } }) => {
             toast.success(`New article: ${article.title}`);
             queryClient.invalidateQueries({ queryKey: ['articles'] });
-        });
-        socket.on('article:deleted', ({ articleId }) => {
+        };
+        const onArticleDeleted = () => {
             toast('An article was removed', { icon: 'info' });
             queryClient.invalidateQueries({ queryKey: ['articles'] });
-        });
+        };
+        socket.on('article:new', onArticleNew);
+        socket.on('article:deleted', onArticleDeleted);
         return () => {
-            socket.off('article:new');
-            socket.off('article:deleted');
+            // With the handler: the /data socket is shared app-wide, and a bare
+            // off(event) would remove every other component's listener too.
+            socket.off('article:new', onArticleNew);
+            socket.off('article:deleted', onArticleDeleted);
         };
     }, [socket, queryClient]);
 

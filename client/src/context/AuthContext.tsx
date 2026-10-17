@@ -1,8 +1,10 @@
-import React, { createContext, useState, useContext, useCallback } from 'react';
+import React, { createContext, useState, useContext, useCallback, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { API_BASE_URL } from '../config/api';
 import { getAuthToken, setAuthTokenInMemory } from '../utils/authToken';
+import { invalidateCsrfToken } from '../utils/csrfToken';
+import { fetchWithRetry } from '../utils/backendWakeup';
 
 interface User {
   userId: string;
@@ -19,17 +21,65 @@ interface User {
   };
 }
 
+interface CheckAuthOptions {
+  /**
+   * Bypass the cached ['session'] entry and ask the server again — for after
+   * something the session payload carries (the emergency contact, profile
+   * status) has changed. Without it a check inside the 5-minute staleTime
+   * returns the cached user unchanged.
+   */
+  force?: boolean;
+}
+
 interface AuthContextType {
   isLoggedIn: boolean;
   user: User | null;
   token: string | null;
   loading: boolean;
-  checkAuth: () => Promise<void>;
-  logout: () => void;
+  /**
+   * True when the last auth check could not reach the server at all (network
+   * error / 5xx after retries) — as opposed to the server saying "not logged
+   * in". ProtectedRoute uses it to offer a retry instead of bouncing a
+   * possibly-logged-in user to the login page.
+   */
+  serverUnreachable: boolean;
+  checkAuth: (options?: CheckAuthOptions) => Promise<void>;
+  logout: () => Promise<void>;
   setAuthToken: (token: string) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+/**
+ * Attempts for /protected while the API is unreachable. The API runs on a
+ * host that sleeps when idle; the first request after that gets a network
+ * error or a 502/503 for up to a minute while it boots. With 6 attempts and
+ * a 1s initial delay the backoff (1, 2, 4, 8, 16s) covers ~31s of waiting on
+ * top of each attempt's own time.
+ */
+const AUTH_CHECK_ATTEMPTS = 6;
+const AUTH_CHECK_INITIAL_DELAY_MS = 1000;
+
+class AuthCheckError extends Error {
+  status?: number;
+  /** The server said this session is not valid — clear it. */
+  loggedOut: boolean;
+
+  constructor(message: string, loggedOut: boolean, status?: number) {
+    super(message);
+    this.loggedOut = loggedOut;
+    this.status = status;
+  }
+}
+
+async function readCategory(res: Response): Promise<string | undefined> {
+  try {
+    const data = await res.clone().json();
+    return typeof data?.category === 'string' ? data.category : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
@@ -39,6 +89,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // utils/authToken.ts for why it's not persisted to localStorage).
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [serverUnreachable, setServerUnreachable] = useState<boolean>(false);
+
+  // Read inside checkAuth without making it depend on (and be recreated by)
+  // isLoggedIn — several effects list checkAuth as a dependency.
+  const isLoggedInRef = useRef(false);
 
   const queryClient = useQueryClient();
 
@@ -47,8 +102,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setAuthTokenInMemory(newToken);
   }, []);
 
-  const checkAuth = useCallback(async () => {
-    setLoading(true);
+  const clearLocalSession = useCallback(() => {
+    isLoggedInRef.current = false;
+    setIsLoggedIn(false);
+    setUser(null);
+    setToken(null);
+    setAuthTokenInMemory(null);
+  }, []);
+
+  const checkAuth = useCallback(async (options?: CheckAuthOptions) => {
+    // Only show the blocking loading state while auth is genuinely unknown.
+    // A re-check for an already-logged-in user (after saving the emergency
+    // contact, say) must not flip `loading`: ProtectedRoute renders a
+    // LoadingScreen in its place, which would unmount the page — including a
+    // live video call — and DataSocketProvider would tear down the socket.
+    const blocking = !isLoggedInRef.current;
+    if (blocking) setLoading(true);
 
     try {
       // Check if cookies are enabled/blocked (especially for Safari ITP)
@@ -59,25 +128,37 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       const storedToken = getAuthToken();
 
+      if (options?.force) {
+        await queryClient.invalidateQueries({ queryKey: ['session'], refetchType: 'none' });
+      }
+
       // Use queryClient.fetchQuery to deduplicate concurrent requests and cache the session
       const sessionData = await queryClient.fetchQuery({
         queryKey: ['session'],
         queryFn: async () => {
-          const res = await fetch(`${API_BASE_URL}/protected`, {
-            credentials: 'include',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(storedToken ? { 'Authorization': `Bearer ${storedToken}` } : {}),
-            },
-          });
+          let res: Response;
+          try {
+            // Retries network errors and 5xx with exponential backoff; any
+            // 4xx comes straight back. See AUTH_CHECK_ATTEMPTS.
+            res = await fetchWithRetry(`${API_BASE_URL}/protected`, {
+              credentials: 'include',
+              headers: {
+                'Content-Type': 'application/json',
+                ...(storedToken ? { 'Authorization': `Bearer ${storedToken}` } : {}),
+              },
+            }, AUTH_CHECK_ATTEMPTS, AUTH_CHECK_INITIAL_DELAY_MS);
+          } catch (err) {
+            throw new AuthCheckError(`Auth check could not reach the server: ${(err as Error)?.message}`, false);
+          }
 
           if (!res.ok) {
-            if (res.status === 401 || res.status === 403) {
-              const error = new Error('Unauthorized');
-              (error as any).status = res.status;
-              throw error;
-            }
-            throw new Error(`Server returned non-401 error: ${res.status}`);
+            // Only a definite "this session is not valid" logs the user out:
+            // a 401, or a 403 the server tags as an authentication failure.
+            // A 5xx that outlived the retries, or an authorization 403, is
+            // not proof the user is logged out.
+            const loggedOut = res.status === 401
+              || (res.status === 403 && (await readCategory(res)) === 'authentication');
+            throw new AuthCheckError(`Auth check failed: ${res.status}`, loggedOut, res.status);
           }
 
           const data = await res.json();
@@ -103,9 +184,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           return { ...data, profileCompleted };
         },
         staleTime: 1000 * 60 * 5, // Cache for 5 minutes
+        // The queryFn does its own backoff for the cases worth retrying; the
+        // app-wide `retry: 1` default would also re-send a definite 401.
+        retry: false,
       });
 
+      isLoggedInRef.current = true;
       setIsLoggedIn(true);
+      setServerUnreachable(false);
       setUser({
         ...sessionData.user,
         profileCompleted: sessionData.profileCompleted
@@ -119,38 +205,49 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       } else if (storedToken) {
         setToken(storedToken);
       }
-    } catch (error: any) {
-      // User not authenticated (only clear if explicitly 401/403)
-      if (error.status === 401 || error.status === 403) {
-        setIsLoggedIn(false);
-        setUser(null);
-        setToken(null);
-        setAuthTokenInMemory(null); // Clear if auth explicitly fails
+    } catch (error: unknown) {
+      if (error instanceof AuthCheckError && error.loggedOut) {
+        setServerUnreachable(false);
+        clearLocalSession();
       } else {
-        console.warn('[Auth] Server returned non-401 error or network error:', error);
-        // DO NOT clear the in-memory token or state here — they might still be valid when server wakes up
+        const unreachable = !(error instanceof AuthCheckError) || error.status === undefined || error.status >= 500;
+        setServerUnreachable(unreachable);
+        console.warn('[Auth] Auth check did not complete:', error);
+        // DO NOT clear the in-memory token or state here — they might still
+        // be valid once the server is reachable again.
       }
     } finally {
-      setLoading(false);
+      if (blocking) setLoading(false);
     }
-  }, [queryClient]);
+  }, [queryClient, clearLocalSession]);
 
   const logout = useCallback(async () => {
-    await fetch(`${API_BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
-    setIsLoggedIn(false);
-    setUser(null);
-    setToken(null);
-    setAuthTokenInMemory(null);
-    queryClient.removeQueries({ queryKey: ['session'] });
-  }, [queryClient]);
+    try {
+      await fetch(`${API_BASE_URL}/auth/logout`, { method: 'POST', credentials: 'include' });
+    } catch (err) {
+      // Still log out locally: a failed request must not leave the previous
+      // user's data on screen. The httpOnly cookie expires on its own.
+      console.warn('[Auth] Logout request failed; clearing the local session anyway', err);
+    } finally {
+      clearLocalSession();
+      setServerUnreachable(false);
+      invalidateCsrfToken();
+      // Not just ['session']: plenty of cached queries are keyed without a
+      // user id (unread count, pending feedback, mood, emergency contact,
+      // previous doctors…) and would otherwise be shown to the next account
+      // that logs in in this tab.
+      queryClient.clear();
+    }
+  }, [queryClient, clearLocalSession]);
 
   return (
-    <AuthContext.Provider value={{ isLoggedIn, user, token, loading, checkAuth, logout, setAuthToken }}>
+    <AuthContext.Provider value={{ isLoggedIn, user, token, loading, serverUnreachable, checkAuth, logout, setAuthToken }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext);
   if (context === undefined) {

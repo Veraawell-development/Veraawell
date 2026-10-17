@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast';
 import { MENTAL_HEALTH_TESTS, calculateTestScore } from '../data/mentalHealthTests';
 import type { TestDefinition } from '../data/mentalHealthTests';
 import { API_CONFIG } from '../config/api';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+
+/** A rejection the server explains (400: unknown test type, out-of-range answer…). */
+class AssessmentRejected extends Error {}
 
 const MentalHealthTestPage: React.FC = () => {
     const { testType } = useParams<{ testType: string }>();
@@ -11,7 +15,12 @@ const MentalHealthTestPage: React.FC = () => {
 
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
     const [responses, setResponses] = useState<Record<number, number>>({});
-    const [test, setTest] = useState<TestDefinition | null>(null);
+    // Derived, not state. This used to be `useState(null)` filled in by an
+    // effect, with `if (!test) return null` placed ABOVE the remaining hooks:
+    // the first render ran six hooks and returned, the next ran eleven, and
+    // React threw "Rendered more hooks than during the previous render" — the
+    // ErrorBoundary's "Something went wrong" on every test.
+    const test: TestDefinition | null = (testType && MENTAL_HEALTH_TESTS[testType]) || null;
     const queryClient = useQueryClient();
 
     const saveAssessmentMutation = useMutation({
@@ -22,15 +31,31 @@ const MentalHealthTestPage: React.FC = () => {
                 credentials: 'include',
                 body: JSON.stringify(payload)
             });
+            if (response.status >= 400 && response.status < 500) {
+                const data = await response.json().catch(() => ({}));
+                throw new AssessmentRejected(data.message || 'These answers could not be saved.');
+            }
             if (!response.ok) throw new Error('Failed to save assessment');
             return response.json();
         },
         onSuccess: (data) => {
             queryClient.invalidateQueries({ queryKey: ['patient', 'assessments'] });
-            navigate(`/test-results/${data.assessment._id}`);
+            if (data?.assessment?._id) {
+                navigate(`/test-results/${data.assessment._id}`);
+            } else {
+                navigate('/my-tests');
+            }
         },
         onError: (error, variables) => {
             console.error('Error saving assessment:', error);
+            if (error instanceof AssessmentRejected) {
+                // The server refused these answers; a local "result" for them
+                // would be a score nobody can see again. Say why and stay.
+                toast.error(error.message);
+                return;
+            }
+            // Network / server failure: show the result locally so the
+            // patient's effort isn't lost, flagged as not saved.
             navigate(`/test-results/preview`, {
                 state: { testType: variables.testType, responses: variables.responses, scores: variables.scores }
             });
@@ -38,14 +63,15 @@ const MentalHealthTestPage: React.FC = () => {
     });
 
     useEffect(() => {
-        if (!testType || !MENTAL_HEALTH_TESTS[testType]) {
-            navigate('/mental-health');
-            return;
-        }
-        setTest(MENTAL_HEALTH_TESTS[testType]);
-    }, [testType, navigate]);
+        if (!test) navigate('/mental-health', { replace: true });
+    }, [test, navigate]);
 
-    if (!test) return null;
+    // Moving from one test straight to another reuses this component; start
+    // the new one clean rather than with the last test's answers.
+    useEffect(() => {
+        setResponses({});
+        setCurrentQuestionIndex(0);
+    }, [testType]);
 
     /**
      * Which questions apply, given a set of answers.
@@ -56,9 +82,9 @@ const MentalHealthTestPage: React.FC = () => {
      * given, not read off the render's stale copy. See handleAnswer.
      */
     const visibleFor = useCallback((resp: Record<number, number>) => (
-        test.questions.filter(q => {
+        (test?.questions ?? []).filter(q => {
             if (!q.sectionId) return true;
-            const section = test.sections?.find(s => s.id === q.sectionId);
+            const section = test?.sections?.find(s => s.id === q.sectionId);
             if (!section || !section.condition) return true;
             return section.condition(resp);
         })
@@ -95,6 +121,9 @@ const MentalHealthTestPage: React.FC = () => {
 
     useEffect(() => () => { advancing.current = false; }, []);
 
+    // Every hook is above this line; see the note on `test`.
+    if (!test) return null;
+
     const handleAnswer = (value: number) => {
         if (!currentQuestion || advancing.current || saveAssessmentMutation.isPending) return;
 
@@ -121,10 +150,14 @@ const MentalHealthTestPage: React.FC = () => {
     };
 
     const saveResults = (finalResponses: Record<number, number>) => {
-        const formattedResponses = Object.entries(finalResponses).map(([id, val]) => ({
-            questionId: parseInt(id),
-            answer: val
-        }));
+        // Only questions that are still on the path. Going Back and changing
+        // the addiction test's first answer leaves answers to the other
+        // branch in `responses`; sending them inflated the score and gave the
+        // server answers to questions the patient was never shown.
+        const visibleIds = new Set(visibleFor(finalResponses).map(q => q.id));
+        const formattedResponses = Object.entries(finalResponses)
+            .map(([id, val]) => ({ questionId: parseInt(id), answer: val }))
+            .filter(r => visibleIds.has(r.questionId));
         const scores = calculateTestScore(test.id, formattedResponses);
         
         saveAssessmentMutation.mutate({

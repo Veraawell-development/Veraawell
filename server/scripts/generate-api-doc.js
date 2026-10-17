@@ -73,7 +73,7 @@ const doc = {
   generatedAt: new Date().toISOString().slice(0, 10),
   notes: [
     'Auth: an httpOnly `token` cookie, or `Authorization: Bearer <jwt>`. Admin routes use a separate realm and a separate secret.',
-    'Mutating requests (POST/PUT/PATCH/DELETE) require an `X-CSRF-Token` header; fetch the value from GET /api/csrf-token. Exempt: /api/auth/*, /api/admin/auth/*, /api/payments/webhook, /api/upload/doctor-document.',
+    `Mutating requests (POST/PUT/PATCH/DELETE) require an \`X-CSRF-Token\` header matching the csrfToken cookie; both come from GET /api/csrf-token, the only place a token is minted. Exempt (pre-session or server-to-server): ${[...require('../middleware/csrf.middleware').CSRF_EXEMPT_PATHS].map((p) => `/api${p}`).sort().join(', ')}, /api/admin/auth/reset-password/:token.`,
     'Request and response bodies are not listed: they are not inferable from the router. Read the controller named on the route line.',
     '"undeclared" means the route predates the authz convention and is grandfathered in authz/UNDECLARED.js, which may only shrink. It does not mean unauthenticated.'
   ],

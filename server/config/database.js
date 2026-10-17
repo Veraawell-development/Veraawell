@@ -180,6 +180,20 @@ function createSessionStore() {
 
   return MongoStore.create({
     mongoUrl: mongoUri,
+    // NOT connect-mongo's default. Its default collection is 'sessions' —
+    // the same collection the therapy Session model uses (Mongoose
+    // pluralises 'Session' to 'sessions'). Login-store rows were therefore
+    // interleaved with bookings: any query over Session that did not filter
+    // on a booking field could see them, connect-mongo built its `expires`
+    // TTL index on the bookings collection, and the old admin
+    // "cleanup-sessions" endpoint, meant for login state, deleted every
+    // booking. migrations/splitLoginSessions.js removes the rows and the
+    // index this left behind.
+    //
+    // Nothing is lost by the move: express-session here only carries the
+    // OAuth role across the Google redirect (req.session.oauthRole). Auth
+    // itself is the JWT cookie, so no one is logged out.
+    collectionName: 'auth_sessions',
     ttl: 30 * 24 * 60 * 60, // 30 days in seconds
     touchAfter: 24 * 3600, // Lazy session update (24 hours)
     crypto: {

@@ -7,17 +7,22 @@ interface InstantRequestModalProps {
     isOpen: boolean;
     onAccept: (sessionId: string) => void;
     onDelay: (sessionId: string, minutes: number, note: string) => void;
-    onMissed: (sessionId: string) => void;
+    /** The accept window closed. The server's sweep expires the request; the caller just dismisses. */
+    onExpired: (sessionId: string) => void;
     onClose: () => void;
 }
 
-const InstantRequestModal: React.FC<InstantRequestModalProps> = ({ session, isOpen, onAccept, onDelay, onMissed }) => {
+/** Server: INSTANT_ACCEPT_WINDOW_MINUTES (config/time.js). Only used for the progress bar and legacy rows. */
+const ACCEPT_WINDOW_SECONDS = 120;
+
+const InstantRequestModal: React.FC<InstantRequestModalProps> = ({ session, isOpen, onAccept, onDelay, onExpired }) => {
     const [showDelayOptions, setShowDelayOptions] = useState(false);
     const [delayMinutes, setDelayMinutes] = useState(5);
     const [isCustomDelay, setIsCustomDelay] = useState(false);
     const [note, setNote] = useState('');
     const [timeLeft, setTimeLeft] = useState(0);
     const audioRef = useRef<{ stop: () => void } | null>(null);
+    const openedAt = useRef(Date.now());
 
     /**
      * Seconds left, measured against the server's own deadline.
@@ -30,9 +35,14 @@ const InstantRequestModal: React.FC<InstantRequestModalProps> = ({ session, isOp
      * the 30 seconds it really has, not a fresh minute.
      */
     const remaining = () => {
-        const deadline = (session as any).acceptanceDeadline;
-        if (!deadline) return 60; // pre-deadline rows; the sweep still backstops
-        return Math.max(0, Math.round((new Date(deadline).getTime() - Date.now()) / 1000));
+        // Rows from before the deadline was stamped: the server's legacy rule
+        // is createdAt + the same window. (This used to return a constant 60,
+        // so the countdown never moved and the modal never closed.)
+        const legacyStart = session.createdAt ? new Date(session.createdAt).getTime() : openedAt.current;
+        const end = session.acceptanceDeadline
+            ? new Date(session.acceptanceDeadline).getTime()
+            : legacyStart + ACCEPT_WINDOW_SECONDS * 1000;
+        return Math.max(0, Math.round((end - Date.now()) / 1000));
     };
 
     useEffect(() => {
@@ -44,7 +54,7 @@ const InstantRequestModal: React.FC<InstantRequestModalProps> = ({ session, isOp
                 setTimeLeft(left);
                 if (left <= 0) {
                     clearInterval(timer);
-                    onMissed(session._id);
+                    onExpired(session._id);
                 }
             }, 1000);
 
@@ -154,7 +164,7 @@ const InstantRequestModal: React.FC<InstantRequestModalProps> = ({ session, isOp
                     <div className="w-full bg-gray-100 rounded-full h-1.5 mb-4 overflow-hidden">
                         <div 
                             className="bg-teal-500 h-1.5 rounded-full transition-all duration-1000 ease-linear"
-                            style={{ width: `${(timeLeft / 60) * 100}%` }}
+                            style={{ width: `${Math.min(100, (timeLeft / ACCEPT_WINDOW_SECONDS) * 100)}%` }}
                         ></div>
                     </div>
                     <div className="text-center text-[11px] text-gray-400 font-medium mb-4 uppercase tracking-widest" style={{ fontFamily: 'Inter, sans-serif' }}>

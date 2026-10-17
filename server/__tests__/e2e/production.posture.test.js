@@ -138,6 +138,23 @@ describe('CORS under production settings', () => {
   });
 });
 
+describe('the general limiter leaves room for ordinary use', () => {
+  test('a client polling every 10 seconds for 15 minutes is not throttled', async () => {
+    // The client polls /api/chat/unread-count every 10 seconds — 90 requests
+    // per 15-minute window before the user does anything else. The general
+    // limit was 100 per window, so every signed-in user hit 429 within a
+    // quarter of an hour. 120 requests (the poll plus a little browsing)
+    // must pass.
+    const statuses = [];
+    for (let i = 0; i < 120; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await request(prodApp).get('/api/health');
+      statuses.push(res.status);
+    }
+    expect(statuses).not.toContain(429);
+  });
+});
+
 // Placed last: express-rate-limit's MemoryStore is shared for the whole file,
 // so once this trips for the test client's IP every later /api/auth/login in
 // this file is throttled.
@@ -243,16 +260,18 @@ describe('production-only invariants in the domain layer', () => {
 });
 
 describe('what production mode does NOT change', () => {
-  test('the debug endpoints stay public', async () => {
-    for (const path of ['/api/health', '/api/test-google-routes']) {
-      // eslint-disable-next-line no-await-in-loop
-      const res = await request(prodApp).get(path);
-      expect(res.status).toBe(200);
-    }
-
+  // Regression. This used to pin that /api/test-google-routes answered 200
+  // and that /api/health published which secrets were configured
+  // (hasJwtSecret, hasMongoUri, the Google OAuth pair) — unauthenticated, in
+  // production. The debug route is gone and health says only what a probe
+  // needs.
+  test('health is public but says nothing about configuration, and the debug route is gone', async () => {
     const health = await request(prodApp).get('/api/health');
-    // Still publishes which secrets are configured, unauthenticated.
-    expect(health.body.envVars).toBeDefined();
+    expect(health.status).toBe(200);
+    expect(Object.keys(health.body).sort()).toEqual(['mongoConnected', 'success', 'timestamp']);
+
+    const debug = await request(prodApp).get('/api/test-google-routes');
+    expect(debug.status).toBe(404);
   });
 
   test('Content-Security-Policy remains disabled', async () => {

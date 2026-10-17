@@ -28,8 +28,13 @@ jest.mock('razorpay', () => jest.fn().mockImplementation(() => ({
   payments: { refund: mockRefund, fetchMultipleRefund: jest.fn().mockResolvedValue({ items: [] }) },
   accounts: { create: jest.fn().mockResolvedValue({ id: 'acc_live_created' }) }
 })));
+// One stable mock per email function, so a test can count sends.
+const mockEmailFns = {};
 jest.mock('../../services/email.service', () => new Proxy({}, {
-  get: () => jest.fn().mockResolvedValue({ id: 'sink' })
+  get: (target, name) => {
+    if (!mockEmailFns[name]) mockEmailFns[name] = jest.fn().mockResolvedValue({ id: 'sink' });
+    return mockEmailFns[name];
+  }
 }));
 jest.mock('isomorphic-dompurify', () => ({ sanitize: (s) => s }));
 
@@ -95,6 +100,7 @@ beforeEach(async () => {
   mockRefund.mockReset();
   mockOrdersCreate.mockResolvedValue({ id: 'order_live_abc123', status: 'created' });
   mockRefund.mockResolvedValue({ id: 'rfnd_live_abc', status: 'processed' });
+  Object.values(mockEmailFns).forEach((fn) => fn.mockClear());
 }, 30000);
 
 /** A mutating request needs the double-submit CSRF pair. */
@@ -120,7 +126,7 @@ const baseBooking = () => ({
   sessionTime: SLOT,
   price: 1500,
   mode: 'video',
-  duration: 60
+  duration: 55
 });
 
 describe('the availability grid gates booking', () => {
@@ -561,7 +567,7 @@ describe('cancellation, refunds and slot release', () => {
       patientId: f.patientA._id,
       doctorId: f.doctorA._id,
       startsAt: zonedToUtc(localDate, localTime, PLATFORM_TIMEZONE),
-      duration: 60,
+      duration: 55,
       price: 2000,
       status: 'scheduled',
       paymentStatus: 'paid',
@@ -636,7 +642,7 @@ describe('cancellation, refunds and slot release', () => {
       patientId: f.patientA._id,
       doctorId: f.doctorA._id,
       startsAt: new Date(Date.now() + 48 * 3600 * 1000),
-      duration: 60,
+      duration: 55,
       price: 2000,
       status: 'payment_pending',
       paymentStatus: 'pending',
@@ -664,5 +670,190 @@ describe('cancellation, refunds and slot release', () => {
 
     const again = await book(baseBooking());
     expect(again.status).toBe(201);
+  });
+});
+
+describe('the money paths that used to bypass the state machine', () => {
+  function signedDelivery(eventId, event, payload) {
+    const body = JSON.stringify({ event, payload });
+    const sig = crypto.createHmac('sha256', process.env.RAZORPAY_WEBHOOK_SECRET).update(body).digest('hex');
+    return request(server)
+      .post('/api/payments/webhook')
+      .set('Content-Type', 'application/json')
+      .set('X-Razorpay-Signature', sig)
+      .set('X-Razorpay-Event-Id', eventId)
+      .send(body);
+  }
+
+  async function verify(session, paymentId) {
+    const signature = crypto
+      .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+      .update(`${session.razorpayOrderId}|${paymentId}`)
+      .digest('hex');
+    const { token: csrf, cookie } = await csrfPair();
+    return request(server)
+      .post('/api/payments/verify')
+      .set('Authorization', `Bearer ${patientToken}`)
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrf)
+      .send({ razorpay_order_id: session.razorpayOrderId, razorpay_payment_id: paymentId, razorpay_signature: signature });
+  }
+
+  async function pendingBooking() {
+    const res = await book(baseBooking());
+    expect(res.status).toBe(201);
+    return Session.findOne({ doctorId: f.doctorA._id, sessionTime: SLOT });
+  }
+
+  const captured = (session, paymentId) => ({
+    payment: { entity: { id: paymentId, order_id: session.razorpayOrderId, amount: session.price * 100, status: 'captured' } }
+  });
+
+  test('verify and the webhook arriving together confirm once and email once', async () => {
+    // Both used to pass a read-then-save `!== 'paid'` check together, so the
+    // patient got two confirmation emails and the doctor was rung twice.
+    const session = await pendingBooking();
+    const [v, w] = await Promise.all([
+      verify(session, 'pay_race_both'),
+      signedDelivery('evt_race_both', 'payment.captured', captured(session, 'pay_race_both'))
+    ]);
+    expect(v.status).toBe(200);
+    expect(w.status).toBe(200);
+
+    const after = await Session.findById(session._id);
+    expect(after.paymentStatus).toBe('paid');
+    expect(mockEmailFns.sendBookingConfirmationEmail).toHaveBeenCalledTimes(1);
+    expect(mockEmailFns.sendDoctorNewBookingEmail).toHaveBeenCalledTimes(1);
+  });
+
+  test('a capture after the checkout expired is refunded, and the booking stays dead', async () => {
+    // It used to revive the cancelled session to 'scheduled' with no slot
+    // held, so the slot could be sold twice.
+    const session = await pendingBooking();
+    const { expireCheckout } = require('../../services/sessionPayment');
+    await Session.collection.updateOne({ _id: session._id }, { $set: { razorpayOrderId: null } });
+    expect((await expireCheckout(await Session.findById(session._id))).outcome).toBe('expired');
+    await Session.collection.updateOne({ _id: session._id }, { $set: { razorpayOrderId: session.razorpayOrderId } });
+
+    // Someone else books the freed slot.
+    const avail = await DoctorAvailability.findOne({ doctorId: f.doctorA._id }).lean();
+    expect(avail.bookedSlots.filter((b) => String(b.sessionId) === String(session._id))).toHaveLength(0);
+
+    const res = await verify(session, 'pay_too_late');
+    expect(res.status).toBe(409);
+    expect(res.body.code).toBe('CHECKOUT_EXPIRED');
+
+    const after = await Session.findById(session._id);
+    expect(after.status).toBe('cancelled');
+    expect(after.paymentId).toBe('pay_too_late');
+    expect(after.paymentStatus).toBe('refunded');
+    expect(after.refundId).toBe('rfnd_live_abc');
+    expect(mockRefund).toHaveBeenCalledTimes(1);
+    expect(mockRefund.mock.calls[0][0]).toBe('pay_too_late');
+  });
+
+  test('payment.failed is one failed attempt, and does not move the checkout', async () => {
+    // It used to set paymentStatus 'failed' and leave status
+    // 'payment_pending', a pair no sweep matched, holding the slot forever —
+    // and a retry inside the same checkout then had nowhere to land.
+    const session = await pendingBooking();
+    const res = await signedDelivery('evt_attempt_failed', 'payment.failed', {
+      payment: { entity: { id: 'pay_declined', order_id: session.razorpayOrderId, status: 'failed' } }
+    });
+    expect(res.status).toBe(200);
+
+    let after = await Session.findById(session._id);
+    expect(after.status).toBe('payment_pending');
+    expect(after.paymentStatus).toBe('pending');
+
+    // The retry succeeds.
+    expect((await verify(session, 'pay_retry_ok')).status).toBe(200);
+    after = await Session.findById(session._id);
+    expect(after.paymentStatus).toBe('paid');
+  });
+
+  test('a refund issued from the Razorpay dashboard cancels a live booking and frees its slot', async () => {
+    const session = await pendingBooking();
+    expect((await verify(session, 'pay_dash_refund')).status).toBe(200);
+
+    const res = await signedDelivery('evt_dash_refund', 'refund.processed', {
+      refund: { entity: { id: 'rfnd_dashboard', payment_id: 'pay_dash_refund', amount: session.price * 100, created_at: Math.floor(Date.now() / 1000) } }
+    });
+    expect(res.status).toBe(200);
+
+    const after = await Session.findById(session._id);
+    // It used to leave the booking live and joinable, marked refunded.
+    expect(after.status).toBe('cancelled');
+    expect(after.paymentStatus).toBe('refunded');
+    expect(after.refundId).toBe('rfnd_dashboard');
+    const avail = await DoctorAvailability.findOne({ doctorId: f.doctorA._id }).lean();
+    expect(avail.bookedSlots.filter((b) => String(b.sessionId) === String(session._id))).toHaveLength(0);
+  });
+
+  test('a dashboard refund clears a session stuck in refund_failed', async () => {
+    const s = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: new Date(Date.now() + 48 * 3600 * 1000), duration: 55, price: 2000,
+      status: 'cancelled', paymentStatus: 'refund_failed', paymentId: 'pay_stuck_dash', refundAmount: 2000
+    });
+    await signedDelivery('evt_stuck_dash', 'refund.processed', {
+      refund: { entity: { id: 'rfnd_by_hand', payment_id: 'pay_stuck_dash', amount: 200000 } }
+    });
+    const after = await Session.findById(s._id);
+    expect(after.paymentStatus).toBe('refunded');
+    expect(after.refundId).toBe('rfnd_by_hand');
+  });
+
+  test('a second payment against a settled order is sent back, not absorbed', async () => {
+    const session = await pendingBooking();
+    expect((await verify(session, 'pay_first')).status).toBe(200);
+    await signedDelivery('evt_second_pay', 'payment.captured', captured(session, 'pay_second'));
+
+    const after = await Session.findById(session._id);
+    expect(after.paymentId).toBe('pay_first');
+    expect(mockRefund).toHaveBeenCalledTimes(1);
+    expect(mockRefund.mock.calls[0][0]).toBe('pay_second');
+  });
+
+  test('a refund failure reason is stored for the admin queue', async () => {
+    // refundFailureReason was computed and dropped: it was missing from the
+    // schema, and a strict schema discards unknown paths on update.
+    mockRefund.mockRejectedValue({ error: { description: 'The payment has not been captured' } });
+    const s = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: new Date(Date.now() + 48 * 3600 * 1000), duration: 55, price: 2000,
+      status: 'scheduled', paymentStatus: 'paid', paymentId: 'pay_will_fail'
+    });
+    const { token: csrf, cookie } = await csrfPair();
+    await request(server)
+      .post(`/api/sessions/${s._id}/cancel`)
+      .set('Authorization', `Bearer ${patientToken}`)
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrf)
+      .send({});
+    const after = await Session.findById(s._id);
+    expect(after.paymentStatus).toBe('refund_failed');
+    expect(after.refundFailureReason).toBe('The payment has not been captured');
+    expect(after.refundRequestedAt).toBeInstanceOf(Date);
+  });
+});
+
+describe('the price is the server\'s', () => {
+  test('a session length the therapist has not priced is refused', async () => {
+    await DoctorProfile.updateOne({ userId: f.doctorA._id }, { $set: { 'pricing.audio.session20': 0, 'pricing.session20': 0, 'pricing.min': 0 } });
+    try {
+      const res = await book({ ...baseBooking(), mode: 'voice', duration: 20 });
+      // It used to resolve to ₹0, which books as `not_required` — a free
+      // session the therapist never offered.
+      expect(res.status).toBe(400);
+      expect(await Session.countDocuments({})).toBe(0);
+    } finally {
+      await DoctorProfile.updateOne({ userId: f.doctorA._id }, { $set: { 'pricing.audio.session20': 600, 'pricing.session20': 800, 'pricing.min': 800 } });
+    }
+  });
+
+  test('a duration the product does not offer is refused', async () => {
+    const res = await book({ ...baseBooking(), duration: 60 });
+    expect(res.status).toBe(400);
   });
 });
