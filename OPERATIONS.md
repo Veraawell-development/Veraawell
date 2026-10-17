@@ -13,7 +13,8 @@ true. If someone is missing from the site, this is the checklist — in practice
 it is almost always the last one.
 
 1. Their application is approved (Super Admin → Pending Doctors)
-2. They have set a price (their own Settings → Pricing)
+2. They have set a price (their own Settings → Pricing). A price of 0 means
+   "not offered": that length/mode is hidden and cannot be booked
 3. **An admin has approved their bank details** (below)
 4. **They have published dates on their calendar that have not passed**
 
@@ -99,23 +100,50 @@ banner for anyone carrying a balance who has no sessions that week.
 
 ### When a refund fails
 
-Razorpay can reject or fail a refund. The session is left as `refund_failed` and
-**nobody is chased automatically** — it needs a person. Check Super Admin →
-Revenue for failed refunds and retry, or refund from the Razorpay dashboard
-directly. See Known Issues: there are three of these outstanding.
+Razorpay can reject a refund. The session is left as `refund_failed`, with
+Razorpay's reason recorded on it, and **nobody is chased automatically** — it
+needs a person. Super Admin → Revenue lists failed refunds with the reason;
+retry from there, or refund from the Razorpay dashboard directly — the
+`refund.processed` webhook then records it and clears the failed state.
+
+A refund interrupted mid-flight (a crash or deploy between asking Razorpay and
+recording the answer) is resolved by the hourly job: it asks Razorpay whether
+the refund happened before sending anything, so it cannot refund twice.
+
+### Refunds made outside the app
+
+A refund issued from the Razorpay dashboard is picked up by the webhook. If the
+booking was still upcoming, it is cancelled and its slot freed — a refunded
+booking cannot stay live.
+
+### Payments that arrive late or twice
+
+- A checkout unpaid after 20 minutes is expired and its slot released. Before
+  expiring it, the system asks Razorpay; a payment it finds is confirmed
+  instead.
+- A payment captured *after* the checkout expired is refunded automatically
+  (the slot may already be someone else's). The patient is told to rebook.
+- A second payment against an already-paid booking is refunded automatically.
+- **Check that Razorpay is set to auto-capture payments** (Dashboard →
+  Settings → Payment capture). An authorised-but-uncaptured payment is
+  reversed by Razorpay after a few days.
 
 ---
 
 ## Instant sessions
 
 A patient can book a therapist who is online right now. The therapist gets a
-ring on their dashboard and has **2 minutes** to accept before the session is
-cancelled and the patient refunded automatically.
+ring on their dashboard and has **2 minutes from payment** to accept before the
+session is cancelled and the patient refunded automatically.
+
+If the therapist answers "join in N minutes" (at most 15), the deadline moves
+to that time plus 3 minutes; the patient is notified. The patient may withdraw
+an unanswered request at any time for a full refund.
 
 If the therapist's browser was not open, the request is not lost — it appears
 when they next open the dashboard, as long as it is still within the window.
 A missed request only counts against a therapist's record if it actually
-reached them.
+reached them and its window ran out — not when the patient withdrew early.
 
 ---
 
@@ -141,6 +169,30 @@ No code change is needed.
 
 ---
 
+## Reviews
+
+A patient's review of a session they completed is public straight away. Super
+Admin can hide one by flagging or rejecting it. Platform (testimonial) reviews
+still need an admin's approval before they appear.
+
+---
+
+## Deploying this release (October 2026)
+
+Order matters, because Vercel deploys the client from `main` automatically and
+Render does not deploy the server on its own:
+
+1. Deploy the **server** on Render first (new server works with the old client).
+2. Run the one-off cleanup that moves login sessions out of the bookings
+   collection — dry run, then apply:
+   `MONGO_URI=<production uri> node server/migrations/splitLoginSessions.js`
+   then the same with `--apply`. Nobody is logged out by it.
+3. Merge to `main` so Vercel deploys the **client**.
+4. `EMAIL_USER`/`EMAIL_PASS` are no longer used (admin emails go through
+   Resend); `/api/admin/auth/setup` now needs `INITIAL_ADMIN_PASSWORD` set.
+
+---
+
 ## Known issues
 
 Written down rather than remembered. None of these are new; all are things a
@@ -148,8 +200,9 @@ person has to decide about.
 
 **Three refunds are stuck, ₹1,500 total.** From July 2026, all with a real
 payment id and no refund id — the Razorpay call failed and nothing retried.
-The patients have not had their money back. Retry them or refund in the
-Razorpay dashboard.
+The patients have not had their money back. Retry them from Super Admin →
+Revenue, or refund in the Razorpay dashboard (the webhook will then mark them
+refunded). Their failure reason was never stored; new failures record one.
 
 **39 of 52 historical paid sessions have no commission split recorded.** They
 predate the split logic, so the ledger has nothing to pay from and they cannot
@@ -165,14 +218,20 @@ clawback reconciliation all pause. Move to a paid plan before real traffic.
 
 **Render does not auto-deploy.** Pushing to `main` deploys the frontend but not
 the backend, so the two can end up on different versions. Deploy the server
-manually from the Render dashboard, or turn Auto-Deploy on there.
+manually from the Render dashboard, or turn Auto-Deploy on there. CI
+(`.github/workflows/ci.yml`) runs on every push and pull request — deploy only
+a green commit.
 
-**DLA-20 is not built.** The assessment is accepted by the API but has no
-questions on the client, so it cannot be taken. The tile that used to advertise
-it has been removed.
+**Secrets from the old committed `server/.env` must be rotated.** That file was
+in git history from July 2025 to February 2026, and the JWT, session and admin
+secrets, the Google client secret and the email password still had those
+values. Rotating `JWT_SECRET`/`ADMIN_JWT_SECRET` logs everyone out once.
 
-**Two known defects in the payment path**, neither currently causing harm but
-both worth fixing: the payment-verify and webhook handlers can both process the
-same payment and send two confirmation emails; and the auto-cancel path records
-a refund without a refund id, which bypasses a consistency check the rest of the
-system relies on.
+**DLA-20 is not built.** It has no questions on the client, and the API now
+refuses submissions for it.
+
+**Sessions refunded by the old instant-request code have no refund id.**
+Before October 2026 an unanswered instant request was marked `refunded`
+without recording Razorpay's refund id (and unpaid ones were marked refunded
+too). New ones go through the normal refund path. The old rows are historical;
+check them against the Razorpay dashboard if a patient queries one.

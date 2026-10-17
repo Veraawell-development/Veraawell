@@ -7,6 +7,9 @@
 const multer = require('multer');
 const fs = require('fs');
 const cloudinary = require('../config/cloudinary');
+const User = require('../models/user');
+const DoctorProfile = require('../models/doctorProfile');
+const { ValidationError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('UPLOAD-CTRL');
@@ -15,12 +18,15 @@ const logger = createLogger('UPLOAD-CTRL');
 
 const storage = multer.memoryStorage();
 
+// A rejected file type is the caller's mistake. These were plain Errors, which
+// the error handler can only report as a 500 — so a patient picking a PDF for
+// their avatar was told the server had failed.
 /** For profile/article images — images only */
 const imageUpload = multer({
   storage,
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
-    if (!file.mimetype.startsWith('image/')) return cb(new Error('Only image files are allowed!'), false);
+    if (!file.mimetype.startsWith('image/')) return cb(new ValidationError('Only image files are allowed'), false);
     cb(null, true);
   }
 });
@@ -31,10 +37,24 @@ const documentUpload = multer({
   limits: { fileSize: 5 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowed = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
-    if (!allowed.includes(file.mimetype)) return cb(new Error('Only PDF, JPG, and PNG files are allowed!'), false);
+    if (!allowed.includes(file.mimetype)) return cb(new ValidationError('Only PDF, JPG, and PNG files are allowed'), false);
     cb(null, true);
   }
 });
+
+/**
+ * Wrap a multer middleware so its own limit errors (file too large, too many
+ * files, unexpected field) reach the client as a 400 rather than a 500, for
+ * the same reason as the fileFilter rejections above.
+ */
+function withClientErrors(middleware) {
+  return function multerWithClientErrors(req, res, next) {
+    middleware(req, res, (err) => {
+      if (err instanceof multer.MulterError) return next(new ValidationError(err.message));
+      return next(err);
+    });
+  };
+}
 
 // ==================== HANDLERS ====================
 
@@ -44,30 +64,35 @@ const uploadProfileImage = async (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'No image file provided' });
     const b64 = Buffer.from(req.file.buffer).toString('base64');
     const dataURI = `data:${req.file.mimetype};base64,${b64}`;
+    const userId = req.actor.id;
     const result = await cloudinary.uploader.upload(dataURI, {
       folder: 'veerawell/profiles',
       transformation: [{ width: 500, height: 500, crop: 'fill', gravity: 'face' }, { quality: 'auto' }, { fetch_format: 'auto' }],
-      public_id: `user_${req.user._id}_${Date.now()}`
+      public_id: `user_${userId}_${Date.now()}`
     });
-    // Auto-save the profile image to both User and DoctorProfile (if doctor)
-    const User = require('../models/user');
-    const DoctorProfile = require('../models/doctorProfile');
-    
-    await User.findByIdAndUpdate(req.user._id, { profileImage: result.secure_url });
-    
-    if (req.user.role === 'doctor') {
+
+    // Every account's avatar lives on User.profileImage. Only a doctor also
+    // has a DoctorProfile, which is where the public directory reads theirs.
+    //
+    // NOTE: User.profileImage is not yet declared on the User schema, which is
+    // strict, so until it is this write is silently dropped — see
+    // __tests__/e2e/dataLayer.test.js KNOWN_DROPPED_WRITES. It is written as a
+    // plain $set so it starts persisting the moment the schema declares it.
+    await User.updateOne({ _id: userId }, { $set: { profileImage: result.secure_url } });
+
+    if (req.actor.role === 'doctor') {
       await DoctorProfile.findOneAndUpdate(
-        { userId: req.user._id },
+        { userId },
         { profileImage: result.secure_url },
         { upsert: true, new: true }
       );
     }
 
-    logger.info('Profile image uploaded and saved', { userId: req.user._id.toString().substring(0, 8) });
+    logger.info('Profile image uploaded and saved', { userId: userId.substring(0, 8) });
     res.json({ success: true, imageUrl: result.secure_url, publicId: result.public_id });
   } catch (error) {
     logger.error('Profile image upload error', { error: error.message });
-    res.status(500).json({ success: false, message: 'Failed to upload image', error: error.message });
+    res.status(500).json({ success: false, message: 'Failed to upload image' });
   }
 };
 
@@ -77,25 +102,27 @@ const uploadBannerImage = async (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'No image file provided' });
     const b64 = Buffer.from(req.file.buffer).toString('base64');
     const dataURI = `data:${req.file.mimetype};base64,${b64}`;
+    const userId = req.actor.id;
     const result = await cloudinary.uploader.upload(dataURI, {
       folder: 'veerawell/banners',
       transformation: [{ width: 2400, crop: 'limit' }, { quality: 'auto:best' }, { fetch_format: 'auto' }],
-      public_id: `banner_${req.user._id}_${Date.now()}`
+      public_id: `banner_${userId}_${Date.now()}`
     });
-    
-    // Auto-save the banner image to the doctor's profile
-    const DoctorProfile = require('../models/doctorProfile');
+
+    // A banner belongs on a therapist's public profile, so this route is
+    // requireRole('doctor'). It used to accept any account and upsert, which
+    // minted a stray DoctorProfile for every patient who reached it.
     await DoctorProfile.findOneAndUpdate(
-      { userId: req.user._id },
+      { userId },
       { bannerImage: result.secure_url },
       { upsert: true, new: true }
     );
-    
-    logger.info('Banner image uploaded and saved', { userId: req.user._id.toString().substring(0, 8) });
+
+    logger.info('Banner image uploaded and saved', { userId: userId.substring(0, 8) });
     res.json({ success: true, imageUrl: result.secure_url, publicId: result.public_id });
   } catch (error) {
     logger.error('Banner image upload error', { error: error.message || error });
-    res.status(500).json({ success: false, message: 'Failed to upload banner image', error: error.message || 'Unknown error' });
+    res.status(500).json({ success: false, message: 'Failed to upload banner image' });
   }
 };
 
@@ -124,7 +151,7 @@ const uploadDoctorDocuments = async (req, res) => {
       });
     }
     logger.error('Doctor document upload error', { error: error.message });
-    res.status(500).json({ success: false, message: 'Failed to upload documents', error: error.message });
+    res.status(500).json({ success: false, message: 'Failed to upload documents' });
   }
 };
 
@@ -149,7 +176,7 @@ const uploadDoctorDocument = async (req, res) => {
       if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
     }
     logger.error('Single document upload error', { error: error.message });
-    res.status(500).json({ success: false, message: 'Failed to upload document', error: error.message });
+    res.status(500).json({ success: false, message: 'Failed to upload document' });
   }
 };
 
@@ -164,8 +191,8 @@ const uploadArticleImage = async (req, res) => {
     res.json({ success: true, imageUrl: result.secure_url, publicId: result.public_id });
   } catch (error) {
     logger.error('Article image upload error', { error: error.message });
-    res.status(500).json({ success: false, message: 'Failed to upload article image', error: error.message });
+    res.status(500).json({ success: false, message: 'Failed to upload article image' });
   }
 };
 
-module.exports = { imageUpload, documentUpload, uploadProfileImage, uploadBannerImage, uploadDoctorDocuments, uploadDoctorDocument, uploadArticleImage };
+module.exports = { imageUpload, documentUpload, withClientErrors, uploadProfileImage, uploadBannerImage, uploadDoctorDocuments, uploadDoctorDocument, uploadArticleImage };

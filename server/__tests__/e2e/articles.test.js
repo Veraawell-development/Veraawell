@@ -298,6 +298,64 @@ describe('the public read path', () => {
     expect(items.map((a) => a.title)).toEqual(['Sleep piece']);
   });
 
+  test('a page is at most 50 articles, whatever ?limit= asks for', async () => {
+    await Article.insertMany(Array.from({ length: 55 }, (_, i) => ({
+      title: `Bulk ${i}`, slug: `bulk-${i}`, description: 'd', content: 'c', category: 'Bulk',
+      author: 'A', authorId: f.superAdmin._id, status: 'published', publishedDate: new Date()
+    })));
+    const res = await request(server).get('/api/articles/?limit=100000');
+    expect(res.status).toBe(200);
+    expect(res.body.articles).toHaveLength(50);
+    expect(res.body.pagination).toMatchObject({ limit: 50, total: 55, pages: 2 });
+
+    // Garbage paging falls back to sane defaults rather than NaN.
+    const odd = await request(server).get('/api/articles/?limit=abc&page=-3');
+    expect(odd.body.pagination).toMatchObject({ page: 1, limit: 10 });
+  });
+
+  test('unread query parameters do not mint new cache entries', async () => {
+    // The key was JSON.stringify(req.query), so varying a parameter nobody
+    // reads grew the in-process cache without bound.
+    await published({ title: 'Cache key piece' });
+    cache.flush();
+    const spy = jest.spyOn(cache, 'set');
+    try {
+      for (let i = 0; i < 5; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        expect((await request(server).get(`/api/articles/?junk=${i}`)).status).toBe(200);
+      }
+      // The first request misses and stores; the other four hit that entry.
+      expect(spy).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  test('featuring an article shows up in the public list immediately', async () => {
+    // toggleFeatured was the one write that did not invalidate the cache, so
+    // the landing page kept the old featured article for up to five minutes.
+    const a = await published({ title: 'Feature me' });
+    const before = await request(server).get('/api/articles/?featured=true');
+    expect(before.body.articles).toHaveLength(0);
+
+    const res = await call('post', `/api/articles/admin/${a._id}/feature`, superAdminToken, {});
+    expect(res.status).toBeLessThan(300);
+
+    const after = await request(server).get('/api/articles/?featured=true');
+    expect(after.body.articles.map((x) => x.title)).toEqual(['Feature me']);
+  });
+
+  test('a server failure does not echo the internal error message', async () => {
+    const spy = jest.spyOn(Article, 'countDocuments').mockRejectedValueOnce(new Error('internal-db-detail-marker'));
+    try {
+      const res = await request(server).get('/api/articles/?page=7');
+      expect(res.status).toBe(500);
+      expect(JSON.stringify(res.body)).not.toMatch(/internal-db-detail-marker/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   test('the cache is invalidated when an article changes', async () => {
     const a = await published({ title: 'Cached piece' });
 
@@ -361,6 +419,53 @@ describe('the unauthenticated like and view counters', () => {
     const after = await Article.findById(a._id);
     expect(after.likes).toBe(before);
     expect(after.likedBy).toHaveLength(0);
+  });
+
+  test('no public response carries likedBy — the IPs of everyone who liked it', async () => {
+    // The like toggle remembers an anonymous visitor by IP, and both public
+    // reads returned that array. The count is `likes`.
+    const a = await publishedArticle();
+    await call('post', `/api/articles/${a._id}/like`, null, {});
+    expect((await Article.findById(a._id)).likedBy).toHaveLength(1);
+
+    const list = await request(server).get('/api/articles/');
+    const detail = await request(server).get(`/api/articles/${a.slug}`);
+    for (const res of [list, detail]) {
+      expect(res.status).toBe(200);
+      expect(JSON.stringify(res.body)).not.toMatch(/likedBy|authorId/);
+      expect(JSON.stringify(res.body)).not.toMatch(/127\.0\.0\.1|::1/);
+    }
+    expect(detail.body.likes).toBe(1);
+    expect(list.body.articles[0].likes).toBe(1);
+  });
+
+  test('a draft cannot be liked or viewed by id', async () => {
+    await createArticle();
+    const draftDoc = await Article.findOne({});
+    expect((await call('post', `/api/articles/${draftDoc._id}/like`, null, {})).status).toBe(404);
+    expect((await call('post', `/api/articles/${draftDoc._id}/view`, null, {})).status).toBe(404);
+    const after = await Article.findById(draftDoc._id);
+    expect(after.likes).toBe(0);
+    expect(after.views).toBe(0);
+  });
+
+  test('simultaneous likes from different visitors are all counted', async () => {
+    // The toggle was load / edit / save, writing `likes` back as an absolute
+    // number, so concurrent likes overwrote each other.
+    const a = await publishedArticle();
+    const ids = ['10.0.0.1', '10.0.0.2', '10.0.0.3', '10.0.0.4'];
+    let n = 0;
+    // Give each request a distinct client identity without touching the
+    // network stack: the controller keys on req.ip. Mounted bare because the
+    // real route's rate limiter also keys on the IP.
+    const bare = require('express')();
+    bare.use((req, res, next) => { Object.defineProperty(req, 'ip', { value: ids[n++ % ids.length] }); next(); });
+    bare.post('/like/:id', require('../../controllers/article.controller').incrementLikes);
+    await Promise.all(ids.map(() => request(bare).post(`/like/${a._id}`)));
+
+    const after = await Article.findById(a._id);
+    expect(after.likes).toBe(4);
+    expect(after.likedBy).toHaveLength(4);
   });
 
   test('a malformed id on the counters is a clean 400', async () => {

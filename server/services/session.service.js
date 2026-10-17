@@ -7,38 +7,65 @@
 const DoctorProfile = require('../models/doctorProfile');
 const DoctorAvailability = require('../models/doctorAvailability');
 
+/** The session lengths a therapist can price and a patient can book. */
+const BOOKABLE_DURATIONS = [20, 40, 55];
+const BOOKABLE_MODES = ['video', 'voice'];
+
 /**
- * Calculate the server-authoritative price for a session based on mode + duration.
+ * The server-authoritative price for a session, or null when the therapist
+ * does not offer that combination.
+ *
+ * Every price field defaults to 0, and 0 means "not set" — the settings page
+ * saves all six slots at once, so a therapist who priced only video has three
+ * zero audio prices. The old lookup tested the video slots with `!= null`, so
+ * an unset slot resolved to ₹0, and a ₹0 booking is `not_required`: a free
+ * session the therapist never offered and is never paid for. It also fell
+ * back to the CLIENT's price when no profile existed. Now 0 is skipped
+ * exactly like an absent value, the fallback chain matches what the profile
+ * page shows (client/src/pages/DoctorProfilePage.tsx), and nothing the client
+ * sends can set the price.
+ *
  * @param {string} doctorId
- * @param {string} mode - 'voice' | 'video'
- * @param {number} duration - 20 | 40 | 55
- * @param {number} fallbackPrice - client-provided price as last resort
- * @returns {number} finalPrice
+ * @param {'video'|'voice'} mode
+ * @param {number} duration  one of BOOKABLE_DURATIONS
+ * @returns {Promise<number|null>}
  */
-async function calculateSessionPrice(doctorId, mode, duration, fallbackPrice = 0) {
-  const doctorProfile = await DoctorProfile.findOne({ userId: doctorId });
-  if (!doctorProfile) return fallbackPrice;
+async function calculateSessionPrice(doctorId, mode, duration) {
+  const doctorProfile = await DoctorProfile.findOne({ userId: doctorId }).select('pricing').lean();
+  if (!doctorProfile || !doctorProfile.pricing) return null;
+  return resolvePrice(doctorProfile.pricing, mode, duration);
+}
 
-  const dur = parseInt(duration) || 20;
-  let price = 0;
+/** Pure half of calculateSessionPrice, exported for tests. */
+function resolvePrice(pricing, mode, duration) {
+  const dur = Number(duration);
+  if (!BOOKABLE_DURATIONS.includes(dur)) return null;
+  const positive = (...values) => values.find((v) => typeof v === 'number' && v > 0) || null;
 
-  if (mode === 'voice' && doctorProfile.pricing.audio) {
-    switch (dur) {
-      case 20: price = doctorProfile.pricing.audio.session20 || doctorProfile.pricing.session20 || doctorProfile.pricing.min; break;
-      case 40: price = doctorProfile.pricing.audio.session40 || doctorProfile.pricing.session40 || doctorProfile.pricing.session20 || doctorProfile.pricing.min; break;
-      case 55: price = doctorProfile.pricing.audio.session55 || doctorProfile.pricing.session55 || doctorProfile.pricing.max; break;
-      default: price = doctorProfile.pricing.min;
-    }
-  } else {
-    switch (dur) {
-      case 20: price = (doctorProfile.pricing.session20 != null) ? doctorProfile.pricing.session20 : doctorProfile.pricing.min; break;
-      case 40: price = (doctorProfile.pricing.session40 != null) ? doctorProfile.pricing.session40 : (doctorProfile.pricing.session20 || doctorProfile.pricing.min); break;
-      case 55: price = (doctorProfile.pricing.session55 != null) ? doctorProfile.pricing.session55 : doctorProfile.pricing.max; break;
-      default: price = doctorProfile.pricing.min;
-    }
+  const videoChain = {
+    20: [pricing.session20, pricing.min],
+    40: [pricing.session40, pricing.session20, pricing.min],
+    55: [pricing.session55, pricing.max]
+  };
+  const audio = pricing.audio || {};
+  const chain = mode === 'voice'
+    ? [audio[`session${dur}`], ...videoChain[dur]]
+    : videoChain[dur];
+
+  const price = positive(...chain);
+  return price && Number.isFinite(price) ? price : null;
+}
+
+/**
+ * Validate the booking parameters the client controls. Returns an error
+ * message, or null when they are acceptable.
+ */
+function validateBookingParams({ mode, duration }) {
+  if (mode !== undefined && !BOOKABLE_MODES.includes(mode)) return 'Session mode must be video or voice';
+  if (!BOOKABLE_DURATIONS.includes(Number(duration))) {
+    return `Session length must be one of ${BOOKABLE_DURATIONS.join(', ')} minutes`;
   }
-
-  return price;
+  return null;
 }
 
 /**
@@ -66,4 +93,11 @@ function getGenderBasedImage(user) {
   return (femaleNames.includes(firstName) || endsWithFemaleSuffix) ? '/female.jpg' : '/male.jpg';
 }
 
-module.exports = { calculateSessionPrice, getOrCreateAvailability, getGenderBasedImage };
+module.exports = {
+  calculateSessionPrice,
+  resolvePrice,
+  validateBookingParams,
+  BOOKABLE_DURATIONS,
+  getOrCreateAvailability,
+  getGenderBasedImage
+};

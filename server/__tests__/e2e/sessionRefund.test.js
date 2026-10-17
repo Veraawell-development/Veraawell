@@ -21,9 +21,10 @@ const { connectDb, disconnectDb } = require('../support/db');
 jest.setTimeout(60000);
 
 const mockRefund = jest.fn();
+const mockFetchRefunds = jest.fn();
 jest.mock('razorpay', () => jest.fn().mockImplementation(() => ({
   orders: { create: jest.fn() },
-  payments: { refund: mockRefund, fetchMultipleRefund: jest.fn().mockResolvedValue({ items: [] }) },
+  payments: { refund: mockRefund, fetchMultipleRefund: mockFetchRefunds },
   accounts: { create: jest.fn() }
 })));
 
@@ -58,6 +59,8 @@ beforeEach(async () => {
   await Session.deleteMany({});
   mockRefund.mockReset();
   mockRefund.mockResolvedValue({ id: 'rfnd_ok', status: 'processed' });
+  mockFetchRefunds.mockReset();
+  mockFetchRefunds.mockResolvedValue({ items: [] });
 });
 
 describe('the happy path', () => {
@@ -232,5 +235,107 @@ describe('applyTransition accepts an id as well as a document', () => {
     await expect(applyTransition(new mongoose.Types.ObjectId(), {
       event: EVENT.REFUND_INITIATED, actor: ACTOR.SYSTEM, payload: { refundAmount: 1 }
     })).rejects.toThrow(/not found/i);
+  });
+});
+
+describe('a refund interrupted between the gateway call and recording it', () => {
+  // A crash or deploy at that point leaves refund_pending with no way to tell
+  // whether the money moved. Calling the gateway again blind is how a patient
+  // gets refunded twice, so reconcileStuckRefund asks Razorpay first.
+  let reconcileStuckRefund, runStuckRefundReconciliation;
+  beforeAll(() => {
+    ({ reconcileStuckRefund } = require('../../services/sessionRefund'));
+    ({ runStuckRefundReconciliation } = require('../../services/scheduler'));
+  });
+
+  const claimedAgo = (minutes) => paidSession({
+    status: 'cancelled', paymentStatus: 'refund_pending', refundAmount: 1000,
+    refundRequestedAt: new Date(Date.now() - minutes * 60 * 1000)
+  });
+
+  test('a refund Razorpay already made is recorded, and nothing is sent again', async () => {
+    const s = await claimedAgo(30);
+    mockFetchRefunds.mockResolvedValue({ items: [{ id: 'rfnd_already', status: 'processed', amount: 100000 }] });
+
+    const result = await reconcileStuckRefund(s._id);
+    expect(result.resolved).toBe('recorded-existing');
+    expect(mockRefund).not.toHaveBeenCalled();
+
+    const after = await Session.findById(s._id);
+    expect(after.paymentStatus).toBe('refunded');
+    expect(after.refundId).toBe('rfnd_already');
+  });
+
+  test('a refund Razorpay never received is sent now, exactly once', async () => {
+    const s = await claimedAgo(30);
+    const result = await reconcileStuckRefund(s._id);
+    expect(result.resolved).toBe('refunded');
+    expect(mockRefund).toHaveBeenCalledTimes(1);
+    expect((await Session.findById(s._id)).refundId).toBe('rfnd_ok');
+  });
+
+  test('a failed earlier attempt does not count as a refund', async () => {
+    const s = await claimedAgo(30);
+    mockFetchRefunds.mockResolvedValue({ items: [{ id: 'rfnd_dead', status: 'failed', amount: 100000 }] });
+    expect((await reconcileStuckRefund(s._id)).resolved).toBe('refunded');
+    expect(mockRefund).toHaveBeenCalledTimes(1);
+  });
+
+  test('a claim taken moments ago is left alone — it may still be in flight', async () => {
+    const s = await claimedAgo(1);
+    expect((await reconcileStuckRefund(s._id)).resolved).toBe('too-recent');
+    expect(mockFetchRefunds).not.toHaveBeenCalled();
+    expect(mockRefund).not.toHaveBeenCalled();
+  });
+
+  test('when Razorpay cannot be asked, nothing is sent', async () => {
+    const s = await claimedAgo(30);
+    mockFetchRefunds.mockRejectedValue(new Error('ETIMEDOUT'));
+    expect((await reconcileStuckRefund(s._id)).resolved).toBe('gateway-unavailable');
+    expect(mockRefund).not.toHaveBeenCalled();
+    expect((await Session.findById(s._id)).paymentStatus).toBe('refund_pending');
+  });
+
+  test('a gateway rejection on the retry is recorded with Razorpay\'s reason', async () => {
+    const s = await claimedAgo(30);
+    mockRefund.mockRejectedValue({ error: { description: 'Payment already fully refunded' } });
+    expect((await reconcileStuckRefund(s._id)).resolved).toBe('failed');
+    const after = await Session.findById(s._id);
+    expect(after.paymentStatus).toBe('refund_failed');
+    expect(after.refundFailureReason).toBe('Payment already fully refunded');
+  });
+
+  test('only sessions actually stuck in refund_pending are touched', async () => {
+    const s = await paidSession();
+    expect((await reconcileStuckRefund(s._id)).resolved).toBe('not-pending');
+    expect((await reconcileStuckRefund(new mongoose.Types.ObjectId())).resolved).toBe('not-found');
+  });
+
+  test('the hourly job resolves every stuck refund it finds', async () => {
+    const a = await claimedAgo(30);
+    const b = await claimedAgo(45);
+    const fresh = await claimedAgo(1);
+
+    expect(await runStuckRefundReconciliation()).toBe(2);
+    expect((await Session.findById(a._id)).paymentStatus).toBe('refunded');
+    expect((await Session.findById(b._id)).paymentStatus).toBe('refunded');
+    expect((await Session.findById(fresh._id)).paymentStatus).toBe('refund_pending');
+  });
+});
+
+describe('losing the claim', () => {
+  test('a caller holding a stale copy does not reach the gateway', async () => {
+    // The race the claim exists for, made deterministic: this caller read the
+    // session while it was 'paid', and someone else claimed the refund before
+    // it acted. Its compare-and-set misses, it re-reads, finds the refund
+    // already claimed, and must stop there.
+    const s = await paidSession();
+    const stale = await Session.findById(s._id);
+    await Session.updateOne({ _id: s._id }, { $set: { paymentStatus: 'refund_pending', refundAmount: 1000 } });
+
+    const result = await refundSession(stale, { actor: ACTOR.PATIENT, amount: 1000, reason: 'race' });
+    expect(result.refunded).toBe(false);
+    expect(result.skipped).toBe('claim-noop');
+    expect(mockRefund).not.toHaveBeenCalled();
   });
 });

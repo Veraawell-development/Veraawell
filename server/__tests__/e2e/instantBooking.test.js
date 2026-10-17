@@ -483,3 +483,82 @@ describe('who gets blamed for an unanswered request', () => {
     expect(mockRefund).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('accept and delay answer only a request that is still waiting', () => {
+  test('accepting a request the sweep already cancelled is refused, and nothing is revived', async () => {
+    // acceptSession was a read-modify-save with no state check; for a
+    // regular session it even wrote status 'scheduled'. An accept that raced
+    // the expiry sweep brought a cancelled, refunded session back to life.
+    const s = await instantRequest({
+      status: 'cancelled', paymentStatus: 'refunded', refundId: 'rfnd_x', refundAmount: 800,
+      cancelledBy: 'system'
+    });
+    const res = await call('post', `/api/sessions/${s._id}/accept`, doctorToken, {});
+    expect(res.status).toBe(409);
+
+    const after = await Session.findById(s._id);
+    expect(after.status).toBe('cancelled');
+    expect(after.acceptanceStatus).toBe('pending');
+  });
+
+  test('accepting restarts the session clock from the answer, not the request', async () => {
+    const s = await instantRequest({ startsAt: new Date(Date.now() - 90 * 1000) });
+    const before = Date.now();
+    const res = await call('post', `/api/sessions/${s._id}/accept`, doctorToken, {});
+    expect(res.status).toBe(200);
+
+    const after = await Session.findById(s._id);
+    expect(after.acceptanceStatus).toBe('accepted');
+    expect(after.acceptanceDeadline).toBeNull();
+    expect(after.startsAt.getTime()).toBeGreaterThanOrEqual(before - 1000);
+    expect(after.endsAt.getTime() - after.startsAt.getTime()).toBe(20 * 60 * 1000);
+  });
+
+  test('accept is refused for a session that is not an instant request', async () => {
+    const s = await instantRequest({ sessionType: 'regular', status: 'scheduled', startsAt: new Date(Date.now() + 864e5) });
+    const res = await call('post', `/api/sessions/${s._id}/accept`, doctorToken, {});
+    expect(res.status).toBe(400);
+    expect((await Session.findById(s._id)).status).toBe('scheduled');
+  });
+
+  test('a delay moves the deadline, so a delayed request still expires', async () => {
+    const s = await instantRequest();
+    const res = await call('post', `/api/sessions/${s._id}/delay`, doctorToken, { delayMinutes: 5 });
+    expect(res.status).toBe(200);
+
+    const after = await Session.findById(s._id);
+    expect(after.acceptanceStatus).toBe('delayed');
+    const { DELAY_GRACE_MINUTES } = require('../../config/time');
+    expect(after.acceptanceDeadline.getTime() - after.delayedUntil.getTime()).toBe(DELAY_GRACE_MINUTES * 60 * 1000);
+    // Answering with a delay proves the ring arrived.
+    expect(after.ringDeliveredAt).toBeInstanceOf(Date);
+  });
+
+  test('a delay is capped, whatever the client asks for', async () => {
+    const s = await instantRequest();
+    await call('post', `/api/sessions/${s._id}/delay`, doctorToken, { delayMinutes: 600 });
+    const { MAX_DELAY_MINUTES } = require('../../config/time');
+    expect((await Session.findById(s._id)).delayMinutes).toBe(MAX_DELAY_MINUTES);
+  });
+
+  test('the patient can withdraw before the deadline, without the doctor taking a strike', async () => {
+    const s = await instantRequest({ ringDeliveredAt: new Date() });
+    const before = (await DoctorProfile.findOne({ userId: f.doctorA._id })).cancellationCount || 0;
+
+    const res = await call('post', `/api/sessions/${s._id}/missed`, patientToken, {});
+    expect(res.status).toBe(200);
+
+    const after = await Session.findById(s._id);
+    expect(after.status).toBe('cancelled');
+    expect(after.cancelledBy).toBe('patient');
+    expect(after.paymentStatus).toBe('refunded');
+    expect((await DoctorProfile.findOne({ userId: f.doctorA._id })).cancellationCount || 0).toBe(before);
+  });
+
+  test('the patient cannot withdraw once the doctor has accepted', async () => {
+    const s = await instantRequest({ acceptanceStatus: 'accepted', acceptanceDeadline: null });
+    const res = await call('post', `/api/sessions/${s._id}/missed`, patientToken, {});
+    expect(res.status).toBe(409);
+    expect((await Session.findById(s._id)).status).toBe('active');
+  });
+});

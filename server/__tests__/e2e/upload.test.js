@@ -99,41 +99,62 @@ describe('profile image upload', () => {
     expect(mockUpload).toHaveBeenCalledTimes(1);
   });
 
-  test('a PATIENT\'s uploaded image is silently dropped and never persisted', async () => {
-    // upload.controller.js:56 does
-    //   User.findByIdAndUpdate(req.user._id, { profileImage: result.secure_url })
-    // but `profileImage` is not a declared path on the User schema, and the
-    // schema sets strict: true (models/user.js:228). Mongoose removes unknown
-    // paths from an update rather than erroring, so the write disappears.
-    //
-    // The user sees a 200 and a real image URL; nothing is saved. Twelve client
-    // files read user.profileImage.
-    const before = await User.findById(f.patientA._id).lean();
-    expect(before.profileImage).toBeUndefined();
-
+  // These three were characterisation tests. upload.controller wrote
+  // `profileImage` onto User, but the path was not declared on the strict
+  // schema, so Mongoose removed it from the update: the patient saw a 200 and
+  // a real image URL, and nothing was saved. The field is now declared.
+  test('a PATIENT\'s uploaded image is persisted', async () => {
     const res = await uploadImage('/api/upload/profile-image', patientToken);
     expect(res.status).toBe(200);
 
     const after = await User.findById(f.patientA._id).lean();
-    expect(after.profileImage).toBeUndefined();
+    expect(after.profileImage).toMatch(/res\.cloudinary\.com/);
   });
 
-  test('the field really is absent from the schema, not merely unset', () => {
-    expect(User.schema.path('profileImage')).toBeUndefined();
+  test('the field is declared on the schema', () => {
+    expect(User.schema.path('profileImage')).toBeDefined();
     expect(User.schema.options.strict).toBe(true);
   });
 
-  test('a DOCTOR is unaffected, because DoctorProfile gets its own write', async () => {
+  test('a DOCTOR\'s image is written to their DoctorProfile', async () => {
     const res = await uploadImage('/api/upload/profile-image', doctorToken);
     expect(res.status).toBe(200);
 
-    // DoctorProfile DOES declare profileImage, so this half persists — which is
-    // exactly why the patient-side bug is easy to miss in manual testing.
     const profile = await DoctorProfile.findOne({ userId: f.doctorA._id }).lean();
     expect(profile.profileImage).toMatch(/res\.cloudinary\.com/);
+  });
+});
 
-    const user = await User.findById(f.doctorA._id).lean();
-    expect(user.profileImage).toBeUndefined();
+describe('who gets a DoctorProfile', () => {
+  // A DoctorProfile is the public directory entry. Both image routes used to
+  // upsert one: profile-image only for doctors, but banner-image for ANY role,
+  // so a patient who reached it was given a half-built therapist profile.
+
+  test('a patient\'s profile image is written to User, and never mints a DoctorProfile', async () => {
+    const spy = jest.spyOn(User, 'updateOne');
+    try {
+      const res = await uploadImage('/api/upload/profile-image', patientToken);
+      expect(res.status).toBe(200);
+
+      // The User write is issued as a $set on the caller's own id. Whether it
+      // persists depends on User declaring profileImage — see the
+      // "silently dropped" case above and dataLayer.test.js.
+      expect(spy).toHaveBeenCalledWith(
+        { _id: String(f.patientA._id) },
+        { $set: { profileImage: 'https://res.cloudinary.com/stub/image/upload/v1/user_avatar.jpg' } }
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    expect(await DoctorProfile.countDocuments({ userId: f.patientA._id })).toBe(0);
+  });
+
+  test('a patient cannot upload a banner at all, and gets no DoctorProfile', async () => {
+    const res = await uploadImage('/api/upload/banner-image', patientToken);
+    expect(res.status).toBe(403);
+    // Refused before multer runs, so nothing reached Cloudinary either.
+    expect(mockUpload).not.toHaveBeenCalled();
+    expect(await DoctorProfile.countDocuments({ userId: f.patientA._id })).toBe(0);
   });
 });
 
@@ -197,7 +218,7 @@ describe('input validation', () => {
     expect(res.status).toBe(400);
   });
 
-  test('a non-image file is rejected — but as a 500, not a 4xx', async () => {
+  test('a non-image file is rejected as a 400, not a 500', async () => {
     const { token: csrf, cookie } = await csrfPair();
     const res = await request(server)
       .post('/api/upload/profile-image')
@@ -209,11 +230,33 @@ describe('input validation', () => {
     // The security outcome is right: the file never reaches Cloudinary.
     expect(mockUpload).not.toHaveBeenCalled();
 
-    // But multer's fileFilter rejection is thrown as an unclassified error, so
-    // the handler reports a server fault for what is squarely a client mistake.
-    // The client cannot distinguish "your file type is wrong" from "our upload
-    // service is broken", and it pollutes error monitoring.
+    // Was a characterisation test asserting 500. multer's fileFilter rejection
+    // was thrown as a plain Error, so the handler reported a server fault for
+    // what is squarely a client mistake — the client could not tell "your file
+    // type is wrong" from "our upload service is broken", and it polluted
+    // error monitoring. The filter now raises a ValidationError.
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/image/i);
+  });
+
+  test('an oversized file is a 400 too — multer\'s own limit errors are mapped', async () => {
+    const { token: csrf, cookie } = await csrfPair();
+    const res = await request(server)
+      .post('/api/upload/profile-image')
+      .set('Authorization', `Bearer ${patientToken}`)
+      .set('Cookie', cookie)
+      .set('X-CSRF-Token', csrf)
+      .attach('image', Buffer.alloc(5 * 1024 * 1024 + 1), { filename: 'big.png', contentType: 'image/png' });
+
+    expect(res.status).toBe(400);
+    expect(mockUpload).not.toHaveBeenCalled();
+  });
+
+  test('a failed upload does not echo the internal error to the caller', async () => {
+    mockUpload.mockRejectedValue(new Error('cloudinary api_secret=SECRET is invalid'));
+    const res = await uploadImage('/api/upload/profile-image', patientToken);
     expect(res.status).toBe(500);
+    expect(JSON.stringify(res.body)).not.toMatch(/SECRET/);
   });
 
   test('a Cloudinary failure surfaces as an error, not a false success', async () => {

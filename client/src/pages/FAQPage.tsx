@@ -97,7 +97,7 @@ const FAQPage: React.FC = () => {
         {
             category: 'assessments',
             question: 'What are mental health assessments?',
-            answer: 'Our platform offers standardized screening tools like PHQ-9 (depression), GAD-7 (anxiety), ASRS (ADHD), and DLA-20 (disability assessment). These help you understand your mental health status and track progress over time.'
+            answer: 'Our platform offers standardized screening tools such as PHQ-9 (depression), GAD-7 (anxiety), ASRS (ADHD), EPDS (post-partum depression), MDQ (mood disorders) and SCOFF (eating habits), plus screenings for PTSD, social anxiety, addiction and gambling. These help you understand your mental health status and track progress over time.'
         },
         {
             category: 'assessments',

@@ -35,6 +35,11 @@ const createEntry = asyncHandler(async (req, res) => {
   if (!Number.isInteger(moodValue) || moodValue < 1 || moodValue > 5) {
     throw new ValidationError('mood must be an integer between 1 and 5');
   }
+  // The schema's 280-character limit is never applied on this path:
+  // findOneAndUpdate does not run validators, so it is checked here.
+  if (note !== undefined && note !== null && (typeof note !== 'string' || note.length > 280)) {
+    throw new ValidationError('note must be text of at most 280 characters');
+  }
 
   const date = todayIST();
   const label = MoodEntry.MOOD_LABELS[moodValue - 1];

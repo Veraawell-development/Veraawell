@@ -107,23 +107,32 @@ export const DataSocketProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       if (reason === 'io server disconnect') next.connect();
     });
 
-    next.on('reconnect_attempt', () => setIsReconnecting(true));
-
-    next.on('reconnect', () => {
+    // In socket.io-client v4 the reconnect_* events are emitted by the
+    // Manager (`socket.io`), not the Socket — listening on the Socket, as this
+    // used to, meant none of these ever fired. The Manager can be shared with
+    // other sockets to the same host, so remove exactly these handlers.
+    const manager = next.io;
+    const onReconnectAttempt = () => setIsReconnecting(true);
+    const onReconnect = () => {
       setIsConnected(true);
       setIsReconnecting(false);
       setError(null);
       attempts.current = 0;
-    });
-
-    next.on('reconnect_failed', () => {
+    };
+    const onReconnectFailed = () => {
       setError('Failed to reconnect to server');
       setIsReconnecting(false);
-    });
+    };
+    manager.on('reconnect_attempt', onReconnectAttempt);
+    manager.on('reconnect', onReconnect);
+    manager.on('reconnect_failed', onReconnectFailed);
 
     setSocket(next);
 
     return () => {
+      manager.off('reconnect_attempt', onReconnectAttempt);
+      manager.off('reconnect', onReconnect);
+      manager.off('reconnect_failed', onReconnectFailed);
       next.disconnect();
       setSocket(null);
       setIsConnected(false);

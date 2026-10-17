@@ -135,15 +135,47 @@ const STATUS_TABLE = [
   // ── active (an immediate session, or a call in progress) ──
   { from: STATUS.ACTIVE, event: EVENT.COMPLETE, actors: [ACTOR.PATIENT, ACTOR.DOCTOR, ACTOR.SYSTEM], to: STATUS.COMPLETED },
   { from: STATUS.ACTIVE, event: EVENT.CANCEL, actors: [ACTOR.DOCTOR, ACTOR.ADMIN, ACTOR.SYSTEM], to: STATUS.CANCELLED },
+  /**
+   * A patient withdrawing an instant request the doctor has not taken.
+   *
+   * Without this row the only patient exit was POST /missed, which wrote the
+   * cancellation and refund by hand — and accepted ANY session, so a patient
+   * could take a full refund on a regular booking inside the 4-hour window.
+   * The guard is what keeps that door shut: only an unanswered instant
+   * request, with no doctor in the room, may be withdrawn this way.
+   */
+  { from: STATUS.ACTIVE, event: EVENT.CANCEL, actors: [ACTOR.PATIENT], to: STATUS.CANCELLED,
+    guard: ({ session }) => {
+      if (session.sessionType !== 'immediate') return 'Only an instant request can be withdrawn this way';
+      if (session.acceptanceStatus === 'accepted' || session.doctorJoined) {
+        return 'The therapist has already accepted this session';
+      }
+      return null;
+    } },
   { from: STATUS.ACTIVE, event: EVENT.ACCEPT_TIMEOUT, actors: [ACTOR.SYSTEM], to: STATUS.CANCELLED },
+  /**
+   * Same rule as SCHEDULED: delivered only if both parties were there.
+   *
+   * This used to read callStatus === 'in-progress', which the PATIENT sets by
+   * opening the waiting lounge — so an instant session whose doctor never
+   * came was swept to `completed`: the patient was not refunded and, because
+   * doctorJoined was false, the doctor was not paid either.
+   */
   { from: STATUS.ACTIVE, event: EVENT.SWEEP_ELAPSED, actors: [ACTOR.SYSTEM],
-    to: (s) => (s.callStatus === 'in-progress' ? STATUS.COMPLETED : STATUS.NO_SHOW) },
+    to: (s) => ((s.doctorJoined && s.patientJoined) ? STATUS.COMPLETED : STATUS.NO_SHOW) },
   { from: STATUS.ACTIVE, event: EVENT.CALL_STARTED, actors: [ACTOR.PATIENT, ACTOR.DOCTOR], to: null },
 
   // Scheduled sessions can also be timed out on the unaccepted-instant path.
   { from: STATUS.SCHEDULED, event: EVENT.ACCEPT_TIMEOUT, actors: [ACTOR.SYSTEM], to: STATUS.CANCELLED },
 
   // ── idempotent repeats ──
+  // The patient's /payments/verify and Razorpay's webhook report the same
+  // capture moments apart. Whichever loses the compare-and-set re-plans from
+  // the winner's post-state, and must find a no-op here rather than an
+  // illegal transition — that surfaced as a 500 to the patient who had just
+  // paid successfully.
+  { from: STATUS.SCHEDULED, event: EVENT.PAYMENT_VERIFIED, actors: [ACTOR.SYSTEM, ACTOR.RAZORPAY], to: null },
+  { from: STATUS.ACTIVE, event: EVENT.PAYMENT_VERIFIED, actors: [ACTOR.SYSTEM, ACTOR.RAZORPAY], to: null },
   { from: STATUS.CANCELLED, event: EVENT.CANCEL, actors: ANY, to: null },
   { from: STATUS.COMPLETED, event: EVENT.COMPLETE, actors: ANY, to: null },
   { from: STATUS.CANCELLED, event: EVENT.CHECKOUT_EXPIRED, actors: [ACTOR.SYSTEM], to: null },
@@ -171,8 +203,10 @@ const STATUS_TABLE = [
     [EVENT.REFUND_INITIATED, EVENT.REFUND_SUCCEEDED, EVENT.REFUND_FAILED, EVENT.REFUND_OBSERVED]
       .map((event) => ({ from, event, actors: ANY, to: null }))),
 
-  // A capture that lands after the booking was already resolved.
-  ...TERMINAL_STATUSES.map((from) => ({ from, event: EVENT.LATE_CAPTURE, actors: [ACTOR.RAZORPAY], to: null }))
+  // A capture that lands after the booking was already resolved. SYSTEM as
+  // well as the webhook: the patient's own /payments/verify can be the first
+  // to report it.
+  ...TERMINAL_STATUSES.map((from) => ({ from, event: EVENT.LATE_CAPTURE, actors: [ACTOR.SYSTEM, ACTOR.RAZORPAY], to: null }))
 ];
 
 /**
@@ -199,10 +233,24 @@ const PAYMENT_TABLE = [
   { from: PAYMENT.REFUND_PENDING, event: EVENT.REFUND_SUCCEEDED, actors: [ACTOR.SYSTEM, ACTOR.RAZORPAY], to: PAYMENT.REFUNDED },
   { from: PAYMENT.REFUND_PENDING, event: EVENT.REFUND_FAILED, actors: [ACTOR.SYSTEM], to: PAYMENT.REFUND_FAILED },
   { from: PAYMENT.REFUND_PENDING, event: EVENT.REFUND_OBSERVED, actors: [ACTOR.RAZORPAY], to: PAYMENT.REFUNDED },
+  // Our call failed and someone then refunded it from the Razorpay dashboard —
+  // the documented way out of the admin retry queue. Without this row the
+  // webhook reporting that refund was illegal, so the session stayed
+  // refund_failed forever while the patient had in fact been paid back.
+  { from: PAYMENT.REFUND_FAILED, event: EVENT.REFUND_OBSERVED, actors: [ACTOR.RAZORPAY], to: PAYMENT.REFUNDED },
   // A retry claims the refund again, with a fresh key.
   { from: PAYMENT.REFUND_FAILED, event: EVENT.REFUND_INITIATED, actors: [ACTOR.ADMIN, ACTOR.SYSTEM], to: PAYMENT.REFUND_PENDING },
 
-  { from: PAYMENT.FAILED, event: EVENT.LATE_CAPTURE, actors: [ACTOR.RAZORPAY], to: PAYMENT.REFUND_PENDING },
+  /**
+   * A retried checkout attempt that succeeded on an order whose earlier
+   * attempt failed. Razorpay lets the patient retry inside the same order, so
+   * `payment.failed` is not final. Only reachable while the booking is still
+   * open — the status table has no PAYMENT_VERIFIED row for a terminal
+   * status, which routes those through LATE_CAPTURE instead.
+   */
+  { from: PAYMENT.FAILED, event: EVENT.PAYMENT_VERIFIED, actors: [ACTOR.SYSTEM, ACTOR.RAZORPAY], to: PAYMENT.PAID },
+
+  { from: PAYMENT.FAILED, event: EVENT.LATE_CAPTURE, actors: [ACTOR.SYSTEM, ACTOR.RAZORPAY], to: PAYMENT.REFUND_PENDING },
 
   // ── idempotent repeats / money-irrelevant events ──
   { from: PAYMENT.REFUNDED, event: EVENT.REFUND_OBSERVED, actors: ANY, to: null },

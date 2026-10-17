@@ -178,13 +178,12 @@ function auditWrites() {
 }
 
 /**
- * The one write known to be dropped. A RATCHET, not an allowlist: fixing
- * upload.controller.js (or declaring profileImage on the User schema) means
- * deleting this entry, and the test below fails if it is left behind.
+ * Writes known to be dropped. A RATCHET, not an allowlist: fixing one means
+ * deleting its entry. Empty since `profileImage` was declared on the User
+ * schema — it was the only entry, and upload.controller.js's profile-image
+ * upload had been reporting success while the field silently vanished.
  */
-const KNOWN_DROPPED_WRITES = [
-  'User.profileImage @ controllers/upload.controller.js'
-];
+const KNOWN_DROPPED_WRITES = [];
 
 describe('writes are declared on the schema that receives them', () => {
   const audit = auditWrites();
@@ -203,14 +202,20 @@ describe('writes are declared on the schema that receives them', () => {
     expect([...new Set(unexpected)]).toEqual([]);
   });
 
-  test('the known dropped write is still present — delete the entry when it is fixed', () => {
+  test('the known dropped writes are still present — delete an entry when it is fixed', () => {
     const present = new Set(audit.map(signature));
     for (const known of KNOWN_DROPPED_WRITES) {
       expect(present.has(known)).toBe(true);
     }
   });
 
-  test('the profileImage drop is real at runtime, not just on paper', async () => {
+  // Regression. This test used to pin the opposite: that upload.controller's
+  // `profileImage` write to User was silently discarded by the strict schema
+  // (the upload reported success and the image never stuck). The field is
+  // declared now, so the audit no longer flags it and the write lands.
+  test('the profileImage write is declared, and lands at runtime', async () => {
+    expect(audit.map(signature)).not.toContain('User.profileImage @ controllers/upload.controller.js');
+
     const User = require('../../models/user');
     const u = await User.create({
       firstName: 'Strict', lastName: 'Probe',
@@ -222,7 +227,7 @@ describe('writes are declared on the schema that receives them', () => {
     await User.findByIdAndUpdate(u._id, { profileImage: 'https://example.com/x.jpg' });
 
     const after = await User.findById(u._id).lean();
-    expect(after.profileImage).toBeUndefined();
+    expect(after.profileImage).toBe('https://example.com/x.jpg');
     await User.deleteOne({ _id: u._id });
   });
 });
@@ -407,9 +412,10 @@ describe('unique indexes are declared where uniqueness is a correctness requirem
 });
 
 describe('TTL indexes expire the documents that must not outlive their purpose', () => {
-  test('PendingUser and OTP both carry an expiry, so an abandoned signup cannot linger', () => {
+  // The standalone OTP model this also covered went with the dead /api/otp
+  // routes; PendingUser is the only signup state left.
+  test('PendingUser carries an expiry, so an abandoned signup cannot linger', () => {
     const PendingUser = require('../../models/pendingUser');
-    const OTP = require('../../models/otp');
 
     const ttlOf = (Model) => {
       const fromPaths = Object.entries(Model.schema.paths)
@@ -422,13 +428,11 @@ describe('TTL indexes expire the documents that must not outlive their purpose',
     };
 
     const pending = ttlOf(PendingUser);
-    const otp = ttlOf(OTP);
 
     expect(pending.length).toBeGreaterThan(0);
-    expect(otp.length).toBeGreaterThan(0);
 
-    // 15 minutes for a pending signup — the value the login path resets by
-    // rewriting createdAt (auth.controller.js:56).
+    // 15 minutes for a pending signup — the window a login-triggered resend
+    // restarts by rewriting createdAt, at most MAX_SIGNUP_OTP_RESENDS times.
     expect(pending[0].expires).toBe(900);
   });
 });

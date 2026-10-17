@@ -8,8 +8,114 @@ const DoctorProfile = require('../models/doctorProfile');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { NotFoundError, ValidationError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
+const { isOwnCloudinaryUrl } = require('../utils/cloudinaryUrl');
 
 const logger = createLogger('PROFILE-CONTROLLER');
+
+const PRICE_SLOTS = [
+  { key: 'session20', label: '20-min video' },
+  { key: 'session40', label: '40-min video' },
+  { key: 'session55', label: '55-min video' },
+  { key: 'audio.session20', label: '20-min audio' },
+  { key: 'audio.session40', label: '40-min audio' },
+  { key: 'audio.session55', label: '55-min audio' },
+];
+
+/**
+ * Validate a doctor's 6-slot price grid and normalise it to numbers, with
+ * min/max derived for the public profile. Returns `{ error }` or `{ grid }`.
+ *
+ * Shared by PATCH /api/profile/pricing and POST /api/profile/setup. Setup
+ * used to write the grid raw — a negative or ₹10,00,000 price went straight
+ * onto the bookable profile — and computed min/max with Math.min/Math.max
+ * over an empty list, which stored min Infinity and max -Infinity for a
+ * doctor who had not priced anything yet.
+ */
+function validatePricingGrid(pricing) {
+  if (!pricing || typeof pricing !== 'object') {
+    return { error: '"pricing" object is required in request body' };
+  }
+
+  for (const { key, label } of PRICE_SLOTS) {
+    const val = key.startsWith('audio.')
+      ? pricing?.audio?.[key.replace('audio.', '')]
+      : pricing?.[key];
+
+    if (val !== undefined && val !== null && val !== '') {
+      const num = Number(val);
+      if (isNaN(num) || num < 0) {
+        return { error: `${label} price must be a non-negative number` };
+      }
+      // ₹1 is the floor because it is Razorpay's minimum order amount (100
+      // paise) — anything smaller cannot be charged at all. It used to be
+      // ₹100, which made a live low-value test booking impossible.
+      if (num > 0 && num < 1) {
+        return { error: `${label} price must be at least ₹1` };
+      }
+      if (num > 10000) {
+        return { error: `${label} price cannot exceed ₹10,000` };
+      }
+    }
+  }
+
+  // Logical ordering: longer sessions should cost >= shorter sessions (if both are set)
+  const v20 = Number(pricing.session20) || 0;
+  const v40 = Number(pricing.session40) || 0;
+  const v55 = Number(pricing.session55) || 0;
+  const a20 = Number(pricing?.audio?.session20) || 0;
+  const a40 = Number(pricing?.audio?.session40) || 0;
+  const a55 = Number(pricing?.audio?.session55) || 0;
+
+  if (v20 > 0 && v40 > 0 && v40 < v20) {
+    return { error: '40-min video price must be ≥ 20-min video price' };
+  }
+  if (v40 > 0 && v55 > 0 && v55 < v40) {
+    return { error: '55-min video price must be ≥ 40-min video price' };
+  }
+  if (a20 > 0 && a40 > 0 && a40 < a20) {
+    return { error: '40-min audio price must be ≥ 20-min audio price' };
+  }
+  if (a40 > 0 && a55 > 0 && a55 < a40) {
+    return { error: '55-min audio price must be ≥ 40-min audio price' };
+  }
+
+  // Auto-calculate min/max for public profile display
+  const allPrices = [v20, v40, v55, a20, a40, a55].filter(p => p > 0);
+  return {
+    grid: {
+      session20: v20,
+      session40: v40,
+      session55: v55,
+      audio: { session20: a20, session40: a40, session55: a55 },
+      min: allPrices.length > 0 ? Math.min(...allPrices) : 0,
+      max: allPrices.length > 0 ? Math.max(...allPrices) : 0
+    }
+  };
+}
+
+
+// One of the frontend's own bundled images: '/profile-bg.svg', the
+// placeholder the schema defaults to, and the like.
+const BUNDLED_IMAGE = /^\/[A-Za-z0-9._-]+\.(svg|png|jpe?g|webp)$/;
+
+/**
+ * A profile or banner image a doctor may publish. These URLs land on the
+ * public directory, and they used to be accepted from the request body as-is
+ * — any link at all, rendered on veraawell.com under the doctor's name,
+ * swappable after review. Only an upload through /api/upload, one of the
+ * bundled defaults, or nothing.
+ */
+function isPublishableImage(value) {
+  return value === undefined || value === null || value === ''
+    || BUNDLED_IMAGE.test(value) || isOwnCloudinaryUrl(value);
+}
+
+/** What a brand-new profile carries until the doctor prices anything. */
+const UNPRICED_GRID = Object.freeze({
+  session20: 0, session40: 0, session55: 0,
+  audio: { session20: 0, session40: 0, session55: 0 },
+  min: 0, max: 0
+});
 
 /**
  * Setup user profile
@@ -20,6 +126,24 @@ const setupProfile = asyncHandler(async (req, res) => {
 
   if (!user) {
     throw new NotFoundError('User');
+  }
+
+  // Validate before anything is written. Pricing only matters for a doctor;
+  // a patient's request carrying one is ignored, as it always was.
+  let pricingGrid = null;
+  if (user.role === 'doctor' && req.body.pricing !== undefined && req.body.pricing !== null) {
+    const checked = validatePricingGrid(req.body.pricing);
+    if (checked.error) {
+      return res.status(400).json({ success: false, message: checked.error });
+    }
+    pricingGrid = checked.grid;
+  }
+  if (user.role === 'doctor') {
+    for (const field of ['profileImage', 'bannerImage']) {
+      if (!isPublishableImage(req.body[field])) {
+        return res.status(400).json({ success: false, message: `${field} must be an image uploaded to Veraawell` });
+      }
+    }
   }
 
   const {
@@ -36,7 +160,6 @@ const setupProfile = asyncHandler(async (req, res) => {
     type,
     experience,
     specialization,
-    pricing,
     modeOfSession,
     quote,
     quoteAuthor,
@@ -81,34 +204,29 @@ const setupProfile = asyncHandler(async (req, res) => {
       experience: experience || 0,
       specialization: specialization || [],
       treatsFor: specialization || [],
-      pricing: {
-        session20: pricing?.session20 || 0,
-        session40: pricing?.session40 || 0,
-        session55: pricing?.session55 || 0,
-        min: Math.min(...[
-          pricing?.session20, pricing?.session40, pricing?.session55,
-          pricing?.audio?.session20, pricing?.audio?.session40, pricing?.audio?.session55
-        ].filter(p => p > 0)) || 0,
-        max: Math.max(...[
-          pricing?.session20, pricing?.session40, pricing?.session55,
-          pricing?.audio?.session20, pricing?.audio?.session40, pricing?.audio?.session55
-        ].filter(p => p > 0)) || 0,
-        audio: {
-          session20: pricing?.audio?.session20 || 0,
-          session40: pricing?.audio?.session40 || 0,
-          session55: pricing?.audio?.session55 || 0,
-        }
-      },
       modeOfSession: modeOfSession || [],
       quote: quote || '',
       quoteAuthor: quoteAuthor || '',
-      bio: introduction || '',
-      isOnline: true
+      bio: introduction || ''
+      // isOnline is not set here. It used to be forced true, so saving a
+      // profile put the doctor in the "online now" list whether or not they
+      // were at a screen. Presence is the doctor's own toggle
+      // (/api/doctor-status/toggle-online).
     };
+
+    // A request without pricing leaves an existing grid alone; a brand-new
+    // profile starts unpriced rather than with whatever the old Math.min of
+    // nothing produced.
+    const update = { $set: profileData };
+    if (pricingGrid) {
+      update.$set.pricing = pricingGrid;
+    } else {
+      update.$setOnInsert = { pricing: UNPRICED_GRID };
+    }
 
     await DoctorProfile.findOneAndUpdate(
       { userId: user._id },
-      profileData,
+      update,
       { upsert: true, new: true }
     );
   }
@@ -221,82 +339,23 @@ const updatePricing = asyncHandler(async (req, res) => {
   }
 
   const userId = req.user._id;
-  const { pricing } = req.body;
-
-  if (!pricing) {
-    return res.status(400).json({ success: false, message: '"pricing" object is required in request body' });
+  const { error, grid } = validatePricingGrid(req.body.pricing);
+  if (error) {
+    return res.status(400).json({ success: false, message: error });
   }
-
-  // Validate all 6 slots
-  const slotKeys = [
-    { key: 'session20', label: '20-min video' },
-    { key: 'session40', label: '40-min video' },
-    { key: 'session55', label: '55-min video' },
-    { key: 'audio.session20', label: '20-min audio' },
-    { key: 'audio.session40', label: '40-min audio' },
-    { key: 'audio.session55', label: '55-min audio' },
-  ];
-
-  for (const { key, label } of slotKeys) {
-    const val = key.startsWith('audio.')
-      ? pricing?.audio?.[key.replace('audio.', '')]
-      : pricing?.[key];
-
-    if (val !== undefined && val !== null && val !== '') {
-      const num = Number(val);
-      if (isNaN(num) || num < 0) {
-        return res.status(400).json({ success: false, message: `${label} price must be a non-negative number` });
-      }
-      // ₹1 is the floor because it is Razorpay's minimum order amount (100
-      // paise) — anything smaller cannot be charged at all. It used to be
-      // ₹100, which made a live low-value test booking impossible.
-      if (num > 0 && num < 1) {
-        return res.status(400).json({ success: false, message: `${label} price must be at least ₹1` });
-      }
-      if (num > 10000) {
-        return res.status(400).json({ success: false, message: `${label} price cannot exceed ₹10,000` });
-      }
-    }
-  }
-
-  // Logical ordering: longer sessions should cost >= shorter sessions (if both are set)
-  const v20 = Number(pricing.session20) || 0;
-  const v40 = Number(pricing.session40) || 0;
-  const v55 = Number(pricing.session55) || 0;
-  const a20 = Number(pricing?.audio?.session20) || 0;
-  const a40 = Number(pricing?.audio?.session40) || 0;
-  const a55 = Number(pricing?.audio?.session55) || 0;
-
-  if (v20 > 0 && v40 > 0 && v40 < v20) {
-    return res.status(400).json({ success: false, message: '40-min video price must be ≥ 20-min video price' });
-  }
-  if (v40 > 0 && v55 > 0 && v55 < v40) {
-    return res.status(400).json({ success: false, message: '55-min video price must be ≥ 40-min video price' });
-  }
-  if (a20 > 0 && a40 > 0 && a40 < a20) {
-    return res.status(400).json({ success: false, message: '40-min audio price must be ≥ 20-min audio price' });
-  }
-  if (a40 > 0 && a55 > 0 && a55 < a40) {
-    return res.status(400).json({ success: false, message: '55-min audio price must be ≥ 40-min audio price' });
-  }
-
-  // Auto-calculate min/max for public profile display
-  const allPrices = [v20, v40, v55, a20, a40, a55].filter(p => p > 0);
-  const newMin = allPrices.length > 0 ? Math.min(...allPrices) : 0;
-  const newMax = allPrices.length > 0 ? Math.max(...allPrices) : 0;
 
   const updatedProfile = await DoctorProfile.findOneAndUpdate(
     { userId },
     {
       $set: {
-        'pricing.session20': v20,
-        'pricing.session40': v40,
-        'pricing.session55': v55,
-        'pricing.audio.session20': a20,
-        'pricing.audio.session40': a40,
-        'pricing.audio.session55': a55,
-        'pricing.min': newMin,
-        'pricing.max': newMax,
+        'pricing.session20': grid.session20,
+        'pricing.session40': grid.session40,
+        'pricing.session55': grid.session55,
+        'pricing.audio.session20': grid.audio.session20,
+        'pricing.audio.session40': grid.audio.session40,
+        'pricing.audio.session55': grid.audio.session55,
+        'pricing.min': grid.min,
+        'pricing.max': grid.max,
       }
     },
     { new: true }
@@ -447,7 +506,8 @@ module.exports = {
   saveSignature,
   deleteSignature,
   // exported for tests
-  validateSignature
+  validateSignature,
+  validatePricingGrid
 };
 
 

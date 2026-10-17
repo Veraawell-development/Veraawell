@@ -10,21 +10,23 @@ const Conversation = require('../models/conversation');
 const User = require('../models/user');
 const DoctorProfile = require('../models/doctorProfile');
 const { PUBLIC_DOCTOR_FIELDS } = require('../models/doctorProfile');
-const DoctorAvailability = require('../models/doctorAvailability');
 const Review = require('../models/review');
 const PlatformSettings = require('../models/platformSettings');
 const SocketEmitter = require('../utils/socketEmitter');
 
-const { calculateSessionPrice, getOrCreateAvailability, getGenderBasedImage } = require('../services/session.service');
+const { calculateSessionPrice, validateBookingParams, getOrCreateAvailability, getGenderBasedImage } = require('../services/session.service');
 const { calculateRefund, describeRefundPolicy } = require('../services/refundPolicy');
-const { resolveStartsAt, hoursUntilStart } = require('../services/sessionTime');
+const { resolveStartsAt, hoursUntilStart, deriveFields } = require('../services/sessionTime');
 const { payableSessionMatch } = require('../services/earnings');
-const { zonedToUtc, slotKey } = require('../utils/zonedTime');
-const { PLATFORM_TIMEZONE, CHECKOUT_TTL_MINUTES, INSTANT_ACCEPT_WINDOW_MINUTES } = require('../config/time');
+const { zonedToUtc } = require('../utils/zonedTime');
+const {
+  PLATFORM_TIMEZONE, INSTANT_ACCEPT_WINDOW_MINUTES, DELAY_GRACE_MINUTES, MAX_DELAY_MINUTES
+} = require('../config/time');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { applyTransition } = require('../services/sessionTransition');
 const { EVENT, ACTOR } = require('../services/sessionState');
 const { refundSession } = require('../services/sessionRefund');
+const { releaseSessionSlot } = require('../services/sessionPayment');
 const { sealedFilter } = require('../authz');
 const { NotFoundError, AuthorizationError } = require('../utils/errors');
 const { getRazorpay } = require('../services/razorpay.client');
@@ -221,18 +223,48 @@ const getStats = asyncHandler(async (req, res) => {
   // by Razorpay Route's transfer.processed webhook, and Route is gone — so
   // nothing would ever have cleared it and this figure could only count up
   // forever, whatever had actually been paid.
+  //
+  // "Not yet paid" means not in a PAID payout — not "not claimed". Counting
+  // only unclaimed sessions made a week's earnings vanish from this figure the
+  // moment the admin generated drafts, and reappear only as a paid payout a
+  // week later. And the ledger never pays anything before PAYOUT_EPOCH, so
+  // neither does this figure; it used to include sessions no payout run
+  // would ever pick up.
+  const { PAYOUT_EPOCH } = require('../services/payoutLedger');
+  const Payout = require('../models/payout');
+  const openPayoutIds = await Payout.find({ doctorId: userId, status: { $ne: 'paid' } }).distinct('_id');
   const pendingPayout = await Session.aggregate([
-    { $match: payableSessionMatch({ doctorId: userId, unpaidOnly: true }) },
+    {
+      $match: {
+        ...payableSessionMatch({ doctorId: userId }),
+        endsAt: { $gte: PAYOUT_EPOCH },
+        $or: [{ payoutId: null }, { payoutId: { $in: openPayoutIds } }]
+      }
+    },
     { $group: { _id: null, amount: { $sum: '$doctorEarnings' } } }
   ]);
 
+  // The fee this doctor's NEXT booking will be charged at. The settings page
+  // could only guess the platform default, while an admin can set a
+  // per-doctor rate.
+  const [platformSettings, ownProfile] = await Promise.all([
+    PlatformSettings.getSettings(),
+    DoctorProfile.findOne({ userId }).select('customFeePercentage').lean()
+  ]);
+  const platformFeePercent = (ownProfile && ownProfile.customFeePercentage != null)
+    ? ownProfile.customFeePercentage
+    : platformSettings.defaultPlatformFeePercentage;
+
   res.json({
     success: true,
+    platformFeePercent,
     totalGross: r.totalGross,
     totalPlatformFee: r.totalPlatformFee,
     totalDoctorEarnings: r.totalDoctorEarnings,
     totalSessions: r.totalSessions,
-    totalHours: Math.round(r.totalDurationMinutes / 60),
+    // One decimal: whole hours rounded a single 40-minute session up to "1".
+    totalHours: Math.round(r.totalDurationMinutes / 6) / 10,
+    totalDurationMinutes: r.totalDurationMinutes,
     pendingPayout: pendingPayout[0]?.amount || 0,
     recentEarnings
   });
@@ -250,7 +282,7 @@ const getMyDoctors = asyncHandler(async (req, res) => {
   ]);
   if (!previousDoctors.length) return res.json([]);
   const doctors = await DoctorProfile.find({ userId: { $in: previousDoctors.map(d => d._id) } })
-    .select(PUBLIC_DOCTOR_FIELDS).populate('userId', 'firstName lastName email').lean();
+    .select(PUBLIC_DOCTOR_FIELDS).populate('userId', 'firstName lastName').lean();
   const result = doctors.map(d => {
     const stats = previousDoctors.find(p => p._id.equals(d.userId._id));
     return { ...d, sessionCount: stats?.sessionCount || 0, lastSessionDate: stats?.lastSession || null };
@@ -291,168 +323,163 @@ const getCallHistory = asyncHandler(async (req, res) => {
   res.json(formatted);
 });
 
-/** 
- * Cleans up abandoned checkout sessions older than 15 minutes 
- * to free up calendar slots.
- */
-const cleanupPendingSessions = async () => {
-  try {
-    const cutoff = new Date(Date.now() - CHECKOUT_TTL_MINUTES * 60 * 1000);
-    const pendingSessions = await Session.find({
-      paymentStatus: 'pending',
-      createdAt: { $lt: cutoff }
-    });
-
-    if (pendingSessions.length === 0) return;
-
-    const sessionIds = pendingSessions.map(s => s._id);
-    const doctorIds = [...new Set(pendingSessions.map(s => s.doctorId.toString()))];
-
-    await Session.updateMany(
-      { _id: { $in: sessionIds } },
-      { $set: { status: 'cancelled', paymentStatus: 'failed' } }
-    );
-
-    const DoctorAvailability = require('../models/doctorAvailability');
-    for (const docId of doctorIds) {
-      const availability = await DoctorAvailability.findOne({ doctorId: docId });
-      if (availability) {
-        availability.bookedSlots = availability.bookedSlots.filter(
-          slot => !sessionIds.some(id => id.equals(slot.sessionId))
-        );
-        await availability.save();
-      }
-    }
-    logger.info(`Cleaned up ${sessionIds.length} abandoned sessions.`);
-  } catch (error) {
-    logger.error('Error cleaning up pending sessions:', error);
-  }
-};
-
 /** GET /api/sessions/doctors/:doctorId/slots/:date */
 const getDoctorSlots = asyncHandler(async (req, res) => {
-  await cleanupPendingSessions(); // Clean up abandoned checkouts before returning availability
-  
+  // Abandoned checkouts are expired by the scheduler every minute
+  // (sessionPayment.expireStaleCheckouts). This used to run a second,
+  // non-atomic copy of that cleanup on every public request — rewriting the
+  // doctor's whole bookedSlots array from a stale read, which could erase a
+  // booking made at the same moment.
   const { doctorId, date } = req.params;
   const availability = await getOrCreateAvailability(doctorId);
   const slots = availability.getAvailableSlotsForDate(date).filter(s => !s.isBooked).map(s => s.time);
   res.json({ availableSlots: slots });
 });
 
+/**
+ * The doctor a patient is trying to book, or an error response to send.
+ *
+ * Both booking routes used to trust the id: bookSession only checked that a
+ * profile existed, and bookImmediate accepted a 'test-doctor-id' sentinel
+ * that booked a free session with yourself.
+ */
+async function _loadBookableDoctor(doctorId) {
+  if (!doctorId || !mongoose.Types.ObjectId.isValid(String(doctorId))) {
+    return { error: { status: 400, message: 'A valid therapist is required' } };
+  }
+  const doctor = await User.findOne({ _id: doctorId, role: 'doctor', approvalStatus: 'approved', status: 'active' })
+    .select('firstName lastName isOnline');
+  const doctorProfile = doctor ? await DoctorProfile.findOne({ userId: doctorId }) : null;
+  if (!doctor || !doctorProfile) {
+    return { error: { status: 404, message: 'This therapist is not available for booking' } };
+  }
+  return { doctor, doctorProfile };
+}
+
+/** The commission split, frozen onto the session when it is booked. */
+async function _splitFor(doctorProfile, finalPrice) {
+  const platformSettings = await PlatformSettings.getSettings();
+  const feePercentage = doctorProfile.customFeePercentage ?? platformSettings.defaultPlatformFeePercentage;
+  const platformFee = Math.round((finalPrice * feePercentage) / 100);
+  return { platformFee, doctorEarnings: finalPrice - platformFee };
+}
+
+/** Confirmation for a booking that owes nothing (stub payments mode). Paid bookings are confirmed by sessionPayment. */
+async function _notifyUnpaidBooking(req, session) {
+  const populated = await Session.findById(session._id)
+    .populate('patientId', 'firstName lastName email')
+    .populate('doctorId', 'firstName lastName email');
+  const patientId = String(populated.patientId._id);
+  const doctorId = String(populated.doctorId._id);
+  _emitToUsers(req, 'session:booked', {
+    session: populated, patientId, doctorId, sessionId: String(session._id),
+    acceptanceDeadline: populated.acceptanceDeadline || null, timestamp: new Date()
+  }, [patientId, doctorId]);
+  try {
+    const date = new Date(populated.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+    const type = populated.sessionType === 'immediate' ? 'Immediate' : 'Regular';
+    const doctorName = `${populated.doctorId.firstName} ${populated.doctorId.lastName}`;
+    // Every field the templates render. This path used to pass only date,
+    // time and type, and the doctor's email arrived as "Hi Dr. undefined …
+    // Duration undefined minutes … Your Earnings ₹undefined".
+    if (populated.patientId.email) {
+      await emailService.sendBookingConfirmationEmail(populated.patientId.email, {
+        date, time: populated.sessionTime, type, doctorName, duration: populated.duration, price: populated.price
+      });
+    }
+    if (populated.doctorId.email) {
+      await emailService.sendDoctorNewBookingEmail(populated.doctorId.email, {
+        doctorName,
+        patientName: `${populated.patientId.firstName} ${populated.patientId.lastName}`,
+        date, time: populated.sessionTime, type, duration: populated.duration, doctorEarnings: populated.doctorEarnings
+      });
+    }
+  } catch (emailErr) {
+    logger.warn('Booking email failed', { error: emailErr.message });
+  }
+  return populated;
+}
+
 /** POST /api/sessions/book-immediate — Book an immediate (now) session */
 const bookImmediate = asyncHandler(async (req, res) => {
-  let { doctorId, mode, duration, price } = req.body;
+  const { doctorId, mode = 'video', duration } = req.body;
   const patientId = req.actor.id;
-  if (!doctorId || doctorId === 'test-doctor-id') doctorId = patientId;
 
-  const now = new Date();
-  // sessionTime used to be built from getUTCHours(), producing a bare 24-hour
-  // string ('14:30') that no other producer emitted — so it could never match
-  // a slot in the 12-hour availability grid, and releaseSlot was a guaranteed
-  // no-op for immediate sessions. The model now derives every representation
-  // from `startsAt`; this literal is only a placeholder for the required field.
-  const sessionTime = '12:00 AM';
-  const finalPrice = await calculateSessionPrice(doctorId, mode, duration, price);
+  const paramError = validateBookingParams({ mode, duration });
+  if (paramError) return res.status(400).json({ success: false, message: paramError });
 
-  let platformFee = 0;
-  let doctorEarnings = 0;
-  let doctorProfile = null;
+  const { doctor, doctorProfile, error } = await _loadBookableDoctor(doctorId);
+  if (error) return res.status(error.status).json({ success: false, message: error.message });
 
-  const isSelfSession = doctorId === patientId;
-  if (!isSelfSession) {
-    doctorProfile = await DoctorProfile.findOne({ userId: doctorId });
-    if (doctorProfile) {
-      const platformSettings = await PlatformSettings.getSettings();
-      const feePercentage = doctorProfile.customFeePercentage ?? platformSettings.defaultPlatformFeePercentage;
-      platformFee = Math.round((finalPrice * feePercentage) / 100);
-      doctorEarnings = finalPrice - platformFee;
-    }
+  // An instant session is a promise that someone is there to answer it.
+  // Nothing checked that, so a patient could pay to ring a doctor who had
+  // logged off hours ago and wait out the window for a refund.
+  if (!doctor.isOnline) {
+    return res.status(409).json({ success: false, message: 'This therapist has just gone offline. Please choose another therapist or book a time.' });
   }
 
-  // Same fail-closed rule as bookSession — see resolveBookingPaymentState.
-  // A self-session (doctorId === patientId, reachable via the 'test-doctor-id'
-  // sentinel) owes nothing, so it resolves to not_required rather than being
-  // dressed up as a completed payment.
-  const paymentState = isSelfSession
-    ? { ok: true, paymentStatus: 'not_required', status: 'active', paymentId: null, razorpayOrderId: null }
-    : await resolveBookingPaymentState({
-        doctorProfile, finalPrice, receiptPrefix: 'rcpt_imm', immediate: true
-      });
+  const finalPrice = await calculateSessionPrice(doctorId, mode, duration);
+  if (!finalPrice) {
+    return res.status(400).json({ success: false, message: 'This therapist does not offer that session type' });
+  }
+  const { platformFee, doctorEarnings } = await _splitFor(doctorProfile, finalPrice);
 
+  const paymentState = await resolveBookingPaymentState({
+    doctorProfile, finalPrice, receiptPrefix: 'rcpt_imm', immediate: true
+  });
   if (!paymentState.ok) {
     return res.status(paymentState.httpStatus).json({ success: false, message: paymentState.message });
   }
-  const razorpayOrderId = paymentState.razorpayOrderId;
 
+  const now = new Date();
   const session = new Session({
     patientId,
     doctorId,
     startsAt: now,
     timezone: PLATFORM_TIMEZONE,
     sessionDate: now,
-    sessionTime,
+    // Placeholder for a required legacy field; the model derives the real
+    // value from startsAt.
+    sessionTime: '12:00 AM',
     sessionType: 'immediate',
-    duration: duration || 20,
+    duration: Number(duration),
     price: finalPrice,
     platformFee,
     doctorEarnings,
     paymentStatus: paymentState.paymentStatus,
     status: paymentState.status,
     paymentId: paymentState.paymentId,
-    razorpayOrderId,
-    callMode: CALL_MODE_MAP[mode] || 'Video Calling' 
+    razorpayOrderId: paymentState.razorpayOrderId,
+    // A booking that owes nothing is live now, so its window starts now. A
+    // paid one gets its deadline when the payment lands.
+    acceptanceDeadline: paymentState.razorpayOrderId
+      ? null
+      : new Date(now.getTime() + INSTANT_ACCEPT_WINDOW_MINUTES * 60 * 1000),
+    callMode: CALL_MODE_MAP[mode] || 'Video Calling'
   });
-  const saved = await session.save();
-  saved.meetingLink = `/video-call/${saved._id}`;
-  await saved.save();
+  session.meetingLink = `/video-call/${session._id}`;
+  await session.save();
 
-  const populated = await Session.findById(session._id).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email');
+  try { await Conversation.findOrCreateConversation(patientId, doctorId, session._id); } catch (e) { logger.warn('Conversation creation failed', { error: e.message }); }
 
-  try { await Conversation.findOrCreateConversation(patientId, doctorId, saved._id); } catch (e) { logger.warn('Conversation creation failed', { error: e.message }); }
+  const populated = paymentState.razorpayOrderId
+    ? await Session.findById(session._id).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email')
+    : await _notifyUnpaidBooking(req, session);
 
-  // If mock payment (no razorpayOrderId), emit immediately
-  if (!razorpayOrderId) {
-    _emitToUsers(req, 'session:booked', { session: populated, patientId, doctorId, sessionId: saved._id.toString(), timestamp: new Date() }, [patientId, doctorId]);
-  }
-  
-  try {
-    if (!razorpayOrderId) {
-      const emailService = require('../services/email.service');
-      const sessionDateFormatted = new Date(saved.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-      
-      if (populated.patientId && populated.patientId.email) {
-        await emailService.sendBookingConfirmationEmail(populated.patientId.email, {
-          date: sessionDateFormatted,
-          time: saved.sessionTime,
-          type: saved.sessionType || 'Immediate'
-        });
-      }
-      
-      if (populated.doctorId && populated.doctorId.email) {
-        await emailService.sendDoctorNewBookingEmail(populated.doctorId.email, {
-          patientName: `${populated.patientId.firstName} ${populated.patientId.lastName}`,
-          date: sessionDateFormatted,
-          time: saved.sessionTime,
-          type: saved.sessionType || 'Immediate'
-        });
-      }
-    }
-  } catch (emailErr) { 
-    logger.warn('Email send failed in bookImmediate', { error: emailErr.message, stack: emailErr.stack }); 
-  }
-
-  logger.info('Immediate session order created', { sessionId: saved._id.toString().substring(0, 8) });
+  logger.info('Immediate session order created', { sessionId: session._id.toString().substring(0, 8) });
   res.status(201).json({ success: true, message: 'Immediate session order created.', session: populated });
 });
 
 /** POST /api/sessions/book — Book a scheduled session */
 const bookSession = asyncHandler(async (req, res) => {
-  const { doctorId, sessionDate, sessionTime, sessionType, price, mode, duration, serviceType } = req.body;
+  const { doctorId, sessionDate, sessionTime, sessionType, mode = 'video', duration, serviceType } = req.body;
   const patientId = req.actor.id;
 
-  if (!doctorId || !sessionDate || !sessionTime || price === undefined) {
+  if (!doctorId || !sessionDate || !sessionTime) {
     return res.status(400).json({ success: false, message: 'Missing required fields' });
   }
+  const paramError = validateBookingParams({ mode, duration });
+  if (paramError) return res.status(400).json({ success: false, message: paramError });
 
   // Validate the slot is in the future.
   //
@@ -468,23 +495,22 @@ const bookSession = asyncHandler(async (req, res) => {
   }
   if (requestedStartsAt < new Date()) return res.status(400).json({ success: false, message: 'Cannot book a time slot in the past' });
 
-  const existing = await Session.findOne({ doctorId, sessionDate: new Date(sessionDate), sessionTime, status: { $ne: 'cancelled' } });
-  if (existing) return res.status(400).json({ success: false, message: 'This time slot is no longer available' });
+  const { doctorProfile, error } = await _loadBookableDoctor(doctorId);
+  if (error) return res.status(error.status).json({ success: false, message: error.message });
 
-  const doctorProfile = await DoctorProfile.findOne({ userId: doctorId });
-  if (!doctorProfile) return res.status(400).json({ success: false, message: 'Doctor profile not found' });
+  // The price is the server's, never the client's. The client used to send
+  // one, and calculateSessionPrice fell back to it.
+  const finalPrice = await calculateSessionPrice(doctorId, mode, duration);
+  if (!finalPrice) {
+    return res.status(400).json({ success: false, message: 'This therapist does not offer that session type' });
+  }
 
-  const finalPrice = await calculateSessionPrice(doctorId, mode, duration, price);
   const availability = await getOrCreateAvailability(doctorId);
-
   if (!availability.isSlotAvailable(sessionDate, sessionTime)) {
     return res.status(400).json({ success: false, message: "This time slot is not available in doctor's calendar" });
   }
 
-  const platformSettings = await PlatformSettings.getSettings();
-  const feePercentage = doctorProfile.customFeePercentage ?? platformSettings.defaultPlatformFeePercentage;
-  const platformFee = Math.round((finalPrice * feePercentage) / 100);
-  const doctorEarnings = finalPrice - platformFee;
+  const { platformFee, doctorEarnings } = await _splitFor(doctorProfile, finalPrice);
 
   // ── PAYMENT STATE ─────────────────────────────────────────────────────────
   // This block used to fall through to `paymentStatus: 'paid'` with a
@@ -504,6 +530,9 @@ const bookSession = asyncHandler(async (req, res) => {
     return res.status(paymentState.httpStatus).json({ success: false, message: paymentState.message });
   }
 
+  // A scheduled booking is never an instant request, whatever the client
+  // calls it: the instant-request sweeps and accept flow key on this field.
+  const mappedType = SESSION_TYPE_MAP[sessionType];
   const meetingLink = `/video-call/${crypto.randomBytes(16).toString('hex')}`;
   const session = new Session({
     patientId, doctorId,
@@ -511,7 +540,8 @@ const bookSession = asyncHandler(async (req, res) => {
     // localDate/localTime/endsAt from it.
     startsAt: requestedStartsAt, timezone: PLATFORM_TIMEZONE,
     sessionDate: new Date(sessionDate), sessionTime,
-    sessionType: SESSION_TYPE_MAP[sessionType] || 'regular', duration: duration || 60,
+    sessionType: !mappedType || mappedType === 'immediate' ? 'regular' : mappedType,
+    duration: Number(duration),
     price: finalPrice, platformFee, doctorEarnings,
     paymentStatus: paymentState.paymentStatus,
     status: paymentState.status,
@@ -520,47 +550,25 @@ const bookSession = asyncHandler(async (req, res) => {
     meetingLink, sessionNotes: `Service Type: ${serviceType || 'General'}`,
     callMode: CALL_MODE_MAP[mode] || 'Video Calling'
   });
-  const razorpayOrderId = paymentState.razorpayOrderId;
 
+  // The atomic step: the slot is only ours if this compare-and-set wins.
   const booked = await availability.bookSlot(sessionDate, sessionTime, session._id);
-  if (!booked) return res.status(400).json({ success: false, message: 'Failed to book slot. It may have just been taken.' });
+  if (!booked) return res.status(400).json({ success: false, message: 'This time slot is no longer available' });
 
-  await session.save();
-  const populated = await Session.findById(session._id).populate('patientId', 'firstName lastName email phoneNumber').populate('doctorId', 'firstName lastName email');
-
-
+  try {
+    await session.save();
+  } catch (err) {
+    // Without this the slot stayed reserved for a session that does not exist.
+    await availability.releaseSlot(sessionDate, sessionTime, session._id);
+    throw err;
+  }
 
   try { await Conversation.findOrCreateConversation(patientId, doctorId, session._id); } catch (e) { logger.warn('Conversation creation failed', { error: e.message }); }
 
-  if (!razorpayOrderId) {
-    _emitToUsers(req, 'session:booked', { session: populated, patientId, doctorId, sessionId: session._id.toString(), timestamp: new Date() }, [patientId, doctorId]);
-  }
+  const populated = paymentState.razorpayOrderId
+    ? await Session.findById(session._id).populate('patientId', 'firstName lastName email phoneNumber').populate('doctorId', 'firstName lastName email')
+    : await _notifyUnpaidBooking(req, session);
 
-  try {
-    if (!razorpayOrderId) {
-      const emailService = require('../services/email.service');
-      const sessionDateFormatted = new Date(populated.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-      
-      if (populated.patientId && populated.patientId.email) {
-        await emailService.sendBookingConfirmationEmail(populated.patientId.email, {
-          date: sessionDateFormatted,
-          time: populated.sessionTime,
-          type: populated.sessionType || 'Regular'
-        });
-      }
-      
-      if (populated.doctorId && populated.doctorId.email) {
-        await emailService.sendDoctorNewBookingEmail(populated.doctorId.email, {
-          patientName: `${populated.patientId.firstName} ${populated.patientId.lastName}`,
-          date: sessionDateFormatted,
-          time: populated.sessionTime,
-          type: populated.sessionType || 'Regular'
-        });
-      }
-    }
-  } catch (emailErr) { 
-    logger.warn('Email send failed in bookSession', { error: emailErr.message, stack: emailErr.stack }); 
-  }
   logger.info('Session order created', { sessionId: session._id.toString().substring(0, 8) });
   res.status(201).json({ success: true, message: 'Session order created', session: populated });
 });
@@ -598,8 +606,11 @@ const getMySessions = asyncHandler(async (req, res) => {
 
 /** GET /api/sessions/upcoming */
 const getUpcoming = asyncHandler(async (req, res) => {
-  const query = sealedFilter(req.authz.scope, { status: 'scheduled', sessionDate: { $gte: new Date() } });
-  const sessions = await Session.find(query).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ sessionDate: 1, sessionTime: 1 }).limit(10);
+  // On the instant, not on sessionDate: sessionDate is the local day at UTC
+  // midnight, so `sessionDate >= now` dropped every one of today's sessions
+  // from the list as soon as the day began.
+  const query = sealedFilter(req.authz.scope, { status: { $in: ['scheduled', 'active'] }, endsAt: { $gte: new Date() } });
+  const sessions = await Session.find(query).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ startsAt: 1 }).limit(10);
   const enrichedSessions = await attachDoctorProfiles(sessions);
   res.json(enrichedSessions);
 });
@@ -630,17 +641,26 @@ const getAllDoctors = asyncHandler(async (req, res) => {
   }).select(PUBLIC_DOCTOR_FIELDS)
     .populate({
       path: 'userId',
-      select: 'firstName lastName email isOnline profileCompleted approvalStatus',
+      // No email: this is a public, unauthenticated listing, and the
+      // PUBLIC_DOCTOR_FIELDS allowlist above only covers the profile, not
+      // the populated user.
+      select: 'firstName lastName isOnline profileCompleted approvalStatus',
       // The approval state lives on User, so it cannot join the query above.
       // A populate `match` filters it server-side and leaves userId null on a
       // miss, which the existing `!!p.userId` guard already drops.
-      match: { approvalStatus: 'approved' }
+      // A suspended doctor cannot use the account they would be booked on.
+      match: { approvalStatus: 'approved', status: 'active' }
     })
     .skip(skip).limit(limit);
   const valid = profiles.filter(p => !!p.userId);
   const doctorIds = valid.map(p => p.userId?._id).filter(Boolean);
+  // Only the reviews each profile actually shows — flagged ones were being
+  // averaged in. Same filter as Review.publicDoctorReviewStages, for a set of
+  // doctors at once.
   const ratingAgg = await Review.aggregate([
-    { $match: { doctorId: { $in: doctorIds.map(id => new mongoose.Types.ObjectId(id)) }, reviewType: 'doctor' } },
+    { $match: { doctorId: { $in: doctorIds.map(id => new mongoose.Types.ObjectId(id)) }, ...Review.publicFilter('doctor') } },
+    { $lookup: { from: Session.collection.name, localField: 'sessionId', foreignField: '_id', as: '_session' } },
+    { $match: { '_session.status': 'completed' } },
     { $group: { _id: '$doctorId', average: { $avg: '$rating' }, totalReviews: { $sum: 1 } } }
   ]);
   const ratingMap = {};
@@ -662,23 +682,25 @@ const getAllDoctors = asyncHandler(async (req, res) => {
 const getDoctorById = asyncHandler(async (req, res) => {
   const { doctorId } = req.params;
   if (!doctorId.match(/^[0-9a-fA-F]{24}$/)) return res.status(400).json({ success: false, message: 'Invalid doctor ID format' });
-  const doctor = await User.findOne({ _id: doctorId, role: 'doctor' }).select('firstName lastName email');
+  // Public and unauthenticated, so held to the directory's bar: an applicant
+  // who was never approved — or was rejected — is not a therapist this site
+  // presents, and their email is nobody's business.
+  const doctor = await User.findOne({ _id: doctorId, role: 'doctor', approvalStatus: 'approved', status: 'active' }).select('firstName lastName');
   if (!doctor) throw new NotFoundError('Doctor');
-  const genderImage = getGenderBasedImage(doctor);
   const profile = await DoctorProfile.findOne({ userId: doctorId }).select(PUBLIC_DOCTOR_FIELDS)
-    .populate('userId', 'firstName lastName email');
+    .populate('userId', 'firstName lastName');
+  if (!profile) throw new NotFoundError('Doctor');
   const ratingStats = await Review.aggregate([
-    { $match: { doctorId: new mongoose.Types.ObjectId(doctorId), reviewType: 'doctor' } },
+    ...Review.publicDoctorReviewStages(doctorId),
     { $group: { _id: null, average: { $avg: '$rating' }, totalReviews: { $sum: 1 } } }
   ]);
   const liveRating = ratingStats.length > 0 ? { average: Math.round(ratingStats[0].average * 10) / 10, totalReviews: ratingStats[0].totalReviews } : { average: 0, totalReviews: 0 };
-  if (profile) {
-    if (!profile.profileImage || profile.profileImage.includes('doctor-0') || profile.profileImage === '/doctor-placeholder.svg') profile.profileImage = genderImage;
-    const obj = profile.toObject();
-    obj.rating = liveRating;
-    return res.json(obj);
+  if (!profile.profileImage || profile.profileImage.includes('doctor-0') || profile.profileImage === '/doctor-placeholder.svg') {
+    profile.profileImage = getGenderBasedImage(doctor);
   }
-  res.json({ _id: `temp_${doctor._id}`, userId: { _id: doctor._id, firstName: doctor.firstName, lastName: doctor.lastName, email: doctor.email }, specialization: ['Unknown'], experience: 0, qualification: ['Unknown'], languages: ['Unknown'], treatsFor: ['General'], pricing: { min: 0, max: 0 }, profileImage: genderImage, bio: 'Profile not completed yet', isOnline: false, rating: liveRating });
+  const obj = profile.toObject();
+  obj.rating = liveRating;
+  res.json(obj);
 });
 
 /** GET /api/sessions/:sessionId — Get session by ID */
@@ -864,20 +886,9 @@ const cancelSession = asyncHandler(async (req, res) => {
     await _incrementDoctorCancellationCount(session.doctorId, 'Failed to update doctor cancellation tracking');
   }
 
-  // Release the slot
-  try {
-    const avail = await DoctorAvailability.findOne({ doctorId: session.doctorId });
-    // localDate/localTime, not toISOString() — a 00:30 IST session has a UTC
-    // date of the PREVIOUS day, so the old key could never match the booked
-    // slot and the slot leaked permanently.
-    if (avail) {
-      const released = await avail.releaseSlot(session.localDate, session.localTime, session._id);
-      if (!released) logger.warn('Slot release did not match any booked slot', {
-        sessionId: session._id.toString().substring(0, 8),
-        slot: slotKey(session.localDate, session.localTime)
-      });
-    }
-  } catch (e) { logger.warn('Slot release failed', { error: e.message }); }
+  // Release the slot. By the session's own localDate/localTime and id, so a
+  // late cancellation can never free somebody else's rebooking of it.
+  await releaseSessionSlot(current);
 
   // Notify both parties via socket
   const pId = session.patientId.toString();
@@ -992,23 +1003,56 @@ const getMyTherapists = asyncHandler(async (req, res) => {
   res.json(therapists);
 });
 
+const MINUTE_MS = 60 * 1000;
+const STILL_WAITING = { status: 'active', acceptanceStatus: { $in: ['pending', 'delayed'] }, doctorJoined: { $ne: true } };
+
 /** POST /api/sessions/:sessionId/accept — Doctor accepts instant session */
 const acceptSession = asyncHandler(async (req, res) => {
   const { sessionId } = req.params;
   const userId = req.actor.id;
   const session = req.authz.resource;
-  session.acceptanceStatus = 'accepted';
-  // Answered, so it is no longer a pending request the sweep should expire.
-  session.acceptanceDeadline = null;
-  // Payment verification already set status to 'active' for immediate sessions —
-  // don't downgrade it back to 'scheduled' once the doctor accepts.
-  if (session.sessionType !== 'immediate') session.status = 'scheduled';
-  await session.save();
+
+  if (session.sessionType !== 'immediate') {
+    return res.status(400).json({ success: false, message: 'Only instant requests need to be accepted' });
+  }
+  if (session.acceptanceStatus === 'accepted') {
+    return res.json({ success: true, message: 'Session already accepted', session });
+  }
+
+  // A compare-and-set on "still waiting". This was a read-modify-save with no
+  // state check at all, and for a regular session it wrote status
+  // 'scheduled' — so an accept that raced the expiry sweep revived a session
+  // that had just been cancelled and refunded.
+  //
+  // The session's clock restarts here: its minutes belong to the call, not to
+  // the time the patient spent waiting for an answer.
+  const now = new Date();
+  const accepted = await Session.findOneAndUpdate(
+    { _id: session._id, ...STILL_WAITING },
+    {
+      $set: {
+        acceptanceStatus: 'accepted',
+        acceptanceDeadline: null,
+        ringDeliveredAt: session.ringDeliveredAt || now,
+        ...deriveFields(now, session.duration || 20, session.timezone || PLATFORM_TIMEZONE)
+      }
+    },
+    { new: true }
+  ).populate('patientId', 'firstName lastName').populate('doctorId', 'firstName lastName');
+
+  if (!accepted) {
+    const current = await Session.findById(session._id).select('acceptanceStatus status');
+    if (current && current.acceptanceStatus === 'accepted') {
+      return res.json({ success: true, message: 'Session already accepted', session: current });
+    }
+    return res.status(409).json({ success: false, message: 'This request is no longer waiting — it was withdrawn or has expired.' });
+  }
+
   const updateData = { sessionId, acceptanceStatus: 'accepted', message: 'Doctor has accepted the request and is joining.' };
-  _emitToUsers(req, 'session:status-update', updateData, [session.patientId._id.toString(), userId]);
+  _emitToUsers(req, 'session:status-update', updateData, [accepted.patientId._id.toString(), userId]);
   const io = req.app.get('io');
   if (io) io.to(sessionId).emit('session:status-update', updateData);
-  res.json({ success: true, message: 'Session accepted successfully', session });
+  res.json({ success: true, message: 'Session accepted successfully', session: accepted });
 });
 
 /** POST /api/sessions/:sessionId/delay — Doctor delays instant session */
@@ -1017,160 +1061,200 @@ const delaySession = asyncHandler(async (req, res) => {
   const { delayMinutes, doctorNote } = req.body;
   const userId = req.actor.id;
   const session = req.authz.resource;
-  session.acceptanceStatus = 'delayed';
-  session.delayMinutes = delayMinutes || 5;
-  session.delayedUntil = new Date(Date.now() + session.delayMinutes * 60000);
-  session.doctorNote = doctorNote || '';
-  await session.save();
-  const updateData = { sessionId, acceptanceStatus: 'delayed', delayMinutes: session.delayMinutes, delayedUntil: session.delayedUntil, doctorNote: session.doctorNote, message: `Doctor will join in ${session.delayMinutes} minutes.` };
-  _emitToUsers(req, 'session:status-update', updateData, [session.patientId._id.toString(), userId]);
+
+  if (session.sessionType !== 'immediate') {
+    return res.status(400).json({ success: false, message: 'Only instant requests can be delayed' });
+  }
+  const minutes = Math.min(MAX_DELAY_MINUTES, Math.max(1, parseInt(delayMinutes, 10) || 5));
+  const now = new Date();
+  const delayedUntil = new Date(now.getTime() + minutes * MINUTE_MS);
+
+  // The deadline moves with the delay. A delayed request used to have no
+  // server-side expiry at all — the sweep only matched 'pending' — so one the
+  // doctor never came back to stayed open, paid and unrefunded, forever.
+  const delayed = await Session.findOneAndUpdate(
+    { _id: session._id, ...STILL_WAITING },
+    {
+      $set: {
+        acceptanceStatus: 'delayed',
+        delayMinutes: minutes,
+        delayedUntil,
+        acceptanceDeadline: new Date(delayedUntil.getTime() + DELAY_GRACE_MINUTES * MINUTE_MS),
+        doctorNote: String(doctorNote || '').substring(0, 500),
+        // Answering with a delay is proof the ring arrived.
+        ringDeliveredAt: session.ringDeliveredAt || now
+      }
+    },
+    { new: true }
+  ).populate('patientId', 'firstName lastName');
+
+  if (!delayed) {
+    return res.status(409).json({ success: false, message: 'This request is no longer waiting — it was withdrawn or has expired.' });
+  }
+
+  const updateData = { sessionId, acceptanceStatus: 'delayed', delayMinutes: minutes, delayedUntil, acceptanceDeadline: delayed.acceptanceDeadline, doctorNote: delayed.doctorNote, message: `Doctor will join in ${minutes} minutes.` };
+  _emitToUsers(req, 'session:status-update', updateData, [delayed.patientId._id.toString(), userId]);
   const io = req.app.get('io');
   if (io) io.to(sessionId).emit('session:status-update', updateData);
-  res.json({ success: true, message: 'Session delayed successfully', session });
+  res.json({ success: true, message: 'Session delayed successfully', session: delayed });
 });
 
 /**
- * Core logic for auto-cancelling + refunding a session the doctor never accepted —
- * shared between the manual REST endpoint below and the scheduled sweep
- * (sweepStuckUnacceptedSessions) that catches paid instant sessions the patient
- * never followed up on (e.g. closed the tab before their own client-side timer fired),
- * which previously had no server-side resolution at all.
+ * Cancel an instant request nobody answered, and refund it.
+ *
+ * Shared by the patient withdrawing (POST /missed) and the sweep expiring it.
+ * This used to write `status: 'cancelled', paymentStatus: 'refunded'` with a
+ * raw save(): no refundId (an I7 violation), no claim (so /missed and the
+ * sweep could both call Razorpay for one payment, the loser then overwriting
+ * the winner's 'refunded' with 'refund_failed'), no clawback hook — and it
+ * marked UNPAID sessions 'refunded' too. It now cancels through the
+ * transition table and refunds through sessionRefund, like every other path.
+ *
+ * @param {'system'|'patient'} by
+ * @returns {Promise<{cancelled:boolean, reason?:string, refunded?:boolean, session?:object}>}
  */
-async function _autoCancelUnacceptedSession(session, io) {
-  session.status = 'cancelled';
-  session.acceptanceStatus = 'pending';
+async function _autoCancelUnacceptedSession(session, io, { by = 'system', now = new Date() } = {}) {
+  const sessionId = session._id;
+  const short = sessionId.toString().substring(0, 8);
 
-  if (session.paymentStatus === 'paid' && session.paymentId && !session.paymentId.startsWith('mock_') && !session.paymentId.startsWith('immediate_')) {
-    try {
-      await getRazorpay().payments.refund(session.paymentId, {
-        amount: session.price * 100,
-        speed: 'normal',
-        notes: { reason: 'Doctor missed session — auto refund' }
-      });
-      session.paymentStatus = 'refunded';
-      session.refundAmount = session.price;
-    } catch (err) {
-      logger.error('Razorpay refund failed in auto-cancel', { error: err.message, paymentId: session.paymentId });
-      session.paymentStatus = 'refund_failed';
-    }
-  } else {
-    session.paymentStatus = 'refunded';
-  }
-
-  await session.save();
-
-  // Track doctor no-shows the same way explicit doctor cancellations are tracked —
-  // otherwise a doctor who repeatedly just never answers accrues no accountability at all.
-  //
-  // But only when the request actually reached them. This used to fire
-  // unconditionally, so the commonest way to collect a strike was a dropped
-  // socket: the ring was emitted into an empty room, the doctor never saw
-  // anything, and three of those raised a warning on their account. A strike
-  // has to mean "you were asked and did not answer".
-  if (session.ringDeliveredAt) {
-    await _incrementDoctorCancellationCount(session.doctorId, 'Failed to update doctor cancellation tracking on missed session');
-  } else {
-    logger.warn('Instant request expired without ever reaching the doctor — not counted against them', {
-      sessionId: session._id.toString().substring(0, 8),
-      doctorId: String(session.doctorId._id || session.doctorId).substring(0, 8)
+  let result;
+  try {
+    result = await applyTransition(session, {
+      event: by === 'patient' ? EVENT.CANCEL : EVENT.ACCEPT_TIMEOUT,
+      actor: by === 'patient' ? ACTOR.PATIENT : ACTOR.SYSTEM,
+      payload: { cancelledBy: by },
+      // The doctor may accept or walk in between the read and this write.
+      // Both are preconditions, so that race resolves in the doctor's favour.
+      extraFilter: { acceptanceStatus: { $ne: 'accepted' }, doctorJoined: { $ne: true } },
+      extraSet: { acceptanceDeadline: null },
+      now
     });
+  } catch (err) {
+    if (err.code === 'CONCURRENT_MODIFICATION') return { cancelled: false, reason: 'answered-meanwhile' };
+    throw err;
   }
+  if (!result.changed) return { cancelled: false, reason: result.noopReason };
+
+  let refunded = false;
+  if (result.session.paymentStatus === 'paid') {
+    const refund = await refundSession(result.session, {
+      actor: ACTOR.SYSTEM,
+      amount: result.session.price,
+      reason: by === 'patient' ? 'Instant request withdrawn before the therapist answered' : 'Therapist did not answer the instant request'
+    });
+    refunded = refund.refunded;
+    if (refund.failed) {
+      logger.error('Refund of an unanswered instant request failed; it is in the admin retry queue', { sessionId: short });
+    }
+  }
+
+  // A strike means "you were asked and did not answer": the ring reached the
+  // doctor and the window ran out. A patient giving up early, or a ring
+  // emitted into an empty room, is neither.
+  const deadlinePassed = !session.acceptanceDeadline || new Date(session.acceptanceDeadline) <= now;
+  if (deadlinePassed && session.ringDeliveredAt) {
+    await _incrementDoctorCancellationCount(session.doctorId._id || session.doctorId, 'Failed to update doctor cancellation tracking on missed session');
+  } else if (by === 'system') {
+    logger.warn('Instant request expired without ever reaching the doctor — not counted against them', { sessionId: short });
+  }
+
+  const patientId = String(session.patientId._id || session.patientId);
+  const doctorId = String(session.doctorId._id || session.doctorId);
+  const message = by === 'patient'
+    ? 'The request was withdrawn before the therapist answered.'
+    : 'Doctor is unavailable. Session cancelled.';
 
   try {
-    const populatedMissed = await Session.findById(session._id).populate('patientId', 'firstName lastName email');
-    if (populatedMissed.patientId?.email) {
-      await emailService.sendCancellationEmail(populatedMissed.patientId.email, {
-        recipientName: populatedMissed.patientId.firstName,
-        date: new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
-        time: session.sessionTime,
-        cancelledBy: 'System (Doctor Unavailable)',
-        refundAmount: session.price,
-        message: 'Unfortunately your doctor was unavailable for your session. A full refund has been initiated automatically.'
+    const patient = await User.findById(patientId).select('firstName email');
+    if (patient && patient.email) {
+      await emailService.sendCancellationEmail(patient.email, {
+        recipientName: patient.firstName,
+        date: new Date(result.session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
+        time: result.session.sessionTime,
+        cancelledBy: by === 'patient' ? 'You' : 'System (Doctor Unavailable)',
+        refundAmount: refunded ? result.session.price : 0,
+        message: refunded
+          ? `${message} A full refund has been initiated automatically.`
+          : message
       });
     }
   } catch (e) { logger.warn('Missed session email failed', { error: e.message }); }
 
-  const updateData = { sessionId: session._id.toString(), status: 'cancelled', cancelledBy: 'system', message: 'Doctor is unavailable. Session cancelled and refunded.' };
+  const updateData = { sessionId: sessionId.toString(), status: 'cancelled', cancelledBy: by, message };
   if (io) {
-    new SocketEmitter(io).emitToUsers([session.patientId._id.toString(), session.doctorId._id.toString()], 'session:cancelled', updateData);
-    io.to(session._id.toString()).emit('session:cancelled', updateData);
+    new SocketEmitter(io).emitToUsers([patientId, doctorId], 'session:cancelled', updateData);
+    io.to(sessionId.toString()).emit('session:cancelled', updateData);
   }
+  return { cancelled: true, refunded, session: result.session };
 }
 
-/** POST /api/sessions/:sessionId/missed — Handle when doctor misses the ring or delay timeout */
+/** POST /api/sessions/:sessionId/missed — the patient gives up on an unanswered instant request */
 const missedSession = asyncHandler(async (req, res) => {
   // Authorization is declared on the route as authorize('session:mark-missed')
-  // and restricts this to the session's own patient. There was previously NO
-  // check here at all, so any authenticated account could cancel and refund
-  // any session in the system by id.
+  // and restricts this to the session's own patient.
   //
-  // `req.authz.resource` is the session the policy already loaded and
-  // authorized, so this no longer refetches. The populate the notification
-  // path needs is declared alongside the policy on the route.
+  // It is also restricted to what it is FOR. It used to accept any session
+  // that was not accepted/cancelled/completed — and acceptanceStatus defaults
+  // to 'pending' on every booking — so a patient could call it on a regular
+  // booking an hour before it started and take a 100% refund the published
+  // 4-hour policy does not give.
   const session = req.authz.resource;
 
-  if (session.acceptanceStatus === 'accepted') {
-    return res.json({ success: false, message: 'Session already accepted' });
+  if (session.sessionType !== 'immediate') {
+    return res.status(400).json({ success: false, message: 'Only an unanswered instant request can be reported as missed. To cancel a booking, use Cancel.' });
   }
-
-  // Guard against re-running the cancel+refund path on a session that is
-  // already resolved. Without it a replayed request re-enters the refund
-  // logic on a terminal session.
-  if (['cancelled', 'completed'].includes(session.status)) {
+  if (session.acceptanceStatus === 'accepted' || session.doctorJoined) {
+    return res.status(409).json({ success: false, message: 'Session already accepted' });
+  }
+  if (!['payment_pending', 'active'].includes(session.status)) {
     return res.json({ success: false, message: `Session is already ${session.status}` });
   }
 
-  await _autoCancelUnacceptedSession(session, req.app.get('io'));
-
-  res.json({ success: true, message: 'Session marked as missed', session });
+  const result = await _autoCancelUnacceptedSession(session, req.app.get('io'), { by: 'patient' });
+  if (!result.cancelled) {
+    return res.status(409).json({ success: false, message: 'The therapist has just answered this request.' });
+  }
+  res.json({ success: true, message: 'Session marked as missed', refunded: result.refunded, session: result.session });
 });
 
 /**
- * Scheduled sweep (called from services/scheduler.js): a paid instant session the
- * doctor never accepted has no resolution path if the patient closes the app before
- * their own client-side 10-minute timer fires /missed — this catches those and
- * refunds/cancels them the same way, so nothing paid can get stuck forever.
+ * Scheduled sweep (called from services/scheduler.js): every instant request
+ * whose window has closed without the doctor answering.
  */
 const sweepStuckUnacceptedSessions = async (io) => {
   const now = new Date();
   // Rows created before acceptanceDeadline existed still have to resolve, so
-  // they keep the old createdAt rule. Remove this arm once no unaccepted
-  // instant session predates the deploy.
-  const legacyCutoff = new Date(now.getTime() - INSTANT_ACCEPT_WINDOW_MINUTES * 60 * 1000);
+  // they keep the old createdAt / delayedUntil rules.
+  const legacyCutoff = new Date(now.getTime() - INSTANT_ACCEPT_WINDOW_MINUTES * MINUTE_MS);
+  const legacyDelayCutoff = new Date(now.getTime() - DELAY_GRACE_MINUTES * MINUTE_MS);
 
   const stuck = await Session.find({
     sessionType: 'immediate',
-    acceptanceStatus: 'pending',
-    paymentStatus: 'paid',
-    status: { $nin: ['cancelled', 'completed'] },
-
-    // NEVER cancel a call that is actually happening.
-    //
-    // acceptanceStatus is a parallel state machine that joining the room used
-    // not to touch, so a doctor who opened the call link instead of clicking
-    // Accept stayed 'pending' forever — and this sweep, whose status filter
-    // does not exclude 'active', cancelled and refunded their session
-    // mid-conversation. Joining now marks acceptance, and these two clauses
-    // are the belt to that braces: a session with a live call or a doctor
-    // already in it is not an unanswered request, whatever its flags say.
-    callStatus: { $ne: 'in-progress' },
-    doctorJoined: { $ne: true },
-
+    ...STILL_WAITING,
+    // callStatus is deliberately NOT a condition. The patient sets it to
+    // 'in-progress' by opening the waiting lounge, so excluding it meant a
+    // patient who waited in the room for a doctor who never came was never
+    // refunded. doctorJoined is the real "the call is happening" signal.
     $or: [
       { acceptanceDeadline: { $lte: now } },
-      { acceptanceDeadline: null, createdAt: { $lte: legacyCutoff } }
+      { acceptanceDeadline: null, acceptanceStatus: 'pending', createdAt: { $lte: legacyCutoff } },
+      { acceptanceDeadline: null, acceptanceStatus: 'delayed', delayedUntil: { $lte: legacyDelayCutoff } }
     ]
-  }).populate('patientId', 'firstName lastName').populate('doctorId', 'firstName lastName');
+  });
 
+  let cancelled = 0;
   for (const session of stuck) {
     try {
-      await _autoCancelUnacceptedSession(session, io);
-      logger.info('Auto-cancelled stuck unaccepted instant session', { sessionId: session._id.toString() });
+      const result = await _autoCancelUnacceptedSession(session, io, { by: 'system', now });
+      if (result.cancelled) {
+        cancelled += 1;
+        logger.info('Auto-cancelled unanswered instant request', { sessionId: session._id.toString().substring(0, 8), refunded: result.refunded });
+      }
     } catch (err) {
       logger.error('Failed to auto-cancel stuck session', { sessionId: session._id.toString(), error: err.message });
     }
   }
-  return stuck.length;
+  return cancelled;
 };
 
 /** GET /api/sessions/delayed — Get all active delayed sessions for a doctor */

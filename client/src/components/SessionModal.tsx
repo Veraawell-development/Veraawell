@@ -4,7 +4,7 @@ import EmergencyContactModal from './EmergencyContactModal';
 import RatingModal from './RatingModal';
 import SessionReportsModal from './SessionReportsModal';
 import { API_BASE_URL } from '../config/api';
-import { parseTime } from '../utils/dateUtils';
+import { resolveSessionStart, PLATFORM_TIMEZONE } from '../utils/dateUtils';
 import { toast } from 'react-hot-toast';
 import { calculateRefundPreview } from '../utils/refundPolicy';
 import { getAuthToken } from '../utils/authToken';
@@ -49,15 +49,9 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
   const [patientEmergencyContact, setPatientEmergencyContact] = useState<any>(null);
   const [doctorProfile, setDoctorProfile] = useState<any>(null);
 
-  const sessionDateTime = (() => {
-    if (!session) return new Date();
-    const d = new Date(session.sessionDate);
-    if (session.sessionType !== 'immediate' && session.sessionTime) {
-      const [h, m] = parseTime(session.sessionTime);
-      d.setHours(h, m, 0, 0);
-    }
-    return d;
-  })();
+  // startsAt when present; otherwise the legacy pair read as IST. Feeds the
+  // refund preview, so a viewer-offset error here is a money error on screen.
+  const sessionDateTime = session ? resolveSessionStart(session) : new Date();
 
   useEffect(() => {
     if (isOpen && userRole === 'patient' && session) {
@@ -168,22 +162,19 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
   if (!isOpen || !session) return null;
 
   const canJoinSession = () => {
-    // Only show join button if session is scheduled
-    if (session.status !== 'scheduled') {
+    // Scheduled, or already under way. 'active' used to be excluded, so a
+    // paid instant session — which is 'active' from the moment payment
+    // lands — could not be (re)joined from here at all.
+    if (session.status !== 'scheduled' && session.status !== 'active') {
       return false;
     }
 
-    // Immediate sessions can be joined right away (for testing)
+    // Immediate sessions can be joined right away
     if (session.sessionType === 'immediate') {
       return true;
     }
 
     const now = new Date();
-    const sessionDateTime = new Date(session.sessionDate);
-    if (session.sessionTime) {
-      const [hours, minutes] = parseTime(session.sessionTime);
-      sessionDateTime.setHours(hours, minutes, 0, 0);
-    }
     const timeDiff = sessionDateTime.getTime() - now.getTime();
     const minutesDiff = timeDiff / (1000 * 60);
 
@@ -473,11 +464,11 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-6 text-center text-sm text-gray-600">
               <div className="space-y-1 md:border-r border-gray-200">
                 <p className="font-semibold text-gray-700">Date</p>
-                <p>{sessionDateTime.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '/')}</p>
+                <p>{sessionDateTime.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: PLATFORM_TIMEZONE }).replace(/\//g, '/')}</p>
               </div>
               <div className="space-y-1 md:border-r border-gray-200">
                 <p className="font-semibold text-gray-700">Time</p>
-                <p>{sessionDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true })}</p>
+                <p>{sessionDateTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: PLATFORM_TIMEZONE })}</p>
               </div>
               <div className="space-y-1 md:border-r border-gray-200">
                 <p className="font-semibold text-gray-700">Duration</p>

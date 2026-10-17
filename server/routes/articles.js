@@ -3,6 +3,7 @@ const router = express.Router();
 const articleController = require('../controllers/article.controller');
 const { verifyAdminToken, verifySuperAdmin } = require('../middleware/auth.middleware');
 const { validateObjectIdParam } = require('../middleware/validation.middleware');
+const { publicRoute } = require('../authz');
 const rateLimit = require('express-rate-limit');
 const { ipKeyGenerator } = require('express-rate-limit');
 
@@ -95,23 +96,23 @@ router.post('/admin/:id/feature', verifyAdminToken, verifySuperAdmin, validateOb
 // @route   GET /api/articles
 // @desc    Get all published articles with pagination, search, and filters
 // @access  Public
-router.get('/', articlesListLimiter, searchLimiter, articleController.getPublishedArticles);
+router.get('/', publicRoute('published articles on the resources page'), articlesListLimiter, searchLimiter, articleController.getPublishedArticles);
 
 // @route   POST /api/articles/:id/view
 // @desc    Increment article view count
 // @access  Public
-router.post('/:id/view', interactionLimiter, validateObjectIdParam('id'), articleController.incrementViews);
+router.post('/:id/view', publicRoute('anonymous view counter on a published article'), interactionLimiter, validateObjectIdParam('id'), articleController.incrementViews);
 
 // @route   POST /api/articles/:id/like
 // @desc    Increment article like count
 // @access  Public
-router.post('/:id/like', interactionLimiter, validateObjectIdParam('id'), articleController.incrementLikes);
+router.post('/:id/like', publicRoute('anonymous like toggle on a published article'), interactionLimiter, validateObjectIdParam('id'), articleController.incrementLikes);
 
 // @route   GET /api/articles/:slug
 // @desc    Get single article by slug
 // @access  Public
 // IMPORTANT: This must be LAST to avoid matching admin routes
-router.get('/:slug', articleController.getArticleBySlug);
+router.get('/:slug', publicRoute('a published article, by slug'), articleController.getArticleBySlug);
 
 module.exports = router;
 

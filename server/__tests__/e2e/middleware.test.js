@@ -125,6 +125,38 @@ describe('CSRF double-submit', () => {
     const res = await request(server).post('/api/upload/doctor-document').send({});
     expect(res.body.category).not.toBe('csrf');
   });
+
+  test('session-bound endpoints under /auth and /admin/auth are NOT exempt', async () => {
+    // Regression. The exemptions used to be the prefixes '/auth/' and
+    // '/admin/auth/', which also covered everything under them that acts on
+    // an existing session. A cross-site form post could delete the visitor's
+    // account or have a signed-in super admin create an admin. Each of these
+    // must now be refused for want of a token — before authentication even
+    // runs, which is why no credentials are sent.
+    const sessionBound = [
+      ['put', '/api/auth/update-password'],
+      ['delete', '/api/auth/delete-account'],
+      ['post', '/api/auth/logout'],
+      ['post', '/api/auth/patient-profile'],
+      ['post', '/api/admin/auth/change-password'],
+      ['post', '/api/admin/auth/create'],
+      ['post', '/api/admin/auth/logout']
+    ];
+    for (const [method, path] of sessionBound) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await request(server)[method](path).send({});
+      expect({ path, status: res.status, category: res.body.category })
+        .toEqual({ path, status: 403, category: 'csrf' });
+    }
+  });
+
+  test('the pre-session admin endpoints stay exempt', async () => {
+    for (const path of ['/api/admin/auth/login', '/api/admin/auth/forgot-password', `/api/admin/auth/reset-password/${'a'.repeat(96)}`]) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await request(server).post(path).send({});
+      expect(res.body.category).not.toBe('csrf');
+    }
+  });
 });
 
 describe('body parsing and limits', () => {
@@ -232,12 +264,14 @@ describe('security headers', () => {
     expect(res.headers['content-security-policy']).toBeUndefined();
   });
 
-  test('the health endpoint publishes configuration presence without auth', async () => {
+  // Regression. This used to pin that /api/health published, unauthenticated,
+  // which secrets were configured (an `envVars` block with hasJwtSecret,
+  // hasMongoUri and the Google OAuth pair). It answers liveness only now.
+  test('the health endpoint answers liveness and nothing about configuration', async () => {
     const res = await request(server).get('/api/health');
     expect(res.status).toBe(200);
-    expect(res.body.envVars).toEqual(expect.objectContaining({
-      hasJwtSecret: expect.any(Boolean),
-      hasMongoUri: expect.any(Boolean)
-    }));
+    expect(res.body.envVars).toBeUndefined();
+    expect(res.body.googleOAuthEnabled).toBeUndefined();
+    expect(Object.keys(res.body).sort()).toEqual(['mongoConnected', 'success', 'timestamp']);
   });
 });

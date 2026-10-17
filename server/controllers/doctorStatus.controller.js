@@ -4,6 +4,8 @@
  */
 
 const User = require('../models/user');
+const DoctorProfile = require('../models/doctorProfile');
+const { PUBLIC_DOCTOR_FIELDS } = DoctorProfile;
 const { asyncHandler } = require('../middleware/error.middleware');
 const { AuthorizationError } = require('../utils/errors');
 const { updateDoctorStatus } = require('../services/doctorStatus.service');
@@ -28,12 +30,43 @@ const getStatus = asyncHandler(async (req, res) => {
   res.json({ success: true, isOnline: req.user.isOnline, lastActiveAt: req.user.lastActiveAt });
 });
 
-/** GET /api/doctor-status/online-doctors — Get all online doctors (public) */
+/**
+ * GET /api/doctor-status/online-doctors — online doctors a patient can book
+ * right now (public; the "Available Now" tab).
+ *
+ * Two problems with what this used to return:
+ *
+ *  - every online practitioner's personal `email`, unauthenticated — the
+ *    client printed it on the card;
+ *  - anyone with the toggle on, bookable or not. The directory
+ *    (session.controller getAllDoctors) only lists doctors with an approved
+ *    payout route and a price, so "All Available" showed 0 while "Available
+ *    Now" showed 2 doctors whose booking would then be refused.
+ *
+ * It now applies the directory's rules — approved account, payoutApproved,
+ * pricing.min > 0 — minus the published-calendar condition, which an instant
+ * session does not need. Each entry carries the public profile
+ * (PUBLIC_DOCTOR_FIELDS, the same allowlist the directory uses) so the card
+ * can be rendered from this response alone.
+ */
 const getOnlineDoctors = asyncHandler(async (req, res) => {
-  const onlineDoctors = await User.find({ role: 'doctor', isOnline: true, approvalStatus: 'approved' })
-    .select('firstName lastName email isOnline lastActiveAt profileCompleted')
-    .sort({ lastActiveAt: -1 });
-  res.json({ success: true, count: onlineDoctors.length, doctors: onlineDoctors });
+  const online = await User.find({ role: 'doctor', isOnline: true, approvalStatus: 'approved', status: 'active' })
+    .select('firstName lastName isOnline lastActiveAt profileCompleted')
+    .sort({ lastActiveAt: -1 })
+    .lean();
+
+  const profiles = await DoctorProfile.find({
+    userId: { $in: online.map((d) => d._id) },
+    payoutApproved: true,
+    'pricing.min': { $gt: 0 }
+  }).select(PUBLIC_DOCTOR_FIELDS).lean();
+  const profileByUser = new Map(profiles.map((p) => [String(p.userId), p]));
+
+  const doctors = online
+    .filter((d) => profileByUser.has(String(d._id)))
+    .map((d) => ({ ...d, profile: profileByUser.get(String(d._id)) }));
+
+  res.json({ success: true, count: doctors.length, doctors });
 });
 
 /** POST /api/doctor-status/set-offline — Set doctor offline (called on logout) */

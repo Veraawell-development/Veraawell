@@ -85,13 +85,16 @@ const ChooseProfessionalPage: React.FC = () => {
   useEffect(() => {
     if (!socket) return;
 
-    socket.on('doctor:status-change', ({ doctorId, isOnline }) => {
+    const onStatusChange = ({ doctorId, isOnline }: { doctorId: string; isOnline: boolean }) => {
       console.log('[REAL-TIME] Doctor status changed:', { doctorId: doctorId.substring(0, 8), isOnline });
       queryClient.invalidateQueries({ queryKey: ['doctors', 'online'] });
-    });
+    };
+    socket.on('doctor:status-change', onStatusChange);
 
     return () => {
-      socket.off('doctor:status-change');
+      // With the handler: the /data socket is shared app-wide, and a bare
+      // off(event) would also remove DoctorDashboard's listener.
+      socket.off('doctor:status-change', onStatusChange);
     };
   }, [socket, queryClient]);
 
@@ -309,7 +312,17 @@ const ChooseProfessionalPage: React.FC = () => {
             {viewMode === 'online' ? (
               // Online doctors view
               onlineDoctors.map((doctor: any) => {
-                const fullDoctorData = doctors.find((d: Doctor) => d.userId._id === doctor._id);
+                // The directory only lists doctors with a published calendar;
+                // an instant session doesn't need one, so fall back to the
+                // public profile the online-doctors response now carries.
+                const fullDoctorData: Doctor | undefined = doctors.find((d: Doctor) => d.userId._id === doctor._id)
+                  || (doctor.profile
+                    ? ({
+                        ...doctor.profile,
+                        userId: { _id: doctor._id, firstName: doctor.firstName, lastName: doctor.lastName, email: '' },
+                        isOnline: true
+                      } as Doctor)
+                    : undefined);
 
                 if (fullDoctorData) {
                   const pricingText = fullDoctorData.pricing.min === 0 && fullDoctorData.pricing.max === 0
@@ -387,8 +400,10 @@ const ChooseProfessionalPage: React.FC = () => {
                       <h3 className="text-xl font-semibold mb-1 text-center" style={{ color: 'var(--text)' }}>
                         Dr. {doctor.firstName} {doctor.lastName}
                       </h3>
+                      {/* Was {doctor.email}: a practitioner's private address on a
+                          public card. */}
                       <p className="text-[14px] mb-8 text-center truncate w-full" style={{ color: 'var(--text-2)' }}>
-                        {doctor.email}
+                        Available for an instant session
                       </p>
                       
                       <div className="mt-auto w-full">

@@ -79,7 +79,15 @@ const payoutSchema = new mongoose.Schema({
   },
 
   adminNote: { type: String, default: '' },
-  lockedAt: { type: Date, default: null }
+  lockedAt: { type: Date, default: null },
+  /**
+   * When the amounts above were frozen. Locking claims the payout first
+   * (draft -> locked) and computes second, so a payout can briefly be locked
+   * with no totals; markPaid refuses one in that state, and a lock that died
+   * in between can be resumed. Absent on payouts locked before this existed,
+   * whose totals were written in the same operation as the lock.
+   */
+  totalsComputedAt: { type: Date, default: null }
 }, { timestamps: true });
 
 /**

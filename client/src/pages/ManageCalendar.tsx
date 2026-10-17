@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiArrowLeft, FiEdit2, FiCheck, FiX, FiClock, FiCalendar, FiUser, FiSun, FiMoon } from 'react-icons/fi';
-import { Toaster, toast } from 'react-hot-toast';
+import { toast } from 'react-hot-toast';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config/api';
 import { getAuthToken } from '../utils/authToken';
-import { isToday, parseTime } from '../utils/dateUtils';
+import { resolveSessionStart, sessionLocalDateKey, formatSessionDay } from '../utils/dateUtils';
 
 interface TimeSlot { time: string; isBooked: boolean; sessionId?: string; }
 interface DayAvailability { date: string; slots: TimeSlot[]; }
 interface UpcomingSession {
   _id: string;
   patientId: { firstName: string; lastName: string; email: string };
+  /** Authoritative start instant; sessionDate/sessionTime are legacy display fields. */
+  startsAt?: string;
   sessionDate: string;
   sessionTime: string;
   status: string;
@@ -109,19 +111,10 @@ const ManageCalendar: React.FC = () => {
     }
   };
 
-  const isSlotInPast = (dateStr: string, timeStr: string) => {
-    const selectedDate = new Date(dateStr);
-    if (isToday(dateStr)) {
-      const timeInMs = (timeVal: string) => {
-        const [h, min] = parseTime(timeVal);
-        const d = new Date();
-        d.setHours(h, min, 0, 0);
-        return d.getTime();
-      };
-      return timeInMs(timeStr) < new Date().getTime();
-    }
-    return selectedDate.getTime() < new Date().setHours(0, 0, 0, 0);
-  };
+  // A slot is an IST wall-clock time on an IST day: compare its real instant
+  // with now, rather than setHours on the viewer's clock.
+  const isSlotInPast = (dateStr: string, timeStr: string) =>
+    resolveSessionStart({ sessionDate: dateStr, sessionTime: timeStr }).getTime() < Date.now();
 
   const toggleSlot = (slot: string) => {
     if (availabilityType === 'same_slots') {
@@ -203,8 +196,7 @@ const ManageCalendar: React.FC = () => {
 
   const getSlotInfo = (slot: string) => {
     const booked = upcomingSessions.find(s => {
-      const d = new Date(s.sessionDate).toISOString().split('T')[0];
-      return d === currentViewDate && s.sessionTime === slot;
+      return sessionLocalDateKey(s) === currentViewDate && s.sessionTime === slot;
     });
     return { booked, past: isSlotInPast(currentViewDate, slot), sel: isSlotSelected(slot) };
   };
@@ -291,7 +283,8 @@ const ManageCalendar: React.FC = () => {
       className="min-h-screen w-full flex flex-col overflow-x-hidden pt-16 md:pt-20"
       style={{ background: C.bg, fontFamily: "'Public Sans', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif", boxSizing: 'border-box' }}
     >
-      <Toaster position="top-right" toastOptions={{ style: { fontFamily: 'Inter', fontSize: 13, borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: '0 4px 20px rgba(0,0,0,0.08)' } }} />
+      {/* No <Toaster> here: App renders the one app-wide, and a second one
+          showed every toast twice. */}
 
       {/* TOP NAV */}
       <header className="flex-none flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 lg:px-8 py-3" style={{ borderBottom: `1px solid ${C.border}`, zIndex: 20 }}>
@@ -467,7 +460,7 @@ const ManageCalendar: React.FC = () => {
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 4 }}>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.text3, fontWeight: 500 }}>
                           <FiCalendar size={10} strokeWidth={2} />
-                          {new Date(s.sessionDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          {formatSessionDay(resolveSessionStart(s), { month: 'short', day: 'numeric' }, 'en-US')}
                         </span>
                         <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: C.text3, fontWeight: 500 }}>
                           <FiClock size={10} strokeWidth={2} />
@@ -525,7 +518,7 @@ const ManageCalendar: React.FC = () => {
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
                   <p className="text-xs text-gray-500 font-semibold mb-1 uppercase tracking-wider">Date & Time</p>
-                  <p className="text-sm font-bold text-gray-800">{new Date(selectedSession.sessionDate).toLocaleDateString()}</p>
+                  <p className="text-sm font-bold text-gray-800">{formatSessionDay(resolveSessionStart(selectedSession))}</p>
                   <p className="text-xs text-gray-600">{selectedSession.sessionTime}</p>
                 </div>
                 <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">

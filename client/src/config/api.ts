@@ -1,5 +1,3 @@
-import { getAuthToken } from '../utils/authToken';
-
 // API Configuration - Centralized
 export const API_CONFIG = {
   BASE_URL: window.location.hostname === 'localhost'
@@ -15,34 +13,3 @@ export const API_CONFIG = {
 // Export API_BASE_URL for backward compatibility with existing code
 export const API_BASE_URL = API_CONFIG.BASE_URL;
 export const SOCKET_URL = API_CONFIG.SOCKET_URL;
-
-// Simple fetch helper for now (can upgrade to axios later)
-export const apiFetch = async (endpoint: string, options: RequestInit = {}) => {
-  const url = `${API_CONFIG.BASE_URL}${endpoint}`;
-
-  const token = getAuthToken();
-
-  const config: RequestInit = {
-    ...options,
-    credentials: 'include', // Always include cookies
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  };
-
-  try {
-    const response = await fetch(url, config);
-
-    // Handle 401 Unauthorized
-    if (response.status === 401) {
-      window.location.href = '/login';
-      throw new Error('Unauthorized');
-    }
-
-    return response;
-  } catch (error) {
-    throw error;
-  }
-};

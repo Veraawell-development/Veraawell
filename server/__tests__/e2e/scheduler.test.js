@@ -36,8 +36,9 @@ jest.mock('../../services/email.service', () => new Proxy({}, {
 }));
 
 const mockRefund = jest.fn().mockResolvedValue({ id: 'rfnd_sweep', status: 'processed' });
+const mockFetchPayments = jest.fn().mockResolvedValue({ items: [] });
 jest.mock('razorpay', () => jest.fn().mockImplementation(() => ({
-  orders: { create: jest.fn() },
+  orders: { create: jest.fn(), fetchPayments: mockFetchPayments },
   payments: { refund: mockRefund, fetchMultipleRefund: jest.fn().mockResolvedValue({ items: [] }) },
   accounts: { create: jest.fn() }
 })));
@@ -46,7 +47,7 @@ const CRON = {
   statusSweep: '*/5 * * * *',
   notifications: '* * * * *',
   stuckSessions: '* * * * *',
-  paymentCleanup: '*/30 * * * *',
+  paymentCleanup: '* * * * *',
   clawbacks: '0 * * * *'
 };
 
@@ -85,6 +86,8 @@ beforeEach(async () => {
   await Session.deleteMany({});
   mockReminder.mockClear();
   mockRefund.mockClear();
+  mockFetchPayments.mockReset();
+  mockFetchPayments.mockResolvedValue({ items: [] });
 });
 
 describe('all five jobs are actually registered', () => {
@@ -266,15 +269,28 @@ describe('session status sweep (every 5 minutes)', () => {
     expect((await Session.findById(s._id)).status).toBe('scheduled');
   });
 
-  test('a session older than the 24h window is NOT swept', async () => {
-    // The query is bounded to endsAt within the last 24 hours to avoid a full
-    // collection scan. Anything that fell through earlier stays stuck forever
-    // — a deliberate trade-off worth pinning, because it means an outage
-    // longer than a day leaves sessions permanently in 'scheduled'.
+  test('a session that ended while the server was asleep for over a day is still swept', async () => {
+    // This was a characterisation test: the sweep only looked back 24 hours,
+    // and the host sleeps when idle, so a session that ended during a longer
+    // sleep stayed 'scheduled' forever — never paid out, never no-show
+    // refunded. The window is now 30 days of an indexed range scan.
     const s = await Session.create({
       patientId: f.patientA._id, doctorId: f.doctorA._id,
       startsAt: past(30), duration: 60, price: 1000,
       status: 'scheduled', paymentStatus: 'paid', paymentId: 'pay_sweep_05'
+    });
+
+    await runJob(CRON.statusSweep);
+    expect((await Session.findById(s._id)).status).toBe('no-show');
+  });
+
+  test('a session that ended moments ago is left for the grace period', async () => {
+    // A call that runs a minute over, or a late joiner still inside the join
+    // window, must not be swept mid-conversation.
+    const s = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: new Date(Date.now() - 62 * 60 * 1000), duration: 60, price: 1000,
+      status: 'scheduled', paymentStatus: 'paid', paymentId: 'pay_sweep_grace'
     });
 
     await runJob(CRON.statusSweep);
@@ -383,7 +399,7 @@ describe('reminder notifications (every minute)', () => {
   });
 });
 
-describe('expired payment cleanup (every 30 minutes)', () => {
+describe('expired payment cleanup (every minute)', () => {
   test('a checkout abandoned over 30 minutes ago is failed and its slot released', async () => {
     const { utcToZoned, zonedToUtc } = require('../../utils/zonedTime');
     const { PLATFORM_TIMEZONE } = require('../../config/time');
@@ -419,7 +435,7 @@ describe('expired payment cleanup (every 30 minutes)', () => {
     expect(availAfter.bookedSlots.filter((b) => String(b.sessionId) === String(s._id))).toHaveLength(0);
   });
 
-  test('both cleanup paths expire a checkout at the same age', async () => {
+  test('a checkout expires at exactly the configured age', async () => {
     // This test used to pin a three-way disagreement as the expected
     // behaviour: getDoctorSlots expired a checkout at 15 minutes, this job at
     // 30, and CHECKOUT_TTL_MINUTES — the constant documented as "one number,
@@ -456,21 +472,76 @@ describe('expired payment cleanup (every 30 minutes)', () => {
     expect((await Session.findById(older._id)).status).toBe('cancelled');
   });
 
-  test('the two cleanup paths read the same constant, not their own literals', async () => {
-    // The disagreement above was invisible because each path hardcoded its own
-    // number. Grepping for a literal minute-count in either is how a future
-    // edit reintroduces it.
+  test('there is one cleanup path, and it reads the constant', async () => {
+    // There used to be two: this job, and a non-atomic copy run on every
+    // public slot listing that rewrote the doctor's whole bookedSlots array
+    // from a stale read. The second one is gone.
     const fs = require('fs');
     const path = require('path');
     const root = path.join(__dirname, '..', '..');
 
     const controller = fs.readFileSync(path.join(root, 'controllers', 'session.controller.js'), 'utf8');
-    const scheduler = fs.readFileSync(path.join(root, 'services', 'scheduler.js'), 'utf8');
+    const payment = fs.readFileSync(path.join(root, 'services', 'sessionPayment.js'), 'utf8');
 
-    expect(controller).toContain('CHECKOUT_TTL_MINUTES');
-    expect(scheduler).toContain('CHECKOUT_TTL_MINUTES');
-    expect(controller).not.toContain('15 * 60 * 1000');
-    expect(scheduler).not.toContain('30 * 60 * 1000');
+    expect(controller).not.toMatch(/cleanupPendingSessions\s*\(/);
+    expect(payment).toContain('CHECKOUT_TTL_MINUTES');
+  });
+
+  test('a checkout Razorpay reports as captured is confirmed, not expired', async () => {
+    // The webhook is the normal way a payment arrives, but it can be late or
+    // lost. Expiring a checkout that was in fact paid turned a booking into a
+    // refund the patient never asked for.
+    const s = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: new Date(Date.now() + 3 * 864e5), duration: 55, price: 1000,
+      status: 'payment_pending', paymentStatus: 'pending',
+      razorpayOrderId: 'order_paid_late', paymentId: null
+    });
+    await Session.collection.updateOne({ _id: s._id }, { $set: { createdAt: new Date(Date.now() - 45 * 60 * 1000) } });
+    mockFetchPayments.mockResolvedValue({ items: [{ id: 'pay_found_by_sweep', status: 'captured' }] });
+
+    await runJob(CRON.paymentCleanup);
+
+    const after = await Session.findById(s._id);
+    expect(after.status).toBe('scheduled');
+    expect(after.paymentStatus).toBe('paid');
+    expect(after.paymentId).toBe('pay_found_by_sweep');
+    expect(mockRefund).not.toHaveBeenCalled();
+  });
+
+  test('a checkout is NOT expired when Razorpay cannot be asked', async () => {
+    const s = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: new Date(Date.now() + 3 * 864e5), duration: 55, price: 1000,
+      status: 'payment_pending', paymentStatus: 'pending',
+      razorpayOrderId: 'order_gateway_down', paymentId: null
+    });
+    await Session.collection.updateOne({ _id: s._id }, { $set: { createdAt: new Date(Date.now() - 45 * 60 * 1000) } });
+    mockFetchPayments.mockRejectedValue(new Error('ETIMEDOUT'));
+
+    await runJob(CRON.paymentCleanup);
+    expect((await Session.findById(s._id)).status).toBe('payment_pending');
+  });
+
+  test('a row the old payment.failed handler left half-written is expired and its slot freed', async () => {
+    // That handler set paymentStatus 'failed' but left status
+    // 'payment_pending'. Both cleanups matched only 'pending', so the slot
+    // was held forever.
+    const s = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: new Date(Date.now() + 3 * 864e5), duration: 55, price: 1000,
+      status: 'payment_pending', paymentStatus: 'pending',
+      razorpayOrderId: 'order_legacy_failed', paymentId: null
+    });
+    await Session.collection.updateOne(
+      { _id: s._id },
+      { $set: { paymentStatus: 'failed', createdAt: new Date(Date.now() - 45 * 60 * 1000) } }
+    );
+
+    await runJob(CRON.paymentCleanup);
+    const after = await Session.findById(s._id);
+    expect(after.status).toBe('cancelled');
+    expect(after.paymentStatus).toBe('failed');
   });
 
   test('a session with no Razorpay order is not touched', async () => {
@@ -553,6 +624,102 @@ describe('stuck unaccepted instant sessions (every minute)', () => {
     await runJob(CRON.stuckSessions);
     expect((await Session.findById(s._id)).status).toBe('active');
     expect(mockRefund).not.toHaveBeenCalled();
+  });
+});
+
+describe('instant requests that are never answered', () => {
+  test('a delayed request expires once the doctor\'s own deadline passes', async () => {
+    // Delayed requests had no server-side expiry at all — the sweep matched
+    // only 'pending' — so one the doctor never came back to stayed paid and
+    // unrefunded forever.
+    const s = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: new Date(Date.now() - 15 * 60 * 1000), duration: 20, price: 800,
+      status: 'active', paymentStatus: 'paid', paymentId: 'pay_delayed_01',
+      sessionType: 'immediate', acceptanceStatus: 'delayed',
+      delayedUntil: new Date(Date.now() - 5 * 60 * 1000),
+      acceptanceDeadline: new Date(Date.now() - 2 * 60 * 1000),
+      ringDeliveredAt: new Date(Date.now() - 15 * 60 * 1000)
+    });
+
+    await runJob(CRON.stuckSessions);
+    const after = await Session.findById(s._id);
+    expect(after.status).toBe('cancelled');
+    expect(after.paymentStatus).toBe('refunded');
+    expect(after.refundId).toBeTruthy();
+  });
+
+  test('a patient waiting in the lounge does not stop the request expiring', async () => {
+    // The patient sets callStatus 'in-progress' by opening the waiting room,
+    // and the sweep used to skip any in-progress call — so the patient who
+    // waited longest for a doctor who never came was the one never refunded.
+    const s = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: new Date(Date.now() - 5 * 60 * 1000), duration: 20, price: 800,
+      status: 'active', paymentStatus: 'paid', paymentId: 'pay_lounge_01',
+      sessionType: 'immediate', acceptanceStatus: 'pending',
+      acceptanceDeadline: new Date(Date.now() - 60 * 1000),
+      callStatus: 'in-progress', patientJoined: true
+    });
+
+    await runJob(CRON.stuckSessions);
+    const after = await Session.findById(s._id);
+    expect(after.status).toBe('cancelled');
+    expect(after.paymentStatus).toBe('refunded');
+  });
+
+  test('a request the doctor has walked into is never expired', async () => {
+    const s = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: new Date(Date.now() - 5 * 60 * 1000), duration: 20, price: 800,
+      status: 'active', paymentStatus: 'paid', paymentId: 'pay_walked_in',
+      sessionType: 'immediate', acceptanceStatus: 'pending',
+      acceptanceDeadline: new Date(Date.now() - 60 * 1000),
+      doctorJoined: true
+    });
+
+    await runJob(CRON.stuckSessions);
+    expect((await Session.findById(s._id)).status).toBe('active');
+    expect(mockRefund).not.toHaveBeenCalled();
+  });
+
+  test('an unanswered refund is recorded with a real refund id, not written by hand', async () => {
+    const s = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: new Date(Date.now() - 5 * 60 * 1000), duration: 20, price: 800,
+      status: 'active', paymentStatus: 'paid', paymentId: 'pay_unanswered_01',
+      sessionType: 'immediate', acceptanceStatus: 'pending',
+      acceptanceDeadline: new Date(Date.now() - 60 * 1000)
+    });
+
+    await runJob(CRON.stuckSessions);
+    const after = await Session.findById(s._id);
+    // It used to set 'refunded' with no refundId — invariant I7 — and the
+    // same for sessions that were never paid at all.
+    expect(after.refundId).toBe('rfnd_sweep');
+    expect(after.refundAmount).toBe(800);
+  });
+});
+
+describe('boot catch-up', () => {
+  test('a restart runs the work that fell due while the server slept', async () => {
+    // The host sleeps when idle and every cron pauses with it. On boot the
+    // expiry, status sweep and refund reconciliation run once straight away.
+    const ended = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: new Date(Date.now() - 3 * 3600 * 1000), duration: 55, price: 1000,
+      status: 'scheduled', paymentStatus: 'paid', paymentId: 'pay_slept_through'
+    });
+    const abandoned = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: new Date(Date.now() + 3 * 864e5), duration: 55, price: 1000,
+      status: 'payment_pending', paymentStatus: 'pending', razorpayOrderId: 'order_slept', paymentId: null
+    });
+    await Session.collection.updateOne({ _id: abandoned._id }, { $set: { createdAt: new Date(Date.now() - 60 * 60 * 1000) } });
+
+    expect(await scheduler.runBootCatchUp()).toBe(true);
+    expect((await Session.findById(ended._id)).status).toBe('no-show');
+    expect((await Session.findById(abandoned._id)).status).toBe('cancelled');
   });
 });
 

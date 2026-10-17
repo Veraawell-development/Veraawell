@@ -110,7 +110,7 @@ describe('the stub client mints exactly the shapes above', () => {
   });
 });
 
-describe('assertPaymentsConfigured is never wired in', () => {
+describe('assertPaymentsConfigured guards startup', () => {
   test('the guard itself works when called directly', () => {
     process.env.PAYMENTS_MODE = 'stub';
     let threw;
@@ -124,23 +124,59 @@ describe('assertPaymentsConfigured is never wired in', () => {
     delete process.env.PAYMENTS_MODE;
   });
 
-  test('but nothing in the codebase calls it, so no deployment is protected by it', () => {
-    // Its docblock claims "Called from validateEnvironment()"
-    // (config/payments.js:53-54). Searching the tree for a call site finds
-    // only the definition and the export.
-    const { execSync } = require('child_process');
-    const root = require('path').join(__dirname, '..', '..');
-    const hits = execSync(
-      'grep -rn "assertPaymentsConfigured" . --include="*.js" | grep -v node_modules | grep -v __tests__ || true',
-      { cwd: root, encoding: 'utf8' }
-    ).trim().split('\n').filter(Boolean);
+  /**
+   * Run validateEnvironment() as a production boot would, with every required
+   * variable present, and report whether it tried to exit.
+   */
+  function bootProduction(paymentsMode) {
+    const vars = {
+      NODE_ENV: 'production',
+      MONGO_URI: 'mongodb://127.0.0.1:27099/never-dialled',
+      JWT_SECRET: 'x', SESSION_SECRET: 'x', ADMIN_JWT_SECRET: 'x',
+      FRONTEND_URL: 'https://veraawell.com',
+      RAZORPAY_KEY_ID: 'rzp_live_x', RAZORPAY_KEY_SECRET: 'x', RAZORPAY_WEBHOOK_SECRET: 'x',
+      CLOUDINARY_CLOUD_NAME: 'x', CLOUDINARY_API_KEY: 'x', CLOUDINARY_API_SECRET: 'x',
+      RESEND: 're_x',
+      PAYMENTS_MODE: paymentsMode
+    };
+    const saved = {};
+    for (const [k, v] of Object.entries(vars)) {
+      saved[k] = process.env[k];
+      if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    }
+    const exit = jest.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`process.exit(${code})`);
+    });
+    let exitedWith = null;
+    try {
+      jest.isolateModules(() => {
+        try {
+          require('../../config/environment').validateEnvironment();
+        } catch (e) {
+          const m = /process\.exit\((\d+)\)/.exec(e.message);
+          if (!m) throw e;
+          exitedWith = Number(m[1]);
+        }
+      });
+    } finally {
+      exit.mockRestore();
+      for (const [k, v] of Object.entries(saved)) {
+        if (v === undefined) delete process.env[k]; else process.env[k] = v;
+      }
+    }
+    return exitedWith;
+  }
 
-    // Exactly two: the `function assertPaymentsConfigured()` line and the
-    // `assertPaymentsConfigured,` line in module.exports.
-    expect(hits).toHaveLength(2);
-    expect(hits.every((h) => h.includes('config/payments.js'))).toBe(true);
+  // Regression. This test used to pin that nothing called the guard: its
+  // docblock said "Called from validateEnvironment()", a search of the tree
+  // found only the definition and the export, and so PAYMENTS_MODE=stub —
+  // the setting that creates sessions nobody paid for — booted production
+  // without complaint.
+  test('a production boot with PAYMENTS_MODE=stub refuses to start', () => {
+    expect(bootProduction('stub')).toBe(1);
+  });
 
-    const envSource = require('fs').readFileSync(require.resolve('../../config/environment'), 'utf8');
-    expect(envSource).not.toMatch(/assertPaymentsConfigured/);
+  test('a correctly configured production boot is not refused', () => {
+    expect(bootProduction(undefined)).toBeNull();
   });
 });

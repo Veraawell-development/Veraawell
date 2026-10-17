@@ -31,7 +31,7 @@ jest.mock('isomorphic-dompurify', () => ({ sanitize: (s) => s }));
 let app, f;
 let server;
 let patientA, patientB, doctorA, doctorB;
-let Session, DoctorAvailability;
+let Session, DoctorAvailability, User;
 
 beforeAll(async () => {
   await connectDb('session.surface');
@@ -39,6 +39,7 @@ beforeAll(async () => {
   server = await startServer(app);
   Session = require('../../models/session');
   DoctorAvailability = require('../../models/doctorAvailability');
+  User = require('../../models/user');
 
   const { seedAll } = require('../support/seed');
   f = await seedAll();
@@ -330,32 +331,35 @@ describe('instant sessions', () => {
     expect(mockRefund).toHaveBeenCalledTimes(1);
   });
 
-  test('book-immediate with no doctorId creates a free self-session', async () => {
-    // session.controller.js:324 treats an absent doctorId — and the literal
-    // string 'test-doctor-id' — as a request for a session with oneself, priced
-    // not_required and immediately active. Any authenticated patient can mint
-    // one, which is a test affordance living in production code.
+  // These two used to be characterisation tests: an absent doctorId, or the
+  // literal 'test-doctor-id', booked a free, immediately-active session with
+  // yourself — a test affordance any patient could reach in production.
+  test('book-immediate with no doctorId is refused, and creates nothing', async () => {
     const res = await call('post', '/api/sessions/book-immediate', patientA, { mode: 'video', duration: 20 });
-    expect(res.status).toBeLessThan(300);
-
-    const s = await Session.findOne({ sessionType: 'immediate' });
-    expect(String(s.patientId)).toBe(String(s.doctorId));
-    expect(s.paymentStatus).toBe('not_required');
-    expect(s.status).toBe('active');
+    expect(res.status).toBe(400);
+    expect(await Session.countDocuments({ sessionType: 'immediate' })).toBe(0);
     expect(mockOrdersCreate).not.toHaveBeenCalled();
   });
 
-  test('the literal string test-doctor-id takes the same self-session path', async () => {
+  test('the literal string test-doctor-id is refused the same way', async () => {
     const res = await call('post', '/api/sessions/book-immediate', patientA, {
       doctorId: 'test-doctor-id', mode: 'video', duration: 20
     });
-    expect(res.status).toBeLessThan(300);
-
-    const s = await Session.findOne({ sessionType: 'immediate' });
-    expect(String(s.patientId)).toBe(String(s.doctorId));
+    expect(res.status).toBe(400);
+    expect(await Session.countDocuments({ sessionType: 'immediate' })).toBe(0);
   });
 
-  test('a real instant booking against another doctor still goes through payment', async () => {
+  test('an instant booking with an offline doctor is refused before any order is created', async () => {
+    await User.updateOne({ _id: f.doctorA._id }, { $set: { isOnline: false } });
+    const res = await call('post', '/api/sessions/book-immediate', patientA, {
+      doctorId: String(f.doctorA._id), mode: 'video', duration: 20
+    });
+    expect(res.status).toBe(409);
+    expect(mockOrdersCreate).not.toHaveBeenCalled();
+  });
+
+  test('a real instant booking against an online doctor goes through payment', async () => {
+    await User.updateOne({ _id: f.doctorA._id }, { $set: { isOnline: true } });
     const res = await call('post', '/api/sessions/book-immediate', patientA, {
       doctorId: String(f.doctorA._id), mode: 'video', duration: 20
     });
@@ -363,6 +367,7 @@ describe('instant sessions', () => {
 
     const s = await Session.findOne({ doctorId: f.doctorA._id, sessionType: 'immediate' });
     expect(s.paymentStatus).not.toBe('paid');
+    expect(s.duration).toBe(20);
     expect(mockOrdersCreate).toHaveBeenCalled();
   });
 });

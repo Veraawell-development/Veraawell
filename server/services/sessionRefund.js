@@ -17,16 +17,17 @@
  *
  * Every existing refund site got some part of this wrong:
  *
- *   - `_autoCancelUnacceptedSession` (session.controller.js) writes
+ *   - `_autoCancelUnacceptedSession` (session.controller.js) wrote
  *     `paymentStatus: 'refunded'` directly from `paid`, skipping the claim
- *     entirely, and sets no `refundId` — a state invariant I7 forbids and
- *     which only survives because a raw `save()` bypasses assertInvariants.
+ *     entirely and setting no `refundId` — a state invariant I7 forbids and
+ *     which only survived because a raw `save()` bypassed assertInvariants.
  *   - `cancelSession` saved `refund_pending`, called the gateway, then
  *     mutated the document again — a read-modify-write around a network
- *     call, which let two concurrent cancels both refund. It now claims the
- *     cancellation with applyTransition and refunds through this module.
- *   - `adminRefundSession` fabricates `refund_mock_<ts>` / `refund_zero_<ts>`
- *     ids for payments it decides not to send.
+ *     call, which let two concurrent cancels both refund.
+ *   - `adminRefundSession` fabricated `refund_mock_<ts>` / `refund_zero_<ts>`
+ *     ids for payments it decided not to send.
+ *
+ * All of them now refund through this module.
  *
  * Two non-obvious rules this encodes, both of which the transition table
  * enforces and neither of which is guessable from the call site:
@@ -102,10 +103,26 @@ async function refundSession(sessionOrId, { actor = ACTOR.SYSTEM, amount, reason
     return { refunded: false, skipped: 'claim-noop', session: claim.session };
   }
 
+  return executeClaimedRefund(claim.session, { amount, reason });
+}
+
+/**
+ * Steps 2 and 3 for a refund that is ALREADY claimed (refund_pending).
+ *
+ * Split out because a claim can be taken by something other than
+ * refundSession: a payment captured after its checkout expired is claimed by
+ * the LATE_CAPTURE transition itself (failed -> refund_pending), and still has
+ * to reach the gateway exactly once. The caller must hold the claim — this
+ * function does not take one.
+ */
+async function executeClaimedRefund(session, { amount, reason = 'Refund' } = {}) {
+  const id = session._id;
+  const short = String(id).substring(0, 8);
+
   // ── 2. The network call. The only step that is not atomic, deliberately
   //       sandwiched between two that are: a crash here leaves the session in
-  //       refund_pending, which getFailedRefunds surfaces and retryRefund
-  //       can pick up, rather than in a state that looks finished.
+  //       refund_pending, which reconcileStuckRefund repairs by asking
+  //       Razorpay what actually happened before trying again.
   let refund;
   try {
     refund = await getRazorpay().payments.refund(session.paymentId, {
@@ -114,13 +131,14 @@ async function refundSession(sessionOrId, { actor = ACTOR.SYSTEM, amount, reason
       notes: { reason, sessionId: String(id) }
     });
   } catch (err) {
-    logger.error('Gateway refund failed', { sessionId: short, error: err.message });
+    const message = gatewayErrorMessage(err);
+    logger.error('Gateway refund failed', { sessionId: short, error: message });
     // ACTOR.SYSTEM, not `actor`: the table only lets the system record a
     // failure, because a failure is an observation rather than a request.
     const failed = await applyTransition(id, {
       event: EVENT.REFUND_FAILED,
       actor: ACTOR.SYSTEM,
-      payload: { reason: err.message }
+      payload: { reason: message }
     });
     return { refunded: false, failed: true, session: failed.session, error: err };
   }
@@ -136,4 +154,66 @@ async function refundSession(sessionOrId, { actor = ACTOR.SYSTEM, amount, reason
   return { refunded: true, session: done.session, refundId: refund.id };
 }
 
-module.exports = { refundSession };
+/**
+ * Razorpay SDK errors carry the useful text in `error.description`, not
+ * `message`. Kept short: it is stored on the session for the admin screen.
+ */
+function gatewayErrorMessage(err) {
+  const described = err && err.error && (err.error.description || err.error.reason);
+  return String(described || (err && err.message) || 'Unknown gateway error').substring(0, 300);
+}
+
+/** How long a refund may sit claimed before it is presumed orphaned by a crash. */
+const STUCK_REFUND_MINUTES = 10;
+
+/**
+ * Resolve a refund that was claimed and never recorded.
+ *
+ * A crash (or a deploy) between the gateway call and step 3 leaves
+ * refund_pending with no way to tell whether the money moved — and calling
+ * the gateway again blind is how a patient gets refunded twice. So ask
+ * Razorpay first: if a refund for this payment exists, record it; only if
+ * none does is it safe to send one.
+ *
+ * @returns {Promise<{resolved:string, session:object|null}>}
+ */
+async function reconcileStuckRefund(sessionOrId, { now = new Date() } = {}) {
+  const Session = require('../models/session');
+  const id = (sessionOrId && sessionOrId._id) ? sessionOrId._id : sessionOrId;
+  const session = await Session.findById(id);
+  if (!session) return { resolved: 'not-found', session: null };
+  if (session.paymentStatus !== PAYMENT.REFUND_PENDING) return { resolved: 'not-pending', session };
+
+  const claimedAt = session.refundRequestedAt || session.updatedAt;
+  if (claimedAt && now.getTime() - new Date(claimedAt).getTime() < STUCK_REFUND_MINUTES * 60 * 1000) {
+    // Probably still in flight in another request. Leave it alone.
+    return { resolved: 'too-recent', session };
+  }
+
+  let existing = [];
+  try {
+    const result = await getRazorpay().payments.fetchMultipleRefund(session.paymentId);
+    existing = (result && result.items) || [];
+  } catch (err) {
+    // Unknown is not "none": refunding on an unanswered question is the
+    // double-refund this function exists to prevent. Try again next time.
+    logger.warn('Could not ask Razorpay about a stuck refund', { sessionId: String(id).substring(0, 8), error: gatewayErrorMessage(err) });
+    return { resolved: 'gateway-unavailable', session };
+  }
+
+  const live = existing.find((r) => r && r.status !== 'failed');
+  if (live) {
+    const done = await applyTransition(session, {
+      event: EVENT.REFUND_SUCCEEDED,
+      actor: ACTOR.SYSTEM,
+      payload: { refundId: live.id, refundAmount: (live.amount || 0) / 100 || session.refundAmount }
+    });
+    return { resolved: 'recorded-existing', session: done.session };
+  }
+
+  const amount = session.refundAmount > 0 ? session.refundAmount : session.price;
+  const result = await executeClaimedRefund(session, { amount, reason: 'Retry of an interrupted refund' });
+  return { resolved: result.refunded ? 'refunded' : 'failed', session: result.session };
+}
+
+module.exports = { refundSession, executeClaimedRefund, reconcileStuckRefund, STUCK_REFUND_MINUTES };

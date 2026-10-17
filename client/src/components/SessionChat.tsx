@@ -2,6 +2,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { io, Socket } from 'socket.io-client';
 import { API_BASE_URL, SOCKET_URL } from '../config/api';
+import { fetchWithRetry } from '../utils/backendWakeup';
+
+/**
+ * Attempts for each chat request. Safari reports any dropped request as
+ * "Load failed", and on a phone mid-call that happens; one failure used to
+ * replace the whole chat with that message. Network errors and 5xx retry
+ * with backoff (1s, 2s, 4s); a 4xx comes straight back.
+ */
+const CHAT_LOAD_ATTEMPTS = 4;
 
 interface Message {
     _id: string;
@@ -28,6 +37,8 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName,
     const socketRef = useRef<Socket | null>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const [error, setError] = useState<string | null>(null);
+    // Bumped by the Retry button to run initialisation again.
+    const [reloadKey, setReloadKey] = useState(0);
 
     const onNewMessageRef = useRef(onNewMessage);
     useEffect(() => {
@@ -36,39 +47,50 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName,
 
     // Initialize Chat
     useEffect(() => {
-        initializeChat();
+        let cancelled = false;
+        initializeChat(() => cancelled);
         return () => {
+            cancelled = true;
             if (socketRef.current) {
                 socketRef.current.disconnect();
+                socketRef.current = null;
             }
         };
-    }, [targetUserId]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [targetUserId, reloadKey]);
 
     // Scroll to bottom
     useEffect(() => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     }, [messages]);
 
-    const initializeChat = async () => {
-        if (!token || !targetUserId) return;
+    const initializeChat = async (isCancelled: () => boolean) => {
+        // No token is fine: requests and the socket handshake fall back to
+        // the session cookie. Returning here used to leave the spinner up
+        // forever for a cookie-only session.
+        if (!targetUserId) return;
 
         try {
             setLoading(true);
+            setError(null);
 
-            // 1. Get or Create Conversation
+            // Authorization only when there is a token ("Bearer null" would
+            // override the cookie); the global fetch wrapper adds the
+            // in-memory token and cookies otherwise.
+            const authHeaders: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
+            // 1. Get or Create Conversation (idempotent, so safe to retry)
             console.log('[SESSION-CHAT] Finding conversation with:', targetUserId);
-            const convResponse = await fetch(`${API_BASE_URL}/chat/conversation`, {
+            const convResponse = await fetchWithRetry(`${API_BASE_URL}/chat/conversation`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
+                headers: { 'Content-Type': 'application/json', ...authHeaders },
                 credentials: 'include',
                 body: JSON.stringify({ otherUserId: targetUserId })
-            });
+            }, CHAT_LOAD_ATTEMPTS);
+            if (isCancelled()) return;
 
             if (!convResponse.ok) {
-                const errData = await convResponse.json();
+                const errData = await convResponse.json().catch(() => ({}));
                 throw new Error(errData.message || 'Failed to get conversation');
             }
 
@@ -77,23 +99,29 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName,
             setConversationId(newConversationId);
 
             // 2. Fetch History
-            const histResponse = await fetch(`${API_BASE_URL}/chat/messages/${newConversationId}?limit=50`, {
-                headers: { 'Authorization': `Bearer ${token}` },
+            const histResponse = await fetchWithRetry(`${API_BASE_URL}/chat/messages/${newConversationId}?limit=50`, {
+                headers: authHeaders,
                 credentials: 'include'
-            });
+            }, CHAT_LOAD_ATTEMPTS);
+            if (isCancelled()) return;
 
             if (histResponse.ok) {
                 const histData = await histResponse.json();
-                // Reverse if backend returns newest first, but usually backend returns chronological or we sort
-                // Assuming backend returns chronological (oldest first) or we handle it. 
-                // Based on MessagesPage, it seems to just set them.
-                setMessages(histData);
+                if (Array.isArray(histData)) setMessages(histData);
             }
 
-            // 3. Connect Socket
+            // 3. Connect Socket — retrying on its own, and re-joining the
+            // conversation on every (re)connect below.
             socketRef.current = io(`${SOCKET_URL}/chat`, {
-                auth: { token },
-                withCredentials: true
+                auth: token ? { token } : {},
+                withCredentials: true,
+                transports: ['websocket', 'polling'],
+                reconnection: true,
+                reconnectionDelay: 1000,
+                reconnectionDelayMax: 5000,
+                // Its own connection, so these options apply: sharing the
+                // /data socket's Manager meant inheriting its 5-attempt limit.
+                forceNew: true
             });
 
             socketRef.current.on('connect', () => {
@@ -126,8 +154,14 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName,
             setLoading(false);
 
         } catch (err: any) {
+            if (isCancelled()) return;
             console.error('[SESSION-CHAT] Error initializing:', err);
-            setError(err.message);
+            // "Load failed" / "Failed to fetch" are the browser's words for a
+            // dropped connection; say that in ours.
+            const message = err?.name === 'TypeError' || /Load failed|Failed to fetch|NetworkError|aborted/i.test(err?.message || '')
+                ? 'Couldn\'t reach the chat. Check your connection.'
+                : (err?.message || 'Couldn\'t load the chat.');
+            setError(message);
             setLoading(false);
         }
     };
@@ -166,8 +200,15 @@ const SessionChat: React.FC<SessionChatProps> = ({ targetUserId, targetUserName,
 
     if (error) {
         return (
-            <div className="h-full flex items-center justify-center p-4 text-center">
+            <div className="h-full flex flex-col items-center justify-center gap-3 p-4 text-center">
                 <p className="text-red-400 text-sm">{error}</p>
+                <button
+                    type="button"
+                    onClick={() => setReloadKey(k => k + 1)}
+                    className="px-4 py-2 rounded-full text-xs font-semibold bg-white/10 text-white hover:bg-white/20 border border-white/10 transition-colors"
+                >
+                    Try again
+                </button>
             </div>
         );
     }

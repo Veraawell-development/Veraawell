@@ -20,8 +20,20 @@ export interface User {
 
 export interface Session {
   _id: string;
+  /** Authoritative UTC instant the session starts. Prefer it over sessionDate/sessionTime (see utils/dateUtils resolveSessionStart). */
+  startsAt?: string;
+  endsAt?: string;
+  /** Legacy: UTC midnight of the IST calendar day. */
   sessionDate: string;
+  /** Legacy: IST wall-clock time string. */
   sessionTime: string;
+  /** Instant requests: when the doctor's accept window closes (server-stamped). */
+  acceptanceDeadline?: string | null;
+  acceptanceStatus?: 'pending' | 'accepted' | 'delayed';
+  delayMinutes?: number;
+  delayedUntil?: string | null;
+  doctorNote?: string;
+  createdAt?: string;
   status: 'payment_pending' | 'scheduled' | 'completed' | 'cancelled' | 'no-show' | 'ended' | 'active';
   sessionType: 'regular' | 'immediate' | 'follow-up';
   patientId: {

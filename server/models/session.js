@@ -195,6 +195,23 @@ const sessionSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  // Written by the transition table (sessionState.planTransition) when a
+  // refund is claimed or fails. They were absent from this schema, and a
+  // strict schema silently drops unknown paths from an update — so the
+  // reason a refund failed was computed, logged once, and never stored, and
+  // the admin retry queue showed stuck refunds with no explanation.
+  refundKey: {
+    type: String,
+    default: null
+  },
+  refundRequestedAt: {
+    type: Date,
+    default: null
+  },
+  refundFailureReason: {
+    type: String,
+    default: null
+  },
   cancelledBy: {
     type: String,
     enum: ['patient', 'doctor', 'admin', 'system'],

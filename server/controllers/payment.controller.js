@@ -3,106 +3,13 @@ const Session = require('../models/session');
 const DoctorProfile = require('../models/doctorProfile');
 const User = require('../models/user');
 const PlatformSettings = require('../models/platformSettings');
-const SocketEmitter = require('../utils/socketEmitter');
 const emailService = require('../services/email.service');
 const { verifyWebhookSignature } = require('../utils/webhookSignature');
 const { createLogger } = require('../utils/logger');
-const { INSTANT_ACCEPT_WINDOW_MINUTES } = require('../config/time');
+const { confirmPayment, observeRefund } = require('../services/sessionPayment');
+const { ACTOR } = require('../services/sessionState');
 
 const logger = createLogger('PAYMENT');
-
-function _emitToUsers(req, event, data, userIds) {
-  const io = req.app.get('io');
-  if (io) {
-    new SocketEmitter(io).emitToUsers(userIds, event, data);
-  } else {
-    logger.warn('_emitToUsers called but no Socket.io instance found on req.app', { event });
-  }
-}
-
-
-/**
- * Shared by verifyPayment (client-triggered) and razorpayWebhook (server-triggered) so
- * that whichever one runs first, the doctor is notified and confirmation emails go out —
- * previously only verifyPayment did this, so a payment confirmed solely by the webhook
- * (e.g. the client's browser closed right after the Razorpay checkout) never rang the
- * doctor or emailed either party even though the DB correctly showed paid.
- */
-async function _markSessionPaidAndNotify(req, session, paymentId) {
-  const isImmediate = session.sessionType === 'immediate';
-
-  session.paymentStatus = 'paid';
-  session.paymentId = paymentId;
-  session.status = isImmediate ? 'active' : 'scheduled';
-
-  // The clock on an instant request starts when it is PAID, not when it was
-  // created: the patient may have sat on the Razorpay page for a minute, and
-  // the doctor should not lose that minute. Absolute, so every reader agrees.
-  if (isImmediate) {
-    session.acceptanceDeadline = new Date(Date.now() + INSTANT_ACCEPT_WINDOW_MINUTES * 60 * 1000);
-  }
-
-  // Whether anyone is actually listening has to be sampled BEFORE the save,
-  // and recorded on the same document, or the sweep cannot later tell a
-  // doctor who ignored a ring from one who never received it.
-  const doctorId = session.doctorId.toString();
-  if (isImmediate) {
-    const io = req.app.get('io');
-    if (io && new SocketEmitter(io).hasListener(doctorId)) {
-      session.ringDeliveredAt = new Date();
-    } else {
-      logger.warn('Instant request has no live doctor socket to ring', {
-        sessionId: session._id.toString().substring(0, 8)
-      });
-    }
-  }
-
-  await session.save();
-
-  const populated = await Session.findById(session._id)
-    .populate('patientId', 'firstName lastName email')
-    .populate('doctorId', 'firstName lastName email');
-
-  _emitToUsers(req, 'session:booked', {
-    session: populated,
-    patientId: session.patientId.toString(),
-    doctorId,
-    sessionId: session._id.toString(),
-    // Carried explicitly so the doctor's countdown never has to guess how
-    // long the request has been in flight.
-    acceptanceDeadline: session.acceptanceDeadline || null,
-    timestamp: new Date()
-  }, [session.patientId.toString(), doctorId]);
-
-  try {
-    const sessionDate = new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-    if (populated.patientId?.email) {
-      await emailService.sendBookingConfirmationEmail(populated.patientId.email, {
-        date: sessionDate,
-        time: session.sessionTime,
-        type: session.sessionType === 'immediate' ? 'Immediate' : 'Regular',
-        doctorName: `${populated.doctorId.firstName} ${populated.doctorId.lastName}`,
-        duration: session.duration,
-        price: session.price
-      });
-    }
-    if (populated.doctorId?.email) {
-      await emailService.sendDoctorNewBookingEmail(populated.doctorId.email, {
-        doctorName: `${populated.doctorId.firstName} ${populated.doctorId.lastName}`,
-        patientName: `${populated.patientId.firstName} ${populated.patientId.lastName}`,
-        date: sessionDate,
-        time: session.sessionTime,
-        duration: session.duration,
-        type: session.sessionType === 'immediate' ? 'Immediate' : 'Regular',
-        doctorEarnings: session.doctorEarnings
-      });
-    }
-  } catch (emailErr) {
-    logger.warn('Booking confirmation email failed', { error: emailErr.message });
-  }
-
-  return populated;
-}
 
 /**
  * POST /api/payments/request-onboarding
@@ -234,29 +141,46 @@ exports.verifyPayment = async (req, res) => {
       return res.status(403).json({ success: false, message: 'Unauthorized' });
     }
 
-    // Idempotency: already paid — just return success
-    if (session.paymentStatus === 'paid') {
+    // Whichever of this and the webhook arrives first confirms the booking
+    // and sends the notifications; the other is a no-op. Both used to pass a
+    // read-then-save `!== 'paid'` check together and notify twice.
+    const result = await confirmPayment({
+      session,
+      paymentId: razorpay_payment_id,
+      actor: ACTOR.SYSTEM,
+      io: req.app.get('io')
+    });
+
+    if (result.outcome === 'confirmed' || result.outcome === 'already-confirmed') {
       const populated = await Session.findById(session._id)
         .populate('patientId', 'firstName lastName email')
         .populate('doctorId', 'firstName lastName email');
-      
-      // Ensure the event is emitted even if the webhook beat us to it
-      _emitToUsers(req, 'session:booked', { 
-        session: populated, 
-        patientId: session.patientId.toString(), 
-        doctorId: session.doctorId.toString(), 
-        sessionId: session._id.toString(), 
-        timestamp: new Date() 
-      }, [session.patientId.toString(), session.doctorId.toString()]);
-      
-      return res.json({ success: true, message: 'Payment already confirmed.', session: populated });
+      return res.json({
+        success: true,
+        message: result.outcome === 'confirmed' ? 'Payment verified. Your session is confirmed!' : 'Payment already confirmed.',
+        session: populated
+      });
     }
 
-    const populated = await _markSessionPaidAndNotify(req, session, razorpay_payment_id);
+    if (result.outcome === 'late-capture-refunded' || result.outcome === 'late-capture-refund-failed') {
+      return res.status(409).json({
+        success: false,
+        code: 'CHECKOUT_EXPIRED',
+        message: result.outcome === 'late-capture-refunded'
+          ? 'This booking expired before your payment was confirmed, so the slot was released. A full refund has been issued — please book again.'
+          : 'This booking expired before your payment was confirmed. Your refund is being processed by our team — please book again.'
+      });
+    }
 
-    logger.info('Payment confirmed', { sessionId: session._id.toString().substring(0, 8) });
+    if (result.outcome === 'stray-payment') {
+      return res.status(409).json({
+        success: false,
+        code: 'DUPLICATE_PAYMENT',
+        message: 'This booking was already settled, so this payment has been refunded.'
+      });
+    }
 
-    res.json({ success: true, message: 'Payment verified. Your session is confirmed!', session: populated });
+    return res.status(404).json({ success: false, message: 'Session not found for this payment' });
 
   } catch (error) {
     logger.error('Error in verifyPayment', { error: error.message });
@@ -376,25 +300,32 @@ exports.razorpayWebhook = async (req, res) => {
       const payment = payload?.payment?.entity;
       if (payment) {
         const session = await Session.findOne({ razorpayOrderId: payment.order_id });
-        if (session && session.paymentStatus !== 'paid') {
-          await _markSessionPaidAndNotify(req, session, payment.id);
-          logger.info('Session marked as paid via webhook', { sessionId: session._id.toString().substring(0, 8) });
+        if (session) {
+          const result = await confirmPayment({
+            session,
+            paymentId: payment.id,
+            actor: ACTOR.RAZORPAY,
+            io: req.app.get('io')
+          });
+          logger.info('payment.captured handled', { sessionId: session._id.toString().substring(0, 8), outcome: result.outcome });
         }
       }
     }
 
     // ── payment.failed ───────────────────────────────────────────────────────
+    // An ATTEMPT failed. Razorpay lets the patient retry inside the same
+    // order, so this is not the end of the checkout and must not move the
+    // session: the expiry sweep owns giving up. This handler used to set
+    // paymentStatus 'failed' while leaving status 'payment_pending' — a pair
+    // no sweep matched, so the slot stayed held forever.
     else if (event === 'payment.failed') {
       const payment = payload?.payment?.entity;
       if (payment) {
         const session = await Session.findOne({ razorpayOrderId: payment.order_id })
           .populate('patientId', 'firstName lastName email')
           .populate('doctorId', 'firstName lastName');
-        if (session && session.paymentStatus === 'pending') {
-          session.paymentStatus = 'failed';
-          await session.save();
-          logger.info('Session payment failed', { sessionId: session._id.toString().substring(0, 8) });
-          // Notify patient
+        if (session && session.status === 'payment_pending') {
+          logger.info('Payment attempt failed', { sessionId: session._id.toString().substring(0, 8) });
           if (session.patientId && session.patientId.email) {
             try {
               await emailService.sendPaymentFailedEmail(session.patientId.email, {
@@ -408,91 +339,21 @@ exports.razorpayWebhook = async (req, res) => {
       }
     }
 
-    // ── account.activated / account.instantly_activated ─────────────────────
-    else if (event === 'account.activated' || event === 'account.instantly_activated' || event === 'account.activated_kyc_pending') {
-      const account = payload?.account?.entity;
-      const referenceId = account?.reference_id; // This is the doctorId we passed at creation
-      if (referenceId) {
-        const doctorProfile = await DoctorProfile.findOne({ userId: referenceId });
-        if (doctorProfile) {
-          doctorProfile.payoutSetupCompleted = true;
-          doctorProfile.razorpayOnboardingStatus = 'active';
-          doctorProfile.razorpayActivatedAt = new Date();
-          await doctorProfile.save();
-          logger.info('Doctor payout account activated', { doctorId: referenceId.toString().substring(0, 8) });
-
-          // Email doctor
-          const doctor = await User.findById(referenceId);
-          if (doctor) {
-            try {
-              const emailService = require('../services/email.service');
-              await emailService.sendPayoutActivatedEmail(doctor.email, doctor.firstName);
-            } catch (e) { logger.warn('Activation email failed', { error: e.message }); }
-          }
-        }
-      }
-    }
-
-    // ── account.rejected ────────────────────────────────────────────────────
-    else if (event === 'account.rejected') {
-      const account = payload?.account?.entity;
-      const referenceId = account?.reference_id;
-      
-      if (referenceId) {
-        const doctorProfile = await DoctorProfile.findOne({ userId: referenceId });
-        if (doctorProfile) {
-          doctorProfile.razorpayOnboardingStatus = 'not_requested'; // Allow re-apply
-          doctorProfile.razorpayKYCRejectionReason = 'KYC rejected by Razorpay';
-          doctorProfile.payoutSetupCompleted = false;
-          await doctorProfile.save();
-          logger.info('Doctor payout account rejected', { doctorId: referenceId.toString().substring(0, 8) });
-          
-          const doctor = await User.findById(referenceId);
-          if (doctor) {
-            const emailService = require('../services/email.service');
-            try {
-              await emailService.sendPayoutOnboardingRejectedEmail(
-                doctor.email, doctor.firstName, 'Your KYC was not approved by Razorpay. Please contact support.'
-              );
-            } catch (e) { logger.warn('Rejection email failed', { error: e.message }); }
-          }
-        }
-      }
-    }
-
-    // ── transfer.processed ───────────────────────────────────────────────────
-    else if (event === 'transfer.processed') {
-      const transfer = payload?.transfer?.entity;
-      if (transfer) {
-        // transfer.source is the order_id that triggered this transfer
-        const session = await Session.findOne({ razorpayOrderId: transfer.source });
-        if (session && !session.razorpayTransferId) {
-          session.razorpayTransferId = transfer.id;
-          await session.save();
-          logger.info('Transfer saved for session', { sessionId: session._id.toString().substring(0, 8) });
-        }
-      }
-    }
-
     // ── refund.processed ─────────────────────────────────────────────────────
     else if (event === 'refund.processed') {
       const refund = payload?.refund?.entity;
       if (refund) {
-        const session = await Session.findOne({ paymentId: refund.payment_id })
-          .populate('patientId', 'firstName lastName email');
-        if (session) {
-          session.paymentStatus = 'refunded';
-          if (!session.refundId) session.refundId = refund.id;
-          if (!session.refundedAt) session.refundedAt = new Date(refund.created_at * 1000);
-          if (!session.refundAmount) session.refundAmount = refund.amount / 100;
-          await session.save();
-          logger.info('Refund confirmed for session', { sessionId: session._id.toString().substring(0, 8) });
-          // Email patient with confirmation
-          if (session.patientId && session.patientId.email) {
+        const result = await observeRefund(refund, { io: req.app.get('io') });
+        const session = result.session;
+        if (session && session.paymentStatus === 'refunded') {
+          logger.info('Refund confirmed for session', { sessionId: session._id.toString().substring(0, 8), outcome: result.outcome });
+          // The event id dedupes redeliveries, so this is sent once per refund.
+          const patient = await User.findById(session.patientId).select('firstName email');
+          if (patient && patient.email) {
             try {
-              await emailService.sendRefundConfirmedEmail(session.patientId.email, {
-                patientName: session.patientId.firstName,
-                amount: session.refundAmount,
+              await emailService.sendRefundConfirmedEmail(patient.email, {
+                patientName: patient.firstName,
+                amount: refund.amount / 100,
                 refundId: refund.id,
                 date: new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
               });
@@ -501,6 +362,12 @@ exports.razorpayWebhook = async (req, res) => {
         }
       }
     }
+
+    // account.* and transfer.processed used to be handled here. They belonged
+    // to Razorpay Route, which this platform no longer uses (doctors are paid
+    // by bank transfer — see services/payoutLedger.js), and they rewrote
+    // onboarding state that no longer gates anything. Unhandled events are
+    // acknowledged below so Razorpay does not retry them.
 
     if (claimedEventId) {
       await WebhookEvent.updateOne(

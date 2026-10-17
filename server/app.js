@@ -24,15 +24,15 @@ const { createLogger } = require('./utils/logger');
 const appLogger = createLogger('APP');
 
 // Middleware
-const { generalLimiter, authLimiter, passwordResetLimiter } = require('./middleware/rateLimit.middleware');
+const { generalLimiter, authLimiter, passwordResetLimiter, signupOtpResendLimiter } = require('./middleware/rateLimit.middleware');
+const { publicRoute } = require('./authz');
 const { errorHandler, notFoundHandler } = require('./middleware/error.middleware');
 const { validateRegistration, validateLogin, validatePasswordReset } = require('./middleware/validation.middleware');
-const { verifyToken, verifyAdminToken } = require('./middleware/auth.middleware');
+const { verifyToken } = require('./middleware/auth.middleware');
 
 // Controllers
 const authController = require('./controllers/auth.controller');
 const profileController = require('./controllers/profile.controller');
-const adminController = require('./controllers/admin.controller');
 
 // Services
 const oauthService = require('./services/oauth.service');
@@ -54,11 +54,12 @@ const sessionReportsRoutes = require('./routes/sessionReports');
 
 const app = express();
 
-// SEO Prerendering (Intercept bots before other middleware)
-const prerender = require('prerender-node');
-// In production, set your prerender token here or via ENV
-// prerender.set('prerenderToken', process.env.PRERENDER_TOKEN);
-app.use(prerender);
+// prerender-node used to be mounted here, ahead of everything else. On an
+// API server it does nothing useful — crawlers fetch the Vercel-hosted
+// frontend, not api.veraawell.com — and with no token configured it
+// forwarded every request with a bot-like User-Agent to the public
+// prerender service, request path and all, before CORS, rate limiting or
+// auth had run. SEO prerendering, if wanted, belongs on the frontend host.
 
 // Custom branding headers (The "Hacker" signature)
 app.disable('x-powered-by'); // Remove default Express header for security
@@ -169,37 +170,19 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(cookieParser());
 
 // ── CSRF protection (double-submit cookie) ──────────────────────────────────
-// See middleware/csrf.middleware.js for the full rationale. issueCsrfToken
-// runs on every request so any page load hands the browser a token before it
-// ever needs to submit one; verifyCSRF then requires that token to be echoed
-// back in a header on state-changing (non-GET/HEAD/OPTIONS) requests.
+// See middleware/csrf.middleware.js for the full rationale. The token is
+// minted only by GET /api/csrf-token below — it used to be minted by
+// middleware on any cookie-less request, and concurrent first requests each
+// set a different one — and verifyCSRF requires it to be echoed back in a
+// header on state-changing (non-GET/HEAD/OPTIONS) requests.
 //
-// Excluded from verification, deliberately:
-//  - /api/payments/webhook: authenticated via Razorpay's HMAC signature, not
-//    cookies — Razorpay's servers cannot supply a CSRF token, and don't need to.
-//  - /api/auth/* and /api/admin/auth/*: pre-session bootstrap (login/register/
-//    verify-signup/forgot-password/reset-password) — there is no authenticated
-//    session yet for a cross-site request to ride along on, so the CSRF threat
-//    model this protects against doesn't apply here the way it does to
-//    already-authenticated actions (booking, cancelling, profile changes, etc).
-//  - /api/upload/doctor-document(s): intentionally public, unauthenticated
-//    endpoints (a career-page applicant uploads documents before they have an
-//    account or any session cookie — see the note in routes/upload.js).
-const { issueCsrfToken, verifyCSRF } = require('./middleware/csrf.middleware');
-// NOTE: req.path inside `app.use('/api', ...)` is relative to the '/api'
-// mount point (Express strips the matched prefix, same as it does for a
-// Router) — these must NOT include the leading '/api' or they will never match.
-const CSRF_EXEMPT_PREFIXES = [
-  '/payments/webhook',
-  '/auth/',
-  '/admin/auth/',
-  '/upload/doctor-document'
-];
-app.use(issueCsrfToken);
-app.use('/api', (req, res, next) => {
-  if (CSRF_EXEMPT_PREFIXES.some(p => req.path.startsWith(p))) return next();
-  return verifyCSRF(req, res, next);
-});
+// The endpoints excluded from verification — pre-session sign-in and
+// recovery, the Razorpay webhook, the public document uploads — are listed
+// one by one, with the reasons, as CSRF_EXEMPT_PATHS in that file. The list
+// lives there rather than here so the tests check the list the app actually
+// uses instead of a copy of it.
+const { issueCsrfToken, csrfProtection } = require('./middleware/csrf.middleware');
+app.use('/api', csrfProtection);
 
 // The frontend and API are on different origins in production
 // (veraawell.vercel.app vs api.veraawell.com) — client-side JS on the
@@ -215,9 +198,7 @@ app.use('/api', (req, res, next) => {
 // whitelisted, so their page can't read this response even if they trigger
 // the request) and echoes that value back as the X-CSRF-Token header on
 // subsequent mutating requests. See client/src/utils/csrfToken.ts.
-app.get('/api/csrf-token', (req, res) => {
-  res.json({ csrfToken: req.cookies.csrfToken });
-});
+app.get('/api/csrf-token', issueCsrfToken);
 
 // HTTP request logging (development only)
 if (!isProduction()) {
@@ -301,38 +282,19 @@ app.get('/', (req, res) => {
 });
 
 // Health check endpoint
+//
+// Unauthenticated, so it answers "is it up, can it reach the database" and
+// nothing else. It used to publish which secrets were configured
+// (hasJwtSecret, hasMongoUri, the Google OAuth pair) — a free map of the
+// deployment's configuration for anyone probing it. A debug sibling,
+// GET /api/test-google-routes, did the same for OAuth and is gone.
 app.get('/api/health', (req, res) => {
   const { isConnected } = require('./config/database');
-  const { getOAuthConfig } = require('./config/auth');
-  const oauthConfig = getOAuthConfig();
 
   res.json({
     success: true,
-    message: 'Backend is running',
     timestamp: new Date().toISOString(),
-    mongoConnected: isConnected(),
-    googleOAuthEnabled: oauthConfig.enabled,
-    envVars: {
-      hasGoogleClientId: !!process.env.GOOGLE_CLIENT_ID,
-      hasGoogleClientSecret: !!process.env.GOOGLE_CLIENT_SECRET,
-      hasMongoUri: !!process.env.MONGO_URI,
-      hasJwtSecret: !!process.env.JWT_SECRET
-    }
-  });
-});
-
-// Test Google OAuth routes endpoint
-app.get('/api/test-google-routes', (req, res) => {
-  const { getOAuthConfig } = require('./config/auth');
-  const oauthConfig = getOAuthConfig();
-
-  res.json({
-    success: true,
-    googleOAuthEnabled: oauthConfig.enabled,
-    routes: {
-      '/api/auth/google': 'Available',
-      '/api/auth/google/callback': 'Available'
-    }
+    mongoConnected: isConnected()
   });
 });
 
@@ -342,6 +304,13 @@ app.post('/api/auth/validate-registration', validateRegistration, (req, res) => 
 });
 app.post('/api/auth/register', validateRegistration, authController.register);
 app.post('/api/auth/verify-signup', authController.verifySignup);
+// The signup screen's "Resend code" button. Pre-session, so public by
+// necessity; bounded by the email+IP limiter here and the per-signup resend
+// cap in the controller.
+app.post('/api/auth/resend-signup-otp',
+  signupOtpResendLimiter,
+  publicRoute('signup verification: resend a code to a pending, unverified signup'),
+  authController.resendSignupOtp);
 app.post('/api/auth/login', validateLogin, authController.login);
 app.post('/api/auth/logout', verifyToken, authController.logout);
 app.post('/api/auth/forgot-password', authController.forgotPassword);
@@ -445,10 +414,17 @@ app.use('/api/payouts', payoutRoutes);
 app.use('/api/admin/payments/payouts', payoutRoutes.adminRouter);
 
 
-// Protected admin debug/maintenance endpoints
-app.post('/api/admin/cleanup-sessions', verifyAdminToken, adminController.cleanupSessions);
-app.post('/api/admin/fix-doctor-approvals', verifyAdminToken, adminController.fixDoctorApprovals);
-app.get('/api/admin/debug-pending-doctors', verifyAdminToken, adminController.debugPendingDoctors);
+// Three admin "maintenance" endpoints used to be mounted here, and are gone:
+//  - POST /api/admin/cleanup-sessions ran deleteMany({}) on the `sessions`
+//    collection. It was written to clear express-session's login store, but
+//    that store shared the collection with the therapy Session model (see
+//    config/database.js), so it deleted every booking, payment record and
+//    refund trail on the platform — and outside production a plain admin
+//    could call it.
+//  - POST /api/admin/fix-doctor-approvals bulk-reset approved doctors to
+//    pending, de-listing practitioners mid-schedule.
+//  - GET /api/admin/debug-pending-doctors duplicated
+//    /api/admin/approvals/doctors/pending.
 
 // Application routes
 app.use('/api/sessions', sessionRoutes);
@@ -481,9 +457,10 @@ app.use('/api/payments', paymentRoutes);
 const seoRoutes = require('./routes/seo');
 app.use('/', seoRoutes);
 
-// OTP routes (for email verification during signup)
-const otpRoutes = require('./routes/otp');
-app.use('/api/otp', otpRoutes);
+// /api/otp/{send,verify,resend} — a second, standalone email-OTP system —
+// used to be mounted here. Signup verifies through the PendingUser code at
+// /api/auth/verify-signup; nothing in the client called these, and they were
+// an unauthenticated way to make the server send email to any address.
 
 // 404 handler
 app.use(notFoundHandler);

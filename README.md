@@ -181,9 +181,9 @@ sequenceDiagram
 ## Tech Stack
 
 ### Frontend
-- **Core**: React 18, TypeScript, Vite
+- **Core**: React 19, TypeScript, Vite 7
 - **Styling**: Tailwind CSS
-- **Routing**: React Router v6
+- **Routing**: React Router v7
 - **State Management**: React Context, Custom Hooks
 - **Video/Audio**: WebRTC implementation
 - **Deployment**: Vercel

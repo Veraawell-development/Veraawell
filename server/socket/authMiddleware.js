@@ -17,6 +17,7 @@ const { getJWTSecret } = require('../config/auth');
 const { createLogger } = require('../utils/logger');
 const { normalizeActor, CHANNEL } = require('../authz/actor');
 const cache = require('../services/cache.service');
+const { tokenPredatesPasswordChange, accountProblem } = require('../middleware/auth.middleware');
 
 /**
  * Load the user behind a socket handshake, cached for a few seconds.
@@ -38,7 +39,9 @@ async function loadActorUser(userId) {
   // hydrated Mongoose document strips its internals — the clone then throws
   // on any document method. A plain object is all the caller needs, and
   // normalizeActor accepts either shape.
-  const user = await User.findById(userId).select('_id role status username').lean();
+  const user = await User.findById(userId)
+    .select('_id role status username approvalStatus passwordChangedAt')
+    .lean();
   const value = user || null;
   cache.set(key, value, ACTOR_CACHE_TTL_SECONDS);
   return value;
@@ -84,9 +87,20 @@ function createSocketAuthMiddleware(namespaceTag) {
         logger.warn('Socket auth failed: user no longer exists', { userId: decoded.userId });
         return next(new Error('Authentication error: account not found'));
       }
-      if (user.status !== 'active') {
-        logger.warn('Socket auth failed: account suspended', { userId: decoded.userId });
-        return next(new Error('Authentication error: account suspended'));
+      // The same two checks verifyToken makes, from the same helpers, so the
+      // HTTP and socket sides cannot drift apart again: a token retired by a
+      // password change, and an account that is suspended or a rejected
+      // practitioner, are refused here too.
+      if (tokenPredatesPasswordChange(user, decoded)) {
+        logger.warn('Socket auth failed: token predates a password change', { userId: decoded.userId });
+        return next(new Error('Authentication error: password changed'));
+      }
+      const problem = accountProblem(user);
+      if (problem) {
+        logger.warn('Socket auth failed: account refused', { userId: decoded.userId, reason: problem.message });
+        return next(new Error(user.status !== 'active'
+          ? 'Authentication error: account suspended'
+          : 'Authentication error: account rejected'));
       }
 
       // Role comes from the database, not the claim.

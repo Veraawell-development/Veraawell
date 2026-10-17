@@ -56,11 +56,24 @@ const CHECKOUT_TTL_MINUTES = 20;
  */
 const INSTANT_ACCEPT_WINDOW_MINUTES = 2;
 
+/**
+ * How long past the time a doctor asked for ("give me 5 minutes") the patient
+ * keeps waiting before the request is cancelled and refunded. The patient's
+ * lounge used the same 3 minutes; the server had no expiry for a delayed
+ * request at all, so one the doctor never came back to stayed open forever.
+ */
+const DELAY_GRACE_MINUTES = 3;
+
+/** The longest a doctor may ask an instant-request patient to wait. */
+const MAX_DELAY_MINUTES = 15;
+
 module.exports = {
   PLATFORM_TIMEZONE,
   JOIN_LEAD_MINUTES,
   JOIN_GRACE_MINUTES,
   NO_SHOW_GRACE_MINUTES,
   CHECKOUT_TTL_MINUTES,
-  INSTANT_ACCEPT_WINDOW_MINUTES
+  INSTANT_ACCEPT_WINDOW_MINUTES,
+  DELAY_GRACE_MINUTES,
+  MAX_DELAY_MINUTES
 };

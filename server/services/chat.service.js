@@ -23,6 +23,15 @@ const SocketEmitter = require('../utils/socketEmitter');
  * @returns {Promise<object>} the formatted message that was persisted and broadcast
  */
 async function sendMessageAndNotify(io, chatNamespace, { conversationId, senderId, text }) {
+  // Checked here rather than in each caller so the socket path gets it too. A
+  // non-string `text` (an object, an array) reached Message.create and failed
+  // as a cast error, which the socket handler then echoed back verbatim.
+  if (typeof text !== 'string' || !text.trim()) {
+    const err = new Error('Message text is required');
+    err.code = 'INVALID_MESSAGE';
+    throw err;
+  }
+
   const conversation = await Conversation.findById(conversationId);
   if (!conversation) {
     const err = new Error('Conversation not found');

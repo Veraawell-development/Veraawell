@@ -1,5 +1,3 @@
-import jsPDF from 'jspdf';
-
 interface Report {
     _id: string;
     title: string;
@@ -30,7 +28,10 @@ interface Task {
  * download one session and hold two different-looking documents. This file
  * now owns only the task/homework PDF, which is a genuinely different thing.
  */
-export const generateTaskPDF = (task: Task) => {
+export const generateTaskPDF = async (task: Task): Promise<void> => {
+    // Loaded on demand, like reportPdf.ts: a static import put jsPDF (and its
+    // html2canvas/DOMPurify dependencies) in the main bundle for every visitor.
+    const { jsPDF } = await import('jspdf');
     const doc = new jsPDF();
 
     // Header

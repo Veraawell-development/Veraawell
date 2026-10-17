@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { API_CONFIG } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-hot-toast';
-import { parseTime } from '../utils/dateUtils';
+import { resolveSessionStart, sessionLocalDateKey, formatSessionDay, formatSessionClock } from '../utils/dateUtils';
+import { calculateRefundPreview } from '../utils/refundPolicy';
 
 interface PatientCalendarModalProps {
     isOpen: boolean;
@@ -23,9 +24,12 @@ interface Session {
         lastName: string;
         profileImage?: string;
     } | null;
+    /** Authoritative start instant; sessionDate/sessionTime are legacy display fields. */
+    startsAt?: string;
     sessionDate: string;
     sessionTime: string;
     duration: number;
+    price?: number;
     sessionType: string;
     status: 'payment_pending' | 'scheduled' | 'completed' | 'cancelled' | 'no-show' | 'active' | 'ended';
     callMode?: string;
@@ -67,6 +71,10 @@ const doctorLabel = (d: SessionDoctor) =>
 const doctorInitials = (d: SessionDoctor) =>
     `${d?.firstName?.[0] || ''}${d?.lastName?.[0] || ''}`.toUpperCase() || 'D';
 
+/** 'YYYY-MM-DD' for a calendar cell, in the same form as sessionLocalDateKey. */
+const cellKey = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+
 const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onClose }) => {
     const navigate = useNavigate();
     const { user } = useAuth();
@@ -91,7 +99,10 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
             if (response.ok && data.success) {
                 // Update local state to reflect cancellation
                 setSessions(prev => prev.map(s => s._id === sessionId ? { ...s, status: 'cancelled' } : s));
-                toast.success('Session cancelled successfully');
+                // The server's figure, not the preview's: it is what was actually refunded.
+                toast.success(data.refundAmount > 0
+                    ? `Session cancelled. ₹${data.refundAmount} will be refunded.`
+                    : 'Session cancelled successfully');
             } else {
                 toast.error(data.message || 'Failed to cancel session');
             }
@@ -141,11 +152,12 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
         return { daysInMonth, startingDayOfWeek };
     };
 
+    // Sessions belong to their IST calendar day. Reading the UTC-midnight
+    // sessionDate in the viewer's zone put them on the previous day for
+    // anyone west of UTC.
     const getSessionsForDate = (date: Date) => {
-        return sessions.filter(session => {
-            const sessionDate = new Date(session.sessionDate);
-            return sessionDate.toDateString() === date.toDateString();
-        });
+        const key = cellKey(date);
+        return sessions.filter(session => sessionLocalDateKey(session) === key);
     };
 
     const isSessionJoinable = (session: Session) => {
@@ -153,11 +165,7 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
         if (session.status === 'cancelled' || session.status === 'completed' || session.status === 'no-show') return false;
 
         const now = new Date();
-        const sessionDateTime = new Date(session.sessionDate);
-        if (session.sessionTime) {
-          const [hours, minutes] = parseTime(session.sessionTime);
-          sessionDateTime.setHours(hours, minutes, 0, 0);
-        }
+        const sessionDateTime = resolveSessionStart(session);
 
         const durationInMs = (session.duration || 60) * 60 * 1000;
         const timeDiff = sessionDateTime.getTime() - now.getTime();
@@ -173,13 +181,6 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
         return T.red; // upcoming
     };
 
-    const canReschedule = (session: Session) => {
-        const sessionDate = new Date(session.sessionDate);
-        const now = new Date();
-        const hoursDiff = (sessionDate.getTime() - now.getTime()) / (1000 * 60 * 60);
-        return hoursDiff > 24 && session.status === 'scheduled';
-    };
-
     const canCancel = (session: Session) => {
         return session.status === 'scheduled' && session.sessionType !== 'immediate';
     };
@@ -187,13 +188,15 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
     const filteredSessions = sessions.filter(session => {
         // 1. Filter by view (upcoming vs past) - STATUS-BASED
         if (view === 'upcoming') {
-            // Upcoming = scheduled or no-show sessions
-            if (session.status !== 'scheduled' && session.status !== 'no-show') {
+            // Upcoming = scheduled, or under way right now ('active' — e.g. a
+            // paid instant session — used to be in neither list).
+            if (session.status !== 'scheduled' && session.status !== 'active') {
                 return false;
             }
         } else if (view === 'past') {
-            // Past = completed or cancelled sessions
-            if (session.status !== 'completed' && session.status !== 'cancelled') {
+            // Past = finished one way or another. 'no-show' is an outcome, not
+            // something upcoming.
+            if (session.status !== 'completed' && session.status !== 'cancelled' && session.status !== 'no-show') {
                 return false;
             }
         }
@@ -211,27 +214,15 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
 
         // 3. Filter by selected date (if any)
         if (selectedDate) {
-            const sessionDate = new Date(session.sessionDate);
-            const selected = new Date(selectedDate);
-
-            // Compare dates only (ignore time)
-            if (sessionDate.toDateString() !== selected.toDateString()) {
+            if (sessionLocalDateKey(session) !== cellKey(selectedDate)) {
                 return false;
             }
         }
 
         return true;
     }).sort((a, b) => {
-        const getDateWithTime = (sessionStr: string, timeStr: string) => {
-            const d = new Date(sessionStr);
-            const [hours, minutes] = parseTime(timeStr);
-            if (!isNaN(hours) && !isNaN(minutes)) {
-                d.setHours(hours, minutes, 0, 0);
-            }
-            return d.getTime();
-        };
-        const timeA = getDateWithTime(a.sessionDate, a.sessionTime);
-        const timeB = getDateWithTime(b.sessionDate, b.sessionTime);
+        const timeA = resolveSessionStart(a).getTime() || 0;
+        const timeB = resolveSessionStart(b).getTime() || 0;
 
         // Always show the latest session on top as requested
         return timeB - timeA;
@@ -383,13 +374,11 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
     };
 
     const renderSessionCard = (session: Session) => {
-        const sessionDate = new Date(session.sessionDate);
-        const formattedDate = sessionDate.toLocaleDateString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric'
-        });
-        const formattedTime = session.sessionTime; // Already formatted as string
+        const sessionStart = resolveSessionStart(session);
+        const formattedDate = formatSessionDay(sessionStart, { month: 'short', day: 'numeric', year: 'numeric' }, 'en-US');
+        // sessionTime is the IST wall clock already; startsAt is shown in IST to match.
+        const formattedTime = session.startsAt ? formatSessionClock(sessionStart, 'en-US') : session.sessionTime;
+        const refund = calculateRefundPreview(session.price ?? 0, sessionStart);
 
         return (
             <div
@@ -449,16 +438,18 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                 </div>
 
                 {/* Actions */}
-                {session.status === 'scheduled' && (
-                    <div className="flex justify-end gap-3">
+                {(session.status === 'scheduled' || session.status === 'active') && (
+                    <div className="flex flex-wrap justify-end gap-3">
                         {isSessionJoinable(session) && (
                             <button
                                 onClick={() => {
-                                    if (session.meetingLink) {
-                                        window.open(`/video-call/${session._id}`, '_blank');
-                                    } else {
-                                        window.location.href = `/messages`;
-                                    }
+                                    // Same tab: a new tab starts without the in-memory
+                                    // session token, which is the only credential when
+                                    // the browser withholds the cookie. (Without a
+                                    // meetingLink this used to send the patient to
+                                    // /messages instead of the call.)
+                                    onClose();
+                                    navigate(`/video-call/${session._id}`);
                                 }}
                                 className="px-4 py-1.5 rounded-full font-bold transition-all text-xs flex items-center justify-center gap-1.5"
                                 style={{ fontFamily: FONT_SANS, background: T.amberBg, color: T.amber, border: `1px solid ${T.amber}33` }}
@@ -469,36 +460,42 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                                 Join
                             </button>
                         )}
-                        {canReschedule(session) && !isSessionJoinable(session) && (
-                            <button
-                                onClick={() => {/* TODO: Implement reschedule */ }}
-                                className="px-4 py-2 rounded-full font-bold transition-all text-xs"
-                                style={{ fontFamily: FONT_SANS, background: '#fff', color: T.teal, border: `1px solid ${T.teal}` }}
-                            >
-                                Reschedule
-                            </button>
-                        )}
+                        {/* "Reschedule" was a button with no handler; hidden until rescheduling exists. */}
                         {canCancel(session) && user?.role === 'patient' && (
                             <>
                                 {confirmCancelId === session._id ? (
-                                    <div className="flex items-center gap-2">
-                                        <span className="text-[10px] font-bold uppercase tracking-wider" style={{ fontFamily: FONT_SANS, color: T.text2 }}>Are you sure?</span>
-                                        <button
-                                            onClick={() => handleCancelSession(session._id)}
-                                            disabled={cancelLoadingId === session._id}
-                                            className="px-3 py-1 rounded-full font-bold transition-all text-xs"
-                                            style={{ fontFamily: FONT_SANS, background: T.redBg, color: T.red, border: `1px solid ${T.red}33` }}
-                                        >
-                                            {cancelLoadingId === session._id ? 'Cancelling...' : 'Yes, Cancel'}
-                                        </button>
-                                        <button
-                                            onClick={() => setConfirmCancelId(null)}
-                                            disabled={cancelLoadingId === session._id}
-                                            className="px-3 py-1 rounded-full font-bold transition-all text-xs"
-                                            style={{ fontFamily: FONT_SANS, background: T.bg, color: T.text2, border: `1px solid ${T.border}` }}
-                                        >
-                                            No
-                                        </button>
+                                    // Same refund preview SessionModal shows before a
+                                    // cancel — the patient sees what they get back
+                                    // before committing, not after.
+                                    <div className="w-full" role="group" aria-label="Confirm cancellation">
+                                        <div className="rounded-xl border p-3 mb-3" style={{ borderColor: refund.color + '40', background: refund.color + '0d' }}>
+                                            <p className="text-[10px] font-semibold uppercase tracking-wider mb-1" style={{ fontFamily: FONT_SANS, color: refund.color }}>Refund Policy</p>
+                                            <div className="flex items-center justify-between gap-3">
+                                                <span className="text-xs" style={{ fontFamily: FONT_SANS, color: T.text2 }}>{refund.label}</span>
+                                                <span className="text-base font-bold" style={{ fontFamily: FONT_SANS, color: refund.color }}>₹{refund.amount}</span>
+                                            </div>
+                                            {refund.amount > 0 && (
+                                                <p className="text-[11px] mt-1" style={{ fontFamily: FONT_SANS, color: T.muted }}>Refund will appear in your original payment method within 5–7 business days.</p>
+                                            )}
+                                        </div>
+                                        <div className="flex justify-end gap-2">
+                                            <button
+                                                onClick={() => setConfirmCancelId(null)}
+                                                disabled={cancelLoadingId === session._id}
+                                                className="px-3 py-1.5 rounded-full font-bold transition-all text-xs"
+                                                style={{ fontFamily: FONT_SANS, background: T.bg, color: T.text2, border: `1px solid ${T.border}` }}
+                                            >
+                                                Keep Session
+                                            </button>
+                                            <button
+                                                onClick={() => handleCancelSession(session._id)}
+                                                disabled={cancelLoadingId === session._id}
+                                                className="px-3 py-1.5 rounded-full font-bold transition-all text-xs"
+                                                style={{ fontFamily: FONT_SANS, background: T.redBg, color: T.red, border: `1px solid ${T.red}33` }}
+                                            >
+                                                {cancelLoadingId === session._id ? 'Cancelling...' : 'Yes, Cancel'}
+                                            </button>
+                                        </div>
                                     </div>
                                 ) : (
                                     <button

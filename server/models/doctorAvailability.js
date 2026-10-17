@@ -163,10 +163,16 @@ doctorAvailabilitySchema.methods.getAvailableSlotsForDate = function (dateStr) {
 };
 
 // Method to check if a slot is available
+//
+// On slotKey, like bookSlot. This compared the raw strings, so a request for
+// '9:00 AM' against a grid slot stored as '09:00 AM' was "not available" here
+// while bookSlot — which normalises — would have booked it.
 doctorAvailabilitySchema.methods.isSlotAvailable = function (dateStr, timeStr) {
+  const key = safeSlotKey(dateStr, timeStr);
+  if (!key) return false;
   const slots = this.getAvailableSlotsForDate(dateStr);
-  const slot = slots.find(s => s.time === timeStr);
-  return slot && !slot.isBooked;
+  const slot = slots.find(s => safeSlotKey(dateStr, s.time) === key);
+  return !!slot && !slot.isBooked;
 };
 
 // Method to book a slot

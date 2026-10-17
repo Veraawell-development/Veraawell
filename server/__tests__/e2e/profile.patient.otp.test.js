@@ -1,9 +1,11 @@
 /**
  * Profile setup, pricing, emergency contacts, the doctor's patient roster,
- * availability publishing, the standalone OTP system and the SEO routes.
+ * availability publishing, the removal of the standalone OTP system and the
+ * SEO routes.
  *
- * These sit between 8% and 37% covered and include the entire second OTP
- * system, which no longer gates registration but is still exposed.
+ * These sat between 8% and 37% covered. The second OTP system they used to
+ * exercise no longer gated registration and nothing in the client called it;
+ * it has been removed, and the tests below now pin that it stays gone.
  */
 
 require('../support/env');
@@ -29,7 +31,7 @@ jest.mock('isomorphic-dompurify', () => ({ sanitize: (s) => s }));
 let app, f;
 let server;
 let patientToken, doctorToken;
-let User, DoctorProfile, DoctorAvailability, Session, OTP;
+let User, DoctorProfile, DoctorAvailability, Session;
 
 beforeAll(async () => {
   await connectDb('profile.patient.otp');
@@ -39,7 +41,6 @@ beforeAll(async () => {
   DoctorProfile = require('../../models/doctorProfile');
   DoctorAvailability = require('../../models/doctorAvailability');
   Session = require('../../models/session');
-  OTP = require('../../models/otp');
 
   const { seedAll } = require('../support/seed');
   f = await seedAll();
@@ -56,7 +57,6 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await OTP.deleteMany({});
   mockSendOtp.mockClear();
 });
 
@@ -212,6 +212,160 @@ describe('doctor pricing', () => {
   });
 });
 
+describe('profile setup applies the same pricing rules as PATCH /pricing', () => {
+  // Regressions. POST /api/profile/setup used to write the price grid raw —
+  // negative and ₹10,00,000 prices went straight onto a bookable profile —
+  // computed min/max as Math.min/Math.max over an empty list (Infinity and
+  // -Infinity for a doctor who had not priced anything), overwrote an
+  // existing grid whenever the request did not carry one, and forced the
+  // doctor's profile online.
+  let freshDoc;
+  let freshDocToken;
+
+  beforeAll(async () => {
+    const jwt = require('jsonwebtoken');
+    const { getJWTSecret } = require('../../config/auth');
+    const { makeUser } = require('../support/seed');
+    freshDoc = await makeUser('doctor', `fresh.doctor.${Date.now()}@veraawell.test`, { jobRole: 'Psychologist' });
+    freshDocToken = jwt.sign({ userId: String(freshDoc._id), role: 'doctor' }, getJWTSecret(), { expiresIn: '1h' });
+  });
+
+  test('a brand-new profile saved without pricing starts unpriced, not at Infinity', async () => {
+    const res = await call('post', '/api/profile/setup', freshDocToken, { fullName: 'Fresh Doctor', type: 'Psychologist', experience: 3 });
+    expect(res.status).toBeLessThan(300);
+
+    const profile = await DoctorProfile.findOne({ userId: freshDoc._id }).lean();
+    expect(profile.pricing.min).toBe(0);
+    expect(profile.pricing.max).toBe(0);
+  });
+
+  test('saving the profile without pricing leaves an existing grid alone', async () => {
+    const priced = await call('patch', '/api/profile/pricing', freshDocToken, {
+      pricing: { session20: 700, session40: 1100, session55: 1400 }
+    });
+    expect(priced.status).toBeLessThan(300);
+
+    await call('post', '/api/profile/setup', freshDocToken, { fullName: 'Fresh Doctor', type: 'Psychologist' });
+
+    const profile = await DoctorProfile.findOne({ userId: freshDoc._id }).lean();
+    expect(profile.pricing.session40).toBe(1100);
+    expect(profile.pricing.min).toBe(700);
+    expect(profile.pricing.max).toBe(1400);
+  });
+
+  test('an out-of-range price is refused, and nothing in the request is written', async () => {
+    for (const bad of [{ session20: -5 }, { session55: 100000 }, { audio: { session20: 'free' } }]) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await call('post', '/api/profile/setup', freshDocToken, { fullName: 'Renamed Doctor', pricing: bad });
+      expect(res.status).toBe(400);
+    }
+
+    expect((await User.findById(freshDoc._id)).firstName).toBe('Fresh');
+    expect((await DoctorProfile.findOne({ userId: freshDoc._id }).lean()).pricing.min).toBe(700);
+  });
+
+  test('a valid grid is stored as numbers with min and max derived', async () => {
+    const res = await call('post', '/api/profile/setup', freshDocToken, {
+      fullName: 'Fresh Doctor',
+      pricing: { session20: '500', session40: 900, session55: 1200, audio: { session20: 400 } }
+    });
+    expect(res.status).toBeLessThan(300);
+
+    const { pricing } = await DoctorProfile.findOne({ userId: freshDoc._id }).lean();
+    expect(pricing.session20).toBe(500);
+    expect(pricing.audio.session20).toBe(400);
+    expect(pricing.min).toBe(400);
+    expect(pricing.max).toBe(1200);
+  });
+
+  test('profile and banner images must be our uploads or bundled defaults', async () => {
+    const own = `https://res.cloudinary.com/${process.env.CLOUDINARY_CLOUD_NAME}/image/upload/v1/doctors/a.jpg`;
+    for (const body of [
+      { profileImage: 'https://evil.example/a.jpg' },
+      { bannerImage: 'https://res.cloudinary.com/someone-else/image/upload/b.jpg' },
+      { profileImage: 'javascript:alert(1)' }
+    ]) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await call('post', '/api/profile/setup', freshDocToken, { fullName: 'Fresh Doctor', ...body });
+      expect(res.status).toBe(400);
+    }
+
+    const ok = await call('post', '/api/profile/setup', freshDocToken, {
+      fullName: 'Fresh Doctor', profileImage: own, bannerImage: '/profile-bg.svg'
+    });
+    expect(ok.status).toBeLessThan(300);
+    expect((await DoctorProfile.findOne({ userId: freshDoc._id }).lean()).profileImage).toBe(own);
+
+    const cleared = await call('post', '/api/profile/setup', freshDocToken, { fullName: 'Fresh Doctor', profileImage: '' });
+    expect(cleared.status).toBeLessThan(300);
+  });
+
+  test('saving the profile does not put the doctor online', async () => {
+    await DoctorProfile.updateOne({ userId: freshDoc._id }, { $set: { isOnline: false } });
+
+    await call('post', '/api/profile/setup', freshDocToken, { fullName: 'Fresh Doctor' });
+
+    expect((await DoctorProfile.findOne({ userId: freshDoc._id }).lean()).isOnline).toBe(false);
+  });
+});
+
+describe('doctor presence ("Available Now")', () => {
+  // Regressions, both seen in production: the list printed each online
+  // doctor's email on the patient's screen, and it listed doctors who were
+  // online but not bookable — "All Available" showed 0 while "Available Now"
+  // showed 2.
+  const online = () => request(server).get('/api/doctor-status/online-doctors');
+  const ids = (res) => res.body.doctors.map((d) => String(d._id));
+
+  afterEach(async () => {
+    await User.updateMany({ role: 'doctor' }, { $set: { isOnline: false } });
+  });
+
+  test('lists a bookable online doctor without publishing their email', async () => {
+    await User.updateOne({ _id: f.doctorA._id }, { $set: { isOnline: true } });
+
+    const res = await online();
+    expect(res.status).toBe(200);
+    expect(ids(res)).toContain(String(f.doctorA._id));
+    for (const d of res.body.doctors) expect(d).not.toHaveProperty('email');
+    expect(JSON.stringify(res.body)).not.toContain(f.doctorA.email);
+
+    // The public profile rides along, through the same allowlist the
+    // directory uses — so nothing private comes with it.
+    const entry = res.body.doctors.find((d) => String(d._id) === String(f.doctorA._id));
+    expect(entry.profile.pricing.min).toBeGreaterThan(0);
+    expect(entry.profile).not.toHaveProperty('payoutBank');
+    expect(entry.profile).not.toHaveProperty('payoutApproved');
+  });
+
+  test('omits online doctors a patient could not book', async () => {
+    const { makeUser, makeDoctorProfile } = require('../support/seed');
+    const stamp = Date.now();
+    const unapprovedPayout = await makeUser('doctor', `online.nopayout.${stamp}@veraawell.test`, { isOnline: true });
+    await makeDoctorProfile(unapprovedPayout._id, { payoutApproved: false });
+    const unpriced = await makeUser('doctor', `online.unpriced.${stamp}@veraawell.test`, { isOnline: true });
+    await makeDoctorProfile(unpriced._id, { pricing: { min: 0, max: 0 } });
+    const pendingApplication = await makeUser('doctor', `online.pending.${stamp}@veraawell.test`, { isOnline: true, approvalStatus: 'pending' });
+    await makeDoctorProfile(pendingApplication._id);
+    const noProfile = await makeUser('doctor', `online.noprofile.${stamp}@veraawell.test`, { isOnline: true });
+
+    const listed = ids(await online());
+    for (const d of [unapprovedPayout, unpriced, pendingApplication, noProfile]) {
+      expect(listed).not.toContain(String(d._id));
+    }
+  });
+
+  test('an instant booking needs no published calendar, so an expired one does not hide the doctor', async () => {
+    await User.updateOne({ _id: f.doctorA._id }, { $set: { isOnline: true } });
+    await DoctorProfile.updateOne({ userId: f.doctorA._id }, { $set: { bookableUntil: new Date(Date.now() - 864e5) } });
+    try {
+      expect(ids(await online())).toContain(String(f.doctorA._id));
+    } finally {
+      await DoctorProfile.updateOne({ userId: f.doctorA._id }, { $set: { bookableUntil: new Date(Date.now() + 14 * 864e5) } });
+    }
+  });
+});
+
 describe('emergency contacts', () => {
   test('a patient can save and read back their emergency contact', async () => {
     const saved = await call('post', '/api/patients/emergency-contact', patientToken, {
@@ -341,58 +495,30 @@ describe('availability publishing', () => {
   });
 });
 
-describe('the standalone OTP system', () => {
-  test('send stores only a hash and mails the plaintext', async () => {
-    const res = await call('post', '/api/otp/send', null, { email: 'newuser@test.local', userType: 'patient' });
-    expect(res.status).toBeLessThan(300);
-    expect(mockSendOtp).toHaveBeenCalledTimes(1);
-
-    const code = mockSendOtp.mock.calls[0][1];
-    expect(String(code)).toMatch(/^\d{6}$/);
-
-    const row = await OTP.findOne({ email: 'newuser@test.local' });
-    expect(row.otp).not.toBe(code);
-  });
-
-  test('verify accepts the mailed code exactly once', async () => {
-    await call('post', '/api/otp/send', null, { email: 'once@test.local', userType: 'patient' });
-    const code = mockSendOtp.mock.calls[0][1];
-
-    const first = await call('post', '/api/otp/verify', null, { email: 'once@test.local', otp: code });
-    expect(first.status).toBeLessThan(300);
-
-    const replay = await call('post', '/api/otp/verify', null, { email: 'once@test.local', otp: code });
-    expect(replay.status).toBeGreaterThanOrEqual(400);
-  });
-
-  test('a wrong code is refused and eventually locks out', async () => {
-    await call('post', '/api/otp/send', null, { email: 'wrong@test.local', userType: 'patient' });
-
-    const statuses = [];
-    for (let i = 0; i < 4; i += 1) {
-      const r = await call('post', '/api/otp/verify', null, { email: 'wrong@test.local', otp: '000000' });
-      statuses.push(r.status);
+describe('the standalone OTP system is gone', () => {
+  // Regression. These tests used to exercise /api/otp/{send,verify,resend}: a
+  // second email-OTP system that no longer gated registration (its check in
+  // auth.service had been commented out) and that nothing in the client
+  // called. It was an unauthenticated way to make the server email any
+  // address. Signup verifies through the PendingUser code instead.
+  test('its three endpoints no longer exist, and send no mail', async () => {
+    for (const path of ['/api/otp/send', '/api/otp/verify', '/api/otp/resend']) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await call('post', path, null, { email: 'newuser@test.local', userType: 'patient', otp: '123456' });
+      expect({ path, status: res.status }).toEqual({ path, status: 404 });
     }
-    expect(statuses.every((s) => s >= 400)).toBe(true);
+    expect(mockSendOtp).not.toHaveBeenCalled();
   });
 
-  test('verifying an address that was never sent a code is refused', async () => {
-    const res = await call('post', '/api/otp/verify', null, { email: 'never@test.local', otp: '123456' });
-    expect(res.status).toBeGreaterThanOrEqual(400);
-  });
-
-  test('this system no longer gates registration', async () => {
-    // The enforcement block in services/auth.service.js:60-78 is commented out,
-    // so /api/auth/register accepts an address that has never verified an OTP
-    // here. Pinned because it means /api/otp/* is now an unenforced side
-    // channel rather than part of the signup path.
+  test('registration still sends exactly one code, through the signup path', async () => {
     const res = await call('post', '/api/auth/register', null, {
       firstName: 'NoOtp', lastName: 'User',
       email: 'no.otp@test.local', username: 'no.otp@test.local',
       password: 'password123', phoneNo: '9000000099', role: 'patient'
     });
     expect(res.status).toBe(201);
-    expect(await OTP.countDocuments({ email: 'no.otp@test.local' })).toBe(0);
+    expect(mockSendOtp).toHaveBeenCalledTimes(1);
+    expect(mockSendOtp.mock.calls[0][0]).toBe('no.otp@test.local');
   });
 });
 

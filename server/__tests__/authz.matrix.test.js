@@ -95,6 +95,16 @@ beforeEach(async () => {
     paymentId: 'pay_realone'
   });
 
+  // An unanswered instant request — the only thing /missed is for.
+  const instantA = await Session.create({
+    patientId: patientA._id, doctorId: doctorA._id,
+    startsAt: new Date(), sessionDate: new Date(), sessionTime: '12:00 AM',
+    sessionType: 'immediate', acceptanceStatus: 'pending',
+    acceptanceDeadline: new Date(Date.now() + 2 * 60 * 1000),
+    duration: 20, price: 800, status: 'active', paymentStatus: 'paid',
+    paymentId: 'pay_instant_one'
+  });
+
   const privateNote = await SessionNote.create({
     sessionId: sessionA._id, doctorId: doctorA._id, patientId: patientA._id,
     content: 'PRIVATE clinical impression', isPrivate: true
@@ -119,7 +129,7 @@ beforeEach(async () => {
     admin: { doc: admin, realm: 'admin' },
     anonymous: null
   };
-  fixtures = { patientA, patientB, doctorA, doctorB, admin, sessionA, privateNote, sharedReport, sessionReport, journalA };
+  fixtures = { patientA, patientB, doctorA, doctorB, admin, sessionA, instantA, privateNote, sharedReport, sessionReport, journalA };
 });
 
 /**
@@ -175,10 +185,33 @@ const CASES = [
     expect: 403
   },
   {
-    name: 'V1c the session\'s own patient may report it as missed',
+    // The other half of the hole: /missed accepted ANY session (acceptance
+    // defaults to 'pending'), so a patient could take a 100% refund on a
+    // regular booking inside the 4-hour no-refund window.
+    name: 'V1c the patient cannot use /missed to refund a regular booking',
     as: 'patientA', method: 'post',
     url: () => `/api/sessions/${fixtures.sessionA._id}/missed`,
-    expect: 200
+    expect: 400,
+    after: async () => {
+      const s = await Session.findById(fixtures.sessionA._id);
+      expect(s.status).toBe('scheduled');
+      expect(s.paymentStatus).toBe('paid');
+      expect(mockRefund).not.toHaveBeenCalled();
+    }
+  },
+  {
+    name: 'V1d the patient may withdraw their own unanswered instant request',
+    as: 'patientA', method: 'post',
+    url: () => `/api/sessions/${fixtures.instantA._id}/missed`,
+    expect: 200,
+    after: async () => {
+      const s = await Session.findById(fixtures.instantA._id);
+      expect(s.status).toBe('cancelled');
+      expect(s.cancelledBy).toBe('patient');
+      // Through the claim and the gateway, so it carries a real refund id.
+      expect(s.paymentStatus).toBe('refunded');
+      expect(s.refundId).toBeTruthy();
+    }
   },
 
   // ── V2: any doctor could read any patient's session reports ──────────────
