@@ -117,6 +117,30 @@ describe('the handshake', () => {
     }
   });
 
+  test('a stale handshake token falls back to a valid session cookie', async () => {
+    // The browser keeps an in-memory token beside the httpOnly cookie. After
+    // a password change or a secret rotation that copy is dead while the
+    // cookie is fine, and the handshake used to stop at the first one — so
+    // chat, calls and notifications failed while every page still loaded.
+    const valid = tokenFor(f.patientA);
+    const s = await new Promise((resolve, reject) => {
+      const sock = ioClient(`http://localhost:${port}/data`, {
+        auth: { token: 'stale.token.value' },
+        extraHeaders: { cookie: `token=${valid}` },
+        transports: ['websocket'], reconnection: false
+      });
+      sockets.push(sock);
+      sock.on('connect', () => resolve(sock));
+      sock.on('connect_error', (e) => reject(new Error(`connect_error: ${e.message}`)));
+      setTimeout(() => reject(new Error('connect timeout')), 10000);
+    });
+    expect(s.connected).toBe(true);
+  });
+
+  test('a stale handshake token with no cookie is still refused', async () => {
+    await expect(connect('stale.token.value', '/data')).rejects.toThrow(/Authentication error/);
+  });
+
   test('no token is refused', async () => {
     await expect(connect(null)).rejects.toThrow(/connect_error/);
   });

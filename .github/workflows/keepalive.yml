@@ -1,0 +1,26 @@
+# Keeps the API from sleeping on Render's free plan.
+#
+# A free instance spins down after ~15 minutes without traffic, and the next
+# visitor waits ~50 seconds for it to boot — the "login buttons take forever"
+# report. While it sleeps the in-process scheduler stops too: reminders,
+# checkout expiry, no-show refunds and refund reconciliation all pause.
+#
+# This is a stopgap, not a fix. One always-on service uses ~744 of the free
+# 750 instance-hours a month, so it only fits if it is the workspace's only
+# free service; GitHub can delay or skip scheduled runs under load, and turns
+# schedules off after 60 days with no repository activity. A paid Render
+# instance makes this file unnecessary — delete it then.
+name: Keep API awake
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping the health endpoint
+        run: curl -fsS --max-time 120 https://api.veraawell.com/api/health

@@ -5,7 +5,7 @@ import { useAdmin } from '../context/AdminContext';
 import { Menu, X, ChevronDown, User } from 'lucide-react';
 
 export default function Navbar() {
-  const { isLoggedIn, user, logout, loading } = useAuth();
+  const { isLoggedIn, user, logout, loading, likelySignedIn } = useAuth();
   const { admin } = useAdmin();
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -66,7 +66,11 @@ export default function Navbar() {
   const AuthButtons: React.FC<{ mobile?: boolean }> = ({ mobile }) => {
     const [profileOpen, setProfileOpen] = useState(false);
 
-    if (loading) {
+    // Placeholders only while a returning user's session is being confirmed.
+    // Everyone else gets Sign In / Get Started straight away: this used to
+    // wait for the auth check for every visitor, which on a sleeping free-tier
+    // API meant ~50s of grey buttons for someone who could not be logged in.
+    if (loading && likelySignedIn) {
       return (
         <div className={`flex ${mobile ? 'flex-col' : 'flex-row'} gap-2 relative opacity-50`}>
           <div className="w-20 h-9 rounded-full bg-gray-200 animate-pulse"></div>
