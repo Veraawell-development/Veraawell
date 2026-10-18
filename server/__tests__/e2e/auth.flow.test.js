@@ -383,7 +383,9 @@ describe('password reset', () => {
     const fromDb = await request(server)
       .post('/api/auth/reset-password')
       .send({ token: stored, newPassword: 'fromthedb123' });
-    expect(fromDb.status).toBe(404);
+    expect(fromDb.status).toBe(400);
+    // Readable as it is shown on the page — it used to end in " not found".
+    expect(fromDb.body.message).toBe('This reset link is invalid or has already been used. Please request a new one.');
 
     const first = await request(server)
       .post('/api/auth/reset-password')
@@ -835,6 +837,95 @@ describe('the resend limiter, as production mounts it', () => {
 
     // Keyed on the address: another one from the same IP is unaffected.
     expect((await request(limited).post('/resend').send({ email: 'someone.else@test.local' })).status).toBe(200);
+  });
+});
+
+describe('the sign-in, signup and reset limits, as production mounts them', () => {
+  // A handler that succeeds or fails on demand, so only the limiters are under test.
+  function buildLimited() {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    let limits;
+    let errorHandler;
+    jest.isolateModules(() => {
+      limits = require('../../middleware/rateLimit.middleware');
+      ({ errorHandler } = require('../../middleware/error.middleware'));
+    });
+    process.env.NODE_ENV = previous;
+
+    const app = express();
+    app.use(express.json());
+    const answer = (req, res) => res.status(req.body.ok ? 200 : 401).json({});
+    app.post('/login', limits.loginLimiters, answer);
+    app.post('/register', limits.signupLimiter, answer);
+    app.post('/forgot', limits.userPasswordResetLimiters, answer);
+    app.post('/verify', limits.verifySignupLimiters, answer);
+    app.use(errorHandler);
+    return app;
+  }
+
+  async function statusesOf(app, path, bodies) {
+    const out = [];
+    for (const body of bodies) {
+      // eslint-disable-next-line no-await-in-loop
+      out.push((await request(app).post(path).send(body)).status);
+    }
+    return out;
+  }
+
+  test('ten failed sign-ins lock that account on this network — not the network, and not on successes', async () => {
+    const app = buildLimited();
+    const fails = Array.from({ length: 10 }, () => ({ username: 'Asha@test.local ', password: 'x' }));
+    expect(await statusesOf(app, '/login', fails)).toEqual(Array(10).fill(401));
+    expect((await request(app).post('/login').send({ username: 'asha@test.local', password: 'x' })).status).toBe(429);
+
+    // Someone else on the same network is unaffected. It used to be five
+    // failures per IP, shared by everyone behind one carrier NAT.
+    expect((await request(app).post('/login').send({ username: 'ravi@test.local', password: 'x' })).status).toBe(401);
+    // Successful sign-ins never count.
+    const ok = Array.from({ length: 15 }, () => ({ username: 'meera@test.local', ok: true }));
+    expect(await statusesOf(app, '/login', ok)).toEqual(Array(15).fill(200));
+  });
+
+  test('a hundred failures from one network, across accounts, stop the next attempt (password spraying)', async () => {
+    const app = buildLimited();
+    const spray = Array.from({ length: 100 }, (_, i) => ({ username: `user${i % 20}@test.local`, password: 'x' }));
+    const statuses = await statusesOf(app, '/login', spray);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(0);
+    expect((await request(app).post('/login').send({ username: 'fresh@test.local', password: 'x' })).status).toBe(429);
+  });
+
+  test('registration counts every request, so it cannot mail codes to strangers without limit', async () => {
+    const app = buildLimited();
+    const signups = Array.from({ length: 30 }, (_, i) => ({ email: `victim${i}@test.local`, ok: true }));
+    expect(await statusesOf(app, '/register', signups)).toEqual(Array(30).fill(200));
+    expect((await request(app).post('/register').send({ email: 'victim31@test.local', ok: true })).status).toBe(429);
+  });
+
+  test('wrong signup codes are counted per address (the body\'s `email`), with their own budget', async () => {
+    const app = buildLimited();
+    const wrong = Array.from({ length: 10 }, () => ({ email: 'new.person@test.local', otp: '000000' }));
+    expect(await statusesOf(app, '/verify', wrong)).toEqual(Array(10).fill(401));
+    expect((await request(app).post('/verify').send({ email: 'new.person@test.local', otp: '000000' })).status).toBe(429);
+    // A separate budget from sign-in: those failures did not touch it.
+    expect((await request(app).post('/login').send({ username: 'new.person@test.local', password: 'x' })).status).toBe(401);
+  });
+
+  test('a reset request with no usable address falls back to the network\'s budget', async () => {
+    const app = buildLimited();
+    const blank = Array.from({ length: 3 }, () => ({ email: 42, ok: true }));
+    expect(await statusesOf(app, '/forgot', blank)).toEqual([200, 200, 200]);
+    expect((await request(app).post('/forgot').send({ ok: true })).status).toBe(429);
+  });
+
+  test('password reset: three per address an hour, and a shared network is not one address', async () => {
+    const app = buildLimited();
+    const same = Array.from({ length: 3 }, () => ({ email: 'asha@test.local', ok: true }));
+    expect(await statusesOf(app, '/forgot', same)).toEqual([200, 200, 200]);
+    expect((await request(app).post('/forgot').send({ email: ' ASHA@test.local', ok: true })).status).toBe(429);
+    // Another person on the same network can still reset theirs. It used to
+    // be three resets per hour per IP for everyone.
+    expect((await request(app).post('/forgot').send({ email: 'ravi@test.local', ok: true })).status).toBe(200);
   });
 });
 

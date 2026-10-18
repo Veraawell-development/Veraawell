@@ -160,8 +160,9 @@ describe('the general limiter leaves room for ordinary use', () => {
 // this file is throttled.
 describe('rate limiting is mounted in production', () => {
   test('repeated failed logins are eventually throttled', async () => {
-    // config/constants.js RATE_LIMITS: auth is 5 attempts per 15 minutes in
-    // production. Development mounts no limiter at all.
+    // config/constants.js RATE_LIMITS.AUTH: 10 failures per account per
+    // network per 15 minutes in production (and 100 per network). Development
+    // mounts no limiter at all.
     const statuses = [];
     for (let i = 0; i < 12; i += 1) {
       // eslint-disable-next-line no-await-in-loop
@@ -171,8 +172,8 @@ describe('rate limiting is mounted in production', () => {
         .send({ username: 'nobody@test.local', password: 'wrongpass1' });
       statuses.push(res.status);
     }
-    expect(statuses).toContain(429);
-    expect(statuses.indexOf(429)).toBeLessThanOrEqual(8);
+    expect(statuses.indexOf(429)).toBe(10);
+    expect(statuses.slice(0, 10).every((st) => st !== 429)).toBe(true);
   });
 
   test('the throttle does not leak across to an unrelated endpoint', async () => {

@@ -31,21 +31,44 @@ const RATE_LIMITS = {
       development: 10000
     }
   },
+  // Failed sign-ins and failed signup codes. It used to be one counter of 5
+  // failures per 15 minutes per IP, shared by login, register and
+  // verify-signup (and the admin login). Mobile carriers here put thousands
+  // of people behind one carrier-grade NAT address, so a handful of strangers'
+  // typos locked everyone on that network out — and one person's mistyped
+  // password plus a mistyped code was enough to lock themselves out. Now two
+  // budgets: a tight one per account on that network (the brute-force guard)
+  // and a loose one per network (the password-spraying guard). Successful
+  // requests are not counted.
   AUTH: {
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: {
-      production: 5,
-      development: 1000
+      perAccount: { production: 10, development: 1000 },
+      perIp: { production: 100, development: 10000 }
     },
     skipSuccessfulRequests: true
   },
+  // POST /api/auth/register mails a code to whatever address it is given, and
+  // succeeds for each new one — so it was not limited at all (only failures
+  // counted), and could send unbounded codes to strangers' inboxes. Every
+  // request counts here. Per-address resends are capped separately
+  // (MAX_SIGNUP_OTP_RESENDS).
+  SIGNUP: {
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: {
+      production: 30,
+      development: 10000
+    }
+  },
   // Reset-link requests send email to an address the caller names, so this
-  // is also what stops the endpoint being used to mail-bomb someone.
+  // is also what stops the endpoint being used to mail-bomb someone. Per
+  // address (the mail-bomb guard), plus a looser cap per network. It was 3
+  // per hour per IP — shared by everyone behind the same mobile-carrier NAT.
   PASSWORD_RESET: {
     windowMs: 60 * 60 * 1000, // 1 hour
     max: {
-      production: 3,
-      development: 1000
+      perAddress: { production: 3, development: 1000 },
+      perIp: { production: 30, development: 10000 }
     }
   },
   // "Resend code" on the signup screen. Keyed on email + IP: the per-signup

@@ -371,7 +371,8 @@ test.describe('Patient password and account', () => {
 
     // The link is single-use.
     const replay = await apiSend(request, 'POST', '/auth/reset-password', { token: resetToken, newPassword: 'Another789!' });
-    expect(replay.status()).toBe(404);
+    expect(replay.status()).toBe(400);
+    expect((await replay.json()).message).toBe('This reset link is invalid or has already been used. Please request a new one.');
   });
 
   test('an unknown address gets the same answer and no email', async ({ page }) => {
