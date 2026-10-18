@@ -95,9 +95,10 @@ async function startServer() {
         await connectDatabase();
         logger.info('  DB       : Connected');
 
-        // Reset all doctor statuses to offline on startup to clear stale records
-        // Removed auto-offline on startup as per user request.
-        // Doctors stay online until they manually toggle off or log out.
+        // Doctors marked online get two minutes to reconnect after a restart
+        // (their dashboards do so within seconds); anyone still away is
+        // switched offline, so the directory doesn't show absent doctors.
+        require('./services/presence').startBootGrace({ io });
 
         // Calls held in this process's memory died with the previous one:
         // close the attendance stays it left open, so nobody is counted as

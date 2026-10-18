@@ -79,6 +79,13 @@ const ChooseProfessionalPage: React.FC = () => {
   });
 
   const loading = doctorsLoading || onlineDoctorsLoading;
+  // The live state of each doctor, from the online list (which counts only
+  // doctors actually connected, and flags those in a session).
+  const liveStatus = (userId: string): 'online' | 'busy' | 'offline' => {
+    const entry = onlineDoctors.find((d: any) => d._id === userId);
+    if (!entry) return 'offline';
+    return entry.busy ? 'busy' : 'online';
+  };
   const error = doctorsError ? 'Failed to load doctors. Please try again.' : null;
 
   //  REAL-TIME: Listen for doctor status changes
@@ -354,8 +361,11 @@ const ChooseProfessionalPage: React.FC = () => {
                             }
                           });
                         }}
-                        onBookSession={() => handleBookSession(doctor._id, true)}
-                        isOnline={true}
+                        onBookSession={doctor.busy
+                          ? () => navigate(`/doctor/${fullDoctorData.userId._id}`, { state: { serviceType: 'General', bookingType: 'scheduled' } })
+                          : () => handleBookSession(doctor._id, true)}
+                        status={doctor.busy ? 'busy' : 'online'}
+                        ctaLabel={doctor.busy ? 'Book a time →' : undefined}
                       />
                   );
                 }
@@ -435,6 +445,7 @@ const ChooseProfessionalPage: React.FC = () => {
                     bgColor={getDoctorBgColor(doctor.userId._id)}
                     rating={doctor.rating}
                     isPrevious={previousDoctorIds.has(doctor._id)}
+                    status={liveStatus(doctor.userId._id)}
                     onViewProfile={() => {
                       navigate(`/doctor/${doctor.userId._id}`, {
                         state: {

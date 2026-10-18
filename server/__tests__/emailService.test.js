@@ -118,6 +118,33 @@ describe('missing optional fields drop out instead of printing "undefined"', () 
   });
 });
 
+describe('session reminders', () => {
+  const lastMessage = () => mockSend.mock.calls[mockSend.mock.calls.length - 1][0];
+  const session = {
+    _id: '6ad5208dd7714afa4c772be1', sessionTime: '09:00 AM', meetingLink: '/video-call/0f3a9c',
+    patientId: { firstName: 'Asha', lastName: 'Rao' }, doctorId: { firstName: 'Meera', lastName: 'Pal' }
+  };
+
+  test("the patient's: their greeting, the doctor's name, and a link that opens the session", async () => {
+    await email.sendSessionReminderEmail('p@test.local', session, '15min');
+    const { subject, html } = lastMessage();
+    expect(subject).toBe('Reminder: Your session with Dr. Meera Pal starts in 15 minutes');
+    expect(html).toContain('Hi Asha,');
+    // A full address to the session's own call page — the stored meetingLink
+    // is relative (and for booked sessions, a random path).
+    expect(html).toMatch(/href="https?:\/\/[^"]+\/video-call\/6ad5208dd7714afa4c772be1"/);
+    expect(html).not.toContain('/video-call/0f3a9c');
+  });
+
+  test("the doctor's: addressed to the doctor, about the patient", async () => {
+    await email.sendSessionReminderEmail('d@test.local', session, 'start', { recipient: 'doctor' });
+    const { subject, html } = lastMessage();
+    expect(subject).toBe('Your session with Asha Rao is starting now!');
+    expect(html).toContain('Hi Dr. Meera,');
+    expect(html).toContain('Asha Rao');
+  });
+});
+
 describe('session outcome emails', () => {
   const lastMessage = () => mockSend.mock.calls[mockSend.mock.calls.length - 1][0];
 

@@ -37,13 +37,22 @@ interface SessionModalProps {
   onClose: () => void;
   /** Open straight on the rating form (the "Rate Session" button elsewhere). */
   startWithRating?: boolean;
+  /** Open straight on the cancel confirmation (a Cancel button elsewhere). */
+  startWithCancel?: boolean;
 }
 
-const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, onClose, startWithRating = false }) => {
+const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, onClose, startWithRating = false, startWithCancel = false }) => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  useEffect(() => {
+    if (isOpen && startWithCancel) setShowCancelConfirm(true);
+  }, [isOpen, startWithCancel]);
+  // Opened just to cancel: backing out closes it, rather than revealing the
+  // details view underneath.
+  const backOutOfCancel = () => (startWithCancel ? onClose() : setShowCancelConfirm(false));
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
   const [hasEmergencyContact, setHasEmergencyContact] = useState(false);
   const [showRatingModal, setShowRatingModal] = useState(false);
@@ -174,20 +183,17 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
   const canJoinSession = () => canJoinNow(session);
   const outcome = outcomeLabel(session, userRole);
 
+  // A booked session, before it starts, can be cancelled by either side: the
+  // patient under the refund policy, the doctor always with a full refund to
+  // the patient (counted on the doctor's record). Doctors had no way to do
+  // it at all.
   const canCancelSession = () => {
-    // Only patients can cancel sessions
-    if (userRole !== 'patient') {
-      return false;
-    }
-
-    // Only scheduled sessions can be cancelled
-    if (session.status !== 'scheduled') {
-      return false;
-    }
-
-    // Patients can cancel any scheduled session at any time
-    return true;
+    if (session.status !== 'scheduled') return false;
+    if (session.sessionType === 'immediate') return false;
+    return sessionDateTime.getTime() > Date.now();
   };
+  const isDoctor = userRole === 'doctor';
+  const patientFirstName = session.patientId?.firstName || 'The patient';
 
   const handleJoinSession = async () => {
     // Check if patient has emergency contact before joining
@@ -281,16 +287,16 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
 
       // Get token from localStorage
       const token = getAuthToken();
-      const headers: HeadersInit = {};
+      const headers: HeadersInit = { 'Content-Type': 'application/json' };
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
-        console.log('[SESSION MODAL] Authorization header added for cancel');
       }
 
       const response = await fetch(`${API_BASE_URL}/sessions/${session._id}/cancel`, {
         method: 'POST',
         credentials: 'include',
-        headers
+        headers,
+        body: JSON.stringify(isDoctor && cancelReason.trim() ? { reason: cancelReason.trim() } : {})
       });
 
       if (!response.ok) {
@@ -298,7 +304,9 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
         throw new Error(errorData.message || 'Failed to cancel session');
       }
 
-      toast.success('Session cancelled successfully. You will receive a refund if applicable.');
+      toast.success(isDoctor
+        ? `Session cancelled. ${patientFirstName} has been refunded in full and told.`
+        : 'Session cancelled successfully. You will receive a refund if applicable.');
       onClose();
       // Refresh the page to update the calendar after a short delay so the toast is visible
       setTimeout(() => {
@@ -321,7 +329,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
       <div
         className="fixed inset-0 flex items-center justify-center z-50 px-4"
         style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)' }}
-        onClick={() => setShowCancelConfirm(false)}
+        onClick={backOutOfCancel}
       >
         <div
           className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8"
@@ -336,10 +344,29 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
             </div>
           </div>
 
-          <h2 className="text-xl font-bold text-center text-gray-900 mb-1">Cancel This Session?</h2>
+          <h2 className="text-xl font-bold text-center text-gray-900 mb-1">Cancel this session?</h2>
           <p className="text-sm text-center text-gray-500 mb-6">This action cannot be undone.</p>
 
-          {/* Refund Preview Box */}
+          {isDoctor ? (
+            <div className="mb-6 space-y-4">
+              <div className="rounded-xl border border-red-100 bg-red-50/60 p-4 text-sm text-gray-700">
+                {patientFirstName} will get a full refund of <strong>₹{session.price}</strong>.
+                This counts as a cancellation on your profile.
+              </div>
+              <label className="block">
+                <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">Reason (shared with the patient, optional)</span>
+                <textarea
+                  value={cancelReason}
+                  onChange={(e) => setCancelReason(e.target.value.slice(0, 300))}
+                  rows={3}
+                  maxLength={300}
+                  className="mt-1.5 w-full rounded-xl border border-gray-200 p-3 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/30"
+                  placeholder="e.g. A family emergency — I'm sorry for the short notice."
+                />
+                <span className="block text-right text-[11px] text-gray-400">{cancelReason.length}/300</span>
+              </label>
+            </div>
+          ) : (
           <div className="rounded-xl border p-4 mb-6" style={{ borderColor: refundColor + '40', background: refundColor + '0d' }}>
             <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: refundColor }}>Refund Policy</p>
             <div className="flex items-center justify-between">
@@ -350,13 +377,14 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
               <p className="text-xs text-gray-400 mt-2">Refund will appear in your original payment method within 5–7 business days.</p>
             )}
           </div>
+          )}
 
           <div className="flex gap-3">
             <button
-              onClick={() => setShowCancelConfirm(false)}
+              onClick={backOutOfCancel}
               className="flex-1 py-3 rounded-xl text-sm font-semibold border border-gray-200 text-gray-700 hover:bg-gray-50 transition-colors"
             >
-              Keep Session
+              Keep session
             </button>
             <button
               onClick={handleCancelSession}
@@ -364,7 +392,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
               className="flex-1 py-3 rounded-xl text-sm font-semibold text-white transition-colors disabled:opacity-50"
               style={{ background: '#ef4444' }}
             >
-              {loading ? 'Cancelling...' : 'Yes, Cancel'}
+              {loading ? 'Cancelling…' : isDoctor ? 'Cancel session' : 'Yes, cancel'}
             </button>
           </div>
         </div>
@@ -387,8 +415,9 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
           onClick={onClose}
           className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 text-2xl transition-colors z-10"
           style={{ lineHeight: 1 }}
+          aria-label="Close"
         >
-          
+          ×
         </button>
 
         <div className="p-10 space-y-8">

@@ -316,13 +316,21 @@ describe('doctor presence ("Available Now")', () => {
   // showed 2.
   const online = () => request(server).get('/api/doctor-status/online-doctors');
   const ids = (res) => res.body.doctors.map((d) => String(d._id));
+  // Online = the doctor's switch on AND a live dashboard connection
+  // (services/presence.js). A test stands in for the connection.
+  const presence = require('../../services/presence');
+  const goOnline = async (doctor) => {
+    await User.updateOne({ _id: doctor._id }, { $set: { isOnline: true } });
+    presence.connected(doctor._id, `test-socket-${doctor._id}`);
+  };
 
   afterEach(async () => {
     await User.updateMany({ role: 'doctor' }, { $set: { isOnline: false } });
+    presence._reset();
   });
 
   test('lists a bookable online doctor without publishing their email', async () => {
-    await User.updateOne({ _id: f.doctorA._id }, { $set: { isOnline: true } });
+    await goOnline(f.doctorA);
 
     const res = await online();
     expect(res.status).toBe(200);
@@ -355,8 +363,30 @@ describe('doctor presence ("Available Now")', () => {
     }
   });
 
-  test('an instant booking needs no published calendar, so an expired one does not hide the doctor', async () => {
+  test('the switch alone is not enough: a doctor with no live connection is not listed', async () => {
     await User.updateOne({ _id: f.doctorA._id }, { $set: { isOnline: true } });
+    expect(ids(await online())).not.toContain(String(f.doctorA._id));
+  });
+
+  test('a doctor in a session is listed as busy', async () => {
+    await goOnline(f.doctorA);
+    const s = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: new Date(Date.now() - 5 * 60 * 1000), duration: 20, price: 800,
+      status: 'scheduled', paymentStatus: 'paid', paymentId: 'pay_busy_now'
+    });
+    try {
+      const entry = (await online()).body.doctors.find((d) => String(d._id) === String(f.doctorA._id));
+      expect(entry.busy).toBe(true);
+    } finally {
+      await Session.deleteOne({ _id: s._id });
+    }
+    const free = (await online()).body.doctors.find((d) => String(d._id) === String(f.doctorA._id));
+    expect(free.busy).toBe(false);
+  });
+
+  test('an instant booking needs no published calendar, so an expired one does not hide the doctor', async () => {
+    await goOnline(f.doctorA);
     await DoctorProfile.updateOne({ userId: f.doctorA._id }, { $set: { bookableUntil: new Date(Date.now() - 864e5) } });
     try {
       expect(ids(await online())).toContain(String(f.doctorA._id));

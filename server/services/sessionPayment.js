@@ -75,6 +75,23 @@ async function releaseSessionSlot(session) {
   }
 }
 
+/**
+ * The patient–doctor conversation, created when a booking is confirmed.
+ *
+ * It used to be created when checkout opened, before payment, so closing the
+ * Razorpay window still left a working chat with the doctor. Best effort: a
+ * booking stands whether or not this succeeds (the chat page creates it on
+ * demand for a paid relationship too).
+ */
+async function openConversation(patientId, doctorId, sessionId) {
+  try {
+    const Conversation = require('../models/conversation');
+    await Conversation.findOrCreateConversation(patientId, doctorId, sessionId);
+  } catch (err) {
+    logger.warn('Conversation creation failed', { sessionId: shortId(sessionId), error: err.message });
+  }
+}
+
 /** Ring the doctor and email both parties. Only for the write that confirmed the booking. */
 async function notifyBooked(session, io) {
   const populated = await Session.findById(session._id)
@@ -84,6 +101,7 @@ async function notifyBooked(session, io) {
 
   const patientId = String(populated.patientId._id || populated.patientId);
   const doctorId = String(populated.doctorId._id || populated.doctorId);
+  await openConversation(patientId, doctorId, populated._id);
 
   if (io) {
     new SocketEmitter(io).emitToUsers([patientId, doctorId], 'session:booked', {
@@ -369,6 +387,7 @@ async function observeRefund(refund, { io = null } = {}) {
 }
 
 module.exports = {
+  openConversation,
   confirmPayment,
   expireCheckout,
   expireStaleCheckouts,

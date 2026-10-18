@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL } from '../config/api';
 import { getAuthToken } from '../utils/authToken';
 import { resolveSessionStart, sessionLocalDateKey, formatSessionDay } from '../utils/dateUtils';
+import SessionModal from '../components/SessionModal';
 
 interface TimeSlot { time: string; isBooked: boolean; sessionId?: string; }
 interface DayAvailability { date: string; slots: TimeSlot[]; }
@@ -38,6 +39,8 @@ const ManageCalendar: React.FC = () => {
   const [currentViewDate, setCurrentViewDate] = useState<string>('');
   const [upcomingSessions, setUpcomingSessions] = useState<UpcomingSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<UpcomingSession | null>(null);
+  // The session being cancelled (opens the shared cancel dialog in SessionModal).
+  const [cancelTarget, setCancelTarget] = useState<UpcomingSession | null>(null);
   const getNextDays = (count: number) => {
     const today = new Date();
     return Array.from({ length: count }, (_, i) => {
@@ -209,6 +212,8 @@ const ManageCalendar: React.FC = () => {
     brand: '#1f7a8c',
     brandLight: '#eef4f4',
     brandSoft: 'rgba(31,122,140,.35)',
+    // An "On" date: clearly tinted, unlike brandLight (near white).
+    brandTint: '#dcecef',
     bg: '#f6f3ec',
     surface: '#FFFFFF',
     border: 'rgba(27,43,46,.08)',
@@ -337,29 +342,45 @@ const ManageCalendar: React.FC = () => {
         {isEditing && availabilityType === 'same_slots' && (
           <p style={{ fontSize: 11, color: C.text3, fontWeight: 500, margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 5, height: 5, borderRadius: '50%', background: C.brand, display: 'inline-block', flexShrink: 0 }} />
-            Click days to mark them active. All active days share the same time slots below.
+            Tap a date to switch it On or Off. Every On date uses the time slots below.
           </p>
         )}
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto' }} className="scrollbar-hide">
           {nextDays.map(({ dateStr, dayName, dayNum, isToday, shortMonth }) => {
+            // Every date always says whether patients can book it — On, Off
+            // or Custom (its own slots) — including the one being looked at.
+            // The viewed date used to be a solid fill that hid its state, so a
+            // day could look open when it was off.
             const isViewing = currentViewDate === dateStr;
-            const active = isDateActive(dateStr);
             const hasOverride = customAvailability.some(d => d.date === dateStr && d.slots.length > 0);
-            const isDark = isViewing;
+            const active = isDateActive(dateStr);
+            const state = hasOverride && availabilityType !== 'same_slots' ? 'custom' : active ? 'on' : 'off';
+            const tone = state === 'on'
+              ? { bg: C.brandTint, border: C.brandSoft, label: C.brand }
+              : state === 'custom'
+                ? { bg: C.purpleLight, border: 'rgba(201,154,91,.45)', label: C.purple }
+                : { bg: '#fff', border: C.border, label: C.text3 };
             return (
-              <button key={dateStr} onClick={() => handleDateClick(dateStr)} style={{
-                flexShrink: 0, width: 52, height: 62, borderRadius: 12,
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
-                border: `1.5px solid ${isViewing ? C.brand : active ? C.brandSoft : C.border}`,
-                background: isViewing ? C.brand : active && !isEditing ? C.brandLight : hasOverride ? C.purpleLight : '#fff',
-                cursor: 'pointer', transition: 'all 0.15s ease', position: 'relative',
-              }}>
-                <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: isDark ? 'rgba(255,255,255,0.7)' : C.text3 }}>{dayName}</span>
-                <span style={{ fontSize: 18, fontWeight: 800, color: isDark ? '#fff' : C.text1, lineHeight: 1.1 }}>{dayNum}</span>
-                {isToday && !isViewing && <span style={{ fontSize: 8, fontWeight: 700, color: C.brand, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Today</span>}
-                {(active || hasOverride) && !isViewing && (
-                  <div style={{ position: 'absolute', bottom: 5, width: 4, height: 4, borderRadius: '50%', background: hasOverride ? C.purple : C.brand }} />
-                )}
+              <button
+                key={dateStr}
+                onClick={() => handleDateClick(dateStr)}
+                aria-pressed={state !== 'off'}
+                aria-label={`${dayName} ${dayNum}${isToday ? ' (today)' : ''}: ${state === 'off' ? 'off' : 'open for booking'}`}
+                style={{
+                  flexShrink: 0, width: 56, height: 68, borderRadius: 12,
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 1,
+                  border: `1.5px solid ${tone.border}`,
+                  background: tone.bg,
+                  boxShadow: isViewing ? `0 0 0 2px #fff, 0 0 0 4px ${C.brand}` : 'none',
+                  cursor: 'pointer', transition: 'all 0.15s ease', position: 'relative',
+                }}
+              >
+                <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: isToday ? C.brand : C.text3 }}>{isToday ? 'Today' : dayName}</span>
+                <span style={{ fontSize: 18, fontWeight: 800, color: C.text1, lineHeight: 1.1 }}>{dayNum}</span>
+                <span style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', color: tone.label, display: 'flex', alignItems: 'center', gap: 2 }}>
+                  {state === 'on' && <FiCheck size={9} strokeWidth={3} />}
+                  {state === 'on' ? 'On' : state === 'custom' ? 'Custom' : 'Off'}
+                </span>
               </button>
             );
           })}
@@ -398,6 +419,12 @@ const ManageCalendar: React.FC = () => {
 
           {/* Slots */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '20px 20px 16px' }} className="scrollbar-hide">
+            {availabilityType === 'same_slots' && !isDateActive(currentViewDate) && (
+              <div role="status" style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, background: '#fdf6ec', border: '1px solid rgba(201,154,91,.35)', fontSize: 12.5, color: C.text1 }}>
+                <strong>This day is off</strong> — patients can't book it.{' '}
+                {isEditing ? 'Tap the date above to turn it on.' : 'Use Edit Schedule, then tap the date to turn it on.'}
+              </div>
+            )}
             <SlotGrid slots={AM_SLOTS} label="Morning" icon={<FiSun size={13} strokeWidth={2} />} />
             <SlotGrid slots={PM_SLOTS} label="Afternoon & Evening" icon={<FiMoon size={13} strokeWidth={2} />} />
           </div>
@@ -556,10 +583,28 @@ const ManageCalendar: React.FC = () => {
                 </div>
               </div>
 
+              {selectedSession.status === 'scheduled' && selectedSession.sessionType !== 'immediate'
+                && resolveSessionStart(selectedSession).getTime() > Date.now() && (
+                <button
+                  onClick={() => { setCancelTarget(selectedSession); setSelectedSession(null); }}
+                  className="w-full py-2.5 rounded-xl text-sm font-semibold border border-red-200 text-red-600 hover:bg-red-50 transition-colors"
+                >
+                  Cancel session
+                </button>
+              )}
+
             </div>
           </div>
         </div>
       )}
+
+      <SessionModal
+        session={cancelTarget as unknown as React.ComponentProps<typeof SessionModal>['session']}
+        userRole="doctor"
+        isOpen={!!cancelTarget}
+        startWithCancel
+        onClose={() => setCancelTarget(null)}
+      />
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');

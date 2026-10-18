@@ -71,6 +71,8 @@ router.post('/:sessionId/complete', verifyToken, validateObjectIdParam('sessionI
 // Ending early takes both people: one asks, the other answers.
 router.post('/:sessionId/end-request', verifyToken, validateObjectIdParam('sessionId'), authorize('session:end-call'), s.requestEndSession);
 router.post('/:sessionId/end-response', verifyToken, validateObjectIdParam('sessionId'), authorize('session:end-call'), s.respondEndSession);
+// The patient closed the payment window: free the slot now, not in 20 minutes.
+router.post('/:sessionId/abandon-checkout', verifyToken, validateObjectIdParam('sessionId'), authorize('session:abandon-checkout'), s.abandonCheckout);
 // "Leave & full refund" for a patient left waiting by their therapist.
 router.post('/:sessionId/claim-absent-refund', verifyToken, validateObjectIdParam('sessionId'), authorize('session:claim-absent-refund', { load: withParties }), s.claimAbsentRefund);
 router.post('/:sessionId/cancel', verifyToken, validateObjectIdParam('sessionId'), authorize('session:cancel'), s.cancelSession);

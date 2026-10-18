@@ -247,29 +247,45 @@ const runReminderSweep = async ({ now = new Date() } = {}) => {
             $or: [
                 { 'notificationStatus.reminderSent': false },
                 { 'notificationStatus.startSent': false },
-                { 'notificationStatus.lateSent': false }
+                { 'notificationStatus.lateSent': false },
+                { 'notificationStatus.doctorReminderSent': { $ne: true } },
+                { 'notificationStatus.doctorStartSent': { $ne: true } }
             ]
         })
             .populate('patientId', 'firstName lastName email')
-            .populate('doctorId', 'firstName lastName');
+            .populate('doctorId', 'firstName lastName email');
 
         for (const session of sessions) {
           // Per session: one failed email used to abort the loop and
           // leave every later session in the window without a reminder.
           try {
-            if (!session.patientId || !session.patientId.email) {
-                logger.debug(`Skipping session ${session._id}: Patient has no email`);
-                continue;
-            }
-
             const sessionDateTime = resolveStartsAt(session);
             const diffMs = sessionDateTime.getTime() - now.getTime();
             const diffMinutes = diffMs / (1000 * 60);
+            const ns = session.notificationStatus;
 
             let changed = false;
 
+            // The doctor: the same 15-minute and starting-now reminders. Their
+            // own flags, so a patient without an email doesn't cost the doctor
+            // theirs (and the other way round).
+            if (session.doctorId && session.doctorId.email) {
+                if (diffMinutes >= 14 && diffMinutes <= 16 && !ns.doctorReminderSent) {
+                    await sendSessionReminderEmail(session.doctorId.email, session, '15min', { recipient: 'doctor' });
+                    ns.doctorReminderSent = true;
+                    changed = true;
+                } else if (diffMinutes >= 1 && diffMinutes <= 3 && !ns.doctorStartSent) {
+                    await sendSessionReminderEmail(session.doctorId.email, session, 'start', { recipient: 'doctor' });
+                    ns.doctorStartSent = true;
+                    changed = true;
+                }
+            }
+
+            if (!session.patientId || !session.patientId.email) {
+                logger.debug(`Skipping the patient's reminders for ${session._id}: no email`);
+            }
             // 1. 15-minute reminder
-            if (diffMinutes >= 14 && diffMinutes <= 16 && !session.notificationStatus.reminderSent) {
+            else if (diffMinutes >= 14 && diffMinutes <= 16 && !session.notificationStatus.reminderSent) {
                 await sendSessionReminderEmail(session.patientId.email, session, '15min');
                 session.notificationStatus.reminderSent = true;
                 changed = true;

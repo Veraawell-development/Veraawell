@@ -369,6 +369,16 @@ const sessionSchema = new mongoose.Schema({
     lateSent: {
       type: Boolean,
       default: false
+    },
+    // The doctor gets the same two reminders (no late alert: the session
+    // screen tells them about an absent patient).
+    doctorReminderSent: {
+      type: Boolean,
+      default: false
+    },
+    doctorStartSent: {
+      type: Boolean,
+      default: false
     }
   },
   createdAt: {

@@ -22,6 +22,25 @@ const SocketEmitter = require('../utils/socketEmitter');
  * @param {{conversationId: string, senderId: string, text: string}} params
  * @returns {Promise<object>} the formatted message that was persisted and broadcast
  */
+/**
+ * Payment states in which a session ties a patient and a doctor together for
+ * chat: money changed hands (or none was owed). `refunded` and the refund
+ * states stay in — that booking was paid, so the two really were matched.
+ */
+const RELATIONSHIP_PAYMENT_STATES = Object.freeze(['paid', 'not_required', 'refunded', 'refund_pending', 'refund_failed']);
+
+/** Have these two people a paid, free or held session between them? */
+async function hasBookedRelationship([a, b]) {
+  if (!a || !b) return false;
+  const Session = require('../models/session');
+  return !!(await Session.exists({
+    $and: [
+      { $or: [{ patientId: a, doctorId: b }, { patientId: b, doctorId: a }] },
+      { $or: [{ paymentStatus: { $in: RELATIONSHIP_PAYMENT_STATES } }, { status: 'completed' }] }
+    ]
+  }));
+}
+
 async function sendMessageAndNotify(io, chatNamespace, { conversationId, senderId, text }) {
   // Checked here rather than in each caller so the socket path gets it too. A
   // non-string `text` (an object, an array) reached Message.create and failed
@@ -43,6 +62,15 @@ async function sendMessageAndNotify(io, chatNamespace, { conversationId, senderI
   if (!isParticipant) {
     const err = new Error('Access denied');
     err.code = 'ACCESS_DENIED';
+    throw err;
+  }
+
+  // Chat opens once the two have a paid (or genuinely free) session — the
+  // conversation itself is only created when a booking is confirmed, but
+  // conversations made at checkout before that change still exist.
+  if (!(await hasBookedRelationship(conversation.participants.map((p) => p.userId)))) {
+    const err = new Error('Chat opens once a session is booked and paid.');
+    err.code = 'CHAT_NOT_OPEN';
     throw err;
   }
 
@@ -126,4 +154,4 @@ async function sendMessageAndNotify(io, chatNamespace, { conversationId, senderI
   return { message, formattedMessage, receiverId };
 }
 
-module.exports = { sendMessageAndNotify };
+module.exports = { sendMessageAndNotify, hasBookedRelationship, RELATIONSHIP_PAYMENT_STATES };

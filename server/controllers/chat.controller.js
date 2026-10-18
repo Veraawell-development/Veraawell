@@ -26,7 +26,7 @@ const logger = createLogger('CHAT-CTRL');
  * without ever paying for or attending a session. `refunded` and the refund
  * states stay in: that booking was paid, so the two really were matched.
  */
-const RELATIONSHIP_PAYMENT_STATES = ['paid', 'not_required', 'refunded', 'refund_pending', 'refund_failed'];
+const { RELATIONSHIP_PAYMENT_STATES } = require('../services/chat.service');
 
 /** GET /api/chat/conversations — All conversations for the logged-in user */
 const getConversations = asyncHandler(async (req, res) => {
@@ -125,6 +125,7 @@ const sendMessage = asyncHandler(async (req, res) => {
   } catch (err) {
     if (err.code === 'CONVERSATION_NOT_FOUND') throw new NotFoundError('Conversation');
     if (err.code === 'ACCESS_DENIED') throw new AuthorizationError('Access denied');
+    if (err.code === 'CHAT_NOT_OPEN') throw new AuthorizationError(err.message);
     if (err.code === 'INVALID_MESSAGE') throw new ValidationError(err.message);
     throw err;
   }

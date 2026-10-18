@@ -362,11 +362,25 @@ describe('instant sessions', () => {
     expect(mockOrdersCreate).not.toHaveBeenCalled();
   });
 
-  test('a real instant booking against an online doctor goes through payment', async () => {
+  test('online by the switch but not connected: refused as offline', async () => {
+    // The switch stayed on after the laptop closed; presence is the
+    // dashboard's live connection (services/presence.js).
     await User.updateOne({ _id: f.doctorA._id }, { $set: { isOnline: true } });
     const res = await call('post', '/api/sessions/book-immediate', patientA, {
       doctorId: String(f.doctorA._id), mode: 'video', duration: 20
     });
+    expect(res.status).toBe(409);
+    expect(res.body.reason).toBe('offline');
+    expect(mockOrdersCreate).not.toHaveBeenCalled();
+  });
+
+  test('a real instant booking against an online doctor goes through payment', async () => {
+    await User.updateOne({ _id: f.doctorA._id }, { $set: { isOnline: true } });
+    require('../../services/presence').connected(f.doctorA._id, 'test-socket-surface');
+    const res = await call('post', '/api/sessions/book-immediate', patientA, {
+      doctorId: String(f.doctorA._id), mode: 'video', duration: 20
+    });
+    require('../../services/presence')._reset();
     expect(res.status).toBeLessThan(300);
 
     const s = await Session.findOne({ doctorId: f.doctorA._id, sessionType: 'immediate' });

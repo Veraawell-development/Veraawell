@@ -82,6 +82,14 @@ module.exports = {
         message: 'Only the patient of this session can claim this refund'
       },
 
+    // Giving up on a checkout frees its slot — the session's patient only.
+    'session:abandon-checkout': ({ actor, resource }) =>
+      isPatient(actor, resource) || {
+        allow: false,
+        code: CODE.NOT_PARTICIPANT,
+        message: 'Only the patient of this session can abandon its checkout'
+      },
+
     // Live-call surface. Used by the socket registrar for state-changing
     // events; high-frequency signaling uses the cheaper room-membership check.
     'session:signal': ({ actor, resource }) => isParty(actor, resource) || notParticipant,
