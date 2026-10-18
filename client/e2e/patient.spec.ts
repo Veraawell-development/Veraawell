@@ -57,10 +57,14 @@ test.describe('the dashboard', () => {
     }
   });
 
-  test('surfaces the seeded upcoming session with a working join control', async ({ page }) => {
+  test('surfaces the seeded upcoming session, joinable only when its window opens', async ({ page }) => {
+    // The seeded session is days away: no Join button yet (it used to show
+    // hours ahead), and no Reschedule (rescheduling isn't offered).
     await expect(page.getByText(/Next session in/)).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Join Session' })).toBeVisible();
-    await expect(page.getByRole('button', { name: 'Reschedule' })).toBeVisible();
+    await expect(page.getByText(/You can join from/)).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Join Session' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Reschedule' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Details' })).toBeVisible();
   });
 
   test('renders a month calendar with real day cells', async ({ page }) => {

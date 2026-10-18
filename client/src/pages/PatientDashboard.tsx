@@ -9,7 +9,8 @@ import EmergencyHotlineModal from '../components/EmergencyHotlineModal';
 import PatientCalendarModal from '../components/PatientCalendarModal';
 import { useAuth } from '../context/AuthContext';
 import { API_CONFIG } from '../config/api';
-import { formatDate, getGreeting, resolveSessionStart, resolveSessionEnd, sessionLocalDateKey, daysUntilSession, PLATFORM_TIMEZONE } from '../utils/dateUtils';
+import { formatDate, getGreeting, resolveSessionStart, resolveSessionEnd, sessionLocalDateKey, daysUntilSession, formatSessionClock, PLATFORM_TIMEZONE } from '../utils/dateUtils';
+import { canJoinNow, joinWindow } from '../utils/sessionRules';
 import logger from '../utils/logger';
 import type { Session, Report, Task, JournalEntry } from '../types';
 import { useDataSocket } from '../hooks/useDataSocket';
@@ -871,7 +872,9 @@ const PatientDashboard: React.FC = () => {
                 <div key={w} className="text-center" style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.06em', color: T.muted, padding: '5px 0', textTransform: 'uppercase' }}>{w}</div>
               ))}
             </div>
-            <div className="flex-1 flex flex-col justify-center min-h-0">
+            {/* Rows start under the day names; centring them in the tall
+                card left a large empty band above the first week. */}
+            <div className="flex-1 flex flex-col justify-start pt-2 min-h-0">
               <div className="grid grid-cols-7 gap-x-0.5 gap-y-2.5">
                 {calendarCells.map((c, i) => (
                   <button
@@ -1068,18 +1071,28 @@ const PatientDashboard: React.FC = () => {
                   <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={T.teal} strokeWidth="2"><circle cx="12" cy="12" r="10"></circle><path d="M12 6v6l4 2"></path></svg>
                   {formatSessionChip(nextSession)}
                 </div>
+                {/* "Join Session" only while the session can actually be joined
+                    (15 minutes before the start until it ends) — it used to
+                    show hours ahead. "Reschedule" is gone: rescheduling isn't
+                    offered (cancel and rebook instead). */}
                 <div className="flex gap-2.5">
-                  <button
-                    onClick={() => handleSessionClick(nextSession)}
-                    style={{ flex: 1, background: T.teal, color: '#fff', border: 'none', borderRadius: 100, padding: 10, fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}
-                  >
-                    Join Session
-                  </button>
+                  {canJoinNow(nextSession) ? (
+                    <button
+                      onClick={() => navigate(`/video-call/${nextSession._id}`)}
+                      style={{ flex: 1, background: T.teal, color: '#fff', border: 'none', borderRadius: 100, padding: 10, fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}
+                    >
+                      Join Session
+                    </button>
+                  ) : (
+                    <div style={{ flex: 1, alignSelf: 'center', fontSize: 12, color: T.muted }}>
+                      You can join from {formatSessionClock(new Date(joinWindow(nextSession).opensAt))}
+                    </div>
+                  )}
                   <button
                     onClick={() => handleSessionClick(nextSession)}
                     style={{ flex: 1, background: '#fff', color: T.text, border: '1px solid rgba(27,43,46,.15)', borderRadius: 100, padding: 10, fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}
                   >
-                    Reschedule
+                    Details
                   </button>
                 </div>
               </>
