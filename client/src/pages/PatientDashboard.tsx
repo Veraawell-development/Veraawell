@@ -10,7 +10,7 @@ import PatientCalendarModal from '../components/PatientCalendarModal';
 import { useAuth } from '../context/AuthContext';
 import { API_CONFIG } from '../config/api';
 import { formatDate, getGreeting, resolveSessionStart, resolveSessionEnd, sessionLocalDateKey, daysUntilSession, formatSessionClock, PLATFORM_TIMEZONE } from '../utils/dateUtils';
-import { canJoinNow, joinWindow } from '../utils/sessionRules';
+import { canJoinNow, joinWindow, outcomeLabel } from '../utils/sessionRules';
 import logger from '../utils/logger';
 import type { Session, Report, Task, JournalEntry } from '../types';
 import { useDataSocket } from '../hooks/useDataSocket';
@@ -481,13 +481,16 @@ const PatientDashboard: React.FC = () => {
     return cells;
   }, [sessionsByDay, year, month, selectedDay]);
 
+  // Selecting a day lists its sessions under the calendar; opening one is a
+  // second, deliberate click (it used to jump straight into the first).
   const handleDayClick = (day: number) => {
     setSelectedDay(day);
-    const daySessions = sessionsByDay.get(day);
-    if (daySessions && daySessions.length > 0) {
-      handleSessionClick(daySessions[0]);
-    }
   };
+  const selectedDaySessions = (sessionsByDay.get(selectedDay) || [])
+    .slice()
+    .sort((a, b) => getSessionDateTime(a).getTime() - getSessionDateTime(b).getTime());
+  const selectedDayLabel = new Date(Date.UTC(year, month - 1, selectedDay))
+    .toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', timeZone: 'UTC' });
 
   // Mental health screening tests to show (defaults + any taken tests, taken/recent first)
   //
@@ -872,10 +875,11 @@ const PatientDashboard: React.FC = () => {
                 <div key={w} className="text-center" style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.06em', color: T.muted, padding: '5px 0', textTransform: 'uppercase' }}>{w}</div>
               ))}
             </div>
-            {/* Rows start under the day names; centring them in the tall
-                card left a large empty band above the first week. */}
-            <div className="flex-1 flex flex-col justify-start pt-2 min-h-0">
-              <div className="grid grid-cols-7 gap-x-0.5 gap-y-2.5">
+            {/* A compact month, and under it what's on the selected day. The
+                grid used to be centred in the tall card, leaving a wide empty
+                band above the first week. */}
+            <div className="flex-1 flex flex-col min-h-0">
+              <div className="grid grid-cols-7 gap-x-0.5 gap-y-1.5 flex-none" style={{ gridAutoRows: 36 }}>
                 {calendarCells.map((c, i) => (
                   <button
                     key={i}
@@ -899,6 +903,41 @@ const PatientDashboard: React.FC = () => {
                     )}
                   </button>
                 ))}
+              </div>
+
+              <div className="flex-1 min-h-0 overflow-y-auto mt-3 pt-3" style={{ borderTop: `1px solid ${T.border}` }}>
+                <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.08em', color: T.muted, textTransform: 'uppercase', marginBottom: 8 }}>
+                  {selectedDayLabel}
+                </div>
+                {selectedDaySessions.length === 0 ? (
+                  <p style={{ fontSize: 12.5, color: T.muted }}>No sessions on this day.</p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {selectedDaySessions.map((s) => {
+                      const outcome = outcomeLabel(s, 'patient');
+                      return (
+                        <button
+                          key={s._id}
+                          onClick={() => handleSessionClick(s)}
+                          className="flex items-center justify-between gap-3 text-left"
+                          style={{ border: `1px solid ${T.border}`, background: '#fff', borderRadius: 12, padding: '10px 12px', cursor: 'pointer' }}
+                        >
+                          <span className="min-w-0">
+                            <span style={{ display: 'block', fontWeight: 600, fontSize: 13, color: T.text }}>
+                              {formatSessionClock(getSessionDateTime(s), 'en-US')} · {s.doctorId?.firstName ? `Dr. ${s.doctorId.firstName} ${s.doctorId.lastName || ''}`.trim() : 'Your therapist'}
+                            </span>
+                            <span style={{ display: 'block', fontSize: 12, color: T.text2 }}>
+                              {(s as UpcomingSession).callMode || 'Video Calling'} · {s.duration || 60} min
+                            </span>
+                          </span>
+                          <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 600, color: outcome ? T.text2 : T.teal }}>
+                            {outcome ? outcome.label : canJoinNow(s) ? 'Join now' : 'Upcoming'}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -1085,7 +1124,7 @@ const PatientDashboard: React.FC = () => {
                     </button>
                   ) : (
                     <div style={{ flex: 1, alignSelf: 'center', fontSize: 12, color: T.muted }}>
-                      You can join from {formatSessionClock(new Date(joinWindow(nextSession).opensAt))}
+                      You can join from {formatSessionClock(new Date(joinWindow(nextSession).opensAt), 'en-US')}
                     </div>
                   )}
                   <button
