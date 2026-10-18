@@ -22,6 +22,7 @@
       "<rootDir>/__tests__/support/"
     ],
     "globalSetup": "<rootDir>/__tests__/support/globalSetup.js",
+    "setupFilesAfterEnv": ["<rootDir>/__tests__/support/afterEachFile.js"],
     "globalTeardown": "<rootDir>/__tests__/support/globalTeardown.js"
   },
   "keywords": [],

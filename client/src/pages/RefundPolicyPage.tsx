@@ -124,11 +124,11 @@ export default function RefundPolicyPage() {
               <ul className="list-none space-y-3 pl-2">
                 <li className="flex items-start gap-3">
                   <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--teal)] flex-shrink-0" />
-                  <span><strong>Prior to 4 Hours:</strong> You may cancel or reschedule your appointment without any penalty up to 4 hours before the scheduled start time. A full refund will be automatically initiated.</span>
+                  <span><strong>More than 4 hours before:</strong> Cancel from your dashboard and you get a full refund, started automatically. (We don't move sessions — to change the time, cancel and book a new slot.)</span>
                 </li>
                 <li className="flex items-start gap-3">
                   <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--warm)] flex-shrink-0" />
-                  <span><strong>Within 4 Hours:</strong> Cancellations made less than 4 hours prior to the session start time are strictly non-refundable, as the therapist's time has been exclusively reserved for you and cannot be rebooked.</span>
+                  <span><strong>Within 4 hours:</strong> Cancellations are not refunded, because your therapist's time was reserved for you — they are still paid for it.</span>
                 </li>
               </ul>
             </div>
@@ -143,10 +143,16 @@ export default function RefundPolicyPage() {
             </h2>
             <div className="space-y-4 text-base leading-relaxed font-sans" style={{ color: 'var(--text-2)' }}>
               <p>
-                If a patient fails to join the video consultation room within the first 10 minutes of the scheduled session time, the system will mark it as a <strong>"Patient No-Show"</strong>. Patient no-shows are completely non-refundable.
+                <strong>If you can't join:</strong> if you haven't joined within 10 minutes of the start, the session counts as missed and isn't refunded. Your therapist may leave after 10 minutes.
               </p>
               <p>
-                Conversely, if the therapist fails to join the room within the first 10 minutes, it will be marked as a <strong>"Doctor No-Show"</strong>. In this highly rare event, you will receive an automatic 100% full refund, and our support team will immediately reach out to assist you in rescheduling if desired.
+                <strong>If your therapist is late:</strong> your therapist has 10 minutes to join. If they haven't joined by then — or if they leave and you've been waiting on your own for 10 minutes — you can leave and get a full refund straight away, or keep waiting. If you wait and they join, you still get your full session time.
+              </p>
+              <p>
+                <strong>If your therapist never joins, or nobody joins:</strong> you get a full refund automatically.
+              </p>
+              <p>
+                <strong>If your therapist cancels:</strong> you get a full refund automatically.
               </p>
             </div>
           </section>
@@ -179,7 +185,7 @@ export default function RefundPolicyPage() {
               4. Exceptional Circumstances
             </h2>
             <p className="text-base leading-relaxed font-sans" style={{ color: 'var(--text-2)' }}>
-              If you experienced a severe technical issue on our platform (e.g., video failing to connect due to our servers) that prevented the consultation from occurring, please reach out to our support team within 24 hours of the appointment time. We will investigate the logs and process a manual refund or free reschedule upon verification.
+              If you experienced a severe technical issue on our platform (e.g., video failing to connect due to our servers) that prevented the consultation from occurring, please reach out to our support team within 24 hours of the appointment time. We will check what happened and refund you upon verification.
             </p>
           </section>
 

@@ -71,7 +71,7 @@ beforeAll(async () => {
   zoned = require('../../utils/zonedTime');
   patient = await seed.makeUser('patient', `p2.patient.${Date.now()}@veraawell.test`);
   patient2 = await seed.makeUser('patient', `p2.patient2.${Date.now()}@veraawell.test`);
-  app = mountRoutes({ '/api/sessions': '../../routes/sessions', '/api/doctor-status': '../../routes/doctor-status' });
+  app = mountRoutes({ '/api/sessions': '../../routes/sessions', '/api/doctor-status': '../../routes/doctor-status', '/api/chat': '../../routes/chat' });
 });
 
 afterAll(async () => { await stopDb(); });
@@ -360,6 +360,31 @@ describe('chat opens with a paid booking', () => {
     });
     await sendMessageAndNotify(null, null, { conversationId: leftover._id, senderId: String(patient._id), text: 'hello' });
     expect(await require('../../models/message').countDocuments({ conversationId: leftover._id, text: 'hello' })).toBe(1);
+  });
+
+  test('over HTTP, sending into such a conversation is a 403 that says why', async () => {
+    const leftover = await Conversation.findOrCreateConversation(patient2._id, doctor._id, null);
+    const res = await post('/api/chat/message', patient2, { conversationId: String(leftover._id), text: 'hi' });
+    expect(res.status).toBe(403);
+    expect(res.body.message).toMatch(/Chat opens once a session is booked and paid/);
+  });
+});
+
+describe('the price a booking is charged', () => {
+  const { calculateSessionPrice, resolvePrice } = require('../../services/session.service');
+
+  test('no profile, or a profile without prices, has no price', async () => {
+    expect(await calculateSessionPrice(new mongoose.Types.ObjectId(), 'video', 20)).toBeNull();
+    await DoctorProfile.updateOne({ userId: doctor._id }, { $unset: { pricing: 1 } });
+    expect(await calculateSessionPrice(doctor._id, 'video', 20)).toBeNull();
+  });
+
+  test('a length that is not offered, or no positive price anywhere in the chain, has no price', () => {
+    expect(resolvePrice({ min: 800, session20: 800 }, 'video', 30)).toBeNull();
+    expect(resolvePrice({ min: 0, session20: 0 }, 'video', 20)).toBeNull();
+    expect(resolvePrice({ max: Infinity }, 'video', 55)).toBeNull();
+    expect(resolvePrice({ min: 800, audio: { session20: 600 } }, 'voice', 20)).toBe(600);
+    expect(resolvePrice({ min: 800 }, 'voice', 20)).toBe(800);
   });
 });
 

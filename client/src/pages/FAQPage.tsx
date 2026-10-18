@@ -40,13 +40,13 @@ const FAQPage: React.FC = () => {
         },
         {
             category: 'booking',
-            question: 'Can I cancel or reschedule a session?',
-            answer: 'Yes. Cancel more than 4 hours before the scheduled start and you receive a full refund. To cancel, go to your dashboard, click on the session, and select "Cancel Session". For rescheduling, please cancel and book a new slot.'
+            question: 'Can I cancel a session?',
+            answer: 'Yes. Cancel more than 4 hours before the scheduled start and you receive a full refund. To cancel, go to your dashboard, click on the session, and select "Cancel Session". Inside 4 hours there is no refund, as your therapist\'s time was reserved for you. To change the time, cancel and book a new slot.'
         },
         {
             category: 'booking',
             question: 'What if I miss a session?',
-            answer: 'If you miss a scheduled session without prior cancellation, it will be marked as a "no-show" and the payment will not be refunded. We recommend setting reminders and cancelling more than 4 hours in advance if you cannot attend.'
+            answer: 'If you haven\'t joined within 10 minutes of the start, the session counts as missed and is not refunded. If it\'s your therapist who doesn\'t join within 10 minutes, you can leave with a full refund — and if nobody joins, you are refunded automatically.'
         },
         {
             category: 'booking',
@@ -85,7 +85,7 @@ const FAQPage: React.FC = () => {
         {
             category: 'technical',
             question: 'What if I have technical issues during a session?',
-            answer: 'If you experience technical difficulties, try refreshing your browser first. If issues persist, contact our support team immediately. We may reschedule the session at no additional cost if technical problems prevent completion.'
+            answer: 'If you experience technical difficulties, try refreshing your browser first. If issues persist, contact our support team immediately. If a problem on our side stopped your session, write to support@veraawell.com within 24 hours and we\'ll refund you after checking.'
         },
         {
             category: 'technical',

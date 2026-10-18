@@ -521,13 +521,25 @@ const PatientDashboard: React.FC = () => {
   const testsToRender = sortedTestIds.slice(0, 4);
 
   // Welcome, rating, and mood check-in are mutually exclusive full-screen modals.
-  const activeDashboardModal: 'welcome' | 'rating' | 'mood' | null = showWelcomeModal
-    ? 'welcome'
-    : showRatingModal
-      ? 'rating'
+  //
+  // And at most ONE per visit: a new patient used to get the welcome, then the
+  // rating prompt, then the mood check-in, one after another. The first that
+  // is due shows (a just-finished session's rating comes first); the others
+  // wait for a later visit — each keeps its own "already done" state.
+  const dueDashboardModal: 'welcome' | 'rating' | 'mood' | null = showRatingModal
+    ? 'rating'
+    : showWelcomeModal
+      ? 'welcome'
       : showMoodModal
         ? 'mood'
         : null;
+  const [visitPopup, setVisitPopup] = useState<'welcome' | 'rating' | 'mood' | null>(null);
+  useEffect(() => {
+    if (dueDashboardModal && !visitPopup) setVisitPopup(dueDashboardModal);
+  }, [dueDashboardModal, visitPopup]);
+  const activeDashboardModal = dueDashboardModal && dueDashboardModal === (visitPopup || dueDashboardModal)
+    ? dueDashboardModal
+    : null;
 
   const nextSessionRelative = nextSession ? relativeDayLabel(nextSession) : null;
 
@@ -1120,8 +1132,8 @@ const PatientDashboard: React.FC = () => {
                 </div>
                 {/* "Join Session" only while the session can actually be joined
                     (15 minutes before the start until it ends) — it used to
-                    show hours ahead. "Reschedule" is gone: rescheduling isn't
-                    offered (cancel and rebook instead). */}
+                    show hours ahead. The second button used to offer moving
+                    the session, which isn't offered (cancel and rebook). */}
                 <div className="flex gap-2.5">
                   {canJoinNow(nextSession) ? (
                     <button
