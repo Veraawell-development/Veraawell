@@ -905,7 +905,10 @@ const PatientDashboard: React.FC = () => {
                 ))}
               </div>
 
-              <div className="flex-1 min-h-0 overflow-y-auto mt-3 pt-3" style={{ borderTop: `1px solid ${T.border}` }}>
+              {/* Capped at about four rows and scrolled past that, so a busy
+                  day neither stretches the card on a phone nor pushes the
+                  dashboard around. */}
+              <div className="flex-1 min-h-0 overflow-y-auto mt-3 pt-3" style={{ borderTop: `1px solid ${T.border}`, maxHeight: 300 }}>
                 <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.08em', color: T.muted, textTransform: 'uppercase', marginBottom: 8 }}>
                   {selectedDayLabel}
                 </div>
