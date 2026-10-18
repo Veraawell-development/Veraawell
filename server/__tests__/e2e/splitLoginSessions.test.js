@@ -44,18 +44,17 @@ async function seedSharedCollection() {
   await sessions.createIndex({ expires: 1 }, { expireAfterSeconds: 0 });
 }
 
-describe('the login store has its own collection', () => {
-  test('createSessionStore writes to auth_sessions, not to the bookings collection', async () => {
-    const { createSessionStore } = require('../../config/database');
-    const store = createSessionStore();
-    try {
-      // Regression: connect-mongo's default is 'sessions'. Read off the
-      // collection the store actually opened, not off its options.
-      const collection = await store.collectionP;
-      expect(collection.collectionName).toBe('auth_sessions');
-    } finally {
-      await store.close();
-    }
+describe('there is no login store any more', () => {
+  test('app.js mounts no session middleware, so nothing writes beside the bookings', () => {
+    // The store this migration cleaned up after now does not exist at all:
+    // production's never saved a row, and Google sign-in carries its state
+    // in a signed cookie instead (services/oauth.service.js).
+    const fs = require('fs');
+    const path = require('path');
+    const source = fs.readFileSync(path.join(__dirname, '../../app.js'), 'utf8');
+    expect(source).not.toMatch(/require\(['"]express-session['"]\)/);
+    expect(source).not.toMatch(/app\.use\(passport\.session\(\)\)/);
+    expect(require('../../config/database').createSessionStore).toBeUndefined();
   });
 });
 

@@ -4,9 +4,9 @@
  *
  * Why it matters: config/environment.js runs dotenv.config(), which loads
  * server/.env — and that file's MONGO_URI points at the live Atlas cluster.
- * Nothing in a suite that builds its own Express app will dial it, but
- * app.js creates a connect-mongo session store at module load (app.js:253),
- * so any suite that requires the real app WOULD. dotenv does not overwrite
+ * Nothing in a suite that builds its own Express app will dial it, and
+ * app.js no longer opens a session store at module load — but anything that
+ * does read MONGO_URI must never reach production. dotenv does not overwrite
  * variables that are already set, so assigning here wins.
  *
  * The MONGO_URI below is a deliberately dead loopback port: if some code path

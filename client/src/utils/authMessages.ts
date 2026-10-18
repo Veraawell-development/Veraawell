@@ -9,6 +9,7 @@
 const LOGIN_ERRORS: Record<string, string> = {
   'google-auth-failed': "Google sign-in didn't complete. Please try again.",
   'google-cancelled': 'Google sign-in was cancelled.',
+  'google-expired': 'That Google sign-in expired or was started in another browser. Please try again.',
   'google-session': "We couldn't finish signing you in with Google in this browser. Please try again, or sign in with your email and password.",
   'google-unavailable': "Google sign-in isn't available right now. Please sign in with your email and password.",
   'google-email-unverified': "Google hasn't verified this email address, so it can't be used to sign in to an existing account. Please sign in with your password.",

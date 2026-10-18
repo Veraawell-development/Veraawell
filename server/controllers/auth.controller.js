@@ -314,17 +314,6 @@ const logout = asyncHandler(async (req, res) => {
   // the admin dashboard in another — two realms, one logout.
   authService.clearAuthCookie(res);
 
-  // Destroy session
-  if (req.session) {
-    req.session.destroy((err) => {
-      if (err) {
-        logger.error('Session destroy error', { error: err.message });
-      } else {
-        logger.info('Session destroyed successfully');
-      }
-    });
-  }
-
   res.json({
     success: true,
     message: 'Logged out successfully'

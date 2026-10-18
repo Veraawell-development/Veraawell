@@ -52,6 +52,8 @@ function getAdminJWTSecret() {
 /**
  * Get session secret
  */
+let ephemeralSessionSecret = null;
+
 function getSessionSecret() {
   const secret = getEnv('SESSION_SECRET');
 
@@ -71,10 +73,14 @@ function getSessionSecret() {
       logger.error('SESSION_SECRET is required in production!');
       process.exit(1);
     }
-    // Development only: an ephemeral secret is fine, and the warning explains
-    // why sessions do not survive a restart locally.
-    logger.warn('SESSION_SECRET not set, using an ephemeral development secret (sessions will not survive a restart)');
-    return crypto.randomBytes(64).toString('hex');
+    // Development only: an ephemeral secret is fine — but one per process,
+    // not one per call: it signs the Google sign-in state cookie, which is
+    // checked by a later request.
+    if (!ephemeralSessionSecret) {
+      logger.warn('SESSION_SECRET not set, using an ephemeral development secret (it changes on restart)');
+      ephemeralSessionSecret = crypto.randomBytes(64).toString('hex');
+    }
+    return ephemeralSessionSecret;
   }
 
   return secret;
@@ -143,26 +149,6 @@ function toClearOptions(config) {
 }
 
 /**
- * Get session cookie configuration
- */
-function getSessionCookieConfig() {
-  return {
-    httpOnly: true,
-    // Secure only where there is HTTPS. express-session refuses to set a
-    // Secure cookie on a plain-http request, so locally the Google round trip
-    // lost its session — and with it the state check — every time.
-    secure: isProduction(),
-    sameSite: isProduction() ? 'none' : 'lax',
-    // Sessions only carry a Google sign-in across Google's redirect (auth is
-    // the JWT cookie), which takes minutes, not the 30 days this was. Each
-    // click on the Google button left a 30-day row in auth_sessions.
-    maxAge: 15 * 60 * 1000,
-    path: '/',
-    domain: isProduction() ? '.veraawell.com' : undefined
-  };
-}
-
-/**
  * Get frontend URL
  */
 function getFrontendUrl() {
@@ -180,6 +166,5 @@ module.exports = {
   getCookieConfig,
   getAdminCookieConfig,
   toClearOptions,
-  getSessionCookieConfig,
   getFrontendUrl
 };

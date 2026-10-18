@@ -207,29 +207,20 @@ describe('cookies under production settings', () => {
     expect(cfg.domain).toBe('.veraawell.com');
   });
 
-  test('the SESSION cookie is Secure and cross-site in production, plain and Lax in development, and short-lived', () => {
-    // Regression. getSessionCookieConfig() set Secure + SameSite=None
-    // unconditionally, and express-session will not set a Secure cookie on a
-    // plain-http request — so locally the Google round trip lost its session,
-    // and with it the state check, every time.
-    let dev;
+  test('the Google sign-in state cookie is Secure in production, Lax, and short-lived', () => {
+    // It replaced an express-session cookie that was Secure + SameSite=None
+    // even in development (so local Google sign-in never kept its session)
+    // and whose production store never saved anything.
     let prod;
-    process.env.NODE_ENV = 'development';
     jest.isolateModules(() => {
       // eslint-disable-next-line global-require
-      dev = require('../../config/auth').getSessionCookieConfig();
-    });
-    process.env.NODE_ENV = 'production';
-    jest.isolateModules(() => {
-      // eslint-disable-next-line global-require
-      prod = require('../../config/auth').getSessionCookieConfig();
+      prod = require('../../services/oauth.service').stateCookieOptions();
     });
 
     expect(prod.secure).toBe(true);
-    expect(prod.sameSite).toBe('none');
-    expect(dev.secure).toBe(false);
-    expect(dev.sameSite).toBe('lax');
-    // It only carries one Google sign-in across Google's redirect.
+    expect(prod.httpOnly).toBe(true);
+    expect(prod.sameSite).toBe('lax');
+    expect(prod.path).toBe('/api/auth/google');
     expect(prod.maxAge).toBeLessThanOrEqual(15 * 60 * 1000);
   });
 });

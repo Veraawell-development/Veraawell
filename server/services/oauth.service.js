@@ -3,10 +3,12 @@
  * Handles Google OAuth authentication
  */
 
+const crypto = require('crypto');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const User = require('../models/user');
-const { getOAuthConfig, getFrontendUrl } = require('../config/auth');
+const { getOAuthConfig, getFrontendUrl, getSessionSecret } = require('../config/auth');
+const { isProduction } = require('../config/environment');
 const { generateToken, setAuthCookie } = require('./auth.service');
 const { createLogger } = require('../utils/logger');
 const { ValidationError } = require('../utils/errors');
@@ -14,11 +16,90 @@ const { ValidationError } = require('../utils/errors');
 const logger = createLogger('OAUTH');
 
 /**
- * Where passport-oauth2 keeps the `state` nonce in the session. Named
- * explicitly so the callback route in app.js can carry it across the session
- * regeneration it does before verifying.
+ * The Google round trip's own state: a nonce (checked against the `state`
+ * Google hands back, so a callback this browser never started is refused —
+ * login CSRF) and the signup intent from the button. It lives in a signed,
+ * short-lived cookie scoped to the two Google routes, not in a server-side
+ * session.
+ *
+ * It used to live in express-session, backed by a Mongo store. In production
+ * that store never saved a row — each request got a fresh session — which
+ * went unnoticed while the session only carried an optional role. The day
+ * the state check came to depend on it, every Google sign-in failed. A
+ * cookie needs no store: the browser carries it to Google and back.
+ *
+ * SameSite=Lax is enough: Google returns the person with a top-level GET,
+ * and Lax cookies travel on those.
  */
-const GOOGLE_STATE_KEY = 'oauth2:accounts.google.com';
+const STATE_COOKIE = 'vw_google';
+const STATE_TTL_MS = 10 * 60 * 1000;
+
+function stateCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: isProduction(),
+    sameSite: 'lax',
+    path: '/api/auth/google',
+    maxAge: STATE_TTL_MS
+  };
+}
+
+function signState(payload) {
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const mac = crypto.createHmac('sha256', getSessionSecret()).update(body).digest('base64url');
+  return `${body}.${mac}`;
+}
+
+/** The payload of a cookie this server signed, or null. */
+function readState(value) {
+  if (typeof value !== 'string' || value.length > 512) return null;
+  const [body, mac] = value.split('.');
+  if (!body || !mac) return null;
+  const expected = crypto.createHmac('sha256', getSessionSecret()).update(body).digest('base64url');
+  const a = Buffer.from(mac);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  try {
+    return JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+  } catch (_) {
+    return null;
+  }
+}
+
+function sameString(x, y) {
+  if (typeof x !== 'string' || typeof y !== 'string') return false;
+  const a = Buffer.from(x);
+  const b = Buffer.from(y);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * passport-oauth2's state store interface, over the cookie above. A failure
+ * carries the login-page code to show (see finishGoogleSignIn).
+ */
+const cookieStateStore = {
+  store(req, meta, callback) {
+    const nonce = crypto.randomBytes(24).toString('base64url');
+    const intent = req.googleIntent === 'doctor' ? 'doctor' : 'patient';
+    req.res.cookie(STATE_COOKIE, signState({ n: nonce, r: intent, t: Date.now() }), stateCookieOptions());
+    callback(null, nonce);
+  },
+
+  verify(req, providedState, meta, callback) {
+    const saved = readState(req.cookies && req.cookies[STATE_COOKIE]);
+    if (!saved) {
+      return callback(null, false, { code: 'google-expired', message: 'No Google sign-in was started in this browser' });
+    }
+    if (typeof saved.t !== 'number' || Date.now() - saved.t > STATE_TTL_MS) {
+      return callback(null, false, { code: 'google-expired', message: 'The Google sign-in took too long' });
+    }
+    if (!sameString(saved.n, providedState)) {
+      return callback(null, false, { code: 'google-expired', message: 'Google returned a different state than this browser started with' });
+    }
+    req.googleIntent = saved.r === 'doctor' ? 'doctor' : 'patient';
+    return callback(null, true);
+  }
+};
 
 /**
  * Why a Google sign-in is refused, as the `?error=` code the login page
@@ -70,16 +151,15 @@ function initializeGoogleStrategy() {
     clientID: oauthConfig.clientId,
     clientSecret: oauthConfig.clientSecret,
     callbackURL: callbackURL,
-    // A nonce in the session, checked on the way back. Without it the
-    // callback accepted any authorization code, so a link carrying the
-    // attacker's own code signed the victim in to the attacker's account
-    // (login CSRF) — and on a mental-health platform whatever they then
-    // wrote, journal and assessments included, went to that account.
-    state: true,
-    sessionKey: GOOGLE_STATE_KEY,
-    // Needed so the strategy can read the signup intent that
-    // GET /api/auth/google stashed in the session. The intent is applied only
-    // when creating a brand-new account — never to an existing one.
+    // A nonce, checked on the way back. Without it the callback accepted
+    // any authorization code, so a link carrying the attacker's own code
+    // signed the victim in to the attacker's account (login CSRF) — and on a
+    // mental-health platform whatever they then wrote, journal and
+    // assessments included, went to that account.
+    store: cookieStateStore,
+    // Needed so the strategy can read the signup intent the state store
+    // restored (req.googleIntent). It is applied only when creating a
+    // brand-new account — never to an existing one.
     passReqToCallback: true
   }, async function (req, accessToken, refreshToken, profile, cb) {
     try {
@@ -126,8 +206,7 @@ function initializeGoogleStrategy() {
         // that, so ?role=doctor used to create an empty application that
         // could only ever be rejected. The button is not offered to
         // doctors; this covers the URL.
-        const intent = req.session && req.session.oauthRole;
-        if (intent === 'doctor') {
+        if (req.googleIntent === 'doctor') {
           logger.info('Refused to create a practitioner account through Google', { email });
           return cb(refusal('google-doctor-signup'), null);
         }
@@ -239,8 +318,7 @@ async function handleOAuthCallback(req, res, user, requestedRole) {
 
 /**
  * GET /api/auth/google — the Google button. The role is only a signup intent
- * (see the strategy); it is carried across Google's redirect in the session,
- * next to passport's state nonce.
+ * (see the strategy); the state store carries it across Google's redirect.
  */
 function startGoogleSignIn(req, res, next) {
   const role = req.query.role || 'patient';
@@ -248,7 +326,7 @@ function startGoogleSignIn(req, res, next) {
     return res.redirect(failureRedirect('google-auth-failed'));
   }
 
-  req.session.oauthRole = role;
+  req.googleIntent = role;
 
   return passport.authenticate('google', {
     scope: ['profile', 'email'],
@@ -260,40 +338,36 @@ function startGoogleSignIn(req, res, next) {
  * GET /api/auth/google/callback — Google sends the person back here.
  * Every way this can end lands them on a page of ours: signed in, or the
  * login page with a code it explains. None of them is a bare JSON error on
- * the API host.
+ * the API host. Every failure is logged with its reason.
  */
 function finishGoogleSignIn(req, res) {
-  const role = req.session.oauthRole || 'patient';
-  // The state nonce GET /api/auth/google stored. Regenerating the session
-  // (against fixation) would otherwise drop it before passport checks it.
-  const pendingState = req.session[GOOGLE_STATE_KEY];
+  // One use only, whatever happens next.
+  const { maxAge, ...clearOptions } = stateCookieOptions();
+  res.clearCookie(STATE_COOKIE, clearOptions);
 
-  req.session.regenerate((regenerateError) => {
-    if (regenerateError) {
-      logger.error('Could not regenerate the session for a Google sign-in', { error: regenerateError.message });
-      return res.redirect(failureRedirect('google-auth-failed'));
+  const fail = (code, reason) => {
+    logger.warn('Google sign-in did not complete', { code, reason });
+    return res.redirect(failureRedirect(code));
+  };
+
+  return passport.authenticate('google', async (err, user, info) => {
+    if (err) {
+      if (err.oauthRefusal) return res.redirect(failureRedirect(err.oauthRefusal));
+      return fail('google-auth-failed', err.message);
+    }
+    if (!user) {
+      // Cancelling on Google's consent screen comes back as
+      // ?error=access_denied.
+      if (req.query.error === 'access_denied') return res.redirect(failureRedirect('google-cancelled'));
+      return fail((info && info.code) || 'google-auth-failed', (info && info.message) || String(req.query.error || 'no user'));
     }
 
-    req.session.oauthRole = role;
-    if (pendingState) req.session[GOOGLE_STATE_KEY] = pendingState;
-
-    return passport.authenticate('google', async (err, user) => {
-      // The session existed only to carry the role and the nonce across
-      // Google's redirect; it has nothing left to do.
-      req.session.destroy(() => {});
-
-      if (err || !user) {
-        // Cancelling on Google's consent screen comes back as
-        // ?error=access_denied — not a failure worth alarming anyone about.
-        const code = (err && err.oauthRefusal)
-          || (req.query.error === 'access_denied' ? 'google-cancelled' : 'google-auth-failed');
-        if (err && !err.oauthRefusal) logger.warn('Google sign-in failed', { error: err.message });
-        return res.redirect(failureRedirect(code));
-      }
-
-      return handleOAuthCallback(req, res, user, role);
-    })(req, res, () => res.redirect(failureRedirect('google-auth-failed')));
-  });
+    try {
+      return await handleOAuthCallback(req, res, user, req.googleIntent || 'patient');
+    } catch (callbackError) {
+      return fail('google-auth-failed', callbackError.message);
+    }
+  })(req, res, () => fail('google-auth-failed', 'passport passed the request on'));
 }
 
 /** Both Google routes, when this deployment has no Google credentials. */
@@ -311,7 +385,8 @@ function validateOAuthRole(role) {
 }
 
 module.exports = {
-  GOOGLE_STATE_KEY,
+  STATE_COOKIE,
+  stateCookieOptions,
   refusalFor,
   failureRedirect,
   startGoogleSignIn,

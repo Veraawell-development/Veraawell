@@ -457,7 +457,7 @@ test.describe('Google sign-in', () => {
     await page.context().clearCookies();
     await page.goto('/api/auth/google/callback?code=someone-elses-code&state=forged');
     await page.waitForURL(/\/login/, { timeout: 20_000 });
-    await expect(formError(page)).toHaveText("Google sign-in didn't complete. Please try again.");
+    await expect(formError(page)).toHaveText('That Google sign-in expired or was started in another browser. Please try again.');
     expect(await sessionCookie(page)).toBeUndefined();
   });
 
