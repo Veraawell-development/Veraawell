@@ -1117,10 +1117,14 @@ const VideoCallRoom: React.FC = () => {
     };
   };
 
-  /** Off to the dashboard; the doctor's report is due if the call happened. */
+  /**
+   * Off to the dashboard. The doctor's report is due once the session is
+   * over and the call happened — not when they only stepped out, since they
+   * can come back until the end.
+   */
   const goToDashboard = (completed: boolean) => {
     if (user?.role === 'doctor') {
-      if (metRemoteRef.current) {
+      if (completed && metRemoteRef.current) {
         navigate('/doctor-dashboard', { state: { pendingReport: buildPendingReport() } });
       } else {
         navigate('/doctor-dashboard');
@@ -1544,7 +1548,9 @@ const VideoCallRoom: React.FC = () => {
                         <div className="space-y-3 text-center">
                           <h2 className="text-2xl font-bold tracking-tight text-white">
                             {acceptanceStatus === 'pending' ? 'Calling Doctor...' : 
-                             acceptanceStatus === 'accepted' ? 'Doctor has joined' : 'Doctor Delayed'}
+                             acceptanceStatus === 'accepted'
+                               ? (remoteUserJoined ? 'Doctor has joined' : 'Your therapist accepted')
+                               : 'Doctor Delayed'}
                           </h2>
                           
                           {acceptanceStatus === 'pending' && (
@@ -1562,7 +1568,7 @@ const VideoCallRoom: React.FC = () => {
 
                           {acceptanceStatus === 'accepted' && (!remoteUserJoined || prepStatus !== 'in_progress') && (
                             <div className="animate-in fade-in duration-300">
-                              <p className="text-[var(--teal)] font-medium text-sm">Session starting momentarily...</p>
+                              <p className="text-[var(--teal)] font-medium text-sm">{remoteUserJoined ? 'Session starting momentarily...' : 'Waiting for them to join the call…'}</p>
                             </div>
                           )}
 

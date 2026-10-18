@@ -182,6 +182,11 @@ describe("the screen's view of the rules", () => {
     expect(policy.view(s, 'patient', at(20)).missed).toBe(false);
   });
 
+  test('a doctor joining seconds after the start (an instant accept) is not "late" for the note', () => {
+    const s = session({ attendance: [stay('patient', 0), stay('doctor', 0.2)] });
+    expect(policy.view(s, 'patient', at(1)).doctorJoinedLate).toBe(false);
+  });
+
   test('a late doctor is flagged and the window closes at the later end', () => {
     const s = session({ attendance: [stay('patient', 0), stay('doctor', 6)] });
     const v = policy.view(s, 'patient', at(7));

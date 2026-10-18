@@ -322,7 +322,9 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
                             e.stopPropagation();
                             setShowSessionSelector(false);
                             if (session.meetingLink) {
-                              window.open(`/video-call/${session._id}`, '_blank');
+                              // Same tab: a new one each time left the doctor
+                              // with stale call tabs open after rejoining.
+                              navigate(`/video-call/${session._id}`);
                             } else {
                               window.location.href = `/messages`;
                             }

@@ -31,6 +31,7 @@ const { resolveStartsAt, resolveEndsAt } = require('./sessionTime');
 const { GRACE_MINUTES, ALONE_REFUND_MINUTES, JOIN_LEAD_MINUTES } = require('../config/time');
 
 const MINUTE_MS = 60 * 1000;
+const LATE_NOTE_MS = MINUTE_MS;
 const LIVE_STATUSES = Object.freeze(['scheduled', 'active']);
 
 const OUTCOME = Object.freeze({
@@ -250,7 +251,9 @@ function view(session, role, now) {
     joinOpensAt: joinWindow(session).opensAt,
     joinClosesAt: end,
     present: { patient: patientPresent, doctor: doctorPresent },
-    doctorJoinedLate: !!doctorFirst && doctorFirst.getTime() > start.getTime(),
+    // For the "your full minutes are kept" note: a minute or more late. A
+    // doctor joining seconds after accepting an instant request isn't.
+    doctorJoinedLate: !!doctorFirst && doctorFirst.getTime() - start.getTime() >= LATE_NOTE_MS,
     absentRefundAt: role === 'patient' ? doctorAbsentRefundAt(session, at) : null,
     missed: role === 'patient' && live && pastGrace && doctorByGrace && !patientByGrace
       && !doctorPresent && !everTogether(session),
