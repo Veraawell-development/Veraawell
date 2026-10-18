@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect, useRef } from 'react';
+import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { DataSocketProvider } from './context/DataSocketContext';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -265,6 +265,14 @@ function AppRoutes() {
   // StrictMode runs effects twice; the parked redirect must be consumed once.
   const handledOAuthReturn = useRef<string | null>(null);
 
+  // Google sends the person back to `/?auth=success`, i.e. the home page.
+  // Until the session check below decides where they go, show a loading
+  // screen — not the landing page, which used to flash up for a second or two
+  // between Google and the dashboard.
+  const [finishingGoogleSignIn, setFinishingGoogleSignIn] = useState(
+    () => new URLSearchParams(window.location.search).get('auth') === 'success'
+  );
+
   useEffect(() => {
     // If the user lands on the site with auth success params from Google OAuth,
     // we trigger a re-check of authentication status.
@@ -299,6 +307,16 @@ function AppRoutes() {
     }
   }, [location, checkAuth, navigate]);
 
+  // Lift the loading screen only once the navigation above has landed.
+  // React Router applies navigate() as a transition, so clearing the flag in
+  // the same tick rendered the old location — the landing page — for a frame
+  // or two first.
+  useEffect(() => {
+    if (finishingGoogleSignIn && handledOAuthReturn.current !== null && location.key !== handledOAuthReturn.current) {
+      setFinishingGoogleSignIn(false);
+    }
+  }, [finishingGoogleSignIn, location.key]);
+
   // Redirect authenticated users from landing page and auth pages to their dashboards
   useEffect(() => {
     if (isLoggedIn && user) {
@@ -323,7 +341,9 @@ function AppRoutes() {
     location.pathname === '/admin-login' || location.pathname === '/admin-signup';
   const isVideoCallRoute = location.pathname.startsWith('/video-call');
 
-
+  if (finishingGoogleSignIn) {
+    return <LoadingScreen />;
+  }
 
   return (
     <main className="flex-1 flex flex-col">
