@@ -476,6 +476,32 @@ test.describe('Google sign-in', () => {
     });
   }
 
+  test('coming back from Google goes straight to the dashboard — the landing page never flashes', async ({ page, request }) => {
+    const email = await verifiedPatient(request);
+    await page.context().clearCookies();
+    // The session cookie Google's callback sets, set the same way here.
+    const login = await apiSend(page.request, 'POST', '/auth/login', { username: email, password: PASSWORD, role: 'patient' });
+    expect(login.status()).toBe(200);
+
+    // Watch for the landing page's hero at any moment, and slow the session
+    // check so a flash could not slip between two looks.
+    await page.addInitScript(() => {
+      (window as unknown as { landingSeen: boolean }).landingSeen = false;
+      new MutationObserver(() => {
+        const h1 = document.querySelector('h1');
+        if (h1 && /Your mind/.test(h1.textContent || '')) (window as unknown as { landingSeen: boolean }).landingSeen = true;
+      }).observe(document, { childList: true, subtree: true, characterData: true });
+    });
+    await page.route('**/api/protected', async (route) => {
+      await new Promise((r) => setTimeout(r, 1_500));
+      await route.continue();
+    });
+
+    await page.goto('/?auth=success&role=patient');
+    await page.waitForURL('**/patient-dashboard', { timeout: 30_000 });
+    expect(await page.evaluate(() => (window as unknown as { landingSeen: boolean }).landingSeen)).toBe(false);
+  });
+
   test('coming back from Google with no session lands on an explanation, not a bounce', async ({ page }) => {
     await page.context().clearCookies();
     await page.goto('/?auth=success&role=patient');
