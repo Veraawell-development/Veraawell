@@ -180,6 +180,36 @@ describe('admin accounts', () => {
   });
 });
 
+describe('forced password change', () => {
+  test('an admin who chose their own password is not forced to change it', async () => {
+    const email = `ownpass.${Date.now()}@veraawell.test`;
+    await User.create({ firstName: 'Own', lastName: 'Pass', email, username: email, password: 'Admin@12345', role: 'admin', approvalStatus: 'approved' });
+    const res = await request(server).post('/api/admin/auth/login').send({ email, password: 'Admin@12345' });
+    expect(res.status).toBe(200);
+    expect(res.body.requiresPasswordChange).toBe(false);
+  });
+
+  test('an admin given a temporary password must change it, and the status check says so', async () => {
+    const email = `temppass.${Date.now()}@veraawell.test`;
+    await User.create({ firstName: 'Temp', lastName: 'Pass', email, username: email, password: 'Temp@12345', role: 'admin', approvalStatus: 'approved', mustChangePassword: true });
+    const login = await request(server).post('/api/admin/auth/login').send({ email, password: 'Temp@12345' });
+    expect(login.body.requiresPasswordChange).toBe(true);
+    const status = await call('get', '/api/admin/auth/status', login.body.token);
+    expect(status.body.requiresPasswordChange).toBe(true);
+
+    const changed = await call('post', '/api/admin/auth/change-password', login.body.token, { currentPassword: 'Temp@12345', newPassword: 'Mine@123456' });
+    expect(changed.status).toBe(200);
+    const again = await request(server).post('/api/admin/auth/login').send({ email, password: 'Mine@123456' });
+    expect(again.body.requiresPasswordChange).toBe(false);
+  });
+
+  test('a super-admin-only route refuses a normal admin as a permission denial, not a dead session', async () => {
+    const res = await call('get', '/api/admin/approvals/admins/pending', adminToken);
+    expect(res.status).toBe(403);
+    expect(res.body.category).toBe('authz');
+  });
+});
+
 describe('passwords', () => {
   test('a password that happens to start with "$2a$" is hashed like any other', async () => {
     // The hook skipped anything that looked like a bcrypt hash, so this was

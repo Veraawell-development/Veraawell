@@ -59,7 +59,11 @@ const ForgotPasswordPage = lazyPage(() => import('./pages/ForgotPasswordPage'));
 const ResetPasswordPage = lazyPage(() => import('./pages/ResetPasswordPage'));
 const AdminLoginPage = lazyPage(() => import('./pages/AdminLoginPage'));
 const AdminSignupPage = lazyPage(() => import('./pages/AdminSignupPage'));
+const AdminForgotPasswordPage = lazyPage(() => import('./pages/AdminForgotPasswordPage'));
+const AdminResetPasswordPage = lazyPage(() => import('./pages/AdminResetPasswordPage'));
 const SuperAdminDashboard = lazyPage(() => import('./pages/SuperAdminDashboard'));
+// Only reached by an admin whose password must change first; not a page, so plain lazy.
+const ChangePasswordModal = lazy(() => import('./components/admin/ChangePasswordModal'));
 const PartnerPage = lazyPage(() => import('./pages/PartnerPage'));
 const ResourcesPage = lazyPage(() => import('./pages/ResourcesPage'));
 const ReportsPage = lazyPage(() => import('./pages/ReportsPage'));
@@ -103,20 +107,23 @@ interface ProtectedRouteProps {
 }
 
 /** Shown instead of a login redirect when the auth check never reached the server. */
-const ServerUnreachable: React.FC<{ onRetry: () => void }> = ({ onRetry }) => (
+const ServerUnreachable: React.FC<{ onRetry: () => void; title?: string; body?: string; retryLabel?: string }> = ({
+  onRetry,
+  title = "We can't reach Veraawell right now",
+  body = 'Our servers may be starting up, or your connection dropped. Try again in a moment.',
+  retryLabel = 'Try again',
+}) => (
   <div className="min-h-screen flex items-center justify-center px-6" style={{ background: 'var(--bg)' }}>
     <div className="max-w-sm text-center space-y-4">
-      <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>We can't reach Veraawell right now</h1>
-      <p className="text-sm" style={{ color: 'var(--text-2)' }}>
-        Our servers may be starting up, or your connection dropped. Try again in a moment.
-      </p>
+      <h1 className="text-xl font-semibold" style={{ color: 'var(--text)' }}>{title}</h1>
+      <p className="text-sm" style={{ color: 'var(--text-2)' }}>{body}</p>
       <button
         type="button"
         onClick={onRetry}
         className="px-5 py-2.5 rounded-xl text-sm font-semibold text-white"
         style={{ background: 'var(--teal)' }}
       >
-        Try again
+        {retryLabel}
       </button>
     </div>
   </div>
@@ -160,16 +167,52 @@ const dashboardFor = (role?: string): string => {
   return '/';
 };
 
-const AdminProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { admin, loading } = useAdmin();
+/**
+ * The admin console's gate.
+ *
+ * Only a definite answer from the server (no session) sends the admin to the
+ * login page; when the status check couldn't reach the server, the admin is
+ * offered a retry instead of being signed out. A pending forced password
+ * change is shown before anything else renders.
+ */
+const AdminProtectedRoute: React.FC<{ children: React.ReactNode; superAdminOnly?: boolean }> = ({ children, superAdminOnly = false }) => {
+  const { admin, loading, checked, unreachable, passwordChangeRequired, checkAuth } = useAdmin();
   const location = useLocation();
 
-  if (loading) {
+  // Arriving from a non-admin page inside the SPA: AdminProvider only checks
+  // on a page load that starts in the console.
+  useEffect(() => {
+    if (!checked && !loading) void checkAuth();
+  }, [checked, loading, checkAuth]);
+
+  if (loading || !checked) {
     return <LoadingScreen />;
   }
 
   if (!admin) {
+    if (unreachable) {
+      return (
+        <ServerUnreachable
+          title="Can't reach the server"
+          body="We couldn't confirm your admin session. You haven't been signed out — try again in a moment."
+          retryLabel="Retry"
+          onRetry={() => { void checkAuth(); }}
+        />
+      );
+    }
     return <Navigate to="/admin-login" state={{ from: location }} replace />;
+  }
+
+  if (passwordChangeRequired) {
+    return (
+      <div className="min-h-screen bg-[#fcfbfa]">
+        <ChangePasswordModal open forced onClose={() => {}} />
+      </div>
+    );
+  }
+
+  if (superAdminOnly && admin.role !== 'super_admin') {
+    return <Navigate to="/super-admin-dashboard" replace />;
   }
 
   return <>{children}</>;
@@ -322,6 +365,8 @@ function AppRoutes() {
         <Route path="/admin/login" element={<Navigate to="/admin-login" replace />} />
         <Route path="/admin-login" element={<AdminLoginPage />} />
         <Route path="/admin-signup" element={<AdminSignupPage />} />
+        <Route path="/admin/forgot-password" element={<AdminForgotPasswordPage />} />
+        <Route path="/admin/reset-password/:token" element={<AdminResetPasswordPage />} />
         <Route path="/super-admin-dashboard" element={<AdminProtectedRoute><SuperAdminDashboard /></AdminProtectedRoute>} />
         <Route path="/partner" element={<PartnerPage />} />
         <Route path="/resources" element={<ResourcesPage />} />
@@ -353,8 +398,8 @@ function AppRoutes() {
 
         {/* Admin Article Management Routes */}
         <Route path="/admin/articles" element={<Navigate to="/super-admin-dashboard" state={{ tab: 'articles' }} replace />} />
-        <Route path="/super-admin-dashboard/articles/new" element={<AdminProtectedRoute><AdminArticleEditorPage /></AdminProtectedRoute>} />
-        <Route path="/super-admin-dashboard/articles/edit/:id" element={<AdminProtectedRoute><AdminArticleEditorPage /></AdminProtectedRoute>} />
+        <Route path="/super-admin-dashboard/articles/new" element={<AdminProtectedRoute superAdminOnly><AdminArticleEditorPage /></AdminProtectedRoute>} />
+        <Route path="/super-admin-dashboard/articles/edit/:id" element={<AdminProtectedRoute superAdminOnly><AdminArticleEditorPage /></AdminProtectedRoute>} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
       </Suspense>

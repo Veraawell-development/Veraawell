@@ -89,6 +89,39 @@ export const formatSessionClock = (start: Date, locale = 'en-IN'): string =>
   start.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: PLATFORM_TIMEZONE });
 
 /**
+ * Any stored instant (an ISO string from the API) as an IST calendar date,
+ * e.g. "13 Oct 2026"; '—' when missing or unparseable. For admin screens,
+ * which used to print dates in whatever zone the admin's laptop was set to.
+ */
+export const formatPlatformDate = (
+  value: string | Date | null | undefined,
+  options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' }
+): string => {
+  if (value === null || value === undefined || value === '') return '—';
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : formatSessionDay(date, options);
+};
+
+/** Like formatPlatformDate, with the IST time, e.g. "13 Oct 2026, 2:30 pm". */
+export const formatPlatformDateTime = (value: string | Date | null | undefined): string => {
+  if (value === null || value === undefined || value === '') return '—';
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : `${formatSessionDay(date)}, ${formatSessionClock(date)}`;
+};
+
+/**
+ * A platform-local calendar date ('YYYY-MM-DD', e.g. a payout period's
+ * localFrom) for display. Read at IST noon so no zone can move it a day.
+ */
+export const formatPlatformLocalDate = (
+  localDate: string | null | undefined,
+  options: Intl.DateTimeFormatOptions = { day: 'numeric', month: 'short', year: 'numeric' }
+): string => {
+  if (!localDate || !/^\d{4}-\d{2}-\d{2}$/.test(localDate)) return '—';
+  return formatSessionDay(new Date(`${localDate}T12:00:00+05:30`), options);
+};
+
+/**
  * Formats a date string into a readable format with ordinal suffix
  * @example "2025-01-15" → "15th January 2025"
  */

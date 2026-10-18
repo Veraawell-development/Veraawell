@@ -1,875 +1,226 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useAdmin } from '../context/AdminContext';
-import { FiMenu, FiLogOut, FiUsers, FiUserCheck, FiClock, FiFileText, FiActivity, FiX, FiCheck, FiChevronLeft, FiChevronRight, FiInbox, FiMail, FiCreditCard, FiDollarSign, FiLock } from 'react-icons/fi';
-import { LuStethoscope } from 'react-icons/lu';
-import { Plus, Search, Filter, Eye, CheckCircle, Clock, Edit, Trash2 } from 'lucide-react';
+import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
-import { toast } from 'react-hot-toast';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { API_BASE_URL } from '../config/api';
-import { formatSessionDay, resolveSessionStart } from '../utils/dateUtils';
+import {
+  FiMenu, FiLogOut, FiUsers, FiFileText, FiActivity, FiChevronLeft, FiChevronRight,
+  FiInbox, FiCreditCard, FiDollarSign, FiTrendingUp, FiMessageSquare, FiKey, FiX,
+} from 'react-icons/fi';
+import { LuStethoscope } from 'react-icons/lu';
+import { Plus } from 'lucide-react';
+import { useAdmin } from '../context/AdminContext';
+import { readRememberedTab, rememberTab, resolveAdminTab, tabsForRole, isTabAllowed, type AdminTab } from '../utils/adminTabs';
+import { newEnquiryCountQuery, statisticsQuery } from '../components/admin/queries';
+import ChangePasswordModal from '../components/admin/ChangePasswordModal';
+import AnalyticsTab from '../components/admin/AnalyticsTab';
+import DoctorsTab from '../components/admin/DoctorsTab';
+import AdminsTab from '../components/admin/AdminsTab';
+import ReviewsTab from '../components/admin/ReviewsTab';
+import BankDetailsTab from '../components/admin/BankDetailsTab';
+import WeeklyPayoutsTab from '../components/admin/WeeklyPayoutsTab';
+import RevenueTab from '../components/admin/RevenueTab';
+import EnquiriesTab from '../components/admin/EnquiriesTab';
+import ArticlesTab from '../components/admin/ArticlesTab';
 
-interface PendingUser {
-  _id: string;
-  firstName: string;
-  lastName: string;
-  email: string;
-  username: string;
-  role: string;
-  createdAt: string;
-  approvalStatus: string;
-  // Doctor-specific fields
-  specialization?: string;
-  licenseNumber?: string;
-  jobRole?: string;
-  professionalMessage?: string;
-  phoneNumber?: string;
-  countryCode?: string;
-  gender?: string;
-  heardAboutUs?: string;
-  dateOfBirth?: string;
-  documents?: {
-    fileName: string;
-    fileUrl: string;
-    fileType: string;
-    cloudinaryPublicId: string;
-    uploadedAt: string;
-  }[];
-}
-
-interface Statistics {
-  doctors: {
-    pending: number;
-    approved: number;
-    rejected: number;
-    total: number;
-  };
-  patients: {
-    total: number;
-  };
-  admins?: {
-    pending: number;
-    approved: number;
-    rejected: number;
-    total: number;
-  };
-}
-
-interface Analytics {
-  sessions: {
-    total: number;
-    completed: number;
-    cancelled: number;
-    upcoming: number;
-    last30Days: number;
-    last7Days: number;
-  };
-  revenue: {
-    total: number;
-    last30Days: number;
-    averagePerSession: string;
-  };
-  content: {
-    reports: number;
-    tasks: number;
-    completedTasks: number;
-  };
-  growth: {
-    newPatients30Days: number;
-    newDoctors30Days: number;
-  };
-  topDoctors: Array<{ name: string; sessionCount: number }>;
-}
-
-interface Article {
-  _id: string;
-  title: string;
-  category: string;
-  status: 'draft' | 'published' | 'archived';
-  featured: boolean;
-  publishedDate?: string;
-  views: number;
-  likes: number;
-  createdAt: string;
-  author: string;
-}
-
-interface PaginationData {
-  page: number;
-  limit: number;
-  total: number;
-  pages: number;
-}
-
-/** An inbound enquiry from the careers page or /contact. See server/models/enquiry.js. */
-interface Enquiry {
-  _id: string;
-  type: 'partner' | 'other' | 'contact';
-  name: string;
-  email: string;
-  phone?: string;
-  organisation?: string;
-  subject?: string;
-  message: string;
-  status: 'new' | 'in_progress' | 'closed';
-  adminNotes?: string;
-  handledBy?: { _id: string; name?: string; email?: string } | null;
-  handledAt?: string | null;
-  createdAt: string;
-}
-
-const ENQUIRY_TYPE_LABEL: Record<Enquiry['type'], string> = {
-  partner: 'Partnership',
-  other: 'Careers page query',
-  contact: 'Contact form',
+const TAB_META: Record<AdminTab, { label: string; title: string; icon: React.ReactNode }> = {
+  analytics: { label: 'Analytics', title: 'Dashboard Overview', icon: <FiActivity size={16} /> },
+  doctors: { label: 'Pending Doctors', title: 'Doctor Approvals', icon: <LuStethoscope size={16} /> },
+  admins: { label: 'Pending Admins', title: 'Admin Approvals', icon: <FiUsers size={16} /> },
+  reviews: { label: 'Reviews', title: 'Review Moderation', icon: <FiMessageSquare size={16} /> },
+  bankDetails: { label: 'Bank Details', title: 'Bank Details', icon: <FiCreditCard size={16} /> },
+  weeklyPayouts: { label: 'Weekly Payouts', title: 'Weekly Payouts', icon: <FiDollarSign size={16} /> },
+  revenue: { label: 'Revenue', title: 'Platform Revenue', icon: <FiTrendingUp size={16} /> },
+  enquiries: { label: 'Enquiries', title: 'Enquiries', icon: <FiInbox size={16} /> },
+  articles: { label: 'Articles', title: 'Manage Articles', icon: <FiFileText size={16} /> },
 };
 
-const ENQUIRY_STATUS_STYLE: Record<Enquiry['status'], string> = {
-  new: 'bg-amber-50 text-amber-700 border-amber-200',
-  in_progress: 'bg-sky-50 text-sky-700 border-sky-200',
-  closed: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-};
-
+/**
+ * The admin console shell: sidebar, header, and whichever tab is open.
+ *
+ * Each tab owns its queries and mounts only while open, so the console no
+ * longer loads every queue (and every super-admin endpoint) up front. The
+ * sidebar badges come from the statistics endpoint, plus one count for new
+ * enquiries.
+ */
 const SuperAdminDashboard: React.FC = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { admin, logout } = useAdmin();
+  const role = admin?.role;
+  const isSuperAdmin = role === 'super_admin';
+
   const [sidebarOpen, setSidebarOpen] = useState(false); // Mobile drawer
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false); // Desktop collapse
-  const [doctorViewMode, setDoctorViewMode] = useState<'pending' | 'all'>('pending');
-  const [adminViewMode, setAdminViewMode] = useState<'pending' | 'all'>('pending');
-  const [payoutViewMode, setPayoutViewMode] = useState<'pending' | 'active'>('pending');
-  const location = useLocation();
-  const [enquiryStatusFilter, setEnquiryStatusFilter] = useState<'all' | Enquiry['status']>('new');
-  const [expandedEnquiry, setExpandedEnquiry] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'analytics' | 'doctors' | 'admins' | 'articles' | 'payouts' | 'bankDetails' | 'weeklyPayouts' | 'revenue' | 'enquiries'>(() => {
-    const locState = location.state as { tab?: string } | null;
-    return (locState?.tab as any) || 'analytics';
-  });
-  const [viewingDocument, setViewingDocument] = useState<{ url: string, fileName: string, fileType: string } | null>(null);
-  
-  // Articles State
-  const [searchQuery, setSearchQuery] = useState('');
-  const [debouncedSearch, setDebouncedSearch] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('All');
-  const [selectedStatus, setSelectedStatus] = useState('All');
-  const [page, setPage] = useState(1);
-  const [articleToDelete, setArticleToDelete] = useState<{ id: string, title: string } | null>(null);
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
-
-  const [payoutModal, setPayoutModal] = useState<{ isOpen: boolean, type: 'approve' | 'reject', request: any } | null>(null);
-  const [payoutRejectReason, setPayoutRejectReason] = useState('');
-
-  const navigate = useNavigate();
-  const { admin, logout, loading: adminLoading } = useAdmin();
-  const queryClient = useQueryClient();
-
-  const token = localStorage.getItem('adminToken');
-  const headers: HeadersInit = token ? { 'Authorization': `Bearer ${token}` } : {};
-
-  const fetchAndParse = async (url: string) => {
-    const res = await fetch(url, { credentials: 'include', headers });
-    if (!res.ok) throw new Error('Request failed');
-    return res.json();
-  };
-
-  const { data: statistics, isLoading: statsLoading } = useQuery<Statistics>({
-    queryKey: ['admin', 'statistics'],
-    queryFn: () => fetchAndParse(`${API_BASE_URL}/admin/approvals/statistics`),
-    enabled: !!admin && activeTab !== 'articles',
-  });
-
-  const { data: analytics, isLoading: analyticsLoading } = useQuery<Analytics>({
-    queryKey: ['admin', 'analytics'],
-    queryFn: () => fetchAndParse(`${API_BASE_URL}/admin/approvals/analytics`),
-    enabled: !!admin && activeTab !== 'articles',
-  });
-
-  const { data: pendingDoctors = [], isLoading: pendingDoctorsLoading } = useQuery<PendingUser[]>({
-    queryKey: ['admin', 'doctors', 'pending'],
-    queryFn: () => fetchAndParse(`${API_BASE_URL}/admin/approvals/doctors/pending`),
-    enabled: !!admin && activeTab !== 'articles',
-  });
-
-  const { data: allDoctors = [], isLoading: allDoctorsLoading } = useQuery<PendingUser[]>({
-    queryKey: ['admin', 'doctors', 'all'],
-    queryFn: () => fetchAndParse(`${API_BASE_URL}/admin/approvals/doctors/all`),
-    enabled: !!admin && activeTab !== 'articles',
-  });
-
-  const { data: pendingAdmins = [], isLoading: pendingAdminsLoading } = useQuery<PendingUser[]>({
-    queryKey: ['admin', 'admins', 'pending'],
-    queryFn: () => fetchAndParse(`${API_BASE_URL}/admin/approvals/admins/pending`),
-    enabled: !!admin && admin.role === 'super_admin' && activeTab !== 'articles',
-  });
-
-  const { data: allAdmins = [], isLoading: allAdminsLoading } = useQuery<PendingUser[]>({
-    queryKey: ['admin', 'admins', 'all'],
-    queryFn: () => fetchAndParse(`${API_BASE_URL}/admin/approvals/admins/all`),
-    enabled: !!admin && admin.role === 'super_admin' && activeTab !== 'articles',
-  });
-
-  const { data: payoutRequests = [], isLoading: payoutRequestsLoading } = useQuery<any[]>({
-    queryKey: ['admin', 'payouts', payoutViewMode],
-    queryFn: async () => {
-      const res = await fetchAndParse(`${API_BASE_URL}/admin/payments/onboarding-requests?status=${payoutViewMode === 'pending' ? 'pending_admin_approval' : 'active'}`);
-      return res.doctors || [];
-    },
-    enabled: !!admin && activeTab === 'payouts',
-  });
-
-  const { data: revenueData, isLoading: revenueLoading } = useQuery<any>({
-    queryKey: ['admin', 'revenue'],
-    queryFn: async () => fetchAndParse(`${API_BASE_URL}/admin/payments/revenue`),
-    enabled: !!admin && activeTab === 'revenue',
-  });
-
-  const { data: failedRefundsData, isLoading: failedRefundsLoading } = useQuery<any>({
-    queryKey: ['admin', 'failed-refunds'],
-    queryFn: async () => fetchAndParse(`${API_BASE_URL}/admin/payments/sessions/failed-refunds`),
-    enabled: !!admin && activeTab === 'revenue',
-  });
-
-  const { data: articlesData, isLoading: articlesLoading } = useQuery({
-    queryKey: ['admin', 'articles', page, debouncedSearch, selectedCategory, selectedStatus],
-    queryFn: async () => {
-      const params = new URLSearchParams({
-        page: page.toString(),
-        limit: '10',
-        search: debouncedSearch,
-        category: selectedCategory,
-        status: selectedStatus
-      });
-      const response = await fetch(`${API_BASE_URL}/articles/admin/all?${params}`, {
-        credentials: 'include',
-        headers
-      });
-      if (!response.ok) throw new Error('Failed to load articles');
-      return response.json();
-    },
-    enabled: !!admin && activeTab === 'articles',
-  });
-
-  const { data: enquiriesData, isLoading: enquiriesLoading } = useQuery<{ success: boolean; data: { enquiries: Enquiry[]; newCount: number } }>({
-    queryKey: ['admin', 'enquiries', enquiryStatusFilter],
-    queryFn: () => fetchAndParse(
-      `${API_BASE_URL}/enquiries${enquiryStatusFilter === 'all' ? '' : `?status=${enquiryStatusFilter}`}`
-    ),
-    // Not gated on the active tab, unlike the articles query: the sidebar
-    // badge is the point of `newCount`, and a badge that only appears once you
-    // open the tab tells you nothing you did not already know.
-    enabled: !!admin && admin.role === 'super_admin',
-  });
-
-  const enquiries: Enquiry[] = enquiriesData?.data?.enquiries || [];
-  const newEnquiryCount = enquiriesData?.data?.newCount || 0;
-
-  const updateEnquiryMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: Enquiry['status'] }) => {
-      const res = await fetch(`${API_BASE_URL}/enquiries/${id}`, {
-        method: 'PATCH',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      });
-      if (!res.ok) throw new Error('Failed to update enquiry');
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'enquiries'] });
-      toast.success('Enquiry updated');
-    },
-    onError: (err: Error) => toast.error(err.message || 'Failed to update enquiry'),
-  });
-
-  const articles: Article[] = Array.isArray(articlesData) ? articlesData : (articlesData?.articles || []);
-  const pagination: PaginationData | null = Array.isArray(articlesData) ? null : (articlesData?.pagination || null);
-
-  // 'enquiries' is excluded for the same reason as 'articles' and 'payouts':
-  // this expression gates the whole page on the analytics queries, which this
-  // tab does not use, and the page would render "Loading dashboard..." forever.
-  // Any tab NOT excluded here waits on the analytics queries before it will
-  // render, even though it does not use them. Both payout tabs are excluded
-  // for the same reason 'payouts' and 'enquiries' already are.
-  const loading = activeTab !== 'articles' && activeTab !== 'payouts' && activeTab !== 'enquiries'
-    && activeTab !== 'bankDetails' && activeTab !== 'weeklyPayouts' && (
-    statsLoading || analyticsLoading || pendingDoctorsLoading || allDoctorsLoading || 
-    (admin?.role === 'super_admin' && (pendingAdminsLoading || allAdminsLoading))
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [activeTab, setActiveTab] = useState<AdminTab>(() =>
+    resolveAdminTab(role, (location.state as { tab?: unknown } | null)?.tab, readRememberedTab())
   );
 
+  // A link into a tab (the article editor's "back", /admin/articles) —
+  // honoured only if this admin may open it.
   useEffect(() => {
-    const locState = location.state as { tab?: string } | null;
-    if (locState?.tab && locState.tab !== activeTab) {
-      setActiveTab(locState.tab as any);
-    }
-  }, [location.state]);
+    const requested = (location.state as { tab?: unknown } | null)?.tab;
+    if (isTabAllowed(requested, role)) setActiveTab(requested);
+  }, [location.state, role]);
+
+  // The role can change under an open console (a re-check after demotion).
+  useEffect(() => {
+    if (!isTabAllowed(activeTab, role)) setActiveTab(resolveAdminTab(role));
+  }, [activeTab, role]);
 
   useEffect(() => {
-    if (adminLoading) return;
+    rememberTab(activeTab);
+  }, [activeTab]);
 
-    if (!admin) {
-      navigate('/admin-login');
-      return;
-    }
-    if (!['admin', 'super_admin'].includes(admin.role)) {
-      navigate('/admin-login');
-      return;
-    }
-  }, [admin, adminLoading]);
+  const stats = useQuery({ ...statisticsQuery, enabled: !!admin });
+  const newEnquiries = useQuery({ ...newEnquiryCountQuery, enabled: isSuperAdmin });
 
-  // Debounce search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setDebouncedSearch(searchQuery);
-      setPage(1);
-    }, 500);
-    return () => clearTimeout(timer);
-  }, [searchQuery]);
-
-  // Reset page when filters change
-  useEffect(() => {
-    setPage(1);
-  }, [selectedCategory, selectedStatus]);
-
-  const handleRetryRefund = async (sessionId: string) => {
-    const loadingId = toast.loading('Retrying refund...');
-    try {
-      const response = await fetch(`${API_BASE_URL}/admin/payments/sessions/${sessionId}/retry-refund`, {
-        method: 'POST',
-        headers,
-        credentials: 'include'
-      });
-      const data = await response.json();
-      if (response.ok && data.success) {
-        toast.success(data.message, { id: loadingId });
-        queryClient.invalidateQueries({ queryKey: ['admin', 'failed-refunds'] });
-      } else {
-        toast.error(data.message || 'Refund retry failed', { id: loadingId });
-      }
-    } catch (error: any) {
-      toast.error('Network error. Please try again.', { id: loadingId });
-    }
+  const badges: Partial<Record<AdminTab, number>> = {
+    doctors: stats.data?.doctors?.pending ?? 0,
+    admins: isSuperAdmin ? stats.data?.admins?.pending ?? 0 : 0,
+    enquiries: newEnquiries.data ?? 0,
   };
 
-
-
-  const deleteArticleMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const response = await fetch(`${API_BASE_URL}/articles/admin/${id}`, { method: 'DELETE', credentials: 'include', headers });
-      if (!response.ok) throw new Error('Failed to delete article');
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'articles'] });
-      toast.success('Article deleted successfully');
-    },
-    onError: () => toast.error('Failed to delete article'),
-    onSettled: () => { setActionLoading(null); setArticleToDelete(null); }
-  });
-
-  // ── Payouts ──────────────────────────────────────────────────────────────
-  const [payoutPeriod, setPayoutPeriod] = useState<string>('');
-  const [utrModal, setUtrModal] = useState<{ payout: any } | null>(null);
-  const [utrValue, setUtrValue] = useState('');
-  const [bankRejectModal, setBankRejectModal] = useState<{ submission: any } | null>(null);
-  const [bankRejectReason, setBankRejectReason] = useState('');
-
-  const { data: bankSubmissions, isLoading: bankSubmissionsLoading } = useQuery<any>({
-    queryKey: ['admin', 'bank-details'],
-    queryFn: () => fetchAndParse(`${API_BASE_URL}/admin/payments/payouts/bank-details`),
-    enabled: !!admin && activeTab === 'bankDetails',
-  });
-  const pendingBankCount = bankSubmissions?.submissions?.length || 0;
-
-  const { data: payoutPreview, isLoading: payoutPreviewLoading } = useQuery<any>({
-    queryKey: ['admin', 'payout-preview', payoutPeriod],
-    queryFn: () => fetchAndParse(`${API_BASE_URL}/admin/payments/payouts/preview${payoutPeriod ? `?period=${payoutPeriod}` : ''}`),
-    enabled: !!admin && activeTab === 'weeklyPayouts',
-  });
-
-  const { data: payoutList } = useQuery<any>({
-    queryKey: ['admin', 'payout-list', payoutPreview?.period?.periodKey],
-    queryFn: () => fetchAndParse(`${API_BASE_URL}/admin/payments/payouts?period=${payoutPreview?.period?.periodKey}`),
-    enabled: !!admin && activeTab === 'weeklyPayouts' && !!payoutPreview?.period?.periodKey,
-  });
-
-  const refreshPayouts = () => {
-    queryClient.invalidateQueries({ queryKey: ['admin', 'payout-preview'] });
-    queryClient.invalidateQueries({ queryKey: ['admin', 'payout-list'] });
-  };
-
-  const payoutAction = async (url: string, body?: any) => {
-    const res = await fetch(`${API_BASE_URL}${url}`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { ...headers, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body || {})
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.message || 'Request failed');
-    return data;
-  };
-
-  const generatePayoutsMutation = useMutation({
-    mutationFn: (period: string) => payoutAction('/admin/payments/payouts/generate', { period }),
-    onSuccess: (d) => { toast.success(d.message || 'Drafts generated'); refreshPayouts(); },
-    onError: (e: any) => toast.error(e.message),
-  });
-
-  const lockPayoutMutation = useMutation({
-    mutationFn: (payoutId: string) => payoutAction(`/admin/payments/payouts/${payoutId}/lock`),
-    onSuccess: (d) => { toast.success(d.message || 'Locked'); refreshPayouts(); },
-    onError: (e: any) => toast.error(e.message),
-  });
-
-  const markPaidMutation = useMutation({
-    mutationFn: ({ payoutId, transferReference }: { payoutId: string; transferReference: string }) =>
-      payoutAction(`/admin/payments/payouts/${payoutId}/mark-paid`, { transferReference }),
-    onSuccess: () => { toast.success('Recorded as paid'); refreshPayouts(); },
-    onError: (e: any) => toast.error(e.message),
-  });
-
-  const approveBankMutation = useMutation({
-    mutationFn: (doctorId: string) => payoutAction(`/admin/payments/payouts/bank-details/${doctorId}/approve`),
-    onSuccess: (d) => {
-      toast.success(d.message || 'Approved');
-      queryClient.invalidateQueries({ queryKey: ['admin', 'bank-details'] });
-    },
-    onError: (e: any) => toast.error(e.message),
-  });
-
-  const rejectBankMutation = useMutation({
-    mutationFn: ({ doctorId, reason }: { doctorId: string; reason: string }) =>
-      payoutAction(`/admin/payments/payouts/bank-details/${doctorId}/reject`, { reason }),
-    onSuccess: () => {
-      toast.success('Rejected');
-      queryClient.invalidateQueries({ queryKey: ['admin', 'bank-details'] });
-    },
-    onError: (e: any) => toast.error(e.message),
-  });
-
-  const approvePayoutMutation = useMutation({
-    mutationFn: async (doctorId: string) => {
-      const res = await fetch(`${API_BASE_URL}/admin/payments/onboarding-requests/${doctorId}/approve`, {
-        method: 'POST',
-        headers,
-      });
-      if (!res.ok) throw new Error('Failed to approve payout');
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'payouts'] });
-      toast.success('Payout account approved successfully');
-    },
-    onError: (err: any) => toast.error(err.message || 'Failed to approve payout account'),
-  });
-
-  const rejectPayoutMutation = useMutation({
-    mutationFn: async ({ doctorId, message }: { doctorId: string; message: string }) => {
-      const res = await fetch(`${API_BASE_URL}/admin/payments/onboarding-requests/${doctorId}/reject`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message }),
-      });
-      if (!res.ok) throw new Error('Failed to reject payout');
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'payouts'] });
-      toast.success('Payout request rejected');
-    },
-    onError: (err: any) => toast.error(err.message || 'Failed to reject payout request'),
-  });
-  const confirmDelete = () => {
-    if (!articleToDelete) return;
-    setActionLoading(articleToDelete.id);
-    deleteArticleMutation.mutate(articleToDelete.id);
-  };
-
-  const toggleFeatureMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const response = await fetch(`${API_BASE_URL}/articles/admin/${id}/feature`, { method: 'POST', credentials: 'include', headers });
-      if (!response.ok) throw new Error('Failed to feature article');
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['admin', 'articles'] });
-      toast.success('Featured status updated');
-    },
-    onError: () => toast.error('An error occurred'),
-    onSettled: () => setActionLoading(null)
-  });
-  const handleToggleFeatured = (id: string) => {
-    setActionLoading(id + '-feature');
-    toggleFeatureMutation.mutate(id);
-  };
-
-  const approveDoctorMutation = useMutation({
-    mutationFn: async (doctorId: string) => {
-      const response = await fetch(`${API_BASE_URL}/admin/approvals/doctors/${doctorId}/approve`, { method: 'POST', credentials: 'include', headers });
-      if (!response.ok) throw new Error('Failed to approve');
-      return response.json();
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin'] })
-  });
-  const handleApproveDoctor = (doctorId: string) => approveDoctorMutation.mutate(doctorId);
-
-  const rejectDoctorMutation = useMutation({
-    mutationFn: async ({ doctorId, reason }: { doctorId: string; reason: string }) => {
-      const hdrs = { ...headers, 'Content-Type': 'application/json' };
-      const response = await fetch(`${API_BASE_URL}/admin/approvals/doctors/${doctorId}/reject`, {
-        method: 'POST', credentials: 'include', headers: hdrs, body: JSON.stringify({ reason })
-      });
-      if (!response.ok) throw new Error('Failed to reject');
-      return response.json();
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin'] })
-  });
-  const handleRejectDoctor = (doctorId: string) => {
-    const reason = prompt('Enter rejection reason:');
-    if (reason === null) return;
-    rejectDoctorMutation.mutate({ doctorId, reason: reason || 'No reason provided' });
-  };
-
-  const approveAdminMutation = useMutation({
-    mutationFn: async (adminId: string) => {
-      const response = await fetch(`${API_BASE_URL}/admin/approvals/admins/${adminId}/approve`, { method: 'POST', credentials: 'include', headers });
-      if (!response.ok) throw new Error('Failed to approve admin');
-      return response.json();
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin'] })
-  });
-  const handleApproveAdmin = (adminId: string) => approveAdminMutation.mutate(adminId);
-
-  const rejectAdminMutation = useMutation({
-    mutationFn: async ({ adminId, reason }: { adminId: string; reason: string }) => {
-      const hdrs = { ...headers, 'Content-Type': 'application/json' };
-      const response = await fetch(`${API_BASE_URL}/admin/approvals/admins/${adminId}/reject`, {
-        method: 'POST', credentials: 'include', headers: hdrs, body: JSON.stringify({ reason })
-      });
-      if (!response.ok) throw new Error('Failed to reject admin');
-      return response.json();
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin'] })
-  });
-  const handleRejectAdmin = (adminId: string) => {
-    const reason = prompt('Enter rejection reason:');
-    if (reason === null) return;
-    rejectAdminMutation.mutate({ adminId, reason: reason || 'No reason provided' });
-  };
-
-  const deleteDoctorMutation = useMutation({
-    mutationFn: async (doctorId: string) => {
-      const response = await fetch(`${API_BASE_URL}/admin/approvals/doctors/${doctorId}`, { method: 'DELETE', credentials: 'include', headers });
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message || 'Failed to delete doctor');
-      }
-      return response.json();
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin'] }),
-    onError: (err: any) => alert(err.message || 'Failed to delete doctor')
-  });
-  const handleDeleteDoctor = (doctorId: string) => {
-    if (!window.confirm('Are you sure you want to remove this doctor? This action cannot be undone.')) return;
-    deleteDoctorMutation.mutate(doctorId);
-  };
-
-  const deleteAdminMutation = useMutation({
-    mutationFn: async (adminId: string) => {
-      const response = await fetch(`${API_BASE_URL}/admin/approvals/admins/${adminId}`, { method: 'DELETE', credentials: 'include', headers });
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.message || 'Failed to delete admin');
-      }
-      return response.json();
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['admin'] }),
-    onError: (err: any) => alert(err.message || 'Failed to delete admin')
-  });
-  const handleDeleteAdmin = (adminId: string) => {
-    if (!window.confirm('Are you sure you want to remove this admin? This action cannot be undone.')) return;
-    deleteAdminMutation.mutate(adminId);
+  const selectTab = (tab: AdminTab) => {
+    setActiveTab(tab);
+    setSidebarOpen(false);
   };
 
   const handleLogout = async () => {
     await logout();
-    navigate('/admin-login');
+    navigate('/admin-login', { replace: true });
   };
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
-
-  if (loading || adminLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#fcfbfa]">
-        <div className="flex flex-col items-center">
-          <div className="w-10 h-10 border-2 border-[#0097b2] border-t-transparent rounded-full animate-spin"></div>
-          <p className="mt-4 text-xs font-medium text-neutral-500">Loading dashboard...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // Calculate max sessions for chart scaling
-  // `analytics?.topDoctors.reduce` guarded `analytics` but not `topDoctors`,
-  // so an analytics response without that field threw at render and took the
-  // ENTIRE admin dashboard to a white screen — every tab, not just this one.
-  const maxSessions = analytics?.topDoctors?.reduce((max, d) => d.sessionCount > max ? d.sessionCount : max, 0) || 1;
+  const tabs = tabsForRole(role);
 
   return (
     <div className="min-h-screen flex bg-[#fcfbfa] text-neutral-800 antialiased font-sans">
-      
+
+      {/* Mobile: the drawer covers the page; tapping outside closes it. */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
       {/* ── Sidebar ──────────────────────────────────────────────────────── */}
-      <div 
-        className={`fixed inset-y-0 left-0 z-50 bg-[#001e24] text-[#fff3db] transform transition-all duration-300 ease-in-out md:translate-x-0 
-          ${sidebarCollapsed ? 'w-16' : 'w-60'} 
+      <div
+        className={`fixed inset-y-0 left-0 z-50 bg-[#001e24] text-[#fff3db] transform transition-all duration-300 ease-in-out md:translate-x-0
+          ${sidebarCollapsed ? 'md:w-16' : 'md:w-60'} w-60
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}
       >
-        <div className="flex flex-col h-full p-4">
-          {/* Logo / Brand */}
-          <div className={`mb-8 pt-2 flex items-center ${sidebarCollapsed ? 'justify-center' : 'justify-between'}`}>
-            {!sidebarCollapsed && (
-              <div>
-                <h1 className="text-sm font-semibold tracking-wider uppercase text-[#0097b2]">Veraawell</h1>
-                <p className="text-[10px] text-[#fff3db] opacity-60 mt-0.5">Control Panel</p>
-              </div>
-            )}
-            {/* Collapse Toggle Button (Desktop Only) */}
-            <button 
-              onClick={() => setSidebarCollapsed(!sidebarCollapsed)} 
+        <div className="flex flex-col h-full p-4 overflow-y-auto">
+          <div className={`mb-8 pt-2 flex items-center ${sidebarCollapsed ? 'md:justify-center' : ''} justify-between`}>
+            <div className={sidebarCollapsed ? 'md:hidden' : ''}>
+              <h1 className="text-sm font-semibold tracking-wider uppercase text-[#0097b2]">Veraawell</h1>
+              <p className="text-[10px] text-[#fff3db] opacity-60 mt-0.5">Control Panel</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
               className="hidden md:flex items-center justify-center w-6 h-6 rounded-full bg-[#fff3db]/5 hover:bg-[#fff3db]/10 text-[#fff3db]/70 transition-colors"
             >
               {sidebarCollapsed ? <FiChevronRight size={12} /> : <FiChevronLeft size={12} />}
             </button>
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(false)}
+              aria-label="Close menu"
+              className="md:hidden flex items-center justify-center w-7 h-7 rounded-full bg-[#fff3db]/5 text-[#fff3db]/70"
+            >
+              <FiX size={14} />
+            </button>
           </div>
 
-          {/* Nav Links */}
           <nav className="flex-1 space-y-1">
-            <button
-              onClick={() => setActiveTab('analytics')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors ${activeTab === 'analytics' ? 'bg-[#0097b2] text-white' : 'text-[#fff3db]/70 hover:bg-[#fff3db]/5 hover:text-[#fff3db]'} ${sidebarCollapsed ? 'justify-center' : ''}`}
-              title={sidebarCollapsed ? "Analytics" : ""}
-            >
-              {sidebarCollapsed ? (
-                <div className={`w-2 h-2 rounded-full ${activeTab === 'analytics' ? 'bg-white' : 'bg-[#fff3db]/40'}`} />
-              ) : (
-                <FiActivity size={16} />
-              )}
-              {!sidebarCollapsed && <span>Analytics</span>}
-            </button>
-            
-            <button
-              onClick={() => setActiveTab('doctors')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors ${activeTab === 'doctors' ? 'bg-[#0097b2] text-white' : 'text-[#fff3db]/70 hover:bg-[#fff3db]/5 hover:text-[#fff3db]'} ${sidebarCollapsed ? 'justify-center' : ''}`}
-              title={sidebarCollapsed ? "Pending Doctors" : ""}
-            >
-              {sidebarCollapsed ? (
-                <div className={`w-2 h-2 rounded-full ${activeTab === 'doctors' ? 'bg-white' : 'bg-[#fff3db]/40'}`} />
-              ) : (
-                <LuStethoscope size={16} />
-              )}
-              {!sidebarCollapsed && (
-                <>
-                  <span>Pending Doctors</span>
-                  {pendingDoctors.length > 0 && (
-                    <span className="ml-auto bg-[#fff3db] text-[#001e24] text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                      {pendingDoctors.length}
-                    </span>
+            {tabs.map((tab) => {
+              const meta = TAB_META[tab];
+              const active = activeTab === tab;
+              const badge = badges[tab] ?? 0;
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => selectTab(tab)}
+                  aria-current={active ? 'page' : undefined}
+                  className={`relative w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors ${active ? 'bg-[#0097b2] text-white' : 'text-[#fff3db]/70 hover:bg-[#fff3db]/5 hover:text-[#fff3db]'} ${sidebarCollapsed ? 'md:justify-center' : ''}`}
+                  title={sidebarCollapsed ? meta.label : ''}
+                >
+                  {sidebarCollapsed ? (
+                    <>
+                      <div className={`hidden md:block w-2 h-2 rounded-full ${active ? 'bg-white' : 'bg-[#fff3db]/40'}`} />
+                      <span className="md:hidden">{meta.icon}</span>
+                    </>
+                  ) : meta.icon}
+                  <span className={sidebarCollapsed ? 'md:hidden' : ''}>{meta.label}</span>
+                  {badge > 0 && (
+                    sidebarCollapsed
+                      ? <div className="absolute top-1 right-1 w-2 h-2 bg-[#fff3db] rounded-full" />
+                      : (
+                        <span className="ml-auto bg-[#fff3db] text-[#001e24] text-[10px] px-1.5 py-0.5 rounded-full font-bold">
+                          {badge}
+                        </span>
+                      )
                   )}
-                </>
-              )}
-              {sidebarCollapsed && pendingDoctors.length > 0 && (
-                <div className="absolute top-1 right-1 w-2 h-2 bg-[#fff3db] rounded-full" />
-              )}
-            </button>
-
-            {admin?.role === 'super_admin' && (
-              <button
-                onClick={() => setActiveTab('admins')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors ${activeTab === 'admins' ? 'bg-[#0097b2] text-white' : 'text-[#fff3db]/70 hover:bg-[#fff3db]/5 hover:text-[#fff3db]'} ${sidebarCollapsed ? 'justify-center' : ''}`}
-                title={sidebarCollapsed ? "Pending Admins" : ""}
-              >
-                {sidebarCollapsed ? (
-                  <div className={`w-2 h-2 rounded-full ${activeTab === 'admins' ? 'bg-white' : 'bg-[#fff3db]/40'}`} />
-                ) : (
-                  <FiUsers size={16} />
-                )}
-                {!sidebarCollapsed && (
-                  <>
-                    <span>Pending Admins</span>
-                    {pendingAdmins.length > 0 && (
-                      <span className="ml-auto bg-[#fff3db] text-[#001e24] text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                        {pendingAdmins.length}
-                      </span>
-                    )}
-                  </>
-                )}
-                {sidebarCollapsed && pendingAdmins.length > 0 && (
-                  <div className="absolute top-1 right-1 w-2 h-2 bg-[#fff3db] rounded-full" />
-                )}
-              </button>
-            )}
-
-            {admin?.role === 'super_admin' && (
-              <button
-                onClick={() => setActiveTab('payouts')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors ${activeTab === 'payouts' ? 'bg-[#0097b2] text-white' : 'text-[#fff3db]/70 hover:bg-[#fff3db]/5 hover:text-[#fff3db]'} ${sidebarCollapsed ? 'justify-center' : ''}`}
-                title={sidebarCollapsed ? "Payout Approvals" : ""}
-              >
-                {sidebarCollapsed ? (
-                  <div className={`w-2 h-2 rounded-full ${activeTab === 'payouts' ? 'bg-white' : 'bg-[#fff3db]/40'}`} />
-                ) : (
-                  <FiClock size={16} />
-                )}
-                {!sidebarCollapsed && (
-                  <>
-                    <span>Payout Approvals</span>
-                  </>
-                )}
-              </button>
-            )}
-            {admin?.role === 'super_admin' && (
-              <button
-                onClick={() => setActiveTab('bankDetails')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors ${activeTab === 'bankDetails' ? 'bg-[#0097b2] text-white' : 'text-[#fff3db]/70 hover:bg-[#fff3db]/5 hover:text-[#fff3db]'} ${sidebarCollapsed ? 'justify-center' : ''}`}
-                title={sidebarCollapsed ? "Bank Details" : ""}
-              >
-                {sidebarCollapsed ? (
-                  <div className={`w-2 h-2 rounded-full ${activeTab === 'bankDetails' ? 'bg-white' : 'bg-[#fff3db]/40'}`} />
-                ) : (
-                  <FiCreditCard size={16} />
-                )}
-                {!sidebarCollapsed && (
-                  <>
-                    <span>Bank Details</span>
-                    {pendingBankCount > 0 && (
-                      <span className="ml-auto text-[10px] font-semibold bg-amber-400 text-[#001e24] px-1.5 py-0.5 rounded-full">{pendingBankCount}</span>
-                    )}
-                  </>
-                )}
-              </button>
-            )}
-            {admin?.role === 'super_admin' && (
-              <button
-                onClick={() => setActiveTab('weeklyPayouts')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors ${activeTab === 'weeklyPayouts' ? 'bg-[#0097b2] text-white' : 'text-[#fff3db]/70 hover:bg-[#fff3db]/5 hover:text-[#fff3db]'} ${sidebarCollapsed ? 'justify-center' : ''}`}
-                title={sidebarCollapsed ? "Weekly Payouts" : ""}
-              >
-                {sidebarCollapsed ? (
-                  <div className={`w-2 h-2 rounded-full ${activeTab === 'weeklyPayouts' ? 'bg-white' : 'bg-[#fff3db]/40'}`} />
-                ) : (
-                  <FiDollarSign size={16} />
-                )}
-                {!sidebarCollapsed && (
-                  <>
-                    <span>Weekly Payouts</span>
-                  </>
-                )}
-              </button>
-            )}
-
-            {admin?.role === 'super_admin' && (
-              <button
-                onClick={() => setActiveTab('revenue')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors ${activeTab === 'revenue' ? 'bg-[#0097b2] text-white' : 'text-[#fff3db]/70 hover:bg-[#fff3db]/5 hover:text-[#fff3db]'} ${sidebarCollapsed ? 'justify-center' : ''}`}
-                title={sidebarCollapsed ? "Revenue" : ""}
-              >
-                {sidebarCollapsed ? (
-                  <div className={`w-2 h-2 rounded-full ${activeTab === 'revenue' ? 'bg-white' : 'bg-[#fff3db]/40'}`} />
-                ) : (
-                  <FiActivity size={16} />
-                )}
-                {!sidebarCollapsed && <span>Revenue</span>}
-              </button>
-            )}
-            
-            {admin?.role === 'super_admin' && (
-              <button
-                onClick={() => setActiveTab('enquiries')}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors relative ${activeTab === 'enquiries' ? 'bg-[#0097b2] text-white' : 'text-[#fff3db]/70 hover:bg-[#fff3db]/5 hover:text-[#fff3db]'} ${sidebarCollapsed ? 'justify-center' : ''}`}
-                title={sidebarCollapsed ? "Enquiries" : ""}
-              >
-                {sidebarCollapsed ? (
-                  <div className={`w-2 h-2 rounded-full ${activeTab === 'enquiries' ? 'bg-white' : 'bg-[#fff3db]/40'}`} />
-                ) : (
-                  <FiInbox size={16} />
-                )}
-                {!sidebarCollapsed && (
-                  <>
-                    <span>Enquiries</span>
-                    {newEnquiryCount > 0 && (
-                      <span className="ml-auto bg-[#fff3db] text-[#001e24] text-[10px] px-1.5 py-0.5 rounded-full font-bold">
-                        {newEnquiryCount}
-                      </span>
-                    )}
-                  </>
-                )}
-                {sidebarCollapsed && newEnquiryCount > 0 && (
-                  <div className="absolute top-1 right-1 w-2 h-2 bg-[#fff3db] rounded-full" />
-                )}
-              </button>
-            )}
-
-            <button
-              onClick={() => setActiveTab('articles')}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium transition-colors ${activeTab === 'articles' ? 'bg-[#0097b2] text-white' : 'text-[#fff3db]/70 hover:bg-[#fff3db]/5 hover:text-[#fff3db]'} ${sidebarCollapsed ? 'justify-center' : ''}`}
-              title={sidebarCollapsed ? "Articles" : ""}
-            >
-              {sidebarCollapsed ? (
-                <div className={`w-2 h-2 rounded-full ${activeTab === 'articles' ? 'bg-white' : 'bg-[#fff3db]/40'}`} />
-              ) : (
-                <FiFileText size={16} />
-              )}
-              {!sidebarCollapsed && <span>Articles</span>}
-            </button>
+                </button>
+              );
+            })}
           </nav>
 
-          {/* User & Logout */}
-          <div className="border-t border-[#fff3db]/10 pt-4 mt-auto">
-            {!sidebarCollapsed && (
-              <div className="flex items-center gap-3 px-2 mb-3">
-                <div className="w-8 h-8 rounded-full bg-[#0097b2] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                  {admin?.firstName?.[0] || 'A'}
-                </div>
-                <div className="overflow-hidden">
-                  <p className="text-xs font-medium truncate">{admin?.firstName} {admin?.lastName}</p>
-                  <p className="text-[10px] text-[#fff3db]/50 truncate">{admin?.role === 'super_admin' ? 'Super Admin' : 'Admin'}</p>
-                </div>
+          {/* Account */}
+          <div className="border-t border-[#fff3db]/10 pt-4 mt-4">
+            <div className={`flex items-center gap-3 px-2 mb-3 ${sidebarCollapsed ? 'md:hidden' : ''}`}>
+              <div className="w-8 h-8 rounded-full bg-[#0097b2] flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                {admin?.firstName?.[0] || 'A'}
               </div>
-            )}
+              <div className="overflow-hidden">
+                <p className="text-xs font-medium truncate">{admin?.firstName} {admin?.lastName}</p>
+                <p className="text-[10px] text-[#fff3db]/50 truncate">{isSuperAdmin ? 'Super Admin' : 'Admin'}</p>
+              </div>
+            </div>
             <button
-              onClick={handleLogout}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-red-400 hover:bg-red-500/10 transition-colors ${sidebarCollapsed ? 'justify-center' : ''}`}
-              title={sidebarCollapsed ? "Logout" : ""}
+              type="button"
+              onClick={() => { setChangingPassword(true); setSidebarOpen(false); }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-[#fff3db]/70 hover:bg-[#fff3db]/5 hover:text-[#fff3db] transition-colors ${sidebarCollapsed ? 'md:justify-center' : ''}`}
+              title={sidebarCollapsed ? 'Change password' : ''}
+            >
+              <FiKey size={16} />
+              <span className={sidebarCollapsed ? 'md:hidden' : ''}>Change password</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => { void handleLogout(); }}
+              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-medium text-red-400 hover:bg-red-500/10 transition-colors ${sidebarCollapsed ? 'md:justify-center' : ''}`}
+              title={sidebarCollapsed ? 'Logout' : ''}
             >
               <FiLogOut size={16} />
-              {!sidebarCollapsed && <span>Logout</span>}
+              <span className={sidebarCollapsed ? 'md:hidden' : ''}>Logout</span>
             </button>
           </div>
         </div>
       </div>
 
       {/* ── Main Content ────────────────────────────────────────────────── */}
-      <div className={`flex-1 flex flex-col transition-all duration-300 ease-in-out ${sidebarCollapsed ? 'md:pl-16' : 'md:pl-60'}`}>
-        
-        {/* Header */}
-        <header className="h-14 bg-white border-b border-neutral-100 flex items-center justify-between px-6">
-          <div className="flex items-center gap-3">
-            <button onClick={() => setSidebarOpen(!sidebarOpen)} className="md:hidden text-neutral-600">
+      <div className={`flex-1 min-w-0 flex flex-col transition-all duration-300 ease-in-out ${sidebarCollapsed ? 'md:pl-16' : 'md:pl-60'}`}>
+        <header className="h-14 bg-white border-b border-neutral-100 flex items-center justify-between px-4 md:px-6 gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <button
+              type="button"
+              onClick={() => setSidebarOpen(true)}
+              aria-label="Open menu"
+              className="md:hidden text-neutral-600"
+            >
               <FiMenu size={18} />
             </button>
-            <h1 className="text-base font-semibold text-neutral-800 flex items-center gap-2">
-              {activeTab === 'analytics' ? 'Dashboard Overview' : activeTab === 'doctors' ? 'Doctor Approvals' : activeTab === 'admins' ? 'Admin Approvals' : activeTab === 'payouts' ? 'Payout Approvals' : activeTab === 'bankDetails' ? 'Bank Details' : activeTab === 'weeklyPayouts' ? 'Weekly Payouts' : activeTab === 'revenue' ? 'Platform Revenue' : activeTab === 'enquiries' ? 'Enquiries' : 'Manage Articles'}
-            </h1>
+            <h1 className="text-base font-semibold text-neutral-800 truncate">{TAB_META[activeTab].title}</h1>
           </div>
-          {/* Removed non-functional search bar to keep it minimal */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 shrink-0">
             {activeTab === 'articles' ? (
               <button
+                type="button"
                 onClick={() => navigate('/super-admin-dashboard/articles/new')}
                 className="px-4 py-2 bg-[#0097b2] hover:bg-[#007c93] text-white text-xs font-semibold rounded-xl transition-colors flex items-center gap-1.5"
               >
@@ -877,1425 +228,37 @@ const SuperAdminDashboard: React.FC = () => {
                 New Article
               </button>
             ) : (
-              <div className="text-xs text-neutral-500 font-medium">
+              <div className="hidden sm:block text-xs text-neutral-500 font-medium">
                 Welcome back, {admin?.firstName}
               </div>
             )}
           </div>
         </header>
 
-        {/* Content */}
-        <main className="flex-1 p-6 overflow-auto space-y-6">
-          
-          {/* Stats Grid - Enhanced with larger numbers and cleaner look */}
-          {/*
-            Guarded on the nested objects, not just `statistics` being truthy.
-            The cards below read statistics.doctors.pending and
-            statistics.patients.total directly, so a response missing either
-            threw during render — and because this is above the tab switch, it
-            white-screened every tab including the payout screens, not only
-            this one. Rendering nothing is the right failure here: the numbers
-            are informational, and a blank card beats a blank app.
-          */}
-          {statistics?.doctors && statistics?.patients && activeTab === 'analytics' && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              <div className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">Pending Doctors</span>
-                  <div className="p-2 bg-amber-50 text-amber-600 rounded-xl"><FiClock size={16} /></div>
-                </div>
-                <p className="text-4xl font-bold text-neutral-900">{statistics.doctors.pending}</p>
-                <p className="text-[11px] text-neutral-500 mt-1 font-medium">Requires review</p>
-              </div>
-              
-              <div className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-sm hover:shadow-md transition-shadow">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">Total Doctors</span>
-                  <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl"><FiUserCheck size={16} /></div>
-                </div>
-                <p className="text-4xl font-bold text-neutral-900">{statistics.doctors.approved}</p>
-                <p className="text-[11px] text-emerald-600 font-semibold mt-1">Active practitioners</p>
-              </div>
-              
-              <div className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-sm hover:shadow-md transition-shadow sm:col-span-2 lg:col-span-1">
-                <div className="flex items-center justify-between mb-4">
-                  <span className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider">Total Patients</span>
-                  <div className="p-2 bg-[#0097b2]/10 text-[#0097b2] rounded-xl"><FiUsers size={16} /></div>
-                </div>
-                <p className="text-4xl font-bold text-neutral-900">{statistics.patients.total}</p>
-                <p className="text-[11px] text-neutral-500 mt-1 font-medium">Registered users</p>
-              </div>
-            </div>
-          )}
-
-          {/* Tab Content */}
+        <main className="flex-1 p-4 md:p-6 overflow-auto">
           <AnimatePresence mode="wait">
-            {/* ── Analytics Tab ─────────────────────────────────────────── */}
-            {/* Same reasoning as the statistics block above. */}
-            {activeTab === 'analytics' && analytics?.sessions && analytics?.revenue
-              && analytics?.content && analytics?.growth && Array.isArray(analytics?.topDoctors) && (
-              <motion.div key="analytics" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
-                
-                {/* Analytics Mini Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                  <div className="bg-white p-5 rounded-2xl border border-neutral-100 shadow-sm">
-                    <p className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Total Sessions</p>
-                    <p className="text-3xl font-bold text-neutral-900">{analytics.sessions.total}</p>
-                    <p className="text-[11px] text-emerald-600 font-semibold mt-1">+{analytics.sessions.last7Days} this week</p>
-                  </div>
-                  <div className="bg-white p-5 rounded-2xl border border-neutral-100 shadow-sm">
-                    <p className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Total Revenue</p>
-                    <p className="text-3xl font-bold text-neutral-900">₹{analytics.revenue.total.toLocaleString()}</p>
-                    <p className="text-[11px] text-neutral-500 mt-1">₹{analytics.revenue.last30Days.toLocaleString()} (30d)</p>
-                  </div>
-                  <div className="bg-white p-5 rounded-2xl border border-neutral-100 shadow-sm">
-                    <p className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">Reports Created</p>
-                    <p className="text-3xl font-bold text-neutral-900">{analytics.content.reports}</p>
-                    <p className="text-[11px] text-neutral-500 mt-1">{analytics.content.tasks} tasks assigned</p>
-                  </div>
-                  <div className="bg-white p-5 rounded-2xl border border-neutral-100 shadow-sm">
-                    <p className="text-[11px] font-bold text-neutral-400 uppercase tracking-wider mb-2">User Growth</p>
-                    <p className="text-3xl font-bold text-neutral-900">+{analytics.growth.newPatients30Days}</p>
-                    <p className="text-[11px] text-neutral-500 mt-1">New patients (30d)</p>
-                  </div>
-                </div>
-
-                {/* Detailed Section */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Session Status */}
-                  <div className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-sm">
-                    <h3 className="text-sm font-semibold text-neutral-900 mb-5">Session Breakdown</h3>
-                    <div className="space-y-4">
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-neutral-500 font-medium">Completed</span>
-                        <span className="font-bold text-emerald-600 text-sm">{analytics.sessions.completed}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-neutral-500 font-medium">Upcoming</span>
-                        <span className="font-bold text-blue-600 text-sm">{analytics.sessions.upcoming}</span>
-                      </div>
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="text-neutral-500 font-medium">Cancelled</span>
-                        <span className="font-bold text-red-600 text-sm">{analytics.sessions.cancelled}</span>
-                      </div>
-                      <div className="pt-4 border-t border-neutral-50 flex justify-between items-center text-xs">
-                        <span className="font-semibold text-neutral-700">Avg. Revenue / Session</span>
-                        <span className="font-bold text-[#0097b2] text-sm">₹{analytics.revenue.averagePerSession}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Top Doctors with Visual Chart */}
-                  <div className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-sm">
-                    <h3 className="text-sm font-semibold text-neutral-900 mb-5">Top Performing Doctors</h3>
-                    <div className="space-y-4">
-                      {analytics.topDoctors.length === 0 ? (
-                        <p className="text-xs text-neutral-400 text-center py-4">No data available</p>
-                      ) : (
-                        analytics.topDoctors.map((doctor, index) => {
-                          const percentage = (doctor.sessionCount / maxSessions) * 100;
-                          return (
-                            <div key={index} className="space-y-1.5">
-                              <div className="flex justify-between items-center text-xs">
-                                <span className="text-neutral-700 font-medium">{index + 1}. Dr. {doctor.name}</span>
-                                <span className="font-bold text-[#0097b2]">{doctor.sessionCount} sessions</span>
-                              </div>
-                              <div className="w-full h-1.5 bg-neutral-50 rounded-full overflow-hidden">
-                                <div 
-                                  className="h-full bg-[#0097b2] rounded-full transition-all duration-500" 
-                                  style={{ width: `${percentage}%` }}
-                                />
-                              </div>
-                            </div>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {/* ── Doctors Tab ─────────────────────────────────────── */}
-            {activeTab === 'doctors' && (
-              <motion.div key="doctors" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
-                
-                {/* View Mode Toggle */}
-                <div className="flex gap-2 mb-4">
-                  <button
-                    onClick={() => setDoctorViewMode('pending')}
-                    className={`px-4 py-2 text-xs font-semibold rounded-xl transition-colors ${doctorViewMode === 'pending' ? 'bg-[#0097b2] text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
-                  >
-                    Pending Approvals ({pendingDoctors.length})
-                  </button>
-                  <button
-                    onClick={() => setDoctorViewMode('all')}
-                    className={`px-4 py-2 text-xs font-semibold rounded-xl transition-colors ${doctorViewMode === 'all' ? 'bg-[#0097b2] text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
-                  >
-                    All Doctors ({allDoctors.length})
-                  </button>
-                </div>
-
-                {(doctorViewMode === 'pending' ? pendingDoctors : allDoctors).length === 0 ? (
-                  <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm p-12 text-center">
-                    <FiUserCheck size={28} className="text-neutral-300 mx-auto mb-3" />
-                    <p className="text-sm font-medium text-neutral-500">
-                      {doctorViewMode === 'pending' ? 'No pending doctor requests' : 'No doctors found'}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {(doctorViewMode === 'pending' ? pendingDoctors : allDoctors).map((user) => (
-                      <div key={user._id} className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-sm flex flex-col md:flex-row justify-between gap-4 hover:shadow-md transition-shadow">
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-sm font-semibold text-neutral-900">Dr. {user.firstName} {user.lastName}</h3>
-                            {user.approvalStatus === 'approved' && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-medium border border-emerald-200">
-                                Approved
-                              </span>
-                            )}
-                            {user.approvalStatus === 'pending' && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded-full text-[10px] font-medium border border-amber-200">
-                                Pending
-                              </span>
-                            )}
-                            {user.approvalStatus === 'rejected' && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 bg-red-50 text-red-700 rounded-full text-[10px] font-medium border border-red-200">
-                                Rejected
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-neutral-500">{user.email}</p>
-                          <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-neutral-600 pt-1">
-                            {user.phoneNumber && <span><span className="font-medium text-neutral-400">Phone:</span> +{user.countryCode || '91'} {user.phoneNumber}</span>}
-                            {user.gender && <span><span className="font-medium text-neutral-400">Gender:</span> {user.gender}</span>}
-                            {user.dateOfBirth && <span><span className="font-medium text-neutral-400">DOB:</span> {formatDate(user.dateOfBirth)}</span>}
-                            {user.jobRole && <span><span className="font-medium text-neutral-400">Role:</span> {user.jobRole}</span>}
-                            {user.specialization && <span><span className="font-medium text-neutral-400">Specialization:</span> {user.specialization}</span>}
-                            {user.licenseNumber && <span><span className="font-medium text-neutral-400">License:</span> {user.licenseNumber}</span>}
-                            {user.heardAboutUs && <span><span className="font-medium text-neutral-400">Source:</span> {user.heardAboutUs}</span>}
-                          </div>
-                          {user.professionalMessage && (
-                            <p className="text-[11px] text-neutral-600 bg-neutral-50 p-2.5 rounded-xl mt-2 border border-neutral-100">
-                              <span className="font-semibold text-neutral-400">Message:</span> "{user.professionalMessage}"
-                            </p>
-                          )}
-                          
-                          {/* Documents */}
-                          {user.documents && user.documents.length > 0 && (
-                            <div className="mt-2 flex flex-wrap gap-1.5">
-                              {user.documents.map((doc, index) => (
-                                <button
-                                  key={index}
-                                  onClick={() => setViewingDocument({ url: doc.fileUrl, fileName: doc.fileName, fileType: doc.fileType })}
-                                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-neutral-50 border border-neutral-100 text-neutral-600 rounded-xl hover:bg-neutral-100 transition-colors text-[10px] font-semibold"
-                                >
-                                  <FiFileText size={12} className="text-neutral-400" />
-                                  {doc.fileName.length > 15 ? doc.fileName.substring(0, 15) + '...' : doc.fileName}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                        
-                        <div className="flex md:flex-col justify-end gap-2">
-                          {user.approvalStatus === 'pending' && (
-                            <>
-                              <button
-                                onClick={() => handleApproveDoctor(user._id)}
-                                className="px-4 py-2 bg-[#0097b2] hover:bg-[#007c93] text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
-                              >
-                                <FiCheck size={14} />
-                                Approve
-                              </button>
-                              <button
-                                onClick={() => handleRejectDoctor(user._id)}
-                                className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
-                              >
-                                <FiX size={14} />
-                                Reject
-                              </button>
-                            </>
-                          )}
-                          {admin?.role === 'super_admin' && (
-                            <button
-                              onClick={() => handleDeleteDoctor(user._id)}
-                              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
-                            >
-                              <Trash2 size={14} />
-                              Remove
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </motion.div>
-            )}
-
-            {/* ── Admins Tab ──────────────────────────────────────── */}
-            {activeTab === 'admins' && admin?.role === 'super_admin' && (
-              <motion.div key="admins" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
-                
-                {/* View Mode Toggle */}
-                <div className="flex gap-2 mb-4">
-                  <button
-                    onClick={() => setAdminViewMode('pending')}
-                    className={`px-4 py-2 text-xs font-semibold rounded-xl transition-colors ${adminViewMode === 'pending' ? 'bg-[#0097b2] text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
-                  >
-                    Pending Approvals ({pendingAdmins.length})
-                  </button>
-                  <button
-                    onClick={() => setAdminViewMode('all')}
-                    className={`px-4 py-2 text-xs font-semibold rounded-xl transition-colors ${adminViewMode === 'all' ? 'bg-[#0097b2] text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
-                  >
-                    All Admins ({allAdmins.length})
-                  </button>
-                </div>
-
-                {(adminViewMode === 'pending' ? pendingAdmins : allAdmins).length === 0 ? (
-                  <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm p-12 text-center">
-                    <FiUsers size={28} className="text-neutral-300 mx-auto mb-3" />
-                    <p className="text-sm font-medium text-neutral-500">
-                      {adminViewMode === 'pending' ? 'No pending admin requests' : 'No admins found'}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {(adminViewMode === 'pending' ? pendingAdmins : allAdmins).map((user) => (
-                      <div key={user._id} className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-sm flex flex-col md:flex-row justify-between gap-4 hover:shadow-md transition-shadow">
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-sm font-semibold text-neutral-900">{user.firstName} {user.lastName}</h3>
-                            {user.approvalStatus === 'approved' && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-medium border border-emerald-200">
-                                Approved
-                              </span>
-                            )}
-                            {user.approvalStatus === 'pending' && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded-full text-[10px] font-medium border border-amber-200">
-                                Pending
-                              </span>
-                            )}
-                            {user.approvalStatus === 'rejected' && (
-                              <span className="inline-flex items-center px-1.5 py-0.5 bg-red-50 text-red-700 rounded-full text-[10px] font-medium border border-red-200">
-                                Rejected
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-neutral-500">{user.email}</p>
-                          <p className="text-[11px] text-neutral-600 pt-1">
-                            <span className="font-medium text-neutral-400">Role:</span> {user.role}
-                          </p>
-                          <p className="text-[11px] text-neutral-400">
-                            Registered on {formatDate(user.createdAt)}
-                          </p>
-                        </div>
-                        
-                        <div className="flex md:flex-col justify-end gap-2">
-                          {user.approvalStatus === 'pending' && (
-                            <>
-                              <button
-                                onClick={() => handleApproveAdmin(user._id)}
-                                className="px-4 py-2 bg-[#0097b2] hover:bg-[#007c93] text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
-                              >
-                                <FiCheck size={14} />
-                                Approve
-                              </button>
-                              <button
-                                onClick={() => handleRejectAdmin(user._id)}
-                                className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
-                              >
-                                <FiX size={14} />
-                                Reject
-                              </button>
-                            </>
-                          )}
-                          {admin?.role === 'super_admin' && user._id !== (admin as any)._id && (
-                            <button
-                              onClick={() => handleDeleteAdmin(user._id)}
-                              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5"
-                            >
-                              <Trash2 size={14} />
-                              Remove
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </motion.div>
-            )}
-
-            {/* ── Payouts Tab ──────────────────────────────────────── */}
-            {activeTab === 'payouts' && admin?.role === 'super_admin' && (
-              <motion.div key="payouts" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
-                
-                {/* View Mode Toggle */}
-                <div className="flex gap-2 mb-4">
-                  <button
-                    onClick={() => setPayoutViewMode('pending')}
-                    className={`px-4 py-2 text-xs font-semibold rounded-xl transition-colors ${payoutViewMode === 'pending' ? 'bg-[#0097b2] text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
-                  >
-                    Pending Approvals
-                  </button>
-                  <button
-                    onClick={() => setPayoutViewMode('active')}
-                    className={`px-4 py-2 text-xs font-semibold rounded-xl transition-colors ${payoutViewMode === 'active' ? 'bg-[#0097b2] text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
-                  >
-                    Approved Accounts
-                  </button>
-                </div>
-
-                {payoutRequests.length === 0 ? (
-                  <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm p-12 text-center">
-                    <FiClock size={28} className="text-neutral-300 mx-auto mb-3" />
-                    <p className="text-sm font-medium text-neutral-500">
-                      {payoutViewMode === 'pending' ? 'No pending payout requests' : 'No approved payout accounts'}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {payoutRequests.map((request: any) => (
-                      <div key={request.doctorId} className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-sm flex flex-col md:flex-row justify-between gap-4 hover:shadow-md transition-shadow">
-                        <div className="space-y-1.5">
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-sm font-semibold text-neutral-900">Dr. {request.name}</h3>
-                            {payoutViewMode === 'pending' ? (
-                              <span className="inline-flex items-center px-1.5 py-0.5 bg-amber-50 text-amber-700 rounded-full text-[10px] font-medium border border-amber-200">
-                                Pending
-                              </span>
-                            ) : (
-                              <span className="inline-flex items-center px-1.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-[10px] font-medium border border-emerald-200">
-                                Active
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-xs text-neutral-500">{request.email}</p>
-                          <p className="text-[11px] text-neutral-600 pt-1">
-                            <span className="font-medium text-neutral-400">Razorpay ID:</span> {request.razorpayAccountId || 'N/A'}
-                          </p>
-                          <p className="text-[11px] text-neutral-400">
-                            Requested on {formatDate(request.requestedAt)}
-                          </p>
-                        </div>
-                        
-                        {payoutViewMode === 'pending' && (
-                          <div className="flex md:flex-col justify-end gap-2">
-                            <button
-                              onClick={() => setPayoutModal({ isOpen: true, type: 'approve', request })}
-                              disabled={approvePayoutMutation.isPending}
-                              className="px-4 py-2 bg-[#0097b2] hover:bg-[#007c93] text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
-                            >
-                              <FiCheck size={14} />
-                              Approve
-                            </button>
-                            <button
-                              onClick={() => setPayoutModal({ isOpen: true, type: 'reject', request })}
-                              disabled={rejectPayoutMutation.isPending}
-                              className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
-                            >
-                              <FiX size={14} />
-                              Reject
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </motion.div>
-            )}
-
-            {/* ── Enquiries Tab ──────────────────────────────────────────── */}
-            {activeTab === 'enquiries' && admin?.role === 'super_admin' && (
-              <motion.div key="enquiries" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-4">
-
-                {/* Status filter. Defaults to 'new' so the queue opens on what needs attention. */}
-                <div className="flex gap-2 mb-4 flex-wrap">
-                  {([
-                    { key: 'new', label: 'New' },
-                    { key: 'in_progress', label: 'In Progress' },
-                    { key: 'closed', label: 'Closed' },
-                    { key: 'all', label: 'All' },
-                  ] as const).map((f) => (
-                    <button
-                      key={f.key}
-                      onClick={() => setEnquiryStatusFilter(f.key)}
-                      className={`px-4 py-2 text-xs font-semibold rounded-xl transition-colors ${enquiryStatusFilter === f.key ? 'bg-[#0097b2] text-white' : 'bg-white text-neutral-600 border border-neutral-200 hover:bg-neutral-50'}`}
-                    >
-                      {f.label}
-                    </button>
-                  ))}
-                </div>
-
-                {enquiriesLoading ? (
-                  <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm p-12 text-center">
-                    <p className="text-sm font-medium text-neutral-400">Loading enquiries…</p>
-                  </div>
-                ) : enquiries.length === 0 ? (
-                  <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm p-12 text-center">
-                    <FiInbox size={28} className="text-neutral-300 mx-auto mb-3" />
-                    <p className="text-sm font-medium text-neutral-500">
-                      {enquiryStatusFilter === 'all' ? 'No enquiries yet' : `No ${enquiryStatusFilter.replace('_', ' ')} enquiries`}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    {enquiries.map((enquiry) => {
-                      const expanded = expandedEnquiry === enquiry._id;
-                      // Long messages are clamped to three lines with a toggle,
-                      // so one essay does not push the rest of the queue off
-                      // screen. Rendered as text, never as HTML.
-                      return (
-                        <div key={enquiry._id} data-enquiry-card={enquiry._id} className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-sm hover:shadow-md transition-shadow">
-                          <div className="flex flex-col md:flex-row items-start justify-between gap-4">
-                            <div className="space-y-1.5 min-w-0 md:max-w-2xl">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <h3 className="text-sm font-semibold text-neutral-900">{enquiry.name}</h3>
-                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-medium border ${ENQUIRY_STATUS_STYLE[enquiry.status]}`}>
-                                  {enquiry.status.replace('_', ' ')}
-                                </span>
-                                <span className="inline-flex items-center px-1.5 py-0.5 bg-neutral-50 text-neutral-600 rounded-full text-[10px] font-medium border border-neutral-200">
-                                  {ENQUIRY_TYPE_LABEL[enquiry.type]}
-                                </span>
-                              </div>
-
-                              <a href={`mailto:${enquiry.email}`} className="text-xs text-[#0097b2] hover:underline inline-flex items-center gap-1.5">
-                                <FiMail size={11} />
-                                {enquiry.email}
-                              </a>
-
-                              {enquiry.organisation && (
-                                <p className="text-[11px] text-neutral-600">
-                                  <span className="font-medium text-neutral-400">Organisation:</span> {enquiry.organisation}
-                                </p>
-                              )}
-                              {enquiry.phone && (
-                                <p className="text-[11px] text-neutral-600">
-                                  <span className="font-medium text-neutral-400">Phone:</span> {enquiry.phone}
-                                </p>
-                              )}
-                              {enquiry.subject && (
-                                <p className="text-[11px] text-neutral-600">
-                                  <span className="font-medium text-neutral-400">Subject:</span> {enquiry.subject}
-                                </p>
-                              )}
-
-                              <p className={`text-xs text-neutral-700 pt-1 whitespace-pre-wrap break-words ${expanded ? '' : 'line-clamp-3'}`}>
-                                {enquiry.message}
-                              </p>
-                              {enquiry.message.length > 180 && (
-                                <button
-                                  onClick={() => setExpandedEnquiry(expanded ? null : enquiry._id)}
-                                  className="text-[11px] font-semibold text-[#0097b2] hover:underline"
-                                >
-                                  {expanded ? 'Show less' : 'Show full message'}
-                                </button>
-                              )}
-
-                              <p className="text-[11px] text-neutral-400 pt-1">
-                                Received {formatDate(enquiry.createdAt)}
-                                {enquiry.handledAt && ` · last updated ${formatDate(enquiry.handledAt)}`}
-                              </p>
-                            </div>
-
-                            <div className="flex md:flex-col justify-end gap-2 flex-shrink-0">
-                              {enquiry.status !== 'in_progress' && (
-                                <button
-                                  onClick={() => updateEnquiryMutation.mutate({ id: enquiry._id, status: 'in_progress' })}
-                                  disabled={updateEnquiryMutation.isPending}
-                                  className="px-4 py-2 bg-[#0097b2] hover:bg-[#007c93] text-white text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 whitespace-nowrap"
-                                >
-                                  <FiClock size={14} />
-                                  In Progress
-                                </button>
-                              )}
-                              {enquiry.status !== 'closed' && (
-                                <button
-                                  onClick={() => updateEnquiryMutation.mutate({ id: enquiry._id, status: 'closed' })}
-                                  disabled={updateEnquiryMutation.isPending}
-                                  className="px-4 py-2 border border-neutral-200 text-neutral-600 hover:bg-neutral-50 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 whitespace-nowrap"
-                                >
-                                  <FiCheck size={14} />
-                                  Close
-                                </button>
-                              )}
-                              {enquiry.status === 'closed' && (
-                                <button
-                                  onClick={() => updateEnquiryMutation.mutate({ id: enquiry._id, status: 'new' })}
-                                  disabled={updateEnquiryMutation.isPending}
-                                  className="px-4 py-2 border border-neutral-200 text-neutral-600 hover:bg-neutral-50 text-xs font-semibold rounded-xl transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50 whitespace-nowrap"
-                                >
-                                  Reopen
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </motion.div>
-            )}
-
-            {/* ── Revenue Tab ────────────────────────────────────────────── */}
-            {/* ── BANK DETAILS APPROVAL ─────────────────────────────────────── */}
-            {activeTab === 'bankDetails' && admin?.role === 'super_admin' && (
-              <motion.div key="bankDetails" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
-                <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm overflow-hidden">
-                  <div className="px-6 py-4 border-b border-neutral-100 bg-neutral-50/50 flex items-center justify-between">
-                    <div>
-                      <h3 className="text-sm font-semibold text-neutral-800">Bank Details Awaiting Review</h3>
-                      <p className="text-[11px] text-neutral-500 mt-0.5">
-                        Approving makes a therapist bookable. Check the name matches the account before you do.
-                      </p>
-                    </div>
-                    <span className="text-xs font-medium text-amber-600 bg-amber-100 px-2.5 py-1 rounded-full">
-                      {pendingBankCount} pending
-                    </span>
-                  </div>
-
-                  {bankSubmissionsLoading ? (
-                    <div className="p-12 flex justify-center">
-                      <div className="w-8 h-8 border-4 border-[#0097b2] border-t-transparent rounded-full animate-spin" />
-                    </div>
-                  ) : pendingBankCount === 0 ? (
-                    <div className="p-12 text-center">
-                      <FiCreditCard size={28} className="mx-auto text-neutral-300 mb-3" />
-                      <p className="text-sm text-neutral-500">Nothing to review</p>
-                    </div>
-                  ) : (
-                    <div className="divide-y divide-neutral-100">
-                      {bankSubmissions.submissions.map((sub: any) => (
-                        <div key={sub.doctorId} className="p-6">
-                          <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-                            <div className="min-w-0">
-                              <p className="text-sm font-semibold text-neutral-900">{sub.name}</p>
-                              <p className="text-[11px] text-neutral-500">{sub.email}{sub.phone ? ` · ${sub.phone}` : ''}</p>
-                              <div className="mt-3 grid grid-cols-2 gap-x-8 gap-y-2">
-                                {[
-                                  ['Account holder', sub.accountHolderName],
-                                  ['Account number', sub.accountNumber],
-                                  ['IFSC', sub.ifsc],
-                                  ['PAN', sub.panNumber]
-                                ].map(([label, value]) => (
-                                  <div key={label as string}>
-                                    <div className="text-[10px] font-semibold uppercase tracking-wider text-neutral-400">{label}</div>
-                                    <div className="text-sm text-neutral-900 font-mono">{value || '—'}</div>
-                                  </div>
-                                ))}
-                              </div>
-                              {sub.submittedAt && (
-                                <p className="text-[11px] text-neutral-400 mt-3">Submitted {formatDate(sub.submittedAt)}</p>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <button
-                                onClick={() => approveBankMutation.mutate(sub.doctorId)}
-                                disabled={approveBankMutation.isPending}
-                                className="flex items-center gap-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg disabled:opacity-60"
-                              >
-                                <FiCheck size={14} /> Approve
-                              </button>
-                              <button
-                                onClick={() => { setBankRejectModal({ submission: sub }); setBankRejectReason(''); }}
-                                className="flex items-center gap-1.5 text-xs font-semibold text-red-600 border border-red-200 hover:bg-red-50 px-4 py-2 rounded-lg"
-                              >
-                                <FiX size={14} /> Reject
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </motion.div>
-            )}
-
-            {/* ── WEEKLY PAYOUTS ────────────────────────────────────────────── */}
-            {activeTab === 'weeklyPayouts' && admin?.role === 'super_admin' && (
-              <motion.div key="weeklyPayouts" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
-                {payoutPreviewLoading ? (
-                  <div className="p-12 flex justify-center">
-                    <div className="w-8 h-8 border-4 border-[#0097b2] border-t-transparent rounded-full animate-spin" />
-                  </div>
-                ) : (
-                  <>
-                    <div className="bg-white p-5 rounded-2xl border border-neutral-100 shadow-sm flex flex-wrap items-center justify-between gap-4">
-                      <div>
-                        <div className="text-xs font-medium text-neutral-500 uppercase tracking-wider">Period</div>
-                        <div className="text-lg font-bold text-neutral-900">
-                          {payoutPreview?.period?.periodKey} · {payoutPreview?.period?.localFrom} to {payoutPreview?.period?.localTo}
-                        </div>
-                        <div className="text-[11px] text-neutral-500 mt-0.5">
-                          Pay on {payoutPreview?.period?.scheduledPayoutDate ? formatDate(payoutPreview.period.scheduledPayoutDate) : '—'}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          value={payoutPeriod}
-                          onChange={(e) => setPayoutPeriod(e.target.value)}
-                          placeholder={payoutPreview?.period?.periodKey || '2026-W37'}
-                          className="w-32 p-2 text-xs bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-[#0097b2]"
-                        />
-                        <button
-                          onClick={() => generatePayoutsMutation.mutate(payoutPreview?.period?.periodKey)}
-                          disabled={generatePayoutsMutation.isPending || !(payoutPreview?.rows?.length)}
-                          className="flex items-center gap-1.5 text-xs font-semibold text-white bg-[#0097b2] hover:bg-[#007d93] px-4 py-2 rounded-lg disabled:opacity-50"
-                        >
-                          {generatePayoutsMutation.isPending
-                            ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                            : <FiLock size={14} />}
-                          Generate drafts
-                        </button>
-                      </div>
-                    </div>
-
-                    {(payoutPreview?.outstandingDebt?.length || 0) > 0 && (
-                      <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
-                        <p className="text-xs font-semibold text-amber-900">
-                          {payoutPreview.outstandingDebt.length} therapist(s) carry an unsettled balance from a refund
-                        </p>
-                        <p className="text-[11px] text-amber-800 mt-0.5">
-                          It nets off automatically the next time they earn. Shown here because they have no sessions this period.
-                        </p>
-                      </div>
-                    )}
-
-                    <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm overflow-hidden">
-                      <div className="px-6 py-4 border-b border-neutral-100 bg-neutral-50/50">
-                        <h3 className="text-sm font-semibold text-neutral-800">Owed This Period</h3>
-                      </div>
-                      {(payoutPreview?.rows?.length || 0) === 0 ? (
-                        <div className="p-12 text-center">
-                          <FiDollarSign size={28} className="mx-auto text-neutral-300 mb-3" />
-                          <p className="text-sm text-neutral-500">Nothing owed for this period</p>
-                        </div>
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left border-collapse">
-                            <thead>
-                              <tr className="bg-neutral-50/50 text-neutral-500 text-[11px] font-semibold uppercase tracking-wider border-b border-neutral-100">
-                                <th className="p-4 pl-6 font-medium">Therapist</th>
-                                <th className="p-4 font-medium">Sessions</th>
-                                <th className="p-4 font-medium">Gross</th>
-                                <th className="p-4 font-medium">Commission</th>
-                                <th className="p-4 font-medium">Adjustments</th>
-                                <th className="p-4 font-medium">Net Payable</th>
-                                <th className="p-4 text-right pr-6 font-medium">Bank</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-neutral-100">
-                              {payoutPreview.rows.map((row: any) => (
-                                <tr key={row._id} className="hover:bg-neutral-50/50 transition-colors">
-                                  <td className="p-4 pl-6">
-                                    <div className="text-sm font-semibold text-neutral-900">
-                                      {row.doctor ? `${row.doctor.firstName} ${row.doctor.lastName || ''}` : 'Unknown'}
-                                    </div>
-                                    <div className="text-[11px] text-neutral-500">{row.doctor?.email}</div>
-                                  </td>
-                                  <td className="p-4 text-sm text-neutral-700">{row.sessionCount}</td>
-                                  <td className="p-4 text-sm text-neutral-700">₹ {row.grossPrice?.toLocaleString()}</td>
-                                  <td className="p-4 text-sm text-emerald-600">₹ {row.platformFeeTotal?.toLocaleString()}</td>
-                                  <td className={`p-4 text-sm ${row.adjustmentsTotal < 0 ? 'text-red-600' : 'text-neutral-400'}`}>
-                                    {row.adjustmentsTotal ? `₹ ${row.adjustmentsTotal.toLocaleString()}` : '—'}
-                                  </td>
-                                  <td className="p-4 text-sm font-semibold text-[#0097b2]">₹ {row.netPayable?.toLocaleString()}</td>
-                                  <td className="p-4 text-right pr-6">
-                                    {/* The approval gate is shown here, not just enforced server-side:
-                                        an admin must see WHY someone cannot be paid. */}
-                                    {row.profile?.payoutApproved ? (
-                                      <span className="text-[11px] font-mono text-neutral-600">
-                                        {row.profile.ifsc} ••••{row.profile.accountNumberLast4}
-                                      </span>
-                                    ) : (
-                                      <span className="text-[11px] font-semibold text-red-600 bg-red-50 px-2 py-1 rounded-full">
-                                        Not approved
-                                      </span>
-                                    )}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm overflow-hidden">
-                      <div className="px-6 py-4 border-b border-neutral-100 bg-neutral-50/50">
-                        <h3 className="text-sm font-semibold text-neutral-800">Drafted &amp; Paid</h3>
-                      </div>
-                      {(payoutList?.payouts?.length || 0) === 0 ? (
-                        <div className="p-8 text-center text-sm text-neutral-500">No payouts drafted for this period yet</div>
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left border-collapse">
-                            <thead>
-                              <tr className="bg-neutral-50/50 text-neutral-500 text-[11px] font-semibold uppercase tracking-wider border-b border-neutral-100">
-                                <th className="p-4 pl-6 font-medium">Therapist</th>
-                                <th className="p-4 font-medium">Status</th>
-                                <th className="p-4 font-medium">Net</th>
-                                <th className="p-4 font-medium">Reference</th>
-                                <th className="p-4 text-right pr-6 font-medium">Action</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-neutral-100">
-                              {payoutList.payouts.map((po: any) => (
-                                <tr key={po._id} className="hover:bg-neutral-50/50 transition-colors">
-                                  <td className="p-4 pl-6 text-sm text-neutral-900">
-                                    {po.doctorId ? `${po.doctorId.firstName} ${po.doctorId.lastName || ''}` : 'Unknown'}
-                                  </td>
-                                  <td className="p-4">
-                                    <span className={`text-[11px] font-semibold px-2 py-1 rounded-full border ${
-                                      po.status === 'paid' ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                        : po.status === 'locked' ? 'bg-blue-50 text-blue-700 border-blue-200'
-                                          : 'bg-neutral-100 text-neutral-600 border-neutral-200'}`}>
-                                      {po.status}
-                                    </span>
-                                  </td>
-                                  <td className="p-4 text-sm font-semibold text-neutral-900">
-                                    {po.status === 'draft' ? '—' : `₹ ${po.netPayable?.toLocaleString()}`}
-                                    {po.carriedForward > 0 && (
-                                      <div className="text-[10px] text-amber-600">₹{po.carriedForward} carried forward</div>
-                                    )}
-                                  </td>
-                                  <td className="p-4 text-[11px] font-mono text-neutral-600">{po.transferReference || '—'}</td>
-                                  <td className="p-4 text-right pr-6">
-                                    {po.status === 'draft' && (
-                                      <button
-                                        onClick={() => lockPayoutMutation.mutate(po._id)}
-                                        disabled={lockPayoutMutation.isPending}
-                                        className="text-xs font-semibold text-[#0097b2] border border-[#0097b2]/30 hover:bg-[#0097b2]/5 px-3 py-1.5 rounded-lg disabled:opacity-50"
-                                      >
-                                        Lock amount
-                                      </button>
-                                    )}
-                                    {po.status === 'locked' && (
-                                      <button
-                                        onClick={() => { setUtrModal({ payout: po }); setUtrValue(''); }}
-                                        className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg"
-                                      >
-                                        Mark paid
-                                      </button>
-                                    )}
-                                    {po.status === 'paid' && (
-                                      <span className="text-[11px] text-neutral-400">{po.paidAt ? formatDate(po.paidAt) : ''}</span>
-                                    )}
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-              </motion.div>
-            )}
-
-
-            {activeTab === 'revenue' && admin?.role === 'super_admin' && (
-              <motion.div key="revenue" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
-                
-                {revenueLoading ? (
-                  <div className="flex justify-center py-20">
-                    <div className="w-8 h-8 border-4 border-[#0097b2] border-t-transparent rounded-full animate-spin" />
-                  </div>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                      {/* Summary Cards */}
-                      <div className="bg-white p-5 rounded-2xl border border-neutral-100 shadow-sm flex flex-col justify-center">
-                        <p className="text-xs font-medium text-neutral-500 uppercase tracking-wider mb-1">Gross Revenue</p>
-                        <p className="text-2xl font-bold text-neutral-900">₹ {(revenueData?.summary?.totalRevenue || 0).toLocaleString()}</p>
-                      </div>
-                      <div className="bg-white p-5 rounded-2xl border border-neutral-100 shadow-sm flex flex-col justify-center">
-                        <p className="text-xs font-medium text-neutral-500 uppercase tracking-wider mb-1">Platform Fee</p>
-                        <p className="text-2xl font-bold text-emerald-600">₹ {(revenueData?.summary?.totalPlatformFee || 0).toLocaleString()}</p>
-                      </div>
-                      <div className="bg-white p-5 rounded-2xl border border-neutral-100 shadow-sm flex flex-col justify-center">
-                        <p className="text-xs font-medium text-neutral-500 uppercase tracking-wider mb-1">Doctor Earnings</p>
-                        <p className="text-2xl font-bold text-neutral-900">₹ {(revenueData?.summary?.totalDoctorEarnings || 0).toLocaleString()}</p>
-                      </div>
-                      <div className="bg-white p-5 rounded-2xl border border-neutral-100 shadow-sm flex flex-col justify-center">
-                        <p className="text-xs font-medium text-neutral-500 uppercase tracking-wider mb-1">Total Sessions</p>
-                        <p className="text-2xl font-bold text-neutral-900">{revenueData?.summary?.totalSessions || 0}</p>
-                      </div>
-                    </div>
-
-                    <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm overflow-hidden">
-                      <div className="px-6 py-4 border-b border-neutral-100 bg-neutral-50/50">
-                        <h3 className="text-sm font-semibold text-neutral-800">Doctor Earnings Breakdown</h3>
-                      </div>
-                      
-                      {(!revenueData?.topDoctors || revenueData.topDoctors.length === 0) ? (
-                        <div className="p-8 text-center">
-                          <p className="text-sm text-neutral-500">No revenue data available for this period.</p>
-                        </div>
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left border-collapse">
-                            <thead>
-                              <tr className="bg-neutral-50/50 text-neutral-500 text-[11px] font-semibold uppercase tracking-wider border-b border-neutral-100">
-                                <th className="p-4 pl-6 font-medium">Doctor Name</th>
-                                <th className="p-4 font-medium">Sessions</th>
-                                <th className="p-4 font-medium">Gross Revenue</th>
-                                <th className="p-4 font-medium text-emerald-600">Platform Fee</th>
-                                <th className="p-4 font-medium text-[#0097b2]">Net Payout</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-neutral-100">
-                              {revenueData.topDoctors.map((doc: any) => (
-                                <tr key={doc._id} className="hover:bg-neutral-50/50 transition-colors">
-                                  <td className="p-4 pl-6">
-                                    <div className="text-sm font-semibold text-neutral-900">{doc.name}</div>
-                                    <div className="text-[11px] text-neutral-500">{doc.email}</div>
-                                  </td>
-                                  <td className="p-4 text-sm text-neutral-700">{doc.sessions}</td>
-                                  <td className="p-4 text-sm text-neutral-700 font-medium">₹ {doc.grossRevenue.toLocaleString()}</td>
-                                  <td className="p-4 text-sm text-emerald-600 font-medium">₹ {doc.platformFee.toLocaleString()}</td>
-                                  <td className="p-4 text-sm text-[#0097b2] font-semibold">₹ {doc.doctorEarnings.toLocaleString()}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Failed Refunds Section */}
-                    <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm overflow-hidden mt-6">
-                      <div className="px-6 py-4 border-b border-neutral-100 bg-red-50/50 flex justify-between items-center">
-                        <h3 className="text-sm font-semibold text-red-800">Failed Refunds</h3>
-                        <span className="text-xs font-medium text-red-600 bg-red-100 px-2.5 py-1 rounded-full">
-                          {failedRefundsData?.count || 0} Stuck
-                        </span>
-                      </div>
-                      
-                      {failedRefundsLoading ? (
-                        <div className="p-8 flex justify-center">
-                          <div className="w-6 h-6 border-2 border-red-500 border-t-transparent rounded-full animate-spin" />
-                        </div>
-                      ) : (!failedRefundsData?.sessions || failedRefundsData.sessions.length === 0) ? (
-                        <div className="p-8 text-center">
-                          <p className="text-sm text-neutral-500">No stuck refunds found.</p>
-                        </div>
-                      ) : (
-                        <div className="overflow-x-auto">
-                          <table className="w-full text-left border-collapse">
-                            <thead>
-                              <tr className="bg-neutral-50/50 text-neutral-500 text-[11px] font-semibold uppercase tracking-wider border-b border-neutral-100">
-                                <th className="p-4 pl-6 font-medium">Session ID / Date</th>
-                                <th className="p-4 font-medium">Patient</th>
-                                <th className="p-4 font-medium">Doctor</th>
-                                <th className="p-4 font-medium text-red-600">Amount</th>
-                                <th className="p-4 font-medium text-right pr-6">Action</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-neutral-100">
-                              {failedRefundsData.sessions.map((session: any) => (
-                                <tr key={session._id} className="hover:bg-red-50/10 transition-colors">
-                                  <td className="p-4 pl-6">
-                                    <div className="text-[11px] text-neutral-500 font-mono mb-0.5">{session._id.substring(0, 8)}...</div>
-                                    <div className="text-sm font-semibold text-neutral-900">{formatSessionDay(resolveSessionStart(session))}</div>
-                                  </td>
-                                  <td className="p-4">
-                                    <div className="text-sm font-semibold text-neutral-900">{session.patientName}</div>
-                                    <div className="text-[11px] text-neutral-500">{session.patientEmail}</div>
-                                  </td>
-                                  <td className="p-4 text-sm text-neutral-700">{session.doctorName}</td>
-                                  <td className="p-4 text-sm text-red-600 font-medium">₹ {session.price.toLocaleString()}</td>
-                                  <td className="p-4 text-right pr-6">
-                                    <button
-                                      onClick={() => handleRetryRefund(session._id)}
-                                      className="px-3 py-1.5 bg-red-100 hover:bg-red-200 text-red-700 rounded-lg text-xs font-semibold transition-colors shadow-sm inline-flex items-center gap-1.5"
-                                    >
-                                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-                                      Retry Refund
-                                    </button>
-                                  </td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      )}
-                    </div>
-                  </>
-                )}
-              </motion.div>
-            )}
-
-            {/* ── Articles Tab ────────────────────────────────────────────── */}
-            {activeTab === 'articles' && (
-              <motion.div key="articles" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="space-y-6">
-                
-                {/* Filters */}
-                <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm p-4">
-                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    {/* Search */}
-                    <div className="md:col-span-2 relative">
-                      <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-neutral-400" />
-                      <input
-                        type="text"
-                        placeholder="Search by title..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="w-full pl-9 pr-4 py-2 text-xs bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-[#0097b2]"
-                      />
-                    </div>
-
-                    {/* Category Filter */}
-                    <div className="relative">
-                      <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-neutral-400" />
-                      <select
-                        value={selectedCategory}
-                        onChange={(e) => setSelectedCategory(e.target.value)}
-                        className="w-full pl-9 pr-8 py-2 text-xs bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-[#0097b2] appearance-none"
-                      >
-                        {[
-                          'All', 'Addiction', 'Adult ADHD', 'Anger management', 'Anger & Frustration',
-                          'Anxiety disorders', 'Bipolar disorder', 'Confusion about identity',
-                          'Depression', 'Depressive disorders', 'Lack of Motivation',
-                          'Negative thinking', 'Relationship Struggles'
-                        ].map(cat => (
-                          <option key={cat} value={cat}>{cat}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    {/* Status Filter */}
-                    <div className="relative">
-                      <select
-                        value={selectedStatus}
-                        onChange={(e) => setSelectedStatus(e.target.value)}
-                        className="w-full px-4 py-2 text-xs bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-[#0097b2] appearance-none"
-                      >
-                        <option value="All">All Status</option>
-                        <option value="published">Published</option>
-                        <option value="draft">Draft</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Table / List */}
-                <div className="bg-white rounded-2xl border border-neutral-100 shadow-sm overflow-hidden">
-                  {articlesLoading ? (
-                    <div className="p-12 text-center">
-                      <div className="w-6 h-6 border-2 border-[#0097b2] border-t-transparent rounded-full animate-spin mx-auto mb-2" />
-                      <p className="text-neutral-400 text-xs font-medium">Loading articles...</p>
-                    </div>
-                  ) : articles.length === 0 ? (
-                    <div className="p-12 text-center">
-                      <FiFileText size={28} className="text-neutral-200 mx-auto mb-3" />
-                      <h3 className="text-sm font-semibold text-neutral-900 mb-1">No articles found</h3>
-                      <p className="text-neutral-500 text-xs mb-4">
-                        {searchQuery || selectedCategory !== 'All'
-                          ? 'Try adjusting your search or filters'
-                          : 'Get started by creating a new article'}
-                      </p>
-                      {(searchQuery || selectedCategory !== 'All') && (
-                        <button
-                          onClick={() => {
-                            setSearchQuery('');
-                            setSelectedCategory('All');
-                            setSelectedStatus('All');
-                          }}
-                          className="text-[#0097b2] font-semibold hover:text-[#007c93] text-xs"
-                        >
-                          Clear all filters
-                        </button>
-                      )}
-                    </div>
-                  ) : (
-                    <>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                          <thead>
-                            <tr className="bg-neutral-50 border-b border-neutral-100">
-                              <th className="px-6 py-3 text-[11px] font-bold text-neutral-400 uppercase tracking-wider w-1/2">Article</th>
-                              <th className="px-6 py-3 text-[11px] font-bold text-neutral-400 uppercase tracking-wider">Status</th>
-                              <th className="px-6 py-3 text-[11px] font-bold text-neutral-400 uppercase tracking-wider">Stats</th>
-                              <th className="px-6 py-3 text-[11px] font-bold text-neutral-400 uppercase tracking-wider text-right">Actions</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-neutral-100">
-                            {articles.map((article) => (
-                              <tr key={article._id} className="hover:bg-neutral-50/50 transition-colors group">
-                                <td className="px-6 py-4">
-                                  <div className="flex flex-col">
-                                    <span className="text-sm font-semibold text-neutral-800 mb-1 line-clamp-1 group-hover:text-[#0097b2] transition-colors">
-                                      {article.title}
-                                    </span>
-                                    <div className="flex items-center gap-2 text-xs text-neutral-500">
-                                      <span className="bg-neutral-50 px-2 py-0.5 rounded border border-neutral-100 text-[10px] font-medium">
-                                        {article.category}
-                                      </span>
-                                      <span>•</span>
-                                      <span>{new Date(article.createdAt).toLocaleDateString()}</span>
-                                    </div>
-                                  </div>
-                                </td>
-                                <td className="px-6 py-4">
-                                  {article.status === 'published' ? (
-                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-emerald-50 text-emerald-700 rounded-full text-xs font-medium border border-emerald-200">
-                                      <CheckCircle size={12} />
-                                      Published
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-amber-50 text-amber-700 rounded-full text-xs font-medium border border-amber-200">
-                                      <Clock size={12} />
-                                      Draft
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="px-6 py-4 text-xs text-neutral-500">
-                                  <div className="flex items-center gap-3">
-                                    <span className="flex items-center gap-1" title="Views">
-                                      <Eye size={14} className="text-neutral-400" />
-                                      {article.views}
-                                    </span>
-                                  </div>
-                                </td>
-                                <td className="px-6 py-4 text-right">
-                                  <div className="flex items-center justify-end gap-2">
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        handleToggleFeatured(article._id);
-                                      }}
-                                      disabled={actionLoading !== null}
-                                      className={`p-1.5 rounded-lg hover:bg-neutral-50 transition-colors ${article.featured ? 'text-amber-500' : 'text-neutral-400 hover:text-amber-500'} disabled:opacity-50`}
-                                      title={article.featured ? "Unfeature" : "Feature"}
-                                    >
-                                      {actionLoading === article._id + '-feature' ? <div className="w-4 h-4 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" /> : <Plus size={14} className={`${article.featured ? 'fill-current' : ''}`} />}
-                                    </button>
-                                    <button
-                                      onClick={() => navigate(`/super-admin-dashboard/articles/edit/${article._id}`)}
-                                      className="p-1.5 text-blue-600 hover:bg-neutral-50 rounded-lg transition-colors disabled:opacity-50"
-                                      title="Edit"
-                                      disabled={actionLoading !== null}
-                                    >
-                                      <Edit size={14} />
-                                    </button>
-                                    <button
-                                      onClick={() => setArticleToDelete({ id: article._id, title: article.title })}
-                                      className="p-1.5 text-red-600 hover:bg-neutral-50 rounded-lg transition-colors disabled:opacity-50"
-                                      title="Delete"
-                                      disabled={actionLoading !== null}
-                                    >
-                                      {actionLoading === article._id ? <div className="w-4 h-4 border-2 border-red-600 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={14} />}
-                                    </button>
-                                  </div>
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-
-                      {/* Pagination */}
-                      {pagination && pagination.pages > 1 && (
-                        <div className="px-6 py-4 border-t border-neutral-100 flex items-center justify-between">
-                          <div className="text-xs text-neutral-500 font-medium">
-                            Showing <span className="font-semibold text-neutral-800">{((page - 1) * pagination.limit) + 1}</span> to <span className="font-semibold text-neutral-800">{Math.min(page * pagination.limit, pagination.total)}</span> of <span className="font-semibold text-neutral-800">{pagination.total}</span> results
-                          </div>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={() => setPage(p => Math.max(1, p - 1))}
-                              disabled={page === 1}
-                              className="p-1.5 border border-neutral-200 rounded-lg hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                            >
-                              <FiChevronLeft size={14} className="text-neutral-600" />
-                            </button>
-                            <button
-                              onClick={() => setPage(p => Math.min(pagination.pages, p + 1))}
-                              disabled={page === pagination.pages}
-                              className="p-1.5 border border-neutral-200 rounded-lg hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                            >
-                              <FiChevronRight size={14} className="text-neutral-600" />
-                            </button>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-                </div>
-              </motion.div>
-            )}
-
-      {/* Delete Article Modal */}
-      <AnimatePresence>
-        {articleToDelete && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setArticleToDelete(null)}>
-            <div className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-lg max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
-              <h3 className="text-sm font-semibold text-neutral-900 mb-1">Delete Article</h3>
-              <p className="text-xs text-neutral-500 mb-6">Are you sure you want to delete <span className="font-semibold text-neutral-700">"{articleToDelete.title}"</span>? This action cannot be undone.</p>
-              <div className="flex justify-end gap-2">
-                <button
-                  onClick={() => setArticleToDelete(null)}
-                  className="px-4 py-2 bg-neutral-100 text-neutral-700 rounded-lg hover:bg-neutral-200 text-xs font-semibold transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={confirmDelete}
-                  disabled={actionLoading !== null}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-xs font-semibold transition-colors flex items-center gap-1.5"
-                >
-                  {actionLoading === articleToDelete.id ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <Trash2 size={14} />}
-                  Delete
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </AnimatePresence>
-      {/* Payout Approval/Rejection Modal */}
-      <AnimatePresence>
-        {payoutModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setPayoutModal(null)}>
-            <div className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-lg max-w-sm w-full mx-4" onClick={(e) => e.stopPropagation()}>
-              <h3 className="text-sm font-semibold text-neutral-900 mb-1">
-                {payoutModal.type === 'approve' ? 'Approve Payout Account' : 'Reject Payout Account'}
-              </h3>
-              
-              {payoutModal.type === 'approve' ? (
-                <p className="text-xs text-neutral-500 mb-6">
-                  Are you sure you want to approve the Razorpay account for <span className="font-semibold text-neutral-700">Dr. {payoutModal.request.name}</span>? 
-                  Once approved, their 80% split will be automatically routed to this account.
-                </p>
-              ) : (
-                <div className="mb-6 mt-4">
-                  <label className="block text-xs font-semibold text-neutral-700 mb-1.5">Reason for Rejection</label>
-                  <textarea
-                    value={payoutRejectReason}
-                    onChange={(e) => setPayoutRejectReason(e.target.value)}
-                    placeholder="Enter the reason for rejecting this payout request..."
-                    className="w-full p-3 text-xs bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400 min-h-[80px]"
-                  />
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2">
-                <button
-                  onClick={() => {
-                    setPayoutModal(null);
-                    setPayoutRejectReason('');
-                  }}
-                  className="px-4 py-2 bg-neutral-100 text-neutral-700 rounded-lg hover:bg-neutral-200 text-xs font-semibold transition-colors"
-                >
-                  Cancel
-                </button>
-                {payoutModal.type === 'approve' ? (
-                  <button
-                    onClick={() => {
-                      approvePayoutMutation.mutate(payoutModal.request.doctorId, {
-                        onSuccess: () => setPayoutModal(null)
-                      });
-                    }}
-                    disabled={approvePayoutMutation.isPending}
-                    className="px-4 py-2 bg-[#0097b2] text-white rounded-lg hover:bg-[#007c93] text-xs font-semibold transition-colors flex items-center gap-1.5"
-                  >
-                    {approvePayoutMutation.isPending ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <FiCheck size={14} />}
-                    Approve
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => {
-                      rejectPayoutMutation.mutate({ doctorId: payoutModal.request.doctorId, message: payoutRejectReason }, {
-                        onSuccess: () => {
-                          setPayoutModal(null);
-                          setPayoutRejectReason('');
-                        }
-                      });
-                    }}
-                    disabled={rejectPayoutMutation.isPending || !payoutRejectReason.trim()}
-                    className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-xs font-semibold transition-colors flex items-center gap-1.5 disabled:opacity-50"
-                  >
-                    {rejectPayoutMutation.isPending ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : <FiX size={14} />}
-                    Reject
-                  </button>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </AnimatePresence>
+            <motion.div
+              key={activeTab}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.15 }}
+            >
+              {activeTab === 'analytics' && <AnalyticsTab />}
+              {activeTab === 'doctors' && <DoctorsTab isSuperAdmin={isSuperAdmin} />}
+              {activeTab === 'reviews' && <ReviewsTab />}
+              {isSuperAdmin && activeTab === 'admins' && <AdminsTab currentAdminId={admin?.id ?? ''} />}
+              {isSuperAdmin && activeTab === 'bankDetails' && <BankDetailsTab />}
+              {isSuperAdmin && activeTab === 'weeklyPayouts' && <WeeklyPayoutsTab />}
+              {isSuperAdmin && activeTab === 'revenue' && <RevenueTab />}
+              {isSuperAdmin && activeTab === 'enquiries' && <EnquiriesTab />}
+              {isSuperAdmin && activeTab === 'articles' && <ArticlesTab />}
+            </motion.div>
           </AnimatePresence>
         </main>
-
-        {/*
-          Placed at page root, after </main>, deliberately.
-          The existing article-delete and payout modals sit INSIDE the tab
-          <AnimatePresence mode="wait">, so they animate out with the tab
-          behind them. That is a latent bug; not inheriting it here.
-        */}
-        {utrModal && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => setUtrModal(null)}
-          >
-            <div
-              className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-lg max-w-sm w-full mx-4"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h3 className="text-sm font-semibold text-neutral-900 mb-1">Record this payout as paid</h3>
-              <p className="text-xs text-neutral-500 mb-4">
-                ₹{utrModal.payout.netPayable?.toLocaleString()} to{' '}
-                {utrModal.payout.doctorId
-                  ? `${utrModal.payout.doctorId.firstName} ${utrModal.payout.doctorId.lastName || ''}`
-                  : 'this therapist'}
-                {utrModal.payout.bankSnapshot?.accountNumberLast4
-                  ? ` · ${utrModal.payout.bankSnapshot.ifsc} ••••${utrModal.payout.bankSnapshot.accountNumberLast4}`
-                  : ''}
-              </p>
-
-              <label className="block text-xs font-semibold text-neutral-700 mb-1.5">
-                Transfer reference (UTR)
-              </label>
-              <input
-                value={utrValue}
-                onChange={(e) => setUtrValue(e.target.value)}
-                placeholder="e.g. N123456789012345"
-                className="w-full p-3 text-xs font-mono bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-[#0097b2] focus:ring-1 focus:ring-[#0097b2]"
-              />
-              <p className="text-[11px] text-neutral-400 mt-1.5">
-                Make the transfer in your bank first, then paste its reference here. This is what the payout is reconciled against.
-              </p>
-
-              <div className="flex items-center justify-end gap-2 mt-5">
-                <button
-                  onClick={() => setUtrModal(null)}
-                  className="text-xs font-semibold text-neutral-500 px-3 py-2"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    markPaidMutation.mutate(
-                      { payoutId: utrModal.payout._id, transferReference: utrValue },
-                      { onSuccess: () => { setUtrModal(null); setUtrValue(''); } }
-                    );
-                  }}
-                  disabled={markPaidMutation.isPending || !utrValue.trim()}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg disabled:opacity-50"
-                >
-                  {markPaidMutation.isPending
-                    ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    : <FiCheck size={14} />}
-                  Confirm paid
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {bankRejectModal && (
-          <div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => setBankRejectModal(null)}
-          >
-            <div
-              className="bg-white p-6 rounded-2xl border border-neutral-100 shadow-lg max-w-sm w-full mx-4"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <h3 className="text-sm font-semibold text-neutral-900 mb-1">Reject these bank details</h3>
-              <p className="text-xs text-neutral-500 mb-4">
-                {bankRejectModal.submission.name} will see this and can resubmit.
-              </p>
-              <label className="block text-xs font-semibold text-neutral-700 mb-1.5">What needs correcting?</label>
-              <textarea
-                value={bankRejectReason}
-                onChange={(e) => setBankRejectReason(e.target.value)}
-                placeholder="e.g. The account holder name does not match your registered name"
-                className="w-full p-3 text-xs bg-neutral-50 rounded-lg border border-neutral-200 focus:outline-none focus:border-red-400 focus:ring-1 focus:ring-red-400 min-h-[80px]"
-              />
-              <div className="flex items-center justify-end gap-2 mt-5">
-                <button onClick={() => setBankRejectModal(null)} className="text-xs font-semibold text-neutral-500 px-3 py-2">
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    rejectBankMutation.mutate(
-                      { doctorId: bankRejectModal.submission.doctorId, reason: bankRejectReason },
-                      { onSuccess: () => { setBankRejectModal(null); setBankRejectReason(''); } }
-                    );
-                  }}
-                  disabled={rejectBankMutation.isPending || !bankRejectReason.trim()}
-                  className="flex items-center gap-1.5 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg disabled:opacity-50"
-                >
-                  {rejectBankMutation.isPending
-                    ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                    : <FiX size={14} />}
-                  Reject
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
       </div>
 
-      {/* ── Document Viewer Modal ────────────────────────────────────────── */}
-      <AnimatePresence>
-        {viewingDocument && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => setViewingDocument(null)}>
-            <div className="relative w-full h-full max-w-5xl mx-auto p-4 flex flex-col" onClick={(e) => e.stopPropagation()}>
-              
-              {/* Header */}
-              <div className="flex justify-between items-center mb-4 text-white">
-                <h3 className="text-sm font-semibold truncate max-w-2xl">{viewingDocument.fileName}</h3>
-                <div className="flex items-center gap-3">
-                  <a
-                    href={viewingDocument.url}
-                    download={viewingDocument.fileName}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-3 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg transition-colors flex items-center gap-2 text-xs font-medium"
-                  >
-                    Download
-                  </a>
-                  <button
-                    onClick={() => setViewingDocument(null)}
-                    className="p-1.5 hover:bg-white/10 rounded-full transition-colors"
-                  >
-                    <FiX size={18} />
-                  </button>
-                </div>
-              </div>
-
-              {/* Content Area */}
-              <div className="flex-1 flex items-center justify-center rounded-2xl overflow-hidden bg-white">
-                {viewingDocument.fileType === 'application/pdf' ? (
-                  <iframe
-                    src={`https://docs.google.com/viewer?url=${encodeURIComponent(viewingDocument.url)}&embedded=true`}
-                    className="w-full h-full"
-                    title={viewingDocument.fileName}
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center p-4">
-                    <img
-                      src={viewingDocument.url}
-                      alt={viewingDocument.fileName}
-                      className="max-w-full max-h-full object-contain"
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-      </AnimatePresence>
+      <ChangePasswordModal open={changingPassword} onClose={() => setChangingPassword(false)} />
     </div>
   );
 };

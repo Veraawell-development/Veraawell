@@ -190,6 +190,9 @@ router.post('/reset-password/:token', async (req, res) => {
     // Update password and clear reset token. The save stamps
     // passwordChangedAt, which retires every admin token issued before now.
     admin.password = password;
+    // They chose this one themselves, through their own inbox.
+    admin.isPasswordChanged = true;
+    admin.mustChangePassword = false;
     await admin.clearResetToken();
     await admin.logActivity('password_reset_completed', { timestamp: new Date() });
 
@@ -338,13 +341,15 @@ router.post('/login', authLimiter, async (req, res) => {
     res.json({
       message: 'Login successful',
       token: token,  // Added for frontend localStorage
+      // Top level, and only for a password someone else chose.
+      requiresPasswordChange: admin.mustChangePassword === true,
       admin: {
         id: admin._id,
         email: admin.email,
         role: admin.role,
         firstName: admin.firstName,
         lastName: admin.lastName,
-        requiresPasswordChange: !admin.isPasswordChanged
+        requiresPasswordChange: admin.mustChangePassword === true
       }
     });
   } catch (error) {
@@ -375,6 +380,7 @@ router.post('/change-password', verifyAdminToken, async (req, res) => {
     // password change.
     admin.password = newPassword;
     admin.isPasswordChanged = true;
+    admin.mustChangePassword = false;
     await admin.save();
 
     // Log activity
@@ -431,7 +437,8 @@ router.post('/create', verifyAdminToken, verifySuperAdmin, async (req, res) => {
       approvedBy: req.admin._id,
       approvedAt: new Date(),
       isVerified: true,
-      isPasswordChanged: false
+      isPasswordChanged: false,
+      mustChangePassword: true
     });
 
     await newAdmin.save();
@@ -498,6 +505,8 @@ router.get('/status', verifyAdminToken, async (req, res) => {
   try {
     const admin = req.admin;
     res.json({
+      // So a reload cannot skip the forced change.
+      requiresPasswordChange: admin.mustChangePassword === true,
       admin: {
         id: admin._id,
         email: admin.email,

@@ -73,6 +73,15 @@ const userSchema = new mongoose.Schema({
     default: null
   },
   isPasswordChanged: { type: Boolean, default: false },
+  /**
+   * Set only when someone else chose this account's password — an admin
+   * created by a super admin, or the bootstrap admin — and cleared when the
+   * owner changes it. `isPasswordChanged` cannot carry that meaning: it
+   * defaults to false and was stored as false on every account, so reading
+   * it as "must change" forced every admin who picked their own password to
+   * change it on each sign-in.
+   */
+  mustChangePassword: { type: Boolean, default: false },
   // When the password last changed, truncated to the whole second. Tokens
   // carry `iat` in whole seconds, and verifyToken/verifyAdminToken refuse a
   // token issued before this instant — that is what makes a password reset
@@ -454,7 +463,8 @@ userSchema.statics.createFirstAdmin = async function (adminData) {
   const admin = new this({
     ...adminData,
     role: 'super_admin',
-    isPasswordChanged: false // Force password change on first login
+    isPasswordChanged: false,
+    mustChangePassword: true // a password someone else chose
   });
   return admin.save();
 };
