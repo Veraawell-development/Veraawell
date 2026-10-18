@@ -132,18 +132,21 @@ const CareerPage: React.FC = () => {
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
+    // Clear the input so choosing the same file again still fires onChange.
+    e.target.value = '';
 
     // Validate file types and sizes
+    const problems: string[] = [];
     const validFiles = files.filter(file => {
       const validTypes = ['application/pdf', 'image/jpeg', 'image/jpg', 'image/png'];
       const maxSize = 5 * 1024 * 1024; // 5MB
 
       if (!validTypes.includes(file.type)) {
-        setError(`${file.name} is not a valid file type. Only PDF, JPG, and PNG are allowed.`);
+        problems.push(`${file.name} is not a valid file type. Only PDF, JPG, and PNG are allowed.`);
         return false;
       }
       if (file.size > maxSize) {
-        setError(`${file.name} is too large. Maximum size is 5MB.`);
+        problems.push(`${file.name} is too large. Maximum size is 5MB.`);
         return false;
       }
       return true;
@@ -157,7 +160,36 @@ const CareerPage: React.FC = () => {
     }
 
     setDocuments(prev => [...prev, ...validFiles.map(file => ({ file, uploading: false }))]);
-    setError('');
+    // Only clear the message when every file was accepted. This used to call
+    // setError('') unconditionally at the end, wiping the "not a valid file
+    // type" message set a moment earlier — the file just silently vanished.
+    setError(problems.join(' '));
+  };
+
+  /**
+   * The checks for one step, so a problem is reported where it was made.
+   * "Next Step" used to advance unconditionally, and a blank name or a typo
+   * in the email only surfaced at the end — or, for the phone number, as a
+   * server error after the documents had already been uploaded.
+   */
+  const stepError = (step: number): string => {
+    if (step === 1) {
+      if (!formData.firstName.trim()) return 'Please enter your first name.';
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) return 'Please enter a valid email address.';
+      const digits = formData.phoneNo.replace(/\D/g, '');
+      if (digits.length < 10 || digits.length > 15) return 'Please enter a valid phone number (10 to 15 digits).';
+    }
+    if (step === 2) {
+      if (!formData.jobRole) return 'Please select your job role.';
+      if (!formData.specialization) return 'Please select your specialization.';
+    }
+    return '';
+  };
+
+  const goToNextStep = () => {
+    const problem = stepError(currentStep);
+    setError(problem);
+    if (!problem) setCurrentStep(prev => prev + 1);
   };
 
   const uploadSingleMutation = useMutation({
@@ -318,8 +350,21 @@ const CareerPage: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Enter in a step 1 or 2 field submits the form. That used to run the
+    // final submission from the first step; it now means "next".
+    if (currentStep < 3) {
+      goToNextStep();
+      return;
+    }
     setError('');
     setSuccess('');
+
+    // A step's fields can be edited after leaving it via Back.
+    const earlier = stepError(1) || stepError(2);
+    if (earlier) {
+      setError(earlier);
+      return;
+    }
 
     // Validation
     if (!formData.firstName || !formData.email || !formData.phoneNo || !formData.password) {
@@ -932,7 +977,7 @@ const CareerPage: React.FC = () => {
                       {currentStep > 1 ? (
                         <button
                           type="button"
-                          onClick={() => setCurrentStep(prev => prev - 1)}
+                          onClick={() => { setError(''); setCurrentStep(prev => prev - 1); }}
                           className="px-6 py-3 rounded-full font-medium text-[var(--text-2)] hover:text-[var(--text)] transition-colors"
                         >
                           ← Back
@@ -942,7 +987,7 @@ const CareerPage: React.FC = () => {
                       {currentStep < 3 ? (
                         <button
                           type="button"
-                          onClick={() => setCurrentStep(prev => prev + 1)}
+                          onClick={goToNextStep}
                           className="px-8 py-3 rounded-full bg-[var(--teal)] text-white font-medium shadow-md hover:shadow-lg transition-all"
                         >
                           Next Step →

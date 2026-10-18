@@ -9,18 +9,34 @@ const { isProduction } = require('../config/environment');
 
 const logger = createLogger('ERROR');
 
+/** The status the handler below will answer with, decided once for logging. */
+function statusFor(err) {
+  if (err instanceof AppError) return err.statusCode;
+  if (err.name === 'JsonWebTokenError' || err.name === 'TokenExpiredError') return 401;
+  if (err.name === 'ValidationError') return 400;
+  if (err.code === 11000) return 409;
+  return err.statusCode || 500;
+}
+
 /**
  * Global error handler
  */
 function errorHandler(err, req, res, next) {
-  // Log error
-  logger.error('Error occurred', {
-    message: err.message,
-    stack: isProduction() ? undefined : err.stack,
-    url: req.originalUrl,
-    method: req.method,
-    ip: req.ip
-  });
+  // A 4xx is the request's problem, not the server's, and most are routine:
+  // every anonymous page view asks /api/protected and gets a 401. Those were
+  // logged at ERROR with a full stack, so production logs were mostly noise
+  // and a real failure was hard to find among them. Client errors are now a
+  // one-line warning; only 5xx (and anything unexpected) is logged as an error.
+  const status = statusFor(err);
+  const context = { message: err.message, status, url: req.originalUrl, method: req.method, ip: req.ip };
+  if (status >= 500) {
+    logger.error('Error occurred', { ...context, stack: isProduction() ? undefined : err.stack });
+  } else if (status === 401) {
+    // "Not signed in" — the normal answer for every anonymous visitor.
+    logger.debug('Unauthenticated request', context);
+  } else {
+    logger.warn('Request refused', context);
+  }
 
   // Handle known application errors.
   //
