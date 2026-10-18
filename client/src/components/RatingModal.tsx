@@ -30,8 +30,9 @@ const RatingModal: React.FC<RatingModalProps> = ({
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [error, setError] = useState('');
 
-    if (!isOpen) return null;
-
+    // Every hook before the early return: useMutation used to sit after it,
+    // so opening the form inside an already-mounted modal (Rate Session in
+    // the session details) changed the hook count and crashed the page.
     const submitReviewMutation = useMutation({
         mutationFn: async (payload: any) => {
             const res = await fetch(`${API_BASE_URL}/reviews/submit`, {
@@ -47,6 +48,8 @@ const RatingModal: React.FC<RatingModalProps> = ({
             return res.json();
         }
     });
+
+    if (!isOpen) return null;
 
     const handleSubmit = async () => {
         if (!sessionId) {
