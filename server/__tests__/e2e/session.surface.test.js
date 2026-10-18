@@ -393,34 +393,36 @@ describe('TURN credentials', () => {
 });
 
 describe('completing a session', () => {
-  test('a session cannot be completed before it has started', async () => {
+  // POST /complete no longer completes anything: a session ends when its time
+  // is up or when both people agree (docs/SESSION_RULES.md, D8). It stays,
+  // answering 200, for apps still open from before that change.
+  test('a session before its start is left untouched', async () => {
     const s = await makeSession({ startsAt: new Date(Date.now() + 48 * 3600 * 1000) });
     const res = await call('post', `/api/sessions/${s._id}/complete`, doctorA, {});
-    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBe(200);
     expect((await Session.findById(s._id)).status).toBe('scheduled');
   });
 
-  test('a started session completes, and completing twice is a no-op', async () => {
+  test('a started session is not completed by one party, however many times they ask', async () => {
     const s = await makeSession({ startsAt: new Date(Date.now() - 90 * 60 * 1000) });
 
     const first = await call('post', `/api/sessions/${s._id}/complete`, doctorA, {});
     expect(first.status).toBe(200);
-    expect((await Session.findById(s._id)).status).toBe('completed');
+    expect(first.body.session.status).toBe('scheduled');
 
     const second = await call('post', `/api/sessions/${s._id}/complete`, doctorA, {});
     expect(second.status).toBe(200);
-    expect((await Session.findById(s._id)).status).toBe('completed');
+    expect((await Session.findById(s._id)).status).toBe('scheduled');
   });
 
-  test('completing after cancelling is a 409 state conflict', async () => {
-    // Cancellation is only allowed before the session starts, so this uses a
-    // future session — the same shape as completeSession.idempotency.test.js.
+  test('after cancelling it reports the cancellation and changes nothing', async () => {
     const s = await makeSession({ startsAt: new Date(Date.now() + 48 * 3600 * 1000) });
     const cancelled = await call('post', `/api/sessions/${s._id}/cancel`, patientA, {});
     expect(cancelled.status).toBe(200);
 
     const res = await call('post', `/api/sessions/${s._id}/complete`, doctorA, {});
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(200);
+    expect(res.body.session.status).toBe('cancelled');
     expect((await Session.findById(s._id)).status).toBe('cancelled');
   });
 });

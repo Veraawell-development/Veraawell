@@ -2,8 +2,8 @@
   "_comment": "A RATCHET, not a target. Regenerate with: node scripts/check-coverage.js --update. Values may only rise; a drop fails npm run test:coverage.",
   "_recorded": "2026-10-18",
   "_total": {
-    "statements": 84.92,
-    "branches": 74.4
+    "statements": 85.17,
+    "branches": 74.76
   },
   "files": {
     "authz/actor.js": {
@@ -48,7 +48,7 @@
     },
     "authz/policies/session.policy.js": {
       "statements": 90.62,
-      "branches": 73.52
+      "branches": 76.47
     },
     "config/auth.js": {
       "statements": 82.05,
@@ -151,8 +151,8 @@
       "branches": 74.03
     },
     "controllers/session.controller.js": {
-      "statements": 84.29,
-      "branches": 68.02
+      "statements": 84.57,
+      "branches": 67.73
     },
     "controllers/sessionReport.controller.js": {
       "statements": 95.45,
@@ -355,28 +355,32 @@
       "branches": 100
     },
     "services/scheduler.js": {
-      "statements": 90.71,
-      "branches": 88.5
+      "statements": 90.81,
+      "branches": 89.01
     },
     "services/session.service.js": {
       "statements": 86.11,
       "branches": 76.47
+    },
+    "services/sessionEnding.js": {
+      "statements": 92.7,
+      "branches": 84.72
     },
     "services/sessionPayment.js": {
       "statements": 81.06,
       "branches": 67.56
     },
     "services/sessionPolicy.js": {
-      "statements": 99.08,
-      "branches": 97.84
+      "statements": 99.16,
+      "branches": 97.93
     },
     "services/sessionRefund.js": {
       "statements": 96.87,
       "branches": 75
     },
     "services/sessionState.js": {
-      "statements": 95.57,
-      "branches": 89.84
+      "statements": 95.9,
+      "branches": 90.57
     },
     "services/sessionTime.js": {
       "statements": 72.5,
@@ -384,7 +388,7 @@
     },
     "services/sessionTransition.js": {
       "statements": 86.48,
-      "branches": 88.57
+      "branches": 91.42
     },
     "utils/assessmentScoring.js": {
       "statements": 95.71,
@@ -419,8 +423,8 @@
       "branches": 100
     },
     "utils/zonedTime.js": {
-      "statements": 87.14,
-      "branches": 68.62
+      "statements": 91.42,
+      "branches": 72.54
     }
   }
 }

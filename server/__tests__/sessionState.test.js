@@ -146,14 +146,26 @@ describe('the verified bugs are now unrepresentable', () => {
       startsAt: new Date(NOW.getTime() + 7 * 24 * 3600 * 1000),
       endsAt: new Date(NOW.getTime() + 7 * 24 * 3600 * 1000 + 3600 * 1000)
     });
-    expect(() => planTransition({ session: future, event: EVENT.COMPLETE, actor: ACTOR.DOCTOR, now: NOW }))
+    expect(() => planTransition({ session: future, event: EVENT.COMPLETE, actor: ACTOR.SYSTEM, now: NOW }))
       .toThrow(/cannot be completed before its scheduled start/);
   });
 
   test('...but can be completed once it has started', () => {
     const started = make(STATUS.SCHEDULED, PAYMENT.PAID);
-    const plan = planTransition({ session: started, event: EVENT.COMPLETE, actor: ACTOR.DOCTOR, now: NOW });
+    const plan = planTransition({ session: started, event: EVENT.COMPLETE, actor: ACTOR.SYSTEM, now: NOW });
     expect(plan.set.status).toBe(STATUS.COMPLETED);
+  });
+
+  test('neither party can complete a session on their own', () => {
+    // Pressing End alone, a minute in, used to complete the session: the
+    // doctor was paid and the patient lost it (docs/SESSION_RULES.md, D8).
+    for (const status of [STATUS.SCHEDULED, STATUS.ACTIVE]) {
+      for (const actor of [ACTOR.PATIENT, ACTOR.DOCTOR]) {
+        const s = make(status, PAYMENT.PAID);
+        expect(() => planTransition({ session: s, event: EVENT.COMPLETE, actor, now: NOW }))
+          .toThrow(IllegalTransitionError);
+      }
+    }
   });
 
   test('paid -> refunded directly is illegal; it must claim refund_pending first', () => {
@@ -180,7 +192,7 @@ describe('idempotency — the behaviour the existing tests assert', () => {
 
   test('completing an already-completed session is an accepted no-op', () => {
     const s = make(STATUS.COMPLETED, PAYMENT.PAID);
-    const plan = planTransition({ session: s, event: EVENT.COMPLETE, actor: ACTOR.DOCTOR, now: NOW });
+    const plan = planTransition({ session: s, event: EVENT.COMPLETE, actor: ACTOR.SYSTEM, now: NOW });
     expect(plan.kind).toBe('noop');
   });
 
@@ -200,6 +212,49 @@ describe('idempotency — the behaviour the existing tests assert', () => {
     const s = make(STATUS.CANCELLED, PAYMENT.REFUNDED);
     const plan = planTransition({ session: s, event: EVENT.REFUND_OBSERVED, actor: ACTOR.RAZORPAY, now: NOW });
     expect(plan.kind).toBe('noop');
+  });
+});
+
+describe('ending early by agreement (CONSENT_END)', () => {
+  const asked = (by, minutesAgo, status = STATUS.ACTIVE) => make(status, PAYMENT.PAID, {
+    endConsent: { requestedBy: by, requestedAt: new Date(NOW.getTime() - minutesAgo * 60 * 1000), agreedAt: null }
+  });
+
+  test("the other person's yes completes the session, from scheduled or active", () => {
+    for (const status of [STATUS.SCHEDULED, STATUS.ACTIVE]) {
+      const plan = planTransition({ session: asked('patient', 1, status), event: EVENT.CONSENT_END, actor: ACTOR.DOCTOR, now: NOW });
+      expect(plan.set.status).toBe(STATUS.COMPLETED);
+      expect(plan.set.paymentStatus).toBeUndefined();
+    }
+    const byDoctor = planTransition({ session: asked('doctor', 0), event: EVENT.CONSENT_END, actor: ACTOR.PATIENT, now: NOW });
+    expect(byDoctor.set.status).toBe(STATUS.COMPLETED);
+  });
+
+  test('nobody can agree to their own request', () => {
+    expect(() => planTransition({ session: asked('patient', 0), event: EVENT.CONSENT_END, actor: ACTOR.PATIENT, now: NOW }))
+      .toThrow(/other person has to agree/);
+  });
+
+  test('a lapsed request ends nothing', () => {
+    expect(() => planTransition({ session: asked('patient', 3), event: EVENT.CONSENT_END, actor: ACTOR.DOCTOR, now: NOW }))
+      .toThrow(/expired/);
+  });
+
+  test('without a request there is nothing to agree to', () => {
+    const s = make(STATUS.ACTIVE, PAYMENT.PAID);
+    expect(() => planTransition({ session: s, event: EVENT.CONSENT_END, actor: ACTOR.DOCTOR, now: NOW }))
+      .toThrow(/Nobody has asked/);
+  });
+
+  test('only the two parties can end it this way; a repeat after completion is a no-op', () => {
+    for (const actor of [ACTOR.ADMIN, ACTOR.SYSTEM, ACTOR.RAZORPAY]) {
+      expect(() => planTransition({ session: asked('patient', 0), event: EVENT.CONSENT_END, actor, now: NOW }))
+        .toThrow(IllegalTransitionError);
+    }
+    const done = make(STATUS.COMPLETED, PAYMENT.PAID);
+    expect(planTransition({ session: done, event: EVENT.CONSENT_END, actor: ACTOR.PATIENT, now: NOW }).kind).toBe('noop');
+    expect(() => planTransition({ session: make(STATUS.CANCELLED, PAYMENT.REFUNDED), event: EVENT.CONSENT_END, actor: ACTOR.PATIENT, now: NOW }))
+      .toThrow(IllegalTransitionError);
   });
 });
 
@@ -227,7 +282,7 @@ describe('late capture', () => {
 describe('guardFilter is the concurrency primitive', () => {
   test('it pins the exact pre-state the plan was computed from', () => {
     const s = make(STATUS.SCHEDULED, PAYMENT.PAID);
-    const plan = planTransition({ session: s, event: EVENT.COMPLETE, actor: ACTOR.DOCTOR, now: NOW });
+    const plan = planTransition({ session: s, event: EVENT.COMPLETE, actor: ACTOR.SYSTEM, now: NOW });
     expect(guardFilter(plan)).toEqual({ status: STATUS.SCHEDULED, paymentStatus: PAYMENT.PAID });
   });
 });

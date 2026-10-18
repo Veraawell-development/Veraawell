@@ -13,6 +13,11 @@ import { useQuery } from '@tanstack/react-query';
 const INSTANT_ACCEPT_WINDOW_MS = 2 * 60 * 1000;
 /** After a doctor's "delay", how long past the promised time before the request counts as missed. */
 const DELAY_GRACE_MS = 3 * 60 * 1000;
+/** Countdown warnings, in seconds left. */
+const TIME_WARNINGS: Array<[number, string]> = [[300, '5 minutes remaining'], [120, '2 minutes remaining'], [60, '1 minute remaining']];
+
+/** A time of day in IST, e.g. "10:40 am" — sessions are booked and shown in IST. */
+const istTime = (d: Date) => d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' });
 
 const VideoCallRoom: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -34,8 +39,16 @@ const VideoCallRoom: React.FC = () => {
   const sessionDataRef = useRef<any>(null);
   /** The other participant was in the room at least once — the call happened. */
   const metRemoteRef = useRef(false);
-  /** Latest endCall, for handlers registered once at socket creation. */
-  const endCallRef = useRef<(reason?: string) => void>(() => {});
+  /** Latest finishCall, for handlers registered once at socket creation. */
+  const finishCallRef = useRef<(reason?: string) => void>(() => {});
+  /** The session is over (time up / both agreed) and we are on our way out. */
+  const finishingRef = useRef(false);
+  /** When the session ends, from the server, and how far our clock is from the server's. */
+  const endsAtRef = useRef<Date | null>(null);
+  const clockOffsetRef = useRef(0);
+  const warnedRef = useRef<Set<number>>(new Set());
+  /** "Your therapist" / "Your patient", for messages from socket handlers. */
+  const otherPartyRef = useRef('The other person');
 
   const [localStream, setLocalStream] = useState<MediaStream | null>(null);
   const [isVideoEnabled, setIsVideoEnabled] = useState(true);
@@ -48,10 +61,11 @@ const VideoCallRoom: React.FC = () => {
   // reconnect. (A transient "xhr post error" used to be shown as a fatal
   // "Failed to connect to video call server".)
   const [isReconnecting, setIsReconnecting] = useState(false);
-  // Remaining seconds from the server's timer-sync. null until the first
-  // sync arrives (the server only starts the clock once both sides join), so
-  // the header doesn't flash a red 00:00 on entry.
+  // Seconds left, counted locally towards the end time the server sends in
+  // timer-sync. null until the first sync arrives, so the header doesn't
+  // flash a red 00:00 on entry.
   const [duration, setDuration] = useState<number | null>(null);
+  const [endsAt, setEndsAt] = useState<Date | null>(null);
   const [connectionState, setConnectionState] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [remoteUserJoined, setRemoteUserJoined] = useState(false);
   const [connectionQuality, setConnectionQuality] = useState<'excellent' | 'good' | 'poor' | 'disconnected'>('excellent');
@@ -332,6 +346,24 @@ const VideoCallRoom: React.FC = () => {
     if (remoteUserJoined) metRemoteRef.current = true;
   }, [remoteUserJoined]);
 
+  // Count down to the server's end time, once a second, on the server's clock.
+  useEffect(() => {
+    if (!endsAt) return;
+    const tick = () => {
+      const left = Math.max(0, Math.round((endsAt.getTime() - (Date.now() + clockOffsetRef.current)) / 1000));
+      setDuration(left);
+      for (const [at, message] of TIME_WARNINGS) {
+        if (left <= at && left > at - 30 && !warnedRef.current.has(at)) {
+          warnedRef.current.add(at);
+          showQualityMessage(message);
+        }
+      }
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [endsAt]);
+
   useEffect(() => {
     if (sessionData && !socketRef.current) {
       initializeCall();
@@ -406,26 +438,25 @@ const VideoCallRoom: React.FC = () => {
       // Server-synchronised session clock. Registered here rather than once
       // the peer connection is up: the server sends the current value the
       // moment we join a room the other side already opened.
-      socket.on('timer-sync', (data: { remainingSeconds: number }) => {
-        setDuration(data.remainingSeconds);
-
-        // Warnings based on server-synchronized time
-        if (data.remainingSeconds === 300) {
-          setQualityMessage('5 minutes remaining');
-          setTimeout(() => setQualityMessage(null), 3000);
-        } else if (data.remainingSeconds === 120) {
-          setQualityMessage(' 2 minutes remaining');
-          setTimeout(() => setQualityMessage(null), 3000);
-        } else if (data.remainingSeconds === 60) {
-          setQualityMessage(' 1 minute remaining!');
-          setTimeout(() => setQualityMessage(null), 3000);
+      // The server owns the end time (it moves later if the doctor joined
+      // late); we only count down to it, corrected for this device's clock.
+      socket.on('timer-sync', (data: { endsAt?: string; serverNow?: string; remainingSeconds?: number }) => {
+        if (data.endsAt && data.serverNow) {
+          clockOffsetRef.current = new Date(data.serverNow).getTime() - Date.now();
+          const next = new Date(data.endsAt);
+          if (!endsAtRef.current || endsAtRef.current.getTime() !== next.getTime()) {
+            endsAtRef.current = next;
+            setEndsAt(next);
+          }
+        } else if (typeof data.remainingSeconds === 'number') {
+          setDuration(data.remainingSeconds);
         }
       });
 
       socket.on('session-time-up', () => {
-        setQualityMessage(' Time\'s up! Session ending...');
+        setQualityMessage('Time\'s up — thank you.');
         setTimeout(() => {
-          endCallRef.current('timer_expired');
+          finishCallRef.current('time_up');
         }, 2000);
       });
 
@@ -562,26 +593,39 @@ const VideoCallRoom: React.FC = () => {
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = null;
         }
-        toast.error(`${data.role === 'patient' ? 'Patient' : 'Doctor'} has left the session`, { id: 'user-left-session' });
+        const who = data.role === 'patient' ? 'Your patient' : 'Your therapist';
+        const until = endsAtRef.current ? ` They can rejoin until ${istTime(endsAtRef.current)}.` : '';
+        toast(`${who} left the call.${until}`, { id: 'user-left-session', duration: 5000 });
+        setShowConsentModal(false);
         setTimeout(() => setQualityMessage(null), 5000);
       });
 
-      socket.on('request-end-session', (data) => {
-        console.log('[VIDEO-CALL] Request end session from:', data.requestedByRole);
-        setConsentRequester(data.requestedByRole);
+      // Ending early takes both people: the server asks the other side and
+      // ends the session only on their yes (POST /end-request, /end-response).
+      socket.on('request-end-session', (data: { requestedByRole?: string }) => {
+        if (data.requestedByRole === user?.role) return; // our own request, echoed
+        setConsentRequester(data.requestedByRole || null);
         setShowConsentModal(true);
       });
 
-      socket.on('confirm-end-session', (data) => {
-        console.log('[VIDEO-CALL] Confirm end session:', data);
+      socket.on('confirm-end-session', (data: { agree?: boolean; confirmedByRole?: string }) => {
+        if (data.confirmedByRole === user?.role) return; // our own answer, echoed
+        setShowConsentModal(false);
         if (data.agree) {
-          setShowConsentModal(false);
-          endCall('mutual_consent');
+          finishCallRef.current('consent');
         } else {
-          setShowConsentModal(false);
-          setQualityMessage('The other user declined to end the session.');
-          setTimeout(() => setQualityMessage(null), 3000);
+          showQualityMessage(`${otherPartyRef.current} would like to continue.`);
         }
+      });
+
+      socket.on('session-ended', () => {
+        setShowConsentModal(false);
+        finishCallRef.current('consent');
+      });
+
+      socket.on('end-session-error', (data: { message?: string }) => {
+        setShowConsentModal(false);
+        toast.error(data.message || 'Could not end the session.');
       });
 
       socket.on('media-state-change', (data) => {
@@ -611,40 +655,6 @@ const VideoCallRoom: React.FC = () => {
       socket.on('error', (data) => {
         console.error('[VIDEO-CALL]  Socket error:', data.message);
         setError(data.message);
-      });
-
-      socket.on('call-ended', (data) => {
-        console.log('[VIDEO-CALL]  Remote user ended call:', data);
-        // Explicitly close chat sidebar when call ends
-        setShowChat(false);
-
-        const otherUser = data.userName || (user?.role === 'doctor' ? 'Patient' : 'Doctor');
-        toast.error(`${otherUser} has ended the session`, { duration: 4000 });
-
-        // Stop the camera and mic now, not after the 2s notice: the other
-        // side has already gone.
-        cleanup();
-
-        // After 2 seconds, navigate to dashboard with appropriate state
-        setTimeout(async () => {
-          if (user?.role === 'doctor') {
-            navigate('/doctor-dashboard', { state: { pendingReport: buildPendingReport() } });
-          } else {
-            // Patient Side: Mark complete BEFORE navigating, not fire-and-forget —
-            // the dashboard checks server-side status === 'completed' on mount to
-            // decide whether to show the rating modal, so navigating before this
-            // write lands means the modal silently never appears.
-            try {
-              await fetch(`${API_BASE_URL}/sessions/${sessionId}/complete`, {
-                method: 'POST',
-                credentials: 'include'
-              });
-            } catch (e) {
-              console.error('Error marking completion:', e);
-            }
-            navigate('/patient-dashboard', { state: { showRating: true, sessionId } });
-          }
-        }, 2000);
       });
 
       socket.on('session:status-update', (data) => {
@@ -1003,32 +1013,52 @@ const VideoCallRoom: React.FC = () => {
     }
   };
 
-  const requestEndSession = () => {
-    // If the other person has dropped or hasn't joined, instantly force-end
+  /** POST to one of the session's ending endpoints; the body of the reply, or a thrown message. */
+  const postEnding = async (path: string, body?: object) => {
+    const res = await fetch(`${API_BASE_URL}/sessions/${sessionId}/${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: body ? JSON.stringify(body) : undefined
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || 'Could not end the session. Please try again.');
+    return data as { ended?: boolean };
+  };
+
+  // End session: ask the other person. Ending early needs both to agree; with
+  // nobody to ask, the button is Leave instead (see the controls below).
+  const requestEndSession = async () => {
     if (!remoteUserJoined) {
-      endCall('ended_by_user');
+      leaveCall();
       return;
     }
-
-    if (socketRef.current && sessionId && user) {
-      socketRef.current.emit('request-end-session', { sessionId, requestedByRole: user.role });
-      setConsentRequester(user.role);
-      setShowConsentModal(true);
+    if (!sessionId || !user) return;
+    setConsentRequester(user.role);
+    setShowConsentModal(true);
+    try {
+      const data = await postEnding('end-request');
+      if (data.ended) finishCall('consent');
+    } catch (err) {
+      setShowConsentModal(false);
+      toast.error(err instanceof Error ? err.message : 'Could not end the session.');
     }
   };
 
   const cancelEndSessionRequest = () => {
+    // The request lapses on its own after two minutes; nothing to undo.
     setShowConsentModal(false);
     setConsentRequester(null);
   };
 
-  const handleConsentResponse = (agree: boolean) => {
-    if (socketRef.current && sessionId && user) {
-      socketRef.current.emit('confirm-end-session', { sessionId, agree, confirmedByRole: user.role });
-      setShowConsentModal(false);
-      if (agree) {
-        endCall('mutual_consent');
-      }
+  const handleConsentResponse = async (agree: boolean) => {
+    if (!sessionId || !user) return;
+    setShowConsentModal(false);
+    try {
+      const data = await postEnding('end-response', { agree });
+      if (data.ended) finishCall('consent');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not answer the request.');
     }
   };
 
@@ -1043,76 +1073,51 @@ const VideoCallRoom: React.FC = () => {
     };
   };
 
-  // "Back to Dashboard": leave properly rather than just navigating away.
-  // Unlike End, this doesn't complete the session — the user can rejoin.
-  const handleBack = () => {
-    setShowChat(false);
-    leaveRoom();
-    cleanup();
+  /** Off to the dashboard; the doctor's report is due if the call happened. */
+  const goToDashboard = (completed: boolean) => {
     if (user?.role === 'doctor') {
-      // If the call happened, the report is due — same as the normal end path.
       if (metRemoteRef.current) {
         navigate('/doctor-dashboard', { state: { pendingReport: buildPendingReport() } });
       } else {
         navigate('/doctor-dashboard');
       }
+    } else if (completed && metRemoteRef.current) {
+      // The dashboard looks for a completed session awaiting feedback.
+      navigate('/patient-dashboard', { state: { showRating: true, sessionId } });
     } else {
       navigate('/patient-dashboard');
     }
   };
 
-  const endCall = async (reason: string = 'user_action') => {
-    console.log(`[VIDEO-CALL]  Ending call (Reason: ${reason})...`, { role: user?.role, sessionId });
-
-    // Explicitly close chat sidebar
+  // Leave (and "Back to Dashboard"): go, without ending anything. The session
+  // runs until its time is up, and either person can rejoin until then.
+  const leaveCall = () => {
     setShowChat(false);
-
-    // Emit socket event to notify other user
-    if (socketRef.current && sessionId && user) {
-      socketRef.current.emit('call-ended', {
-        sessionId,
-        endedBy: user.role,
-        userName: user.firstName || 'User'
-      });
-      console.log('[VIDEO-CALL]  Emitted call-ended event');
+    if (endsAtRef.current && !finishingRef.current) {
+      toast(`You left the call. You can rejoin until ${istTime(endsAtRef.current)}.`, { id: 'left-call', duration: 5000 });
     }
-
-    // Cleanup immediately for both
+    leaveRoom();
     cleanup();
+    goToDashboard(false);
+  };
+  const handleBack = leaveCall;
 
-    // For doctors: Navigate to dashboard with state to trigger mandatory report
-    if (user?.role === 'doctor') {
-      navigate('/doctor-dashboard', { state: { pendingReport: buildPendingReport() } });
-      return;
-    }
-
-    // For patients: Mark session as completed BEFORE navigating (must be awaited —
-    // see the identical fix/comment on the 'call-ended' socket handler above) and
-    // navigate to dashboard.
-    if (user?.role === 'patient') {
-      if (remoteUserJoined) {
-        try {
-          await fetch(`${API_BASE_URL}/sessions/${sessionId}/complete`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            credentials: 'include'
-          });
-        } catch (e) {
-          console.error('Error marking completion:', e);
-        }
-        navigate('/patient-dashboard', { state: { showRating: true, sessionId } });
-      } else {
-        navigate('/patient-dashboard');
-      }
-    }
+  // The session is over: its time ran out, or both agreed to end it.
+  const finishCall = (reason: string = 'ended') => {
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+    console.log(`[VIDEO-CALL] Session over (${reason})`);
+    setShowChat(false);
+    setShowConsentModal(false);
+    leaveRoom();
+    cleanup();
+    goToDashboard(true);
   };
 
-
-
-
-  endCallRef.current = endCall;
+  finishCallRef.current = finishCall;
 
   const isVoiceMode = sessionData?.callMode === 'Voice Calling';
+  otherPartyRef.current = user?.role === 'patient' ? 'Your therapist' : 'Your patient';
 
   const remoteUserName = remoteUserJoined 
     ? (user?.role === 'patient' 
@@ -1474,7 +1479,7 @@ const VideoCallRoom: React.FC = () => {
 
                         <div className="mt-6 w-full">
                           <button
-                            onClick={() => endCall('user_clicked_end')}
+                            onClick={leaveCall}
                             className="w-full py-3 rounded-xl bg-white/5 text-white/60 hover:text-white hover:bg-white/10 text-sm font-bold transition-colors border border-white/10"
                           >
                             Leave Waiting Room
@@ -1646,10 +1651,10 @@ const VideoCallRoom: React.FC = () => {
 
                   <div className="mt-10">
                     <button
-                      onClick={() => endCall('user_clicked_end')}
+                      onClick={leaveCall}
                       className="px-5 py-2 rounded-full bg-red-500/10 text-red-400 hover:bg-red-500/20 text-sm font-medium transition-colors"
                     >
-                      End Call
+                      Leave
                     </button>
                   </div>
                 </div>
@@ -1702,12 +1707,12 @@ const VideoCallRoom: React.FC = () => {
       {/* Consent Modal */}
       {showConsentModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[100]">
-          <div className="bg-[#18181B] border border-white/10 p-8 rounded-[2rem] max-w-sm w-full mx-4 shadow-2xl shadow-black/50 animate-in fade-in zoom-in-95 duration-200">
-            <h3 className="text-xl font-medium tracking-wide text-white mb-2">End Session?</h3>
+          <div role="dialog" aria-modal="true" aria-labelledby="end-session-title" className="bg-[#18181B] border border-white/10 p-8 rounded-[2rem] max-w-sm w-full mx-4 shadow-2xl shadow-black/50 animate-in fade-in zoom-in-95 duration-200">
+            <h3 id="end-session-title" className="text-xl font-medium tracking-wide text-white mb-2">End the session?</h3>
             <p className="text-white/60 font-light mb-8 leading-relaxed text-sm">
-              {consentRequester === user?.role 
-                ? 'Waiting for the other user to agree...' 
-                : 'The other user has requested to end the session. Do you agree?'}
+              {consentRequester === user?.role
+                ? `Waiting for ${otherPartyRef.current.toLowerCase()} to agree…`
+                : `${otherPartyRef.current} would like to end the session now. Ending it now completes the session.`}
             </p>
             <div className="flex gap-3 justify-end">
               {consentRequester === user?.role ? (
@@ -1715,21 +1720,21 @@ const VideoCallRoom: React.FC = () => {
                   onClick={() => cancelEndSessionRequest()}
                   className="px-5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl font-medium transition-all text-sm"
                 >
-                  Cancel
+                  Keep talking
                 </button>
               ) : (
                 <>
                   <button
-                    onClick={() => handleConsentResponse(false)}
+                    onClick={() => { void handleConsentResponse(false); }}
                     className="px-5 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl font-medium transition-all text-sm"
                   >
-                    No, Stay
+                    Keep going
                   </button>
                   <button
-                    onClick={() => handleConsentResponse(true)}
+                    onClick={() => { void handleConsentResponse(true); }}
                     className="px-5 py-2.5 bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-red-400 rounded-xl font-medium transition-all text-sm"
                   >
-                    Yes, End
+                    End session
                   </button>
                 </>
               )}
@@ -1882,21 +1887,25 @@ const VideoCallRoom: React.FC = () => {
 
         <div className="w-[1px] h-8 bg-white/10 mx-2"></div>
 
-        {/* End Call Button */}
+        {/* End session (asks the other person) — or Leave, when alone */}
         <button
           onClick={() => {
             if (remoteUserJoined) {
-              requestEndSession();
+              void requestEndSession();
             } else {
-              endCall('user_clicked_end');
+              leaveCall();
             }
           }}
-          className="w-16 h-12 rounded-full bg-red-500 hover:bg-red-600 text-white transition-all flex items-center justify-center shadow-[0_0_20px_rgba(239,68,68,0.3)]"
-          title="End call"
+          className="h-12 px-5 rounded-full bg-red-500 hover:bg-red-600 text-white transition-all flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(239,68,68,0.3)]"
+          title={remoteUserJoined
+            ? 'End the session — the other person will be asked to agree'
+            : `Leave for now${endsAt ? ` — you can rejoin until ${istTime(endsAt)}` : ''}`}
+          aria-label={remoteUserJoined ? 'End session' : 'Leave'}
         >
-          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+          <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path d="M12 9c-1.6 0-3.15.25-4.6.72v3.1c0 .39-.23.74-.56.9-.98.49-1.87 1.12-2.66 1.85-.18.18-.43.28-.7.28-.28 0-.53-.11-.71-.29L.29 13.08c-.18-.17-.29-.42-.29-.7 0-.28.11-.53.29-.71C3.34 8.78 7.46 7 12 7s8.66 1.78 11.71 4.67c.18.18.29.43.29.71 0 .28-.11.53-.29.71l-2.48 2.48c-.18.18-.43.29-.71.29-.27 0-.52-.11-.7-.28-.79-.74-1.69-1.36-2.67-1.85-.33-.16-.56-.5-.56-.9v-3.1C15.15 9.25 13.6 9 12 9z" />
           </svg>
+          <span className="hidden sm:inline text-sm font-medium">{remoteUserJoined ? 'End session' : 'Leave'}</span>
         </button>
       </div>
 

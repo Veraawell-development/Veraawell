@@ -473,9 +473,8 @@ describe('the /data fan-out namespace', () => {
 });
 
 describe('the video namespace: full signalling sequence', () => {
-  test('both parties join, exchange offer/answer/ICE, and the doctor ends the call', async () => {
-    // Started five minutes ago: ending a call only completes a session whose
-    // scheduled start has passed (see authz.socket.test.js for the refusal).
+  test('both parties join, exchange offer/answer/ICE, and end the call by agreement', async () => {
+    // Started five minutes ago: the session is under way.
     const session = await paidSession({ paymentId: 'pay_sock_seq', startsAt: new Date(Date.now() - 5 * 60 * 1000) });
     const id = String(session._id);
 
@@ -505,23 +504,146 @@ describe('the video namespace: full signalling sequence', () => {
     patient.emit('ice-candidate', { sessionId: id, candidate: { candidate: 'candidate:1 udp' } });
     await expect(doctorGetsIce).resolves.toBeDefined();
 
-    const ended = waitFor(patient, ['call-ended'], 8000);
-    doctor.emit('call-ended', { sessionId: id });
-    await ended;
+    // Ending takes both people: the patient asks, the doctor agrees.
+    const doctorAsked = waitFor(doctor, ['request-end-session']);
+    patient.emit('request-end-session', { sessionId: id, requestedByRole: 'patient' });
+    expect((await doctorAsked).payload.requestedByRole).toBe('patient');
 
-    // The relay to the peer and the status write are independent; poll rather
-    // than assume an ordering the handler does not promise.
-    let after;
-    const deadline = Date.now() + 5000;
-    do {
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise((r) => { setTimeout(r, 100); });
-      // eslint-disable-next-line no-await-in-loop
-      after = await Session.findById(session._id);
-    } while (after.status !== 'completed' && Date.now() < deadline);
+    const patientHearsYes = waitFor(patient, ['confirm-end-session']);
+    const patientHearsEnd = waitFor(patient, ['session-ended']);
+    doctor.emit('confirm-end-session', { sessionId: id, agree: true, confirmedByRole: 'doctor' });
+    expect((await patientHearsYes).payload.agree).toBe(true);
+    expect((await patientHearsEnd).payload.reason).toBe('consent');
 
+    const after = await Session.findById(session._id).lean();
     expect(after.status).toBe('completed');
     expect(after.callStatus).toBe('completed');
+    expect(after.outcome.code).toBe('ended_by_consent');
+    expect(after.outcome.by).toBe('doctor');
+    expect(after.attendance.every((a) => a.leftAt)).toBe(true);
+  });
+
+  test('leaving alone ends nothing, and the other person is told', async () => {
+    const session = await paidSession({ paymentId: 'pay_sock_leave', startsAt: new Date(Date.now() - 5 * 60 * 1000) });
+    const id = String(session._id);
+    const patient = await connect(tokenFor(f.patientA));
+    const doctor = await connect(tokenFor(f.doctorA));
+    patient.emit('join-room', { sessionId: id });
+    await waitFor(patient, ['room-joined']);
+    doctor.emit('join-room', { sessionId: id });
+    await waitFor(doctor, ['room-joined']);
+
+    const patientSeesLeave = waitFor(patient, ['user-left']);
+    doctor.emit('call-ended', { sessionId: id });
+    expect((await patientSeesLeave).payload.role).toBe('doctor');
+    await new Promise((r) => { setTimeout(r, 300); });
+    const after = await Session.findById(session._id).lean();
+    expect(after.status).toBe('scheduled');
+
+    // Alone now: asking to end is refused — with nobody to ask, it's Leave.
+    const refused = waitFor(patient, ['end-session-error']);
+    patient.emit('request-end-session', { sessionId: id });
+    expect((await refused).payload.message).toMatch(/isn't in the call/);
+  });
+
+  test('a decline keeps the call going', async () => {
+    const session = await paidSession({ paymentId: 'pay_sock_decline', startsAt: new Date(Date.now() - 5 * 60 * 1000) });
+    const id = String(session._id);
+    const patient = await connect(tokenFor(f.patientA));
+    const doctor = await connect(tokenFor(f.doctorA));
+    patient.emit('join-room', { sessionId: id });
+    await waitFor(patient, ['room-joined']);
+    doctor.emit('join-room', { sessionId: id });
+    await waitFor(doctor, ['room-joined']);
+
+    const asked = waitFor(patient, ['request-end-session']);
+    doctor.emit('request-end-session', { sessionId: id });
+    await asked;
+    const doctorHearsNo = waitFor(doctor, ['confirm-end-session']);
+    patient.emit('confirm-end-session', { sessionId: id, agree: false });
+    expect((await doctorHearsNo).payload.agree).toBe(false);
+
+    const after = await Session.findById(session._id).lean();
+    expect(after.status).toBe('scheduled');
+    expect(after.endConsent.requestedBy).toBeNull();
+  });
+
+  test('the clock counts down to the stored end, and a restart does not reset it', async () => {
+    const startsAt = new Date(Date.now() - 5 * 60 * 1000);
+    const session = await paidSession({ paymentId: 'pay_sock_clock', startsAt, duration: 20 });
+    const id = String(session._id);
+    const endsAt = new Date(startsAt.getTime() + 20 * 60 * 1000);
+
+    const patient = await connect(tokenFor(f.patientA));
+    const firstSync = waitFor(patient, ['timer-sync']);
+    patient.emit('join-room', { sessionId: id });
+    const { payload } = await firstSync;
+    expect(new Date(payload.endsAt)).toEqual(endsAt);
+    expect(payload.serverNow).toBeDefined();
+    // Older apps still read remainingSeconds: about 15 minutes left.
+    expect(payload.remainingSeconds).toBeGreaterThan(14 * 60);
+    expect(payload.remainingSeconds).toBeLessThanOrEqual(15 * 60);
+
+    // Leave and come back: same end, not a fresh 20 minutes.
+    patient.close();
+    await new Promise((r) => { setTimeout(r, 300); });
+    const again = await connect(tokenFor(f.patientA));
+    const secondSync = waitFor(again, ['timer-sync']);
+    again.emit('join-room', { sessionId: id });
+    expect(new Date((await secondSync).payload.endsAt)).toEqual(endsAt);
+  });
+
+  test("time up completes a session both people attended, and says so", async () => {
+    // Ended a second ago, both having been in from the start (a doctor
+    // joining only now would be late, and the end would move to give the
+    // patient their full minutes).
+    const startsAt = new Date(Date.now() - 20 * 60 * 1000 - 1000);
+    const session = await paidSession({
+      paymentId: 'pay_sock_timeup', startsAt, duration: 20,
+      doctorJoined: true, doctorJoinedAt: startsAt, patientJoined: true, patientJoinedAt: startsAt
+    });
+    const id = String(session._id);
+    const patient = await connect(tokenFor(f.patientA));
+    const doctor = await connect(tokenFor(f.doctorA));
+    patient.emit('join-room', { sessionId: id });
+    await waitFor(patient, ['room-joined']);
+    const timeUp = waitFor(patient, ['session-time-up'], 5000);
+    doctor.emit('join-room', { sessionId: id });
+    await timeUp;
+
+    const after = await Session.findById(session._id).lean();
+    expect(after.status).toBe('completed');
+    expect(after.callStatus).toBe('completed');
+  });
+
+  test('a doctor joining late moves the end for everyone in the room', async () => {
+    const startsAt = new Date(Date.now() - 5 * 60 * 1000);
+    const session = await paidSession({ paymentId: 'pay_sock_late_doc', startsAt, duration: 20 });
+    const id = String(session._id);
+    const patient = await connect(tokenFor(f.patientA));
+    patient.emit('join-room', { sessionId: id });
+    await waitFor(patient, ['room-joined']);
+
+    const doctor = await connect(tokenFor(f.doctorA));
+    const moved = new Promise((resolve) => {
+      patient.on('timer-sync', (p) => { if (new Date(p.endsAt) > new Date(startsAt.getTime() + 20 * 60 * 1000)) resolve(p); });
+    });
+    const joinedAt = Date.now();
+    doctor.emit('join-room', { sessionId: id });
+    const p = await moved;
+    // About the doctor's join + 20 minutes.
+    expect(Math.abs(new Date(p.endsAt).getTime() - (joinedAt + 20 * 60 * 1000))).toBeLessThan(5000);
+  });
+
+  test('time up with only one person there completes nothing (the sweep decides)', async () => {
+    const startsAt = new Date(Date.now() - 20 * 60 * 1000 - 1000);
+    const session = await paidSession({ paymentId: 'pay_sock_timeup_alone', startsAt, duration: 20 });
+    const id = String(session._id);
+    const patient = await connect(tokenFor(f.patientA));
+    const timeUp = waitFor(patient, ['session-time-up'], 5000);
+    patient.emit('join-room', { sessionId: id });
+    await timeUp;
+    expect((await Session.findById(session._id).lean()).status).toBe('scheduled');
   });
 
   test('joining and leaving the room are recorded as attendance', async () => {
