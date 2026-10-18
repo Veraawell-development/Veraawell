@@ -905,13 +905,18 @@ const PatientDashboard: React.FC = () => {
                 ))}
               </div>
 
-              {/* Capped at about four rows and scrolled past that, so a busy
-                  day neither stretches the card on a phone nor pushes the
-                  dashboard around. */}
-              <div className="flex-1 min-h-0 overflow-y-auto mt-3 pt-3" style={{ borderTop: `1px solid ${T.border}`, maxHeight: 300 }}>
-                <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.08em', color: T.muted, textTransform: 'uppercase', marginBottom: 8 }}>
-                  {selectedDayLabel}
-                </div>
+              <div className="flex items-baseline justify-between mt-3 pt-3" style={{ borderTop: `1px solid ${T.border}`, marginBottom: 8 }}>
+                <span style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.08em', color: T.muted, textTransform: 'uppercase' }}>{selectedDayLabel}</span>
+                {selectedDaySessions.length > 0 && (
+                  <span style={{ fontSize: 11, color: T.muted }}>
+                    {selectedDaySessions.length} session{selectedDaySessions.length === 1 ? '' : 's'}
+                  </span>
+                )}
+              </div>
+              {/* About four and a half rows, then it scrolls: the half row shows
+                  there is more, and a busy day neither stretches the card on a
+                  phone nor pushes the dashboard around. */}
+              <div className="min-h-0 overflow-y-auto pr-0.5" style={{ maxHeight: 290 }}>
                 {selectedDaySessions.length === 0 ? (
                   <p style={{ fontSize: 12.5, color: T.muted }}>No sessions on this day.</p>
                 ) : (
