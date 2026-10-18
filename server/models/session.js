@@ -157,6 +157,64 @@ const sessionSchema = new mongoose.Schema({
   patientJoinedAt: {
     type: Date
   },
+
+  /**
+   * Who was in the call, and when — one interval per stay. The session rules
+   * (services/sessionPolicy.js) decide lateness, no-shows and refunds from
+   * these, so a short drop and a rejoin is two intervals, not a lost session.
+   * Written only by services/attendance.js. doctorJoined/patientJoined and
+   * their timestamps above are kept in sync (first join) because payouts and
+   * older code read them.
+   */
+  attendance: {
+    type: [{
+      _id: false,
+      role: { type: String, enum: ['patient', 'doctor'], required: true },
+      joinedAt: { type: Date, required: true },
+      leftAt: { type: Date, default: null },
+      source: { type: String, enum: ['socket', 'livekit', 'backfill'], required: true }
+    }],
+    default: undefined
+  },
+  /**
+   * When the session really ends: the booked end, or later if the doctor
+   * joined late — the patient keeps their full minutes (docs/SESSION_RULES.md).
+   * Null means "same as endsAt".
+   */
+  effectiveEndsAt: { type: Date, default: null },
+  /** The 10-minute grace check: when it ran, and who was there by then. */
+  graceCheckedAt: { type: Date, default: null },
+  graceResult: { type: String, enum: ['both', 'doctor_absent', 'patient_absent', 'nobody', null], default: null },
+  /** When the waiting patient was last offered "Leave & full refund". */
+  doctorAbsentOfferedAt: { type: Date, default: null },
+  /** Ending early needs both people to agree. */
+  endConsent: {
+    requestedBy: { type: String, enum: ['patient', 'doctor', null], default: null },
+    requestedAt: { type: Date, default: null },
+    agreedAt: { type: Date, default: null }
+  },
+  /** The final, human-meaningful result of the session. */
+  outcome: {
+    code: {
+      type: String,
+      enum: [
+        'completed', 'patient_no_show', 'doctor_no_show', 'nobody_came', 'doctor_absent_refund',
+        'ended_by_consent', 'cancelled_by_patient', 'cancelled_by_doctor', 'late_cancellation',
+        'instant_unanswered', 'checkout_abandoned', null
+      ],
+      default: null
+    },
+    decidedAt: { type: Date, default: null },
+    by: { type: String, enum: ['system', 'patient', 'doctor', 'admin', null], default: null },
+    note: { type: String, default: null, maxlength: 300 }
+  },
+  /** Cancelled by the patient within 4 hours: no refund, and the doctor is paid. */
+  lateCancellation: { type: Boolean, default: false },
+  /** A doctor's reason for cancelling, shared with the patient. */
+  cancellationReason: { type: String, default: null, maxlength: 300 },
+  /** Which call stack this session's call runs on; set once, so a call never switches mid-way. */
+  videoProvider: { type: String, enum: ['legacy', 'livekit', null], default: null },
+
   paymentStatus: {
     type: String,
     enum: ['pending', 'paid', 'refunded', 'refund_pending', 'refund_failed', 'failed', 'not_required'],
@@ -342,6 +400,9 @@ sessionSchema.index({ payoutId: 1, paymentStatus: 1, status: 1, endsAt: 1 });
 // The unanswered-instant-request sweep, which now runs every minute: the two
 // equality fields first, the deadline range last.
 sessionSchema.index({ sessionType: 1, acceptanceStatus: 1, acceptanceDeadline: 1 });
+// The session-rules jobs: the 10-minute grace check and the final outcome sweep.
+sessionSchema.index({ status: 1, graceCheckedAt: 1, startsAt: 1 });
+sessionSchema.index({ status: 1, effectiveEndsAt: 1 });
 
 /**
  * Keep every time representation derived from the one authoritative instant.

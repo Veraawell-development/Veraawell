@@ -524,6 +524,61 @@ describe('the video namespace: full signalling sequence', () => {
     expect(after.callStatus).toBe('completed');
   });
 
+  test('joining and leaving the room are recorded as attendance', async () => {
+    const session = await paidSession({ paymentId: 'pay_sock_attend', startsAt: new Date(Date.now() - 2 * 60 * 1000) });
+    const id = String(session._id);
+
+    const patient = await connect(tokenFor(f.patientA));
+    const patientTab2 = await connect(tokenFor(f.patientA));
+    const doctor = await connect(tokenFor(f.doctorA));
+
+    patient.emit('join-room', { sessionId: id });
+    await waitFor(patient, ['room-joined']);
+    patientTab2.emit('join-room', { sessionId: id });
+    await waitFor(patientTab2, ['room-joined']);
+    doctor.emit('join-room', { sessionId: id });
+    await waitFor(doctor, ['room-joined']);
+
+    let after = await Session.findById(session._id).lean();
+    expect(after.attendance.filter((a) => a.role === 'patient')).toHaveLength(1);
+    expect(after.attendance.filter((a) => a.role === 'doctor')).toHaveLength(1);
+    expect(after.attendance.every((a) => a.source === 'socket' && a.leftAt === null)).toBe(true);
+    expect(after.patientJoined).toBe(true);
+    expect(after.doctorJoined).toBe(true);
+
+    // Closing one of two tabs keeps the patient in the call.
+    patient.close();
+    await new Promise((r) => { setTimeout(r, 300); });
+    after = await Session.findById(session._id).lean();
+    expect(after.attendance.find((a) => a.role === 'patient').leftAt).toBeNull();
+
+    // Leaving from the last tab closes the stay; the doctor is still in.
+    const doctorSeesLeave = waitFor(doctor, ['user-left']);
+    patientTab2.emit('leave-room', { sessionId: id });
+    await doctorSeesLeave;
+    const deadline = Date.now() + 3000;
+    do {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => { setTimeout(r, 100); });
+      // eslint-disable-next-line no-await-in-loop
+      after = await Session.findById(session._id).lean();
+    } while (!after.attendance.find((a) => a.role === 'patient').leftAt && Date.now() < deadline);
+    expect(after.attendance.find((a) => a.role === 'patient').leftAt).not.toBeNull();
+    expect(after.attendance.find((a) => a.role === 'doctor').leftAt).toBeNull();
+
+    // A disconnect closes the doctor's stay the same way.
+    doctor.close();
+    const until = Date.now() + 3000;
+    do {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => { setTimeout(r, 100); });
+      // eslint-disable-next-line no-await-in-loop
+      after = await Session.findById(session._id).lean();
+    } while (!after.attendance.find((a) => a.role === 'doctor').leftAt && Date.now() < until);
+    expect(after.attendance.find((a) => a.role === 'doctor').leftAt).not.toBeNull();
+    expect(after.status).toBe('scheduled');
+  });
+
   test('media-state changes relay between joined parties', async () => {
     const session = await paidSession({ paymentId: 'pay_sock_media' });
     const id = String(session._id);

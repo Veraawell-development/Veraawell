@@ -99,6 +99,15 @@ async function startServer() {
         // Removed auto-offline on startup as per user request.
         // Doctors stay online until they manually toggle off or log out.
 
+        // Calls held in this process's memory died with the previous one:
+        // close the attendance stays it left open, so nobody is counted as
+        // "in the call" until they actually reconnect.
+        try {
+          await require('./services/attendance').closeStaleSocketStays({ bootAt: new Date() });
+        } catch (err) {
+          logger.error('Could not close stale attendance stays', { error: err.message });
+        }
+
         // Start scheduler (session reminders, status updates)
         const { startScheduler } = require('./services/scheduler');
         startScheduler(io);
