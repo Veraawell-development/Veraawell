@@ -14,6 +14,8 @@ export interface Fixtures {
   mongoUri: string;
   port: number;
   mailSink: string;
+  /** Test-only job trigger in the e2e stack (server/scripts/e2e-stack.js). */
+  controlUrl: string;
   adminToken: string;
   passwords: Record<string, string>;
   users: {

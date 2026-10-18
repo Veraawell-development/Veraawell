@@ -43,9 +43,8 @@ let clawbackSweepRunning = false;
  * minute over was swept mid-conversation, and a late joiner who arrived
  * inside the join window could already be recorded as a no-show.
  */
-const runSessionStatusUpdate = async () => {
+const runSessionStatusUpdate = async ({ now = new Date() } = {}) => {
     try {
-        const now = new Date();
         const cutoff = new Date(now.getTime() - STATUS_SWEEP_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
         const sweepBefore = new Date(now.getTime() - NO_SHOW_GRACE_MINUTES * 60 * 1000);
 
@@ -190,6 +189,92 @@ const runStuckRefundReconciliation = async (now = new Date()) => {
     return resolved;
 };
 
+/**
+ * Session reminder emails (15 minutes before, starting now, and a late
+ * alert). Named and exported so it can be run with an injected clock — by
+ * the tests and by the e2e stack's job trigger — instead of only from cron.
+ */
+const runReminderSweep = async ({ now = new Date() } = {}) => {
+    if (notificationSweepRunning) return;
+    notificationSweepRunning = true;
+    try {
+        // Only fetch sessions in the relevant notification windows:
+        // earliest window starts 16 mins before, latest ends 10 mins after start.
+        const windowStart = new Date(now.getTime() - 10 * 60 * 1000);  // 10 mins ago
+        const windowEnd = new Date(now.getTime() + 16 * 60 * 1000);    // 16 mins ahead
+
+        // Query the instant range directly. The old form bounded by the
+        // UTC calendar day while comparing against a server-local
+        // setHours, so IST sessions between 00:00 and 05:30 fell outside
+        // the queried day entirely and never received a reminder at all.
+        const sessions = await Session.find({
+            status: 'scheduled',
+            startsAt: { $gte: windowStart, $lte: windowEnd },
+            $or: [
+                { 'notificationStatus.reminderSent': false },
+                { 'notificationStatus.startSent': false },
+                { 'notificationStatus.lateSent': false }
+            ]
+        })
+            .populate('patientId', 'firstName lastName email')
+            .populate('doctorId', 'firstName lastName');
+
+        for (const session of sessions) {
+          // Per session: one failed email used to abort the loop and
+          // leave every later session in the window without a reminder.
+          try {
+            if (!session.patientId || !session.patientId.email) {
+                logger.debug(`Skipping session ${session._id}: Patient has no email`);
+                continue;
+            }
+
+            const sessionDateTime = resolveStartsAt(session);
+            const diffMs = sessionDateTime.getTime() - now.getTime();
+            const diffMinutes = diffMs / (1000 * 60);
+
+            let changed = false;
+
+            // 1. 15-minute reminder
+            if (diffMinutes >= 14 && diffMinutes <= 16 && !session.notificationStatus.reminderSent) {
+                await sendSessionReminderEmail(session.patientId.email, session, '15min');
+                session.notificationStatus.reminderSent = true;
+                changed = true;
+            }
+            // 2. Starting-soon (2-min) reminder
+            else if (diffMinutes >= 1 && diffMinutes <= 3 && !session.notificationStatus.startSent) {
+                await sendSessionReminderEmail(session.patientId.email, session, 'start');
+                session.notificationStatus.startSent = true;
+                changed = true;
+            }
+            // 3. Late alert
+            else if (diffMinutes >= -10 && diffMinutes <= -5 && !session.notificationStatus.lateSent) {
+                if (!session.patientJoined) {
+                    await sendSessionReminderEmail(session.patientId.email, session, 'late');
+                    session.notificationStatus.lateSent = true;
+                    changed = true;
+                }
+            }
+
+            // Only the flags, not a save() of a document read up to a
+            // minute ago — that could not revert status today, but it is
+            // the shape every revert bug in this codebase started from.
+            if (changed) {
+                await Session.updateOne(
+                    { _id: session._id },
+                    { $set: { notificationStatus: session.notificationStatus } }
+                );
+            }
+          } catch (err) {
+            logger.error('Reminder failed for one session', { sessionId: String(session._id).substring(0, 8), error: err.message });
+          }
+        }
+    } catch (error) {
+        logger.error('Error in notification scheduler', { error: error.message });
+    } finally {
+        notificationSweepRunning = false;
+    }
+};
+
 /** Expire unpaid checkouts and free their slots. Named for the same reason as the others: testable. */
 const runCheckoutExpiry = async (io = null) => {
     if (paymentCleanupRunning) return 0;
@@ -230,88 +315,7 @@ const startScheduler = (io) => {
     });
 
     // --- Notification Reminder: every minute ---
-    notificationTask = cron.schedule('* * * * *', async () => {
-        if (notificationSweepRunning) return;
-        notificationSweepRunning = true;
-        try {
-            const now = new Date();
-
-            // Only fetch sessions in the relevant notification windows:
-            // earliest window starts 16 mins before, latest ends 10 mins after start.
-            const windowStart = new Date(now.getTime() - 10 * 60 * 1000);  // 10 mins ago
-            const windowEnd = new Date(now.getTime() + 16 * 60 * 1000);    // 16 mins ahead
-
-            // Query the instant range directly. The old form bounded by the
-            // UTC calendar day while comparing against a server-local
-            // setHours, so IST sessions between 00:00 and 05:30 fell outside
-            // the queried day entirely and never received a reminder at all.
-            const sessions = await Session.find({
-                status: 'scheduled',
-                startsAt: { $gte: windowStart, $lte: windowEnd },
-                $or: [
-                    { 'notificationStatus.reminderSent': false },
-                    { 'notificationStatus.startSent': false },
-                    { 'notificationStatus.lateSent': false }
-                ]
-            })
-                .populate('patientId', 'firstName lastName email')
-                .populate('doctorId', 'firstName lastName');
-
-            for (const session of sessions) {
-              // Per session: one failed email used to abort the loop and
-              // leave every later session in the window without a reminder.
-              try {
-                if (!session.patientId || !session.patientId.email) {
-                    logger.debug(`Skipping session ${session._id}: Patient has no email`);
-                    continue;
-                }
-
-                const sessionDateTime = resolveStartsAt(session);
-                const diffMs = sessionDateTime.getTime() - now.getTime();
-                const diffMinutes = diffMs / (1000 * 60);
-
-                let changed = false;
-
-                // 1. 15-minute reminder
-                if (diffMinutes >= 14 && diffMinutes <= 16 && !session.notificationStatus.reminderSent) {
-                    await sendSessionReminderEmail(session.patientId.email, session, '15min');
-                    session.notificationStatus.reminderSent = true;
-                    changed = true;
-                }
-                // 2. Starting-soon (2-min) reminder
-                else if (diffMinutes >= 1 && diffMinutes <= 3 && !session.notificationStatus.startSent) {
-                    await sendSessionReminderEmail(session.patientId.email, session, 'start');
-                    session.notificationStatus.startSent = true;
-                    changed = true;
-                }
-                // 3. Late alert
-                else if (diffMinutes >= -10 && diffMinutes <= -5 && !session.notificationStatus.lateSent) {
-                    if (!session.patientJoined) {
-                        await sendSessionReminderEmail(session.patientId.email, session, 'late');
-                        session.notificationStatus.lateSent = true;
-                        changed = true;
-                    }
-                }
-
-                // Only the flags, not a save() of a document read up to a
-                // minute ago — that could not revert status today, but it is
-                // the shape every revert bug in this codebase started from.
-                if (changed) {
-                    await Session.updateOne(
-                        { _id: session._id },
-                        { $set: { notificationStatus: session.notificationStatus } }
-                    );
-                }
-              } catch (err) {
-                logger.error('Reminder failed for one session', { sessionId: String(session._id).substring(0, 8), error: err.message });
-              }
-            }
-        } catch (error) {
-            logger.error('Error in notification scheduler', { error: error.message });
-        } finally {
-            notificationSweepRunning = false;
-        }
-    });
+    notificationTask = cron.schedule('* * * * *', () => runReminderSweep());
 
     // --- Stuck unaccepted instant sessions: every 2 minutes ---
     // A paid instant session the doctor never accepted has no resolution path if the
@@ -423,5 +427,6 @@ module.exports = {
     runClawbackReconciliation,
     runStuckRefundReconciliation,
     runCheckoutExpiry,
+    runReminderSweep,
     runBootCatchUp
 };
