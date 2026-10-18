@@ -35,9 +35,11 @@ interface SessionModalProps {
   userRole: 'patient' | 'doctor';
   isOpen: boolean;
   onClose: () => void;
+  /** Open straight on the rating form (the "Rate Session" button elsewhere). */
+  startWithRating?: boolean;
 }
 
-const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, onClose }) => {
+const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, onClose, startWithRating = false }) => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +47,9 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
   const [hasEmergencyContact, setHasEmergencyContact] = useState(false);
   const [showRatingModal, setShowRatingModal] = useState(false);
+  useEffect(() => {
+    if (isOpen && startWithRating) setShowRatingModal(true);
+  }, [isOpen, startWithRating]);
   const [showReportsModal, setShowReportsModal] = useState(false);
   const [hasRating, setHasRating] = useState(false);
   const [patientEmergencyContact, setPatientEmergencyContact] = useState<any>(null);

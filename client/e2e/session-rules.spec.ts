@@ -136,6 +136,37 @@ test.describe('the session rules on the call screen', () => {
     await doctor.context.close();
   });
 
+  test('Manage → Past Sessions: View Details and Rate Session open, and today\'s sessions are marked', async ({ browser }) => {
+    const id = await session(40, [['patient', 0, 20], ['doctor', 0, 20]]);
+    await runJob('status-sweep');
+    expect((await readSession(id))?.status).toBe('completed');
+
+    const patient = await party(browser, 'patient');
+    await patient.page.goto('/patient-dashboard');
+    // A fresh test account gets the welcome prompt, and a just-completed
+    // session the rating prompt; put both off.
+    // (They come one after another: welcome, rating, mood check-in.)
+    for (const name of [/I'll do this later/i, /^do this later$/i, /^Close$/]) {
+      const button = patient.page.getByRole('button', { name }).first();
+      await button.waitFor({ state: 'visible', timeout: 6000 }).then(() => button.click()).catch(() => {});
+    }
+    await patient.page.getByRole('button', { name: 'Manage' }).first().click();
+    await patient.page.getByRole('button', { name: 'Past Sessions' }).click();
+    // The card of a completed, unrated session: it has both buttons.
+    const card = patient.page.locator('div')
+      .filter({ has: patient.page.getByRole('button', { name: 'Rate Session' }) })
+      .filter({ has: patient.page.getByRole('button', { name: 'View Details' }) })
+      .last();
+    await card.getByRole('button', { name: 'View Details' }).click();
+    // The session's own modal, with what became of it.
+    await expect(patient.page.getByText('Completed').last()).toBeVisible({ timeout: 10_000 });
+    // Opening the rating form from the session details used to crash the page.
+    await patient.page.getByRole('button', { name: 'Rate Session' }).last().click();
+    await expect(patient.page.getByText('Session Feedback')).toBeVisible();
+    await expect(patient.page.getByText('Something went wrong')).toHaveCount(0);
+    await patient.context.close();
+  });
+
   test('the sweep decides a session the therapist never came to, and call history says so', async ({ browser }) => {
     const id = await session(40, [['patient', 0, 20]]);
     await runJob('status-sweep');
