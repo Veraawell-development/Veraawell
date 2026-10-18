@@ -82,8 +82,15 @@ const GRACE_MINUTES = 10;
  */
 const ALONE_REFUND_MINUTES = 10;
 
+/**
+ * How long a request to end the session early waits for the other person's
+ * answer before it lapses (docs/SESSION_RULES.md, D8).
+ */
+const END_REQUEST_MINUTES = 2;
+
 module.exports = {
   PLATFORM_TIMEZONE,
+  END_REQUEST_MINUTES,
   GRACE_MINUTES,
   ALONE_REFUND_MINUTES,
   JOIN_LEAD_MINUTES,

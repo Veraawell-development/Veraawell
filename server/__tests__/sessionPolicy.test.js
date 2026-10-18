@@ -88,6 +88,22 @@ describe('when the session really ends', () => {
   });
 });
 
+describe('minutes together (actualDuration)', () => {
+  test('counts only the time both were in, up to the given moment', () => {
+    const s = session({ attendance: [stay('patient', 0, 12), stay('patient', 15), stay('doctor', 2, 20)] });
+    // 2..12 and 15..20 together.
+    expect(policy.minutesTogether(s, at(30))).toBe(15);
+    // Open stays count up to `until`.
+    expect(policy.minutesTogether(s, at(18))).toBe(13);
+  });
+
+  test('never together is zero', () => {
+    const s = session({ attendance: [stay('patient', 0, 5), stay('doctor', 6, 9)] });
+    expect(policy.minutesTogether(s, at(20))).toBe(0);
+    expect(policy.minutesTogether(session({}), at(20))).toBe(0);
+  });
+});
+
 describe('"Leave & full refund" for a waiting patient', () => {
   test('not before the grace deadline', () => {
     const s = session({ attendance: [stay('patient', 0)] });

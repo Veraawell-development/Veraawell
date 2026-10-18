@@ -28,7 +28,9 @@ const { EVENT, ACTOR } = require('../services/sessionState');
 const { refundSession } = require('../services/sessionRefund');
 const { releaseSessionSlot } = require('../services/sessionPayment');
 const { sealedFilter } = require('../authz');
-const { NotFoundError, AuthorizationError } = require('../utils/errors');
+const { idOf } = require('../authz/actor');
+const { NotFoundError, AuthorizationError, ValidationError } = require('../utils/errors');
+const sessionEnding = require('../services/sessionEnding');
 const { getRazorpay } = require('../services/razorpay.client');
 const { isStubMode } = require('../config/payments');
 const { createLogger } = require('../utils/logger');
@@ -730,51 +732,58 @@ const joinSession = asyncHandler(async (req, res) => {
   res.json({ success: true, message: 'Session can be joined', session, meetingLink: session.meetingLink });
 });
 
-/** POST /api/sessions/:sessionId/complete */
+/**
+ * POST /api/sessions/:sessionId/complete — completes nothing any more.
+ *
+ * Leaving a call never ends a session (docs/SESSION_RULES.md, D8): it ends
+ * when its time is up, when both people agree (POST /end-request and
+ * /end-response), or at the end-of-session sweep. This endpoint used to let
+ * either party complete it alone, and the patient's app called it whenever
+ * the other side hung up — a minute in, the session was completed, the
+ * doctor paid and the patient's session gone.
+ *
+ * Kept, answering as before, for apps still open from before the change:
+ * they call it after leaving and must neither fail nor complete anything.
+ */
 const completeSession = asyncHandler(async (req, res) => {
-  const { sessionId } = req.params;
   const session = req.authz.resource;
-
-  // The transition table owns the rules now: 'completed' from 'completed' is
-  // an accepted no-op, from 'cancelled' is rejected, and — the fix for a
-  // verified bug — from 'scheduled' requires that the session has actually
-  // started. A doctor could previously complete a booking a week in the
-  // future, which permanently blocked the patient's refund because cancel
-  // rejects completed sessions.
-  const result = await applyTransition(session, {
-    event: EVENT.COMPLETE,
-    actor: req.actor.role === 'doctor' ? ACTOR.DOCTOR : ACTOR.PATIENT,
-    extraSet: session.callStatus !== 'completed'
-      ? { callStatus: 'completed', callEndTime: session.callEndTime || new Date() }
-      : {}
+  logger.info('complete requested — treated as leaving', {
+    sessionId: String(session._id).substring(0, 8),
+    by: req.actor.role
   });
+  res.json({
+    success: true,
+    message: session.status === 'completed' ? 'Session already marked as completed' : 'You have left the session.',
+    session: { status: session.status }
+  });
+});
 
-  if (!result.changed) {
-    return res.json({ success: true, message: 'Session already marked as completed', session: { status: session.status } });
-  }
-  Object.assign(session, { status: result.session.status });
+/** Which side of the session the caller is on; the policy already made them a party. */
+const _roleIn = (req, session) => (req.actor.id === idOf(session.doctorId) ? 'doctor' : 'patient');
 
-  // Send doctor earnings summary email
-  try {
-    if (session.doctorId && session.doctorId.email) {
-      const platformSettings = await PlatformSettings.getSettings();
-      const doctorProfile = await DoctorProfile.findOne({ userId: session.doctorId._id });
-      const feePercent = doctorProfile?.customFeePercentage ?? platformSettings.defaultPlatformFeePercentage;
-      await emailService.sendDoctorSessionSummaryEmail(session.doctorId.email, {
-        doctorName: `${session.doctorId.firstName} ${session.doctorId.lastName}`,
-        patientName: `${session.patientId.firstName} ${session.patientId.lastName}`,
-        date: new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
-        duration: session.duration,
-        price: session.price,
-        platformFee: session.platformFee,
-        earnings: session.doctorEarnings,
-        feePercent
-      });
-    }
-  } catch (emailErr) { logger.warn('Session summary email failed', { error: emailErr.message }); }
+/** POST /api/sessions/:sessionId/end-request — ask the other person to end now. */
+const requestEndSession = asyncHandler(async (req, res) => {
+  const session = req.authz.resource;
+  const result = await sessionEnding.requestEnd(session._id, _roleIn(req, session), { io: req.app.get('io') });
+  res.json({
+    success: true,
+    ended: result.ended,
+    expiresAt: result.expiresAt || null,
+    message: result.ended ? 'Session ended.' : 'Asked the other person to end the session.'
+  });
+});
 
-  logger.info('Session completed', { sessionId: sessionId.substring(0, 8), by: req.actor.role });
-  res.json({ success: true, message: 'Session marked as completed', session: { status: session.status } });
+/** POST /api/sessions/:sessionId/end-response { agree } — answer that request. */
+const respondEndSession = asyncHandler(async (req, res) => {
+  const { agree } = req.body || {};
+  if (typeof agree !== 'boolean') throw new ValidationError('agree must be true or false');
+  const session = req.authz.resource;
+  const result = await sessionEnding.respondToEnd(session._id, _roleIn(req, session), agree, { io: req.app.get('io') });
+  res.json({
+    success: true,
+    ended: result.ended,
+    message: result.ended ? 'Session ended.' : 'The session continues.'
+  });
 });
 
 /** POST /api/sessions/:sessionId/cancel */
@@ -1365,4 +1374,4 @@ const getTurnCredentials = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { getStats, getMyDoctors, getPendingFeedback, getCallHistory, getDoctorSlots, bookImmediate, bookSession, getMySessions, getUpcoming, getAllDoctors, getDoctorById, getSessionById, joinSession, completeSession, cancelSession, getCalendar, getPatientEmergencyContact, getMyTherapists, acceptSession, delaySession, getTurnCredentials, missedSession, getDelayedSessions, getInstantRequests, sweepStuckUnacceptedSessions };
+module.exports = { getStats, getMyDoctors, getPendingFeedback, getCallHistory, getDoctorSlots, bookImmediate, bookSession, getMySessions, getUpcoming, getAllDoctors, getDoctorById, getSessionById, joinSession, completeSession, requestEndSession, respondEndSession, cancelSession, getCalendar, getPatientEmergencyContact, getMyTherapists, acceptSession, delaySession, getTurnCredentials, missedSession, getDelayedSessions, getInstantRequests, sweepStuckUnacceptedSessions };

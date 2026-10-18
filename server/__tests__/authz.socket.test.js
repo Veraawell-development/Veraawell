@@ -209,8 +209,8 @@ describe('ending a call is bound by the same completion rule as HTTP', () => {
 });
 
 describe('the real call still works', () => {
-  test('both parties join, signaling is relayed, and the doctor can end the call', async () => {
-    // Started 15 minutes ago, so ending the call may complete it.
+  test('both parties join, signaling is relayed, and the doctor leaving does not end the session', async () => {
+    // Started 15 minutes ago: the session is under way.
     const { patient, doctor, session } = await seed({ hoursFromNow: -0.25 });
     const sid = String(session._id);
 
@@ -235,10 +235,16 @@ describe('the real call still works', () => {
     dSock.emit('ice-candidate', { sessionId: sid, candidate: { candidate: 'host' } });
     expect(await gotIce).not.toBeNull();
 
+    // call-ended used to complete the session on one person's say-so, and
+    // was relayed so the other side's app completed it too. Now it is only
+    // a departure: the patient hears the doctor left, nothing ends.
+    const patientSeesLeave = once(pSock, 'user-left');
+    const relayed = once(pSock, 'call-ended', 800);
     dSock.emit('call-ended', { sessionId: sid, endedBy: 'doctor', userName: 'Doc' });
-    await new Promise((r) => setTimeout(r, 800));
+    expect(await patientSeesLeave).toMatchObject({ role: 'doctor' });
+    expect(await relayed).toBeNull();
     const after = await Session.findById(sid);
-    expect(after.status).toBe('completed');
+    expect(after.status).toBe('scheduled');
 
     pSock.close();
     dSock.close();

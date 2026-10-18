@@ -68,6 +68,9 @@ router.post('/book-immediate', verifyToken, authorize('session:book'), s.bookImm
 // ── Parameterized routes ───────────────────────────────────────────────────
 router.get('/join/:sessionId', verifyToken, validateObjectIdParam('sessionId'), authorize('session:join', { load: withParties }), s.joinSession);
 router.post('/:sessionId/complete', verifyToken, validateObjectIdParam('sessionId'), authorize('session:complete', { load: withParties }), s.completeSession);
+// Ending early takes both people: one asks, the other answers.
+router.post('/:sessionId/end-request', verifyToken, validateObjectIdParam('sessionId'), authorize('session:end-call'), s.requestEndSession);
+router.post('/:sessionId/end-response', verifyToken, validateObjectIdParam('sessionId'), authorize('session:end-call'), s.respondEndSession);
 router.post('/:sessionId/cancel', verifyToken, validateObjectIdParam('sessionId'), authorize('session:cancel'), s.cancelSession);
 router.post('/:sessionId/accept', verifyToken, validateObjectIdParam('sessionId'), authorize('session:accept', { load: withPartyNames }), s.acceptSession);
 router.post('/:sessionId/delay', verifyToken, validateObjectIdParam('sessionId'), authorize('session:delay', { load: withPartyNames }), s.delaySession);

@@ -309,6 +309,35 @@ const CASES = [
     expect: 200
   },
 
+  // ── ending early: parties only ───────────────────────────────────────────
+  {
+    name: 'a stranger cannot ask to end a session',
+    as: 'patientB', method: 'post',
+    url: () => `/api/sessions/${fixtures.sessionA._id}/end-request`,
+    expect: 403,
+    after: async () => {
+      const s = await Session.findById(fixtures.sessionA._id).lean();
+      expect(s.status).toBe('scheduled');
+      expect(s.endConsent && s.endConsent.requestedBy).toBeFalsy();
+    }
+  },
+  {
+    name: 'a stranger cannot agree to end a session',
+    as: 'doctorB', method: 'post',
+    url: () => `/api/sessions/${fixtures.sessionA._id}/end-response`,
+    body: () => ({ agree: true }),
+    expect: 403,
+    after: async () => {
+      expect((await Session.findById(fixtures.sessionA._id)).status).toBe('scheduled');
+    }
+  },
+  {
+    name: 'an unauthenticated caller cannot end a session',
+    as: 'anonymous', method: 'post',
+    url: () => `/api/sessions/${fixtures.sessionA._id}/end-request`,
+    expect: 401
+  },
+
   // ── session read: parties only ───────────────────────────────────────────
   {
     name: 'a stranger cannot read a session',

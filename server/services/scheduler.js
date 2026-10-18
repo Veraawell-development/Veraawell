@@ -53,9 +53,17 @@ const runSessionStatusUpdate = async ({ now = new Date() } = {}) => {
         // 24-hour window and re-derive each end time in JavaScript with
         // setHours — which applied the server's offset, so on a UTC host an
         // IST session was swept 5h30m early or late.
+        //
+        // The end is effectiveEndsAt when it is set: a doctor who joined late
+        // moved it later so the patient keeps their minutes, and sweeping by
+        // the booked end would close a session still in its call.
         const scheduledSessions = await Session.find({
             status: { $in: ['scheduled', 'active'] },
-            endsAt: { $gte: cutoff, $lte: sweepBefore }
+            endsAt: { $gte: cutoff },
+            $or: [
+                { effectiveEndsAt: null, endsAt: { $lte: sweepBefore } },
+                { effectiveEndsAt: { $lte: sweepBefore } }
+            ]
         });
 
         if (scheduledSessions.length === 0) return 0;
@@ -63,7 +71,7 @@ const runSessionStatusUpdate = async ({ now = new Date() } = {}) => {
         let updatedCount = 0;
         let refundedCount = 0;
         for (const session of scheduledSessions) {
-            if (resolveEndsAt(session) > sweepBefore) continue;
+            if ((session.effectiveEndsAt || resolveEndsAt(session)) > sweepBefore) continue;
 
             // Routed through the transition table rather than a bare
             // `session.status = ...; save()`. The table already decides
@@ -82,6 +90,10 @@ const runSessionStatusUpdate = async ({ now = new Date() } = {}) => {
             });
             if (!swept.changed) continue;
             updatedCount += 1;
+
+            if (swept.session.status === 'completed') {
+                await require('./sessionEnding').sendCompletionSummary(session._id);
+            }
 
             // The doctor did not turn up but the patient did.
             //

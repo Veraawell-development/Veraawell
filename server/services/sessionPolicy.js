@@ -95,6 +95,25 @@ function everTogether(session) {
   return doctor.some((a) => patient.some((b) => a.from.getTime() < end(b) && b.from.getTime() < end(a)));
 }
 
+/**
+ * How long patient and doctor were in the call together, in whole minutes,
+ * counting open stays up to `until`. What the session record calls
+ * actualDuration.
+ */
+function minutesTogether(session, until) {
+  const cap = toDate(until).getTime();
+  const end = (i) => Math.min(i.to === null ? cap : i.to.getTime(), cap);
+  let total = 0;
+  for (const a of intervals(session, 'doctor')) {
+    for (const b of intervals(session, 'patient')) {
+      const from = Math.max(a.from.getTime(), b.from.getTime());
+      const to = Math.min(end(a), end(b));
+      if (to > from) total += to - from;
+    }
+  }
+  return Math.round(total / MINUTE_MS);
+}
+
 /** Start + 10 minutes. */
 function graceDeadline(session) {
   return addMinutes(resolveStartsAt(session), GRACE_MINUTES);
@@ -230,6 +249,7 @@ module.exports = {
   firstJoin,
   isPresent,
   everTogether,
+  minutesTogether,
   graceDeadline,
   effectiveEndsAt,
   joinWindow,

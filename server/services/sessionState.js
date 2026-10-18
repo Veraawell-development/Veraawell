@@ -57,6 +57,7 @@ const EVENT = Object.freeze({
   LATE_CAPTURE: 'LATE_CAPTURE',
   CANCEL: 'CANCEL',
   COMPLETE: 'COMPLETE',
+  CONSENT_END: 'CONSENT_END',
   CALL_STARTED: 'CALL_STARTED',
   SWEEP_ELAPSED: 'SWEEP_ELAPSED',
   ACCEPT_TIMEOUT: 'ACCEPT_TIMEOUT',
@@ -97,6 +98,22 @@ class InvariantViolationError extends AppError {
 }
 
 /**
+ * The request to end early must have come from the other person, and recently:
+ * a "yes" to a request that was withdrawn by time, or an attempt to agree to
+ * one's own request, ends nothing.
+ */
+function consentGuard({ session, now, actor }) {
+  const { END_REQUEST_MINUTES } = require('../config/time');
+  const consent = session.endConsent || {};
+  if (!consent.requestedBy || !consent.requestedAt) return 'Nobody has asked to end this session';
+  if (consent.requestedBy === actor) return 'The other person has to agree to end the session';
+  if (now.getTime() - new Date(consent.requestedAt).getTime() > END_REQUEST_MINUTES * 60 * 1000) {
+    return 'That request to end the session has expired';
+  }
+  return null;
+}
+
+/**
  * status transitions.
  *
  * `to: null` means "accept and change nothing" — an idempotent no-op, which is
@@ -115,12 +132,20 @@ const STATUS_TABLE = [
   { from: STATUS.SCHEDULED, event: EVENT.CALL_STARTED, actors: [ACTOR.PATIENT, ACTOR.DOCTOR], to: STATUS.ACTIVE },
   { from: STATUS.SCHEDULED, event: EVENT.CANCEL, actors: ANY, to: STATUS.CANCELLED },
   /**
-   * The guard that closes the "complete a future session" hole. Completion
-   * required only that the session was not already completed or cancelled, so
-   * a doctor could complete a booking a week out and thereby block the
-   * patient's refund, since cancel rejects completed sessions.
+   * Completion is the system's call alone: the session's time ran out.
+   *
+   * Either party used to be able to complete a session by themselves — the
+   * End button, a `call-ended` socket event, or the patient's app calling
+   * POST /complete after the other side hung up. One person leaving a call a
+   * minute in therefore marked it completed: the doctor was paid and the
+   * patient lost the session. Leaving now never ends anything; ending early
+   * takes both people (CONSENT_END below).
+   *
+   * The guard closes the older "complete a future session" hole: a booking a
+   * week out could be completed, which then blocked the patient's refund
+   * because cancel rejects completed sessions.
    */
-  { from: STATUS.SCHEDULED, event: EVENT.COMPLETE, actors: [ACTOR.PATIENT, ACTOR.DOCTOR, ACTOR.SYSTEM],
+  { from: STATUS.SCHEDULED, event: EVENT.COMPLETE, actors: [ACTOR.SYSTEM],
     to: STATUS.COMPLETED,
     guard: ({ session, now }) => {
       const { hasStarted } = require('./sessionTime');
@@ -133,7 +158,19 @@ const STATUS_TABLE = [
     to: (s) => ((s.doctorJoined && s.patientJoined) ? STATUS.COMPLETED : STATUS.NO_SHOW) },
 
   // ── active (an immediate session, or a call in progress) ──
-  { from: STATUS.ACTIVE, event: EVENT.COMPLETE, actors: [ACTOR.PATIENT, ACTOR.DOCTOR, ACTOR.SYSTEM], to: STATUS.COMPLETED },
+  { from: STATUS.ACTIVE, event: EVENT.COMPLETE, actors: [ACTOR.SYSTEM], to: STATUS.COMPLETED },
+
+  /**
+   * Ending early, by agreement (docs/SESSION_RULES.md, D8). One person asks
+   * (services/sessionEnding.requestEnd stamps `endConsent`); the OTHER
+   * person's yes is this event, so the actor is the one agreeing and the
+   * guard checks that the standing request came from the other side and is
+   * still fresh.
+   */
+  { from: STATUS.SCHEDULED, event: EVENT.CONSENT_END, actors: [ACTOR.PATIENT, ACTOR.DOCTOR], to: STATUS.COMPLETED,
+    guard: consentGuard },
+  { from: STATUS.ACTIVE, event: EVENT.CONSENT_END, actors: [ACTOR.PATIENT, ACTOR.DOCTOR], to: STATUS.COMPLETED,
+    guard: consentGuard },
   { from: STATUS.ACTIVE, event: EVENT.CANCEL, actors: [ACTOR.DOCTOR, ACTOR.ADMIN, ACTOR.SYSTEM], to: STATUS.CANCELLED },
   /**
    * A patient withdrawing an instant request the doctor has not taken.
@@ -178,6 +215,7 @@ const STATUS_TABLE = [
   { from: STATUS.ACTIVE, event: EVENT.PAYMENT_VERIFIED, actors: [ACTOR.SYSTEM, ACTOR.RAZORPAY], to: null },
   { from: STATUS.CANCELLED, event: EVENT.CANCEL, actors: ANY, to: null },
   { from: STATUS.COMPLETED, event: EVENT.COMPLETE, actors: ANY, to: null },
+  { from: STATUS.COMPLETED, event: EVENT.CONSENT_END, actors: ANY, to: null },
   { from: STATUS.CANCELLED, event: EVENT.CHECKOUT_EXPIRED, actors: [ACTOR.SYSTEM], to: null },
   { from: STATUS.CANCELLED, event: EVENT.ACCEPT_TIMEOUT, actors: [ACTOR.SYSTEM], to: null },
   { from: STATUS.COMPLETED, event: EVENT.SWEEP_ELAPSED, actors: [ACTOR.SYSTEM], to: null },
@@ -266,7 +304,7 @@ const PAYMENT_TABLE = [
 
   // Scheduling events never move money.
   ...Object.values(PAYMENT).flatMap((from) =>
-    [EVENT.COMPLETE, EVENT.CALL_STARTED, EVENT.SWEEP_ELAPSED, EVENT.ACCEPT_TIMEOUT]
+    [EVENT.COMPLETE, EVENT.CONSENT_END, EVENT.CALL_STARTED, EVENT.SWEEP_ELAPSED, EVENT.ACCEPT_TIMEOUT]
       .map((event) => ({ from, event, actors: ANY, to: null }))),
 
   // Cancelling a paid session does not itself move money; the refund does.
@@ -345,7 +383,7 @@ function planTransition({ session, event, actor, now = new Date(), payload = {} 
   if (!paymentRow) throw new IllegalTransitionError({ field: 'paymentStatus', from: fromPayment, event, actor });
 
   if (statusRow.guard) {
-    const reason = statusRow.guard({ session, now, payload });
+    const reason = statusRow.guard({ session, now, payload, actor });
     if (reason) throw new AppError(reason, 400);
   }
 

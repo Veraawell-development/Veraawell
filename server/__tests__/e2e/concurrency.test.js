@@ -99,7 +99,7 @@ describe('applyTransition compare-and-set', () => {
 
     const result = await transition.applyTransition(stale, {
       event: EVENT.COMPLETE,
-      actor: ACTOR.DOCTOR
+      actor: ACTOR.SYSTEM
     });
 
     expect(result).toBeTruthy();
@@ -114,8 +114,8 @@ describe('applyTransition compare-and-set', () => {
     const id = String(s._id);
 
     const results = await Promise.allSettled([
-      transition.applyTransition(id, { event: EVENT.COMPLETE, actor: ACTOR.DOCTOR }),
-      transition.applyTransition(id, { event: EVENT.COMPLETE, actor: ACTOR.DOCTOR })
+      transition.applyTransition(id, { event: EVENT.COMPLETE, actor: ACTOR.SYSTEM }),
+      transition.applyTransition(id, { event: EVENT.COMPLETE, actor: ACTOR.SYSTEM })
     ]);
 
     expect(results.some((r) => r.status === 'fulfilled')).toBe(true);
@@ -145,7 +145,7 @@ describe('applyTransition compare-and-set', () => {
       (doc) => doc               // hydrated document
     ]) {
       const s = await futureSession({ startsAt: new Date(Date.now() - 90 * 60 * 1000) });
-      const result = await transition.tryTransition(asArg(s), { event: EVENT.COMPLETE, actor: ACTOR.DOCTOR });
+      const result = await transition.tryTransition(asArg(s), { event: EVENT.COMPLETE, actor: ACTOR.SYSTEM });
 
       expect(result.changed).toBe(true);
       expect((await Session.findById(s._id)).status).toBe('completed');
@@ -155,7 +155,7 @@ describe('applyTransition compare-and-set', () => {
   test('tryTransition reports an illegal transition instead of throwing', async () => {
     const s = await futureSession();
     // Completing before the session has started is illegal.
-    const result = await transition.tryTransition(String(s._id), { event: EVENT.COMPLETE, actor: ACTOR.DOCTOR });
+    const result = await transition.tryTransition(String(s._id), { event: EVENT.COMPLETE, actor: ACTOR.SYSTEM });
     expect(result.changed).toBe(false);
     expect(result.error).toBeDefined();
     expect((await Session.findById(s._id)).status).toBe('scheduled');
@@ -165,7 +165,7 @@ describe('applyTransition compare-and-set', () => {
     const s = await futureSession();
     const before = (await Session.findById(s._id)).toObject();
 
-    await transition.tryTransition(s._id, { event: EVENT.COMPLETE, actor: ACTOR.DOCTOR });
+    await transition.tryTransition(s._id, { event: EVENT.COMPLETE, actor: ACTOR.SYSTEM });
 
     const after = (await Session.findById(s._id)).toObject();
     expect(after.status).toBe(before.status);
@@ -461,8 +461,10 @@ describe('where the state machine is NOT used', () => {
     // deliberate, visible change.
     //
     // Every path that moves status or paymentStatus now goes through it:
-    //   controllers/session.controller.js   complete, cancel, instant-request
-    //                                       withdraw/expiry
+    //   controllers/session.controller.js   cancel, instant-request
+    //                                       withdraw/expiry (complete no longer
+    //                                       completes anything)
+    //   services/sessionEnding.js           ending early by agreement
     //   controllers/adminPayments.controller.js  the cancel before an admin refund
     //   services/sessionRefund.js           claim / fail / succeed, and the
     //                                       stuck-refund reconciliation
@@ -481,7 +483,8 @@ describe('where the state machine is NOT used', () => {
     ).trim().split('\n').filter(Boolean);
 
     expect(callSites).toHaveLength(13);
-    expect(callSites.filter((l) => /session\.controller\.js/.test(l))).toHaveLength(3);
+    expect(callSites.filter((l) => /session\.controller\.js/.test(l))).toHaveLength(2);
+    expect(callSites.filter((l) => /sessionEnding\.js/.test(l))).toHaveLength(1);
     expect(callSites.filter((l) => /sessionRefund\.js/.test(l))).toHaveLength(4);
     expect(callSites.filter((l) => /sessionPayment\.js/.test(l))).toHaveLength(5);
     expect(callSites.filter((l) => /adminPayments\.controller\.js/.test(l))).toHaveLength(1);

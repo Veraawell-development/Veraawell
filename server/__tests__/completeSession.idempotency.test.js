@@ -1,6 +1,7 @@
 /**
  * Regression test: completeSession must not be able to "complete" a session
- * that has already been cancelled. Without this guard, a stale/replayed
+ * that has already been cancelled — and, since leaving stopped ending
+ * sessions, must not complete a live one either. Without this guard, a stale/replayed
  * request racing a cancellation could silently overwrite status back to
  * 'completed' with no record the session had ever been cancelled (and,
  * depending on timing, no record it had already been refunded).
@@ -88,14 +89,54 @@ test('completing an already-cancelled session is rejected, not silently allowed'
   const afterCancel = await Session.findById(session._id);
   expect(afterCancel.status).toBe('cancelled');
 
-  // Now try to complete the already-cancelled session
+  // Now try to complete the already-cancelled session. POST /complete no
+  // longer completes anything (leaving never ends a session — see
+  // controllers/session.controller.js completeSession); apps still open from
+  // before that change keep calling it, so it answers success and changes
+  // nothing.
   const completeRes = await request(app).post(`/sessions/${session._id}/complete`).set('Authorization', auth);
-  // 409, not 400: the lifecycle table (services/sessionState.js) now rejects
-  // this as a state CONFLICT rather than a malformed request, which is the
-  // accurate status. Deliberate change — verified the client branches on
-  // response.ok and the message, never on the status code.
-  expect(completeRes.status).toBe(409);
+  expect(completeRes.status).toBe(200);
+  expect(completeRes.body.session.status).toBe('cancelled');
 
   const afterComplete = await Session.findById(session._id);
   expect(afterComplete.status).toBe('cancelled'); // unchanged — NOT flipped to 'completed'
+});
+
+test('a party calling /complete on a started, live session leaves it live', async () => {
+  const patient = await User.create({ firstName: 'Pat', email: 'pat4@test.com', username: 'pat_test4', password: 'password123', role: 'patient' });
+  const doctor = await User.create({ firstName: 'Doc', email: 'doc4@test.com', username: 'doc_test4', password: 'password123', role: 'doctor', approvalStatus: 'approved' });
+  const session = await Session.create({
+    patientId: patient._id,
+    doctorId: doctor._id,
+    startsAt: new Date(Date.now() - 5 * 60 * 1000),
+    duration: 20,
+    price: 1000,
+    status: 'scheduled',
+    paymentStatus: 'paid',
+    paymentId: 'pay_realpaymentid789',
+    doctorJoined: true,
+    patientJoined: true
+  });
+  const app = buildApp();
+
+  for (const who of [patient, doctor]) {
+    // eslint-disable-next-line no-await-in-loop
+    const res = await request(app).post(`/sessions/${session._id}/complete`).set('Authorization', `Bearer ${tokenFor(who)}`);
+    expect(res.status).toBe(200);
+    expect(res.body.session.status).toBe('scheduled');
+  }
+  expect((await Session.findById(session._id)).status).toBe('scheduled');
+});
+
+test('a stranger still cannot call /complete', async () => {
+  const patient = await User.create({ firstName: 'Pat', email: 'pat5@test.com', username: 'pat_test5', password: 'password123', role: 'patient' });
+  const doctor = await User.create({ firstName: 'Doc', email: 'doc5@test.com', username: 'doc_test5', password: 'password123', role: 'doctor' });
+  const stranger = await User.create({ firstName: 'Str', email: 'str5@test.com', username: 'str_test5', password: 'password123', role: 'patient' });
+  const session = await Session.create({
+    patientId: patient._id, doctorId: doctor._id,
+    startsAt: new Date(Date.now() - 5 * 60 * 1000), duration: 20, price: 1000,
+    status: 'scheduled', paymentStatus: 'paid', paymentId: 'pay_realpaymentid790'
+  });
+  const res = await request(buildApp()).post(`/sessions/${session._id}/complete`).set('Authorization', `Bearer ${tokenFor(stranger)}`);
+  expect(res.status).toBe(403);
 });

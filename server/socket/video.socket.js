@@ -10,8 +10,10 @@ const { createSocketAuthMiddleware } = require('./authMiddleware');
 const { createGuardedRegistrar, grantRoom, revokeRoom } = require('../authz/socket');
 const { tryTransition } = require('../services/sessionTransition');
 const { EVENT, ACTOR, LIVE_STATUSES } = require('../services/sessionState');
-const { isWithinJoinWindow, deriveFields } = require('../services/sessionTime');
+const { isWithinJoinWindow, deriveFields, resolveEndsAt } = require('../services/sessionTime');
 const { PLATFORM_TIMEZONE } = require('../config/time');
+const policy = require('../services/sessionPolicy');
+const sessionEnding = require('../services/sessionEnding');
 
 /**
  * Finish a call whose booked minutes are used up. Through the transition
@@ -36,6 +38,9 @@ const attendance = require('../services/attendance');
 /** The user's side of the session; only the two parties can be in a room. */
 const partyRole = (role) => (role === 'doctor' ? 'doctor' : 'patient');
 
+const isInRoom = (room, userId) => !!room && Array.from(room.users.values()).some((u) => u.userId === userId);
+const uniqueUserCount = (room) => new Set(Array.from(room.users.values()).map((u) => u.userId)).size;
+
 /**
  * Close this user's attendance stay if this was their last socket in the
  * room (a second tab keeps them in). Never throws: attendance must not break
@@ -43,16 +48,27 @@ const partyRole = (role) => (role === 'doctor' ? 'doctor' : 'patient');
  */
 async function recordLeaveIfGone(io, room, sessionId, userId, role) {
   try {
-    const stillHere = !!room && Array.from(room.users.values()).some((u) => u.userId === userId);
-    if (!stillHere) await attendance.recordLeave(sessionId, partyRole(role), { source: 'socket', io });
+    if (!isInRoom(room, userId)) await attendance.recordLeave(sessionId, partyRole(role), { source: 'socket', io });
   } catch (err) {
     logger.error('Could not record leaving the call', { sessionId: String(sessionId).substring(0, 8), error: err.message });
   }
 }
 
-// Store active rooms and users
-const activeRooms = new Map(); // roomId -> { users: Map<userId, {role, socketId}>, createdAt: Date }
+// Store active rooms and users.
+//
+// roomId -> { users: Map<socketId, {userId, role}>, createdAt, clock, endsAt, pendingAccept }
+//
+// Nothing here has to survive a restart. The clock used to be a countdown
+// held only in this map — `remainingSeconds`, decremented while both people
+// were in — so a deploy mid-call gave everyone a fresh full timer, and a call
+// whose people kept dropping ran past its end. The end is now a time stored
+// on the session (effectiveEndsAt, services/attendance.js); this map only
+// remembers which sockets are in which call.
+const activeRooms = new Map();
 const userSockets = new Map(); // userId -> socketId
+
+/** How often the room re-reads the session's end time (a late doctor moves it). */
+const TIMING_REFRESH_TICKS = 15;
 
 // JWT verification middleware for Socket.IO — see socket/authMiddleware.js
 const authenticateSocket = createSocketAuthMiddleware('VIDEO-AUTH');
@@ -62,6 +78,122 @@ const log = logger;
 
 module.exports = (io) => {
   io.use(authenticateSocket);
+
+  /**
+   * Re-read when this call ends. The stored effectiveEndsAt (the booked end,
+   * or later when the doctor's first join was late) or the booked end. An
+   * instant request nobody has accepted yet has no end: its start is reset to
+   * the moment of accepting.
+   */
+  async function refreshRoomTiming(sessionId) {
+    const room = activeRooms.get(sessionId);
+    if (!room) return;
+    const s = await Session.findById(sessionId)
+      .select('effectiveEndsAt endsAt startsAt duration timezone sessionDate sessionTime sessionType acceptanceStatus status')
+      .lean();
+    if (!s) return;
+    room.endsAt = s.effectiveEndsAt ? new Date(s.effectiveEndsAt) : resolveEndsAt(s);
+    room.pendingAccept = s.sessionType === 'immediate' && s.acceptanceStatus !== 'accepted';
+  }
+
+  /**
+   * What the call screen shows. `endsAt` + `serverNow` is what current apps
+   * count down from (so a skewed device clock doesn't matter);
+   * `remainingSeconds` is kept for apps still open from before this change.
+   */
+  function timerPayload(room, now = new Date()) {
+    return {
+      endsAt: room.endsAt,
+      serverNow: now,
+      remainingSeconds: Math.max(0, Math.round((room.endsAt.getTime() - now.getTime()) / 1000))
+    };
+  }
+
+  /**
+   * The booked time is over. Completed if both people were in the call at
+   * some point; otherwise the end-of-session sweep decides (a no-show).
+   */
+  async function onTimeUp(sessionId) {
+    try {
+      const s = await Session.findById(sessionId)
+        .select('status attendance doctorJoined doctorJoinedAt patientJoined patientJoinedAt startsAt endsAt duration timezone sessionDate sessionTime');
+      if (s && LIVE_STATUSES.includes(s.status) && s.doctorJoined && s.patientJoined) {
+        const result = await completeCall(sessionId, { actualDuration: policy.minutesTogether(s, new Date()) });
+        log.info('Session completed: its time is up', { sessionId: sessionId.substring(0, 8), changed: result.changed });
+        if (result.changed) await sessionEnding.sendCompletionSummary(sessionId);
+      }
+    } catch (err) {
+      log.error('Failed to complete a session whose time is up', { error: err.message });
+    }
+    io.to(sessionId).emit('session-time-up');
+  }
+
+  /** One clock per room, counting down to the stored end — never a stored countdown. */
+  function startClock(sessionId) {
+    const room = activeRooms.get(sessionId);
+    if (!room || room.clock) return;
+    let ticks = 0;
+    room.clock = setInterval(async () => {
+      const current = activeRooms.get(sessionId);
+      if (!current) return;
+      ticks += 1;
+      if (ticks % TIMING_REFRESH_TICKS === 0) {
+        try { await refreshRoomTiming(sessionId); } catch (err) { log.warn('Could not refresh call timing', { error: err.message }); }
+      }
+      if (current.pendingAccept || !current.endsAt) return;
+      const now = new Date();
+      io.to(sessionId).emit('timer-sync', timerPayload(current, now));
+      if (now >= current.endsAt) {
+        clearInterval(current.clock);
+        current.clock = null;
+        await onTimeUp(sessionId);
+      }
+    }, 1000);
+  }
+
+  /** Stop counting and note where the call got to; the session stays joinable. */
+  async function closeRoom(sessionId) {
+    const room = activeRooms.get(sessionId);
+    if (room && room.clock) clearInterval(room.clock);
+    activeRooms.delete(sessionId);
+    try {
+      const s = await Session.findById(sessionId)
+        .select('callStatus attendance doctorJoinedAt patientJoinedAt doctorJoined patientJoined startsAt endsAt duration timezone sessionDate sessionTime')
+        .lean();
+      // Someone may have rejoined while this was reading.
+      if (s && s.callStatus === 'in-progress' && !activeRooms.has(sessionId)) {
+        const now = new Date();
+        await Session.updateOne(
+          { _id: sessionId, status: { $in: LIVE_STATUSES }, callStatus: 'in-progress' },
+          { $set: { callStatus: 'paused', callEndTime: now, actualDuration: policy.minutesTogether(s, now) } }
+        );
+      }
+    } catch (error) {
+      log.error('Failed to update call tracking', { error: error.message });
+    }
+    log.info('Room closed (empty)', { sessionId: String(sessionId).substring(0, 8) });
+  }
+
+  /**
+   * A socket left the call: its tab closed, it pressed Leave, or the network
+   * dropped. Leaving never ends or completes the session — only time running
+   * out or both people agreeing does — so this records the departure, tells
+   * the other person once the user's LAST tab has gone, and closes the room
+   * when it is empty. Idempotent: a socket already gone is a no-op.
+   */
+  async function departRoom(socket, sessionId) {
+    const room = activeRooms.get(sessionId);
+    if (!room || !room.users.has(socket.id)) return false;
+    const { userId, role } = room.users.get(socket.id);
+    room.users.delete(socket.id);
+    await recordLeaveIfGone(io, room, sessionId, userId, role);
+    if (!isInRoom(room, userId)) {
+      socket.to(sessionId).emit('user-left', { userId, role });
+    }
+    log.info('User socket left room', { socketId: socket.id, userId, role, sessionId: String(sessionId).substring(0, 8) });
+    if (room.users.size === 0) await closeRoom(sessionId);
+    return true;
+  }
 
   io.on('connection', (socket) => {
     const { id: userId, role, username } = socket.user || {};
@@ -76,69 +208,10 @@ module.exports = (io) => {
     // Handle disconnection
     on('disconnect', { mode: 'open' }, async () => {
       log.info('User disconnected', { userId, role, sessionId: socket.roomId });
-      if (socket.roomId && activeRooms.has(socket.roomId)) {
-        const room = activeRooms.get(socket.roomId);
-        if (room.users.has(socket.id)) {
-          room.users.delete(socket.id);
-          await recordLeaveIfGone(io, room, socket.roomId, userId, role);
-          // Notify other users in the room
-          socket.to(socket.roomId).emit('user-left', { userId, role });
-          log.info('User socket left room', { socketId: socket.id, userId, role, sessionId: socket.roomId });
-          
-          const uniqueUsers = new Set(Array.from(room.users.values()).map(u => u.userId)).size;
-          // The last person left. Record how much of the call was used; if
-          // all of it, the session is over. Otherwise it is only paused —
-          // status is never touched here, so a rejoin works and nothing that
-          // happened to the session meanwhile (a sweep, a refund) is undone.
-          if (uniqueUsers === 0) {
-            try {
-              const session = await Session.findById(socket.roomId)
-                .select('callStatus callStartTime duration status');
-              if (session && session.callStatus === 'in-progress') {
-                const callEndTime = new Date();
-                const bookedMinutes = session.duration || 60;
-                let usedMinutes = 0;
-                if (room.remainingSeconds !== undefined) {
-                  usedMinutes = bookedMinutes - Math.ceil(room.remainingSeconds / 60);
-                } else if (session.callStartTime) {
-                  usedMinutes = Math.max(1, Math.round((callEndTime - session.callStartTime) / 60000));
-                }
-                const actualDuration = Math.max(0, Math.min(bookedMinutes, usedMinutes));
-
-                if (actualDuration >= bookedMinutes) {
-                  await completeCall(session._id, { actualDuration });
-                } else {
-                  await Session.updateOne(
-                    { _id: session._id, status: { $in: LIVE_STATUSES } },
-                    { $set: { callStatus: 'paused', callEndTime, actualDuration } }
-                  );
-                }
-                log.info('Call paused or completed', {
-                  sessionId: socket.roomId.substring(0, 8),
-                  duration: actualDuration
-                });
-              }
-            } catch (error) {
-              log.error('Failed to update call tracking', { error: error.message });
-            }
-          }
-
-          // Clean up empty rooms
-          if (uniqueUsers === 0) {
-            if (room.timerInterval) {
-              clearInterval(room.timerInterval);
-            }
-            activeRooms.delete(socket.roomId);
-            log.info('Room cleaned up and timer stopped', { roomId: socket.roomId });
-          } else if (uniqueUsers < 2 && room.timerInterval) {
-            // Pause timer if users drop below 2
-            clearInterval(room.timerInterval);
-            room.timerInterval = null;
-            log.info('Timer paused due to unique users < 2', { roomId: socket.roomId });
-          }
-        }
+      if (socket.roomId) {
+        await departRoom(socket, socket.roomId);
+        revokeRoom(socket, socket.roomId);
       }
-      if (socket.roomId) revokeRoom(socket, socket.roomId);
       userSockets.delete(userId);
     });
 
@@ -262,10 +335,13 @@ module.exports = (io) => {
         if (isDoctor) session.doctorJoined = true;
         if (isPatient) session.patientJoined = true;
 
-        // Leave any existing room
-        if (socket.roomId) {
-          socket.leave(socket.roomId);
-          log.info('User left previous room', { userId, role, sessionId: socket.roomId });
+        // Leave any other call this socket was in.
+        if (socket.roomId && socket.roomId !== sessionId) {
+          const previous = socket.roomId;
+          await departRoom(socket, previous);
+          revokeRoom(socket, previous);
+          socket.leave(previous);
+          log.info('User left previous room', { userId, role, sessionId: previous });
         }
 
         // Join the new room. grantRoom is what subsequently authorizes the
@@ -277,78 +353,29 @@ module.exports = (io) => {
         socket.roomId = sessionId;
         userSockets.set(userId, socket.id);
 
-        // Initialize room if doesn't exist
         if (!activeRooms.has(sessionId)) {
-          // Calculate initial remaining seconds
-          const sessionDurationInMinutes = session.duration || 60;
-          const actualDurationInMinutes = session.actualDuration || 0;
-          let remainingSeconds = Math.max(0, sessionDurationInMinutes * 60 - actualDurationInMinutes * 60);
-
-          if (session.sessionType === 'immediate' && remainingSeconds <= 0) {
-             remainingSeconds = sessionDurationInMinutes * 60;
-          }
-
           activeRooms.set(sessionId, {
             users: new Map(),
             createdAt: new Date(),
-            timerInterval: null, // Timer starts when both join
-            remainingSeconds: remainingSeconds
+            clock: null,
+            endsAt: null,
+            pendingAccept: false
           });
-          log.info('Room created (timer waiting for 2nd user)', { sessionId, remainingSeconds });
-        } else {
-          // If room already exists, instantly send the current synchronized time to the newly joined user
-          const existingRoom = activeRooms.get(sessionId);
-          if (existingRoom) {
-            socket.emit('timer-sync', { remainingSeconds: existingRoom.remainingSeconds });
-          }
         }
-
         const room = activeRooms.get(sessionId);
         room.users.set(socket.id, { userId, role });
+        const uniqueUsers = uniqueUserCount(room);
+        // In the room and counting before the next await, so a departure
+        // closing the room at this moment cannot leave us in one without a
+        // clock. The clock waits for the end time read below.
+        startClock(sessionId);
 
-        const uniqueUsers = new Set(Array.from(room.users.values()).map(u => u.userId)).size;
-
-        // START TIMER IF BOTH JOINED
-        if (uniqueUsers >= 2 && !room.timerInterval) {
-          log.info('Both users joined, starting timer engine', { sessionId });
-          room.timerInterval = setInterval(async () => {
-            const currentRoom = activeRooms.get(sessionId);
-            const currentUniqueUsers = currentRoom ? new Set(Array.from(currentRoom.users.values()).map(u => u.userId)).size : 0;
-            
-            if (!currentRoom || currentUniqueUsers < 2) {
-              // Pause if someone leaves
-              if (currentRoom && currentRoom.timerInterval) {
-                clearInterval(currentRoom.timerInterval);
-                currentRoom.timerInterval = null;
-                log.info('Timer paused, waiting for user to return', { sessionId });
-              }
-              return;
-            }
-
-            currentRoom.remainingSeconds -= 1;
-            
-            // Broadcast the current synchronized time
-            io.to(sessionId).emit('timer-sync', { remainingSeconds: currentRoom.remainingSeconds });
-
-            // Auto-cut when time is up
-            if (currentRoom.remainingSeconds <= 0) {
-              clearInterval(currentRoom.timerInterval);
-              currentRoom.timerInterval = null;
-
-              try {
-                const endingSession = await Session.findById(sessionId).select('duration');
-                if (endingSession) {
-                  const result = await completeCall(sessionId, { actualDuration: endingSession.duration });
-                  log.info('Session auto-completed due to timer', { sessionId, changed: result.changed });
-                }
-              } catch (err) {
-                log.error('Failed to auto-complete session', { error: err.message });
-              }
-
-              // Broadcast time up to clients
-              io.to(sessionId).emit('session-time-up');
-            }
-          }, 1000);
+        // This join may have moved the end (a late doctor's first join), and
+        // an instant session's start is reset when it is accepted: read the
+        // end afresh and tell everyone in the room.
+        await refreshRoomTiming(sessionId);
+        if (!room.pendingAccept && room.endsAt) {
+          io.to(sessionId).emit('timer-sync', timerPayload(room));
         }
 
         log.info(`${role.toUpperCase()} socket joined room`, {
@@ -356,7 +383,7 @@ module.exports = (io) => {
           userId: userId.substring(0, 8),
           socketId: socket.id.substring(0, 8),
           uniqueUsers,
-          syncedRemainingSeconds: room.remainingSeconds
+          endsAt: room.endsAt
         });
 
         // Notify the user about successful room join
@@ -392,98 +419,47 @@ module.exports = (io) => {
       }
     });
 
-    // WebRTC Signaling: Send offer
-    on('request-end-session', { mode: 'policy', action: 'session:end-call' }, ({ sessionId, requestedByRole }) => {
-      log.info('Request end session', { sessionId: sessionId?.substring(0, 8), requestedByRole });
-      socket.to(sessionId).emit('request-end-session', { requestedByRole });
-    });
+    // Ending early takes both people (services/sessionEnding.js). These are
+    // the socket forms of POST /:id/end-request and /end-response, kept so
+    // an app still open from before that change gets the same rules.
+    const roleIn = (session) => (String(session.doctorId) === userId ? 'doctor' : 'patient');
+    const endingFailed = (err) => socket.emit('end-session-error', { message: err.message || 'Could not end the session.' });
 
-    on('confirm-end-session', { mode: 'policy', action: 'session:end-call' }, ({ sessionId, agree, confirmedByRole }) => {
-      log.info('Confirm end session', { sessionId: sessionId?.substring(0, 8), agree, confirmedByRole });
-      socket.to(sessionId).emit('confirm-end-session', { agree, confirmedByRole });
-    });
-
-    on('call-ended', { mode: 'policy', action: 'session:end-call' }, async ({ sessionId, endedBy, userName }) => {
-      log.info('Call ended by user', { sessionId, endedBy, userName });
-      // Broadcast to other users in the room
-      socket.to(sessionId).emit('call-ended', { endedBy, userName });
-      
-      // Mark the session completed — through the transition table, the same
-      // rule POST /api/sessions/:id/complete answers to.
-      //
-      // This used to be a bare `status = 'completed'; save()` with no time
-      // check, so either party could complete a session at any moment by
-      // emitting this event — including a booking days in the future. That is
-      // the exact hole the table's COMPLETE guard closed on the HTTP side: a
-      // completed session cannot be cancelled, so the patient lost their
-      // refund, and it counts toward the doctor's payout.
-      //
-      // Before the scheduled start the transition is refused and the session
-      // stays scheduled. The disconnect handler then records the call as
-      // paused, so the real session can still happen later.
+    on('request-end-session', { mode: 'policy', action: 'session:end-call' }, async ({ sessionId }, ctx) => {
       try {
-        const session = await Session.findById(sessionId);
-        if (session && !['completed', 'cancelled', 'no-show'].includes(session.status)) {
-          const callEndTime = new Date();
-          // Also flip callStatus to a terminal value in the same write. If we
-          // don't, the disconnect handler that fires moments later (this same
-          // socket is about to disconnect) still sees callStatus ===
-          // 'in-progress' and runs its own "figure out what happened" logic,
-          // which can overwrite status back to 'scheduled' for any call
-          // shorter than the full booked duration — silently undoing the
-          // 'completed' we just set.
-          const extraSet = { callStatus: 'completed', callEndTime };
-          if (!session.actualDuration) {
-            extraSet.actualDuration = session.callStartTime
-              ? Math.max(1, Math.round((callEndTime - session.callStartTime) / 60000))
-              : (session.duration || 60);
-          }
-
-          const result = await tryTransition(session, {
-            event: EVENT.COMPLETE,
-            actor: role === 'doctor' ? ACTOR.DOCTOR : ACTOR.PATIENT,
-            extraSet
-          });
-
-          if (result.changed) {
-            log.info('Session marked as completed from call-ended event', { sessionId, actualDuration: extraSet.actualDuration });
-          } else {
-            log.warn('call-ended did not complete the session', {
-              sessionId: String(sessionId).substring(0, 8),
-              reason: result.error ? result.error.message : result.noopReason
-            });
-          }
-        }
+        await sessionEnding.requestEnd(sessionId, roleIn(ctx.resource), { io, except: socket.id });
       } catch (err) {
-        log.error('Error updating session on call-ended', { error: err.message, sessionId });
+        endingFailed(err);
       }
+    });
+
+    on('confirm-end-session', { mode: 'policy', action: 'session:end-call' }, async ({ sessionId, agree }, ctx) => {
+      try {
+        await sessionEnding.respondToEnd(sessionId, roleIn(ctx.resource), !!agree, { io, except: socket.id });
+      } catch (err) {
+        endingFailed(err);
+      }
+    });
+
+    /**
+     * "I'm leaving the call." Older apps send this from their End button and
+     * after the other side hangs up.
+     *
+     * It used to complete the session — through the transition table, but
+     * on the say-so of one person. Pressing End a minute in, alone, finished
+     * the session: the doctor was paid and the patient lost it; and it was
+     * relayed to the other side, whose app then asked the server to complete
+     * it too. Now it is only a departure: nothing is relayed beyond the usual
+     * `user-left`, and the session stays joinable until its time is up.
+     */
+    on('call-ended', { mode: 'policy', action: 'session:end-call' }, async ({ sessionId }) => {
+      log.info('Call left via call-ended', { userId, role, sessionId: String(sessionId).substring(0, 8) });
+      await departRoom(socket, sessionId);
     });
 
     on('leave-room', { mode: 'joined' }, async ({ sessionId }) => {
       log.info('User leaving room manually', { userId, role, sessionId });
-      if (activeRooms.has(sessionId)) {
-        const room = activeRooms.get(sessionId);
-        room.users.delete(socket.id);
-        await recordLeaveIfGone(io, room, sessionId, userId, role);
-        
-        const uniqueUsers = new Set(Array.from(room.users.values()).map(u => u.userId)).size;
-        
-        socket.to(sessionId).emit('user-left', { userId, role });
-        
-        log.info('User removed from room', {
-          sessionId: sessionId.substring(0, 8),
-          count: uniqueUsers
-        });
-
-        if (uniqueUsers < 2 && room.timerInterval) {
-          clearInterval(room.timerInterval);
-          room.timerInterval = null;
-        }
-        if (uniqueUsers === 0) {
-          activeRooms.delete(sessionId);
-          log.info('Room closed (empty)', { sessionId: sessionId.substring(0, 8) });
-        }
-      }
+      await departRoom(socket, sessionId);
       revokeRoom(socket, sessionId);
       socket.leave(sessionId);
       socket.roomId = null;

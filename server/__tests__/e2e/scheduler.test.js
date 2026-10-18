@@ -29,10 +29,13 @@ jest.mock('node-cron', () => ({
 }));
 
 const mockReminder = jest.fn().mockResolvedValue({ id: 'sink' });
+const mockSummary = jest.fn().mockResolvedValue({ id: 'sink' });
 jest.mock('../../services/email.service', () => new Proxy({}, {
-  get: (_t, name) => (name === 'sendSessionReminderEmail'
-    ? (...a) => mockReminder(...a)
-    : jest.fn().mockResolvedValue({ id: 'sink' }))
+  get: (_t, name) => {
+    if (name === 'sendSessionReminderEmail') return (...a) => mockReminder(...a);
+    if (name === 'sendDoctorSessionSummaryEmail') return (...a) => mockSummary(...a);
+    return jest.fn().mockResolvedValue({ id: 'sink' });
+  }
 }));
 
 const mockRefund = jest.fn().mockResolvedValue({ id: 'rfnd_sweep', status: 'processed' });
@@ -295,6 +298,42 @@ describe('session status sweep (every 5 minutes)', () => {
 
     await runJob(CRON.statusSweep);
     expect((await Session.findById(s._id)).status).toBe('scheduled');
+  });
+
+  test('a completed sweep sends the doctor their session summary', async () => {
+    // The summary used to go out only from POST /complete, which no longer
+    // completes anything; every path that completes a session sends it now.
+    mockSummary.mockClear();
+    await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: past(2), duration: 60, price: 1000,
+      status: 'scheduled', paymentStatus: 'paid', paymentId: 'pay_sweep_summary',
+      doctorJoined: true, patientJoined: true
+    });
+    await runJob(CRON.statusSweep);
+    expect(mockSummary).toHaveBeenCalledTimes(1);
+    expect(mockSummary.mock.calls[0][0]).toBe(f.doctorA.email);
+  });
+
+  test('a late doctor\'s later end is respected: the call is not swept while it runs', async () => {
+    // Booked 70 minutes ago for 60; the doctor joined 20 minutes late, so the
+    // patient's full hour ends 10 minutes from now. The booked end alone would
+    // have the sweep close it mid-call.
+    const startsAt = new Date(Date.now() - 70 * 60 * 1000);
+    const s = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt, duration: 60, price: 1000,
+      status: 'scheduled', paymentStatus: 'paid', paymentId: 'pay_sweep_latedoc',
+      doctorJoined: true, patientJoined: true,
+      effectiveEndsAt: new Date(Date.now() + 10 * 60 * 1000)
+    });
+    await runJob(CRON.statusSweep);
+    expect((await Session.findById(s._id)).status).toBe('scheduled');
+
+    // Its real end + the grace has passed: now it is swept.
+    await Session.updateOne({ _id: s._id }, { $set: { effectiveEndsAt: new Date(Date.now() - 11 * 60 * 1000) } });
+    await runJob(CRON.statusSweep);
+    expect((await Session.findById(s._id)).status).toBe('completed');
   });
 
   test('an already-cancelled session is not resurrected', async () => {
