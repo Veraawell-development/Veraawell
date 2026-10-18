@@ -14,7 +14,7 @@ const Enquiry = require('../models/enquiry');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { NotFoundError, ValidationError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
-const DOMPurify = require('isomorphic-dompurify');
+const { plainText } = require('../utils/plainText');
 
 const logger = createLogger('ENQUIRY-CTRL');
 
@@ -24,9 +24,7 @@ const logger = createLogger('ENQUIRY-CTRL');
  * Matches article.controller.js's treatment of its plain-text fields.
  */
 const clean = (value) => (
-  value === undefined || value === null
-    ? undefined
-    : DOMPurify.sanitize(String(value), { ALLOWED_TAGS: [] }).trim()
+  value === undefined || value === null ? undefined : plainText(value)
 );
 
 /**

@@ -1,9 +1,42 @@
 import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { FiMail, FiLock, FiArrowLeft, FiUser, FiUserCheck, FiShield } from 'react-icons/fi';
+import { FiMail, FiLock, FiUser, FiUserCheck, FiKey } from 'react-icons/fi';
 import { useMutation } from '@tanstack/react-query';
 import { API_BASE_URL } from '../config/api';
+import { ADMIN_MIN_PASSWORD_LENGTH, errorMessage, fallbackMessage, serverErrorText } from '../utils/adminApi';
+import ResendCodeButton from '../components/ResendCodeButton';
+import AdminAuthLayout, { FormError, IconField, adminSubmitClass } from '../components/admin/AdminAuthLayout';
+
+/**
+ * Admin sign-up is the same two-step signup as everyone else's: register
+ * creates a pending signup and emails a 6-digit code, and only verify-signup
+ * creates the account. This page used to stop after the first step and say
+ * "Application Submitted" — so no applicant ever entered the code, and no
+ * admin account was ever actually created through it.
+ */
+
+type Step = 'form' | 'verify' | 'done';
+
+/** POST to a public auth endpoint; throws the server's message on failure. */
+async function postAuth<T>(path: string, body: unknown): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new Error(fallbackMessage(0));
+  }
+  const data = await response.json().catch(() => null);
+  if (!response.ok || data?.success === false) {
+    throw new Error(serverErrorText(data, fallbackMessage(response.status)));
+  }
+  return data as T;
+}
 
 const AdminSignupPage: React.FC = () => {
   const [formData, setFormData] = useState({
@@ -14,34 +47,39 @@ const AdminSignupPage: React.FC = () => {
     password: '',
     confirmPassword: ''
   });
+  const [step, setStep] = useState<Step>('form');
+  const [otp, setOtp] = useState('');
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState(false);
-  const navigate = useNavigate();
+
+  const update = (field: keyof typeof formData) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setFormData((prev) => ({ ...prev, [field]: e.target.value }));
+
   const signupMutation = useMutation({
-    mutationFn: async (payload: any) => {
-      const response = await fetch(`${API_BASE_URL}/auth/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify(payload)
-      });
-      if (!response.ok) {
-        const data = await response.json();
-        if (data.errors) {
-          const errorList = Object.values(data.errors);
-          throw new Error(errorList.join('. ') + '.');
-        }
-        throw new Error(data.message || 'Signup failed');
-      }
-      return response.json();
-    },
+    mutationFn: () => postAuth<{ email?: string }>('/auth/register', {
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      email: formData.email,
+      username: formData.username,
+      password: formData.password,
+      role: 'admin'
+    }),
     onSuccess: () => {
-      setSuccess(true);
-      setTimeout(() => navigate('/admin-login'), 3000);
+      setOtp('');
+      setStep('verify');
     },
-    onError: (err: any) => {
-      setError(err.message || 'Signup failed');
-    }
+    onError: (err) => setError(errorMessage(err, 'Signup failed')),
+  });
+
+  const verifyMutation = useMutation({
+    // For an admin the server answers { requiresApproval: true } and signs
+    // nobody in: the account exists but can't be used until a super admin
+    // approves it.
+    mutationFn: () => postAuth<{ requiresApproval?: boolean }>('/auth/verify-signup', {
+      email: formData.email,
+      otp: otp.trim(),
+    }),
+    onSuccess: () => setStep('done'),
+    onError: (err) => setError(errorMessage(err, 'Verification failed')),
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -53,28 +91,31 @@ const AdminSignupPage: React.FC = () => {
       return;
     }
 
-    if (formData.password.length < 8) {
-      setError('Password must be at least 8 characters');
+    if (formData.password.length < ADMIN_MIN_PASSWORD_LENGTH) {
+      setError(`Password must be at least ${ADMIN_MIN_PASSWORD_LENGTH} characters`);
       return;
     }
 
-    signupMutation.mutate({
-      firstName: formData.firstName,
-      lastName: formData.lastName,
-      email: formData.email,
-      username: formData.username,
-      password: formData.password,
-      role: 'admin'
-    });
+    signupMutation.mutate();
+  };
+
+  const handleVerify = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    if (!/^\d{6}$/.test(otp.trim())) {
+      setError('Enter the 6-digit code from the email.');
+      return;
+    }
+    verifyMutation.mutate();
   };
 
   const loading = signupMutation.isPending;
 
-  if (success) {
+  if (step === 'done') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#f7f7f5] px-5 py-8">
-        <motion.div 
-          initial={{ opacity: 0, y: 16 }} 
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           className="bg-white rounded-2xl border border-neutral-200/80 shadow-sm p-8 max-w-sm w-full text-center"
         >
@@ -85,264 +126,104 @@ const AdminSignupPage: React.FC = () => {
               </svg>
             </div>
           </div>
-          <h2 className="text-base font-semibold text-neutral-900 mb-2">
-            Application Submitted
-          </h2>
-          <p className="text-[11px] text-neutral-400 leading-relaxed mb-4">
-            Your admin account request has been submitted. A super admin will review and approve your application soon.
+          <h2 className="text-base font-semibold text-neutral-900 mb-2">Email verified</h2>
+          <p className="text-[12px] text-neutral-500 leading-relaxed mb-2">
+            Verified — a super admin will review your request; you'll get an email when approved.
           </p>
-          <p className="text-[10px] text-neutral-400">
-            Redirecting to login page...
-          </p>
+          <Link
+            to="/admin-login"
+            className="inline-block mt-3 px-4 py-2 bg-neutral-900 hover:bg-neutral-800 text-white text-xs font-medium rounded-xl"
+          >
+            Go to admin sign in
+          </Link>
         </motion.div>
       </div>
     );
   }
 
+  if (step === 'verify') {
+    return (
+      <AdminAuthLayout
+        tagline="Apply for secure access to manage the Veraawell platform."
+        title="Check your email"
+        subtitle={`We sent a 6-digit code to ${formData.email}`}
+      >
+        <FormError message={error} />
+        <form onSubmit={handleVerify} className="space-y-3">
+          <IconField
+            label="Verification code"
+            icon={<FiKey size={13} />}
+            input={{
+              type: 'text', inputMode: 'numeric', autoComplete: 'one-time-code', maxLength: 6,
+              value: otp, onChange: (e) => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6)),
+              placeholder: '123456', required: true, disabled: verifyMutation.isPending,
+            }}
+          />
+          <motion.button type="submit" disabled={verifyMutation.isPending} whileTap={{ scale: 0.98 }} className={adminSubmitClass}>
+            {verifyMutation.isPending ? 'Verifying...' : 'Verify email'}
+          </motion.button>
+        </form>
+        <div className="mt-4 flex items-center justify-between">
+          <ResendCodeButton
+            email={formData.email}
+            className="text-[11px] font-semibold text-neutral-600 hover:text-neutral-900 disabled:opacity-50 disabled:cursor-not-allowed"
+            style={{}}
+          />
+          <button
+            type="button"
+            onClick={() => { setError(''); setStep('form'); }}
+            className="text-[11px] text-neutral-500 hover:text-neutral-900 font-medium"
+          >
+            Use a different email
+          </button>
+        </div>
+      </AdminAuthLayout>
+    );
+  }
+
   return (
-    <div className="min-h-screen flex flex-col md:flex-row bg-[#f7f7f5]">
-      
-      {/* ── Left branding panel (desktop only) ──────────────────────────── */}
-      <div className="hidden md:flex md:w-2/5 lg:w-1/2 flex-col items-center justify-center p-10 relative overflow-hidden"
-        style={{ background: 'linear-gradient(145deg, #0f172a 0%, #1e293b 100%)' }}>
-
-        {/* Back button — icon only, top-left of dark panel */}
-        <motion.button
-          initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.3 }}
-          onClick={() => navigate('/')}
-          className="absolute top-5 left-5 w-8 h-8 rounded-full flex items-center justify-center transition-all hover:scale-110 z-20"
-          style={{ background: 'rgba(255,255,255,0.07)', border: '1px solid rgba(255,255,255,0.1)' }}
-          title="Back to Home"
-        >
-          <FiArrowLeft size={14} style={{ color: 'rgba(255,255,255,0.55)' }} />
-        </motion.button>
-
-        {/* Geometric background grid lines */}
-        <div className="absolute inset-0 opacity-10">
-          <svg width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#38bdf8" strokeWidth="1" />
-              </pattern>
-            </defs>
-            <rect width="100%" height="100%" fill="url(#grid)" />
-          </svg>
-        </div>
-
-        {/* Ambient glow */}
-        <div className="absolute top-1/3 left-1/3 w-96 h-96 rounded-full blur-3xl pointer-events-none"
-          style={{ background: 'radial-gradient(circle, rgba(56,189,248,0.1) 0%, transparent 70%)' }} />
-
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }} 
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.15 }}
-          className="relative z-10 flex flex-col items-center text-center max-w-sm w-full"
-        >
-          {/* Icon */}
-          <div className="w-12 h-12 bg-slate-800/50 rounded-2xl flex items-center justify-center mb-6 border border-slate-700/50">
-            <FiShield size={22} style={{ color: '#38bdf8' }} />
-          </div>
-
-          {/* Copy */}
-          <h2 className="text-xl font-semibold tracking-tight leading-snug mb-2" style={{ color: '#f8fafc' }}>
-            Admin Portal
-          </h2>
-          <p className="text-xs leading-relaxed mb-8" style={{ color: '#94a3b8' }}>
-            Apply for secure access to manage the Veraawell platform.
+    <AdminAuthLayout
+      tagline="Apply for secure access to manage the Veraawell platform."
+      aside={(
+        <div className="bg-slate-800/30 border border-slate-700/30 rounded-xl p-4 text-left w-full">
+          <p className="text-[10px] text-slate-500 uppercase font-semibold tracking-wider mb-1.5">Note</p>
+          <p className="text-[11px] text-slate-300 leading-relaxed">
+            All admin accounts require manual approval by a super admin before access is granted.
           </p>
-
-          {/* Info card */}
-          <div className="bg-slate-800/30 border border-slate-700/30 rounded-xl p-4 text-left w-full">
-            <p className="text-[10px] text-slate-500 uppercase font-semibold tracking-wider mb-1.5">Note</p>
-            <p className="text-[11px] text-slate-300 leading-relaxed">
-              All admin accounts require manual approval by a super admin before access is granted.
-            </p>
-          </div>
-        </motion.div>
-
-        {/* Footer info */}
-        <div className="absolute bottom-6 text-[10px] text-slate-600">
-          Veraawell Control Panel © 2026
         </div>
+      )}
+      title="Apply for Access"
+      subtitle="Your application will be reviewed by a super admin"
+    >
+      <FormError message={error} />
+
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <IconField label="First Name" icon={<FiUser size={13} />}
+            input={{ type: 'text', value: formData.firstName, onChange: update('firstName'), required: true, disabled: loading, autoComplete: 'given-name' }} />
+          <IconField label="Last Name" icon={<FiUser size={13} />}
+            input={{ type: 'text', value: formData.lastName, onChange: update('lastName'), required: true, disabled: loading, autoComplete: 'family-name' }} />
+        </div>
+        <IconField label="Email" icon={<FiMail size={13} />}
+          input={{ type: 'email', value: formData.email, onChange: update('email'), placeholder: 'admin@veraawell.com', required: true, disabled: loading, autoComplete: 'email' }} />
+        <IconField label="Username" icon={<FiUserCheck size={13} />}
+          input={{ type: 'text', value: formData.username, onChange: update('username'), required: true, disabled: loading, autoComplete: 'username' }} />
+        <IconField label="Password" icon={<FiLock size={13} />}
+          input={{ type: 'password', value: formData.password, onChange: update('password'), placeholder: '••••••••', required: true, disabled: loading, autoComplete: 'new-password' }} />
+        <IconField label="Confirm Password" icon={<FiLock size={13} />}
+          input={{ type: 'password', value: formData.confirmPassword, onChange: update('confirmPassword'), placeholder: '••••••••', required: true, disabled: loading, autoComplete: 'new-password' }} />
+
+        <motion.button type="submit" disabled={loading} whileTap={{ scale: 0.98 }} className={adminSubmitClass}>
+          {loading ? 'Submitting...' : 'Submit Application'}
+        </motion.button>
+      </form>
+
+      <div className="mt-4 text-center space-y-1.5">
+        <Link to="/admin-login" className="block text-[11px] text-neutral-500 hover:text-neutral-900 font-medium transition-colors">
+          Already have an account? Login
+        </Link>
       </div>
-
-      {/* ── Right form panel ─────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col items-center justify-center px-5 py-8 relative">
-        
-
-
-        {/* Form card */}
-        <motion.div 
-          initial={{ opacity: 0, y: 16 }} 
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
-          className="w-full max-w-sm bg-white rounded-2xl border border-neutral-200/80 shadow-sm overflow-hidden"
-        >
-          {/* Accent top bar */}
-          <div className="h-0.5 bg-gradient-to-r from-teal-400 to-emerald-400" />
-
-          <div className="px-6 pt-6 pb-5">
-            {/* Title */}
-            <div className="mb-5">
-              <h1 className="text-base font-semibold text-neutral-900 tracking-tight">
-                Apply for Access
-              </h1>
-              <p className="text-[11px] text-neutral-400 mt-0.5">
-                Your application will be reviewed by a super admin
-              </p>
-            </div>
-
-            {error && (
-              <motion.div 
-                initial={{ opacity: 0, y: -4 }} 
-                animate={{ opacity: 1, y: 0 }}
-                className="mb-4 px-3 py-2 bg-red-50 border border-red-200 rounded-xl text-[11px] font-medium text-red-600 text-center"
-              >
-                {error}
-              </motion.div>
-            )}
-
-            <form onSubmit={handleSubmit} className="space-y-3">
-              {/* Name Grid */}
-              <div className="grid grid-cols-2 gap-2">
-                <div className="space-y-1">
-                  <label className="block text-[11px] font-medium text-neutral-400">First Name</label>
-                  <div className="relative group">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 text-[13px] pointer-events-none">
-                      <FiUser size={13} />
-                    </span>
-                    <input
-                      type="text"
-                      value={formData.firstName}
-                      onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                      required
-                      disabled={loading}
-                      className="w-full pl-9 pr-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-[12px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900/8 focus:border-neutral-400 hover:border-neutral-300 transition-all disabled:opacity-40"
-                    />
-                  </div>
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-[11px] font-medium text-neutral-400">Last Name</label>
-                  <div className="relative group">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 text-[13px] pointer-events-none">
-                      <FiUser size={13} />
-                    </span>
-                    <input
-                      type="text"
-                      value={formData.lastName}
-                      onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                      required
-                      disabled={loading}
-                      className="w-full pl-9 pr-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-[12px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900/8 focus:border-neutral-400 hover:border-neutral-300 transition-all disabled:opacity-40"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Email Field */}
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-neutral-400">Email</label>
-                <div className="relative group">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 text-[13px] pointer-events-none">
-                    <FiMail size={13} />
-                  </span>
-                  <input
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    placeholder="admin@veraawell.com"
-                    required
-                    disabled={loading}
-                    className="w-full pl-9 pr-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-[12px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900/8 focus:border-neutral-400 hover:border-neutral-300 transition-all disabled:opacity-40"
-                  />
-                </div>
-              </div>
-
-              {/* Username Field */}
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-neutral-400">Username</label>
-                <div className="relative group">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 text-[13px] pointer-events-none">
-                    <FiUserCheck size={13} />
-                  </span>
-                  <input
-                    type="text"
-                    value={formData.username}
-                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                    required
-                    disabled={loading}
-                    className="w-full pl-9 pr-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-[12px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900/8 focus:border-neutral-400 hover:border-neutral-300 transition-all disabled:opacity-40"
-                  />
-                </div>
-              </div>
-
-              {/* Password Field */}
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-neutral-400">Password</label>
-                <div className="relative group">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 text-[13px] pointer-events-none">
-                    <FiLock size={13} />
-                  </span>
-                  <input
-                    type="password"
-                    value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    placeholder="••••••••"
-                    required
-                    disabled={loading}
-                    className="w-full pl-9 pr-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-[12px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900/8 focus:border-neutral-400 hover:border-neutral-300 transition-all disabled:opacity-40"
-                  />
-                </div>
-              </div>
-
-              {/* Confirm Password Field */}
-              <div className="space-y-1">
-                <label className="block text-[11px] font-medium text-neutral-400">Confirm Password</label>
-                <div className="relative group">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 text-[13px] pointer-events-none">
-                    <FiLock size={13} />
-                  </span>
-                  <input
-                    type="password"
-                    value={formData.confirmPassword}
-                    onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                    placeholder="••••••••"
-                    required
-                    disabled={loading}
-                    className="w-full pl-9 pr-4 py-2 bg-neutral-50 border border-neutral-200 rounded-xl text-[12px] text-neutral-800 placeholder:text-neutral-400 focus:outline-none focus:ring-2 focus:ring-neutral-900/8 focus:border-neutral-400 hover:border-neutral-300 transition-all disabled:opacity-40"
-                  />
-                </div>
-              </div>
-
-              <motion.button
-                type="submit"
-                disabled={loading}
-                whileTap={{ scale: 0.98 }}
-                className="w-full mt-2 py-2 bg-neutral-900 hover:bg-neutral-800 text-white text-xs font-medium rounded-xl transition-all disabled:opacity-50 shadow-sm"
-              >
-                {loading ? 'Submitting...' : 'Submit Application'}
-              </motion.button>
-            </form>
-
-            {/* Links */}
-            <div className="mt-4 text-center space-y-1.5">
-              <Link
-                to="/admin-login"
-                className="block text-[11px] text-neutral-500 hover:text-neutral-900 font-medium transition-colors"
-              >
-                Already have an account? Login
-              </Link>
-            </div>
-          </div>
-        </motion.div>
-        
-        {/* Footer */}
-        <p className="text-[10px] text-neutral-400 mt-5 md:hidden">
-          Veraawell © 2026
-        </p>
-      </div>
-    </div>
+    </AdminAuthLayout>
   );
 };
 

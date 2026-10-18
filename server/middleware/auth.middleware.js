@@ -263,7 +263,11 @@ async function verifyAdminToken(req, res, next) {
  */
 function verifySuperAdmin(req, res, next) {
   if (!req.admin || req.admin.role !== 'super_admin') {
-    throw new AuthorizationError('Super admin privileges required');
+    // A tier refusal, tagged as one (category 'authz'), so the dashboard
+    // shows it as "not allowed" instead of treating it as the end of the
+    // session and signing a normal admin out.
+    const { ForbiddenError, CODE } = require('../authz/errors');
+    return next(new ForbiddenError(CODE.TIER_REQUIRED, 'Super admin privileges required'));
   }
   next();
 }

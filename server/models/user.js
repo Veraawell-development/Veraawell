@@ -73,6 +73,15 @@ const userSchema = new mongoose.Schema({
     default: null
   },
   isPasswordChanged: { type: Boolean, default: false },
+  /**
+   * Set only when someone else chose this account's password — an admin
+   * created by a super admin, or the bootstrap admin — and cleared when the
+   * owner changes it. `isPasswordChanged` cannot carry that meaning: it
+   * defaults to false and was stored as false on every account, so reading
+   * it as "must change" forced every admin who picked their own password to
+   * change it on each sign-in.
+   */
+  mustChangePassword: { type: Boolean, default: false },
   // When the password last changed, truncated to the whole second. Tokens
   // carry `iat` in whole seconds, and verifyToken/verifyAdminToken refuse a
   // token issued before this instant — that is what makes a password reset
@@ -320,8 +329,12 @@ userSchema.pre('save', async function (next) {
     if (!this.isModified('password')) return next();
     if (this.googleId) return next();
     
-    // Skip if already a bcrypt hash
-    if (this.password.startsWith('$2a$') || this.password.startsWith('$2b$')) return next();
+    // Skip only when the caller says the value is already a hash (signup
+    // verification copies the PendingUser's hash across). This used to sniff
+    // the text for a bcrypt prefix, so anyone who chose a password starting
+    // "$2a$" or "$2b$" had it stored in plain text — and could then never
+    // log in, because comparing against a non-hash fails.
+    if (this.$locals && this.$locals.passwordIsHashed) return next();
 
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);
@@ -450,7 +463,8 @@ userSchema.statics.createFirstAdmin = async function (adminData) {
   const admin = new this({
     ...adminData,
     role: 'super_admin',
-    isPasswordChanged: false // Force password change on first login
+    isPasswordChanged: false,
+    mustChangePassword: true // a password someone else chose
   });
   return admin.save();
 };

@@ -9,6 +9,7 @@ import { useQuery } from '@tanstack/react-query';
 import { API_BASE_URL } from '../config/api';
 import SparkDecor from '../components/ui/SparkDecor';
 import LeafDecor from '../components/ui/LeafDecor';
+import { getCategoryStyle } from '../data/articleCategories';
 
 interface Article {
     _id: string;
@@ -24,22 +25,6 @@ interface Article {
     publishedDate: string;
     views: number;
 }
-
-const categoryColors: Record<string, { bg: string; text: string }> = {
-    'Addiction': { bg: '#EDE9FB', text: '#6350C9' },
-    'Adult ADHD': { bg: '#FDEBD5', text: '#C1692B' },
-    'Anger management': { bg: '#FDEBD5', text: '#C1692B' },
-    'Anxiety disorders': { bg: '#D5F3F4', text: '#0097b2' },
-    'Bipolar disorder': { bg: '#FCE4EC', text: '#C2185B' },
-    'Depression': { bg: '#E8F5E9', text: '#2E7D32' },
-    'Depressive disorders': { bg: '#E8F5E9', text: '#2E7D32' },
-    'Lack of Motivation': { bg: '#FFF9C4', text: '#A87F00' },
-    'Negative thinking': { bg: '#FCEEE8', text: '#BE7959' },
-    'Relationship Struggles': { bg: '#FCE4EC', text: '#C2185B' },
-};
-
-const getCategoryStyle = (cat: string) =>
-    categoryColors[cat] || { bg: '#F0F0F0', text: '#555555' };
 
 const ArticleDetailPage: React.FC = () => {
     const { slug } = useParams<{ slug: string }>();
@@ -433,6 +418,14 @@ const ArticleDetailPage: React.FC = () => {
                     margin-bottom: 20px;
                     letter-spacing: -0.01em;
                 }
+                .article-body h4 {
+                    font-family: var(--font-display);
+                    color: var(--text);
+                    font-size: 20px;
+                    font-weight: 700;
+                    margin-top: 36px;
+                    margin-bottom: 16px;
+                }
                 .article-body p {
                     margin-bottom: 20px;
                 }
@@ -440,23 +433,55 @@ const ArticleDetailPage: React.FC = () => {
                     color: var(--text);
                     font-weight: 600;
                 }
-                .article-body ul {
+                /* Lists. The editor is Quill 2, which writes BOTH kinds as
+                   <ol><li data-list="bullet|ordered">, so styling ul/ol alone
+                   showed every numbered list as bullets. Numbering follows the
+                   editor's own rules (quill.snow.css): one counter per indent
+                   level, continued across bullets, restarted by a new list.
+                   Older articles (Quill 1) still use plain <ul>/<ol>. */
+                .article-body ul,
+                .article-body ol {
                     margin-bottom: 32px;
                     padding-left: 24px;
                     list-style-type: none;
                 }
+                .article-body ol {
+                    counter-reset: vw-list-0 vw-list-1 vw-list-2;
+                }
                 .article-body li {
                     margin-bottom: 16px;
                     position: relative;
-                    padding-left: 16px;
+                    padding-left: 28px;
                 }
-                .article-body li::before {
+                .article-body li[data-list] { counter-set: vw-list-1 vw-list-2; }
+                .article-body li[data-list].ql-indent-1 { counter-set: vw-list-2; }
+                .article-body li[data-list].ql-indent-2 { counter-set: none; }
+                .article-body ul > li::before,
+                .article-body li[data-list="bullet"]::before {
                     content: '•';
                     color: var(--teal);
                     font-weight: bold;
                     position: absolute;
+                    left: 4px;
+                }
+                .article-body ol > li:not([data-list]),
+                .article-body li[data-list="ordered"] {
+                    counter-increment: vw-list-0;
+                }
+                .article-body ol > li:not([data-list])::before,
+                .article-body li[data-list="ordered"]::before {
+                    content: counter(vw-list-0) '.';
+                    color: var(--teal);
+                    font-weight: 600;
+                    position: absolute;
                     left: 0;
                 }
+                .article-body li[data-list="ordered"].ql-indent-1 { counter-increment: vw-list-1; }
+                .article-body li[data-list="ordered"].ql-indent-1::before { content: counter(vw-list-1, lower-alpha) '.'; }
+                .article-body li[data-list="ordered"].ql-indent-2 { counter-increment: vw-list-2; }
+                .article-body li[data-list="ordered"].ql-indent-2::before { content: counter(vw-list-2, lower-roman) '.'; }
+                .article-body li.ql-indent-1 { margin-left: 1.5em; }
+                .article-body li.ql-indent-2 { margin-left: 3em; }
                 .article-body blockquote {
                     border-left: 4px solid var(--teal);
                     margin: 40px 0;

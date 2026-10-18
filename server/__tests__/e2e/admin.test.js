@@ -214,7 +214,10 @@ describe('payout onboarding', () => {
     // bookable and tells the payout run where to send money — with no bank
     // details on file, from any admin. Bank-details approval is now the only
     // way in, so this answers with where to go instead.
-    const approved = await call('post', `/api/admin/payments/onboarding-requests/${f.doctorB._id}/approve`, adminToken, {});
+    // Super admin only, now — like every other decision about where money goes.
+    const asAdmin = await call('post', `/api/admin/payments/onboarding-requests/${f.doctorB._id}/approve`, adminToken, {});
+    expect(asAdmin.status).toBe(403);
+    const approved = await call('post', `/api/admin/payments/onboarding-requests/${f.doctorB._id}/approve`, superAdminToken, {});
     expect(approved.status).toBe(409);
     expect(approved.body.message).toMatch(/bank details/i);
 
@@ -223,20 +226,27 @@ describe('payout onboarding', () => {
     expect(after.razorpayAccountId).toBeFalsy();
   });
 
-  test('rejecting a doctor revokes their bookability', async () => {
-    // A rejected doctor left with payoutApproved true would keep taking
-    // bookings the platform has no approved way to settle.
+  test('rejecting a legacy request no longer unlists the doctor, and is super admin only', async () => {
+    // This used to set payoutApproved = false from any admin, silently
+    // unlisting a doctor whose bank details were approved — with no way back
+    // through the Bank Details queue. Payout approval now lives in Bank
+    // Details alone; this only closes the old request.
     await DoctorProfile.updateOne(
       { userId: f.doctorB._id },
       { $set: { razorpayOnboardingStatus: 'pending_admin_approval', payoutApproved: true } }
     );
 
-    const res = await call('post', `/api/admin/payments/onboarding-requests/${f.doctorB._id}/reject`, adminToken, { reason: 'Bank details unreadable' });
+    const asAdmin = await call('post', `/api/admin/payments/onboarding-requests/${f.doctorB._id}/reject`, adminToken, { reason: 'x' });
+    expect(asAdmin.status).toBe(403);
+
+    const res = await call('post', `/api/admin/payments/onboarding-requests/${f.doctorB._id}/reject`, superAdminToken, { message: 'Bank details unreadable' });
     expect(res.status).toBeLessThan(400);
 
     const after = await DoctorProfile.findOne({ userId: f.doctorB._id });
-    expect(after.payoutApproved).toBe(false);
+    expect(after.payoutApproved).toBe(true);
     expect(after.razorpayOnboardingStatus).toBe('rejected');
+    // The dashboard sends `message`; it used to be dropped for the default.
+    expect(after.razorpayKYCRejectionReason).toBe('Bank details unreadable');
   });
 
   test('approving a doctor who never requested onboarding is refused', async () => {
@@ -248,7 +258,7 @@ describe('payout onboarding', () => {
       { $set: { payoutApproved: false, razorpayOnboardingStatus: 'not_requested' } }
     );
 
-    const res = await call('post', `/api/admin/payments/onboarding-requests/${f.doctorA._id}/approve`, adminToken, {});
+    const res = await call('post', `/api/admin/payments/onboarding-requests/${f.doctorA._id}/approve`, superAdminToken, {});
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/current status/i);
 
@@ -265,7 +275,7 @@ describe('payout onboarding', () => {
       { $set: { payoutApproved: true, razorpayOnboardingStatus: 'pending_admin_approval' } }
     );
 
-    const res = await call('post', `/api/admin/payments/onboarding-requests/${f.doctorA._id}/approve`, adminToken, {});
+    const res = await call('post', `/api/admin/payments/onboarding-requests/${f.doctorA._id}/approve`, superAdminToken, {});
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/already approved/i);
   });
@@ -277,7 +287,7 @@ describe('payout onboarding', () => {
     );
     await User.updateOne({ _id: f.doctorB._id }, { $unset: { phoneNumber: 1 } });
 
-    const res = await call('post', `/api/admin/payments/onboarding-requests/${f.doctorB._id}/approve`, adminToken, {});
+    const res = await call('post', `/api/admin/payments/onboarding-requests/${f.doctorB._id}/approve`, superAdminToken, {});
     expect(res.status).toBe(409);
 
     const after = await DoctorProfile.findOne({ userId: f.doctorB._id });

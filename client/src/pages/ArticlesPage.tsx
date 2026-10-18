@@ -3,12 +3,13 @@ import { Helmet } from 'react-helmet-async';
 import { useNavigate } from 'react-router-dom';
 import { useDataSocket } from '../hooks/useDataSocket';
 import toast from 'react-hot-toast';
-import { Search, Clock, ArrowUpRight, ChevronRight } from 'lucide-react';
+import { Search, Clock, ArrowUpRight, ChevronLeft, ChevronRight, Info } from 'lucide-react';
 import { API_BASE_URL } from '../config/api';
 import { useScrollReveal } from '../hooks/useScrollReveal';
 import SparkDecor from '../components/ui/SparkDecor';
 import LeafDecor from '../components/ui/LeafDecor';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ARTICLE_CATEGORIES, getCategoryStyle } from '../data/articleCategories';
 
 interface Article {
     _id: string;
@@ -24,41 +25,25 @@ interface Article {
     featured?: boolean;
 }
 
-const categories = [
-    'All',
-    'Addiction',
-    'Adult ADHD',
-    'Anger management',
-    'Anxiety disorders',
-    'Bipolar disorder',
-    'Depression',
-    'Depressive disorders',
-    'Lack of Motivation',
-    'Negative thinking',
-    'Relationship Struggles'
-];
+const categories = ['All', ...ARTICLE_CATEGORIES];
 
-// Category color palette
-const categoryColors: Record<string, { bg: string; text: string }> = {
-    'Addiction': { bg: '#EDE9FB', text: '#6350C9' },
-    'Adult ADHD': { bg: '#FDEBD5', text: '#C1692B' },
-    'Anger management': { bg: '#FDEBD5', text: '#C1692B' },
-    'Anxiety disorders': { bg: '#D5F3F4', text: '#0097b2' },
-    'Bipolar disorder': { bg: '#FCE4EC', text: '#C2185B' },
-    'Depression': { bg: '#E8F5E9', text: '#2E7D32' },
-    'Depressive disorders': { bg: '#E8F5E9', text: '#2E7D32' },
-    'Lack of Motivation': { bg: '#FFF9C4', text: '#A87F00' },
-    'Negative thinking': { bg: '#FCEEE8', text: '#BE7959' },
-    'Relationship Struggles': { bg: '#FCE4EC', text: '#C2185B' },
-};
+/**
+ * Articles per page. The server caps a page at 50; this used to ask for 100,
+ * so it silently got 50 and anything older was unreachable.
+ */
+const PAGE_SIZE = 12;
 
-const getCategoryStyle = (cat: string) =>
-    categoryColors[cat] || { bg: '#F0F0F0', text: '#555555' };
+interface ArticlesResponse {
+    articles: Article[];
+    pagination?: { page: number; limit: number; total: number; pages: number };
+}
 
 const ArticlesPage: React.FC = () => {
     const navigate = useNavigate();
     const [searchQuery, setSearchQuery] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('All');
+    const [page, setPage] = useState(1);
     const queryClient = useQueryClient();
     const [showAllCategories, setShowAllCategories] = useState(false);
 
@@ -70,16 +55,54 @@ const ArticlesPage: React.FC = () => {
     const gridRef = useScrollReveal<HTMLDivElement>();
     const ctaRef = useScrollReveal<HTMLDivElement>();
 
-    const { data: articles = [] } = useQuery<Article[]>({
-        queryKey: ['articles', { search: searchQuery, category: selectedCategory }],
+    // Searching is rate-limited server-side; a request per keystroke burned
+    // through the allowance while someone was still typing.
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearch(searchQuery.trim());
+            setPage(1);
+        }, 350);
+        return () => clearTimeout(timer);
+    }, [searchQuery]);
+
+    const { data, isFetching, isError, refetch } = useQuery<ArticlesResponse>({
+        queryKey: ['articles', { search: debouncedSearch, category: selectedCategory, page }],
         queryFn: async () => {
-            const params = new URLSearchParams({ search: searchQuery, category: selectedCategory, limit: '100' });
+            const params = new URLSearchParams({ page: String(page), limit: String(PAGE_SIZE) });
+            if (debouncedSearch) params.set('search', debouncedSearch);
+            if (selectedCategory !== 'All') params.set('category', selectedCategory);
             const response = await fetch(`${API_BASE_URL}/articles?${params}`);
             if (!response.ok) throw new Error('Failed to fetch articles');
-            const data = await response.json();
-            return data.articles;
-        }
+            return response.json();
+        },
+        placeholderData: keepPreviousData,
     });
+    const articles = data?.articles ?? [];
+    const pagination = data?.pagination;
+    const totalArticles = pagination?.total ?? articles.length;
+    const totalPages = pagination?.pages ?? 1;
+
+    // The featured read is its own one-article query: with paging it is not
+    // necessarily on the page being shown.
+    const { data: featuredArticle } = useQuery<Article | null>({
+        queryKey: ['articles', 'featured'],
+        queryFn: async () => {
+            const response = await fetch(`${API_BASE_URL}/articles?featured=true&limit=1`);
+            if (!response.ok) return null;
+            const body = await response.json();
+            return body.articles?.[0] ?? null;
+        },
+    });
+
+    const selectCategory = (cat: string) => {
+        setSelectedCategory(cat);
+        setPage(1);
+    };
+
+    const goToPage = (next: number) => {
+        setPage(next);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
 
     useEffect(() => {
         if (!socket) return;
@@ -88,7 +111,8 @@ const ArticlesPage: React.FC = () => {
             queryClient.invalidateQueries({ queryKey: ['articles'] });
         };
         const onArticleDeleted = () => {
-            toast('An article was removed', { icon: 'info' });
+            // `icon` renders whatever it is given; the string 'info' showed up as the word "info".
+            toast('An article was removed', { icon: <Info size={16} /> });
             queryClient.invalidateQueries({ queryKey: ['articles'] });
         };
         socket.on('article:new', onArticleNew);
@@ -101,7 +125,6 @@ const ArticlesPage: React.FC = () => {
         };
     }, [socket, queryClient]);
 
-    const featuredArticle = articles.find(a => a.featured);
     const allArticles = articles;
     const visibleCategories = showAllCategories ? categories : categories.slice(0, 7);
 
@@ -166,7 +189,7 @@ const ArticlesPage: React.FC = () => {
                     {visibleCategories.map((cat) => (
                         <button
                             key={cat}
-                            onClick={() => setSelectedCategory(cat)}
+                            onClick={() => selectCategory(cat)}
                             className={`px-5 py-2.5 rounded-full text-[14px] font-medium transition-all duration-300 ${
                                 selectedCategory === cat
                                     ? 'bg-[var(--teal)] text-white shadow-md scale-105'
@@ -187,7 +210,7 @@ const ArticlesPage: React.FC = () => {
                 </div>
 
                 {/* ── Featured Article Bento Card ── */}
-                {featuredArticle && selectedCategory === 'All' && !searchQuery && (
+                {featuredArticle && selectedCategory === 'All' && !debouncedSearch && page === 1 && (
                     <div className="mb-20">
                         <div className="flex items-center gap-4 mb-8">
                             <span className="text-[12px] font-bold uppercase tracking-widest" style={{ color: 'var(--teal)', fontFamily: 'var(--font-mono)' }}>
@@ -267,15 +290,20 @@ const ArticlesPage: React.FC = () => {
                 <div>
                     <div className="flex items-center gap-4 mb-10">
                         <span className="text-[12px] font-bold uppercase tracking-widest" style={{ color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
-                            {searchQuery ? `Results for "${searchQuery}"` : selectedCategory === 'All' ? 'All Articles' : selectedCategory}
+                            {debouncedSearch ? `Results for "${debouncedSearch}"` : selectedCategory === 'All' ? 'All Articles' : selectedCategory}
                         </span>
                         <div className="flex-1 h-px bg-[var(--border)]" />
                         <span className="text-[12px] font-medium text-[var(--text-3)] bg-[var(--surface)] px-3 py-1 rounded-full border border-[var(--border)]">
-                            {allArticles.length} {allArticles.length === 1 ? 'article' : 'articles'}
+                            {totalArticles} {totalArticles === 1 ? 'article' : 'articles'}
                         </span>
                     </div>
 
-                    {allArticles.length === 0 ? (
+                    {isError && allArticles.length === 0 ? (
+                        <div className="text-center py-24 bg-[var(--surface)] rounded-[32px] border border-[var(--border)]">
+                            <h3 className="text-[22px] font-bold text-[var(--text)] mb-3" style={{ fontFamily: 'var(--font-display)' }}>We couldn't load articles</h3>
+                            <button onClick={() => { void refetch(); }} className="text-[15px] font-semibold text-[var(--teal)] hover:underline">Try again</button>
+                        </div>
+                    ) : allArticles.length === 0 ? (
                         <div className="text-center py-32 bg-[var(--surface)] rounded-[32px] border border-[var(--border)]">
                             <h3 className="text-[24px] font-bold text-[var(--text)] mb-3" style={{ fontFamily: 'var(--font-display)' }}>No articles found</h3>
                             <p className="text-[16px] text-[var(--text-2)]">Try a different search or category.</p>
@@ -340,6 +368,26 @@ const ArticlesPage: React.FC = () => {
                         </div>
                     )}
                 </div>
+
+                {totalPages > 1 && (
+                    <nav className="mt-12 flex items-center justify-center gap-4" aria-label="Article pages">
+                        <button
+                            onClick={() => goToPage(Math.max(1, page - 1))}
+                            disabled={page <= 1 || isFetching}
+                            className="flex items-center gap-1.5 px-5 py-2.5 rounded-full text-[14px] font-medium bg-[var(--surface)] text-[var(--text-2)] border border-[var(--border)] hover:border-[var(--teal)] hover:text-[var(--teal)] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                        >
+                            <ChevronLeft size={16} /> Previous
+                        </button>
+                        <span className="text-[14px] text-[var(--text-3)]">Page {page} of {totalPages}</span>
+                        <button
+                            onClick={() => goToPage(Math.min(totalPages, page + 1))}
+                            disabled={page >= totalPages || isFetching}
+                            className="flex items-center gap-1.5 px-5 py-2.5 rounded-full text-[14px] font-medium bg-[var(--surface)] text-[var(--text-2)] border border-[var(--border)] hover:border-[var(--teal)] hover:text-[var(--teal)] disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                        >
+                            Next <ChevronRight size={16} />
+                        </button>
+                    </nav>
+                )}
 
                 {/* ── Bottom CTA Banner ── */}
                 <div className="mt-24 relative overflow-hidden bg-[var(--surface)] border border-[var(--border)] rounded-[32px] p-10 md:p-16 flex flex-col md:flex-row items-center justify-between gap-10 shadow-sm">

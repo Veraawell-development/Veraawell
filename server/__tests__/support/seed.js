@@ -54,6 +54,16 @@ async function makeDoctorProfile(userId, overrides = {}) {
     },
     payoutApproved: true,
     payoutApprovedAt: new Date(),
+    // An approved doctor has approved bank details on file — payouts are only
+    // locked and paid to an approved account.
+    payoutBankStatus: 'approved',
+    payoutBank: {
+      accountHolderName: 'Seeded Practitioner',
+      accountNumber: '50100012345678',
+      ifsc: 'HDFC0001234',
+      panNumber: 'ABCDE1234F',
+      submittedAt: new Date()
+    },
     // 14 days out, matching makeAvailability's default window.
     bookableUntil: new Date(Date.now() + 14 * 864e5),
     ...overrides

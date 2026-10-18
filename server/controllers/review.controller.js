@@ -195,11 +195,14 @@ const getMyReviews = asyncHandler(async (req, res) => {
 
 /** GET /api/reviews/admin/all — All reviews with filters (Admin) */
 const adminGetAllReviews = asyncHandler(async (req, res) => {
-  const { status, doctorId, minRating, maxRating } = req.query;
+  const { status, doctorId, minRating, maxRating, reviewType } = req.query;
   const { limit, skip } = pageParams(req.query, 50, 100);
   const filter = {};
   if (typeof status === 'string' && ['pending', 'reviewed', 'flagged'].includes(status)) filter.reviewStatus = status;
   if (typeof doctorId === 'string' && /^[0-9a-fA-F]{24}$/.test(doctorId)) filter.doctorId = doctorId;
+  // Lets the moderation screen show testimonials awaiting approval apart
+  // from doctor reviews, which are public on submission.
+  if (typeof reviewType === 'string' && ['doctor', 'platform'].includes(reviewType)) filter.reviewType = reviewType;
   if (minRating) filter.rating = { ...filter.rating, $gte: parseInt(minRating) };
   if (maxRating) filter.rating = { ...filter.rating, $lte: parseInt(maxRating) };
   const reviews = await Review.find(filter).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').populate('sessionId', 'sessionDate sessionTime').sort({ createdAt: -1 }).limit(limit).skip(skip);
@@ -223,7 +226,10 @@ const adminGetDoctorPerformance = asyncHandler(async (req, res) => {
   // the same aggregation, run once across all doctors and grouped by
   // doctorId, then merged with doctor info in memory.
   const statsRows = await Review.aggregate([
-    { $match: { doctorId: { $in: doctorIds } } },
+    // The same reviews each public profile shows — this averaged in platform
+    // testimonials and flagged reviews too, so the admin saw a different
+    // rating from the one patients see.
+    { $match: { doctorId: { $in: doctorIds }, ...Review.publicFilter('doctor') } },
     {
       $group: {
         _id: '$doctorId',
@@ -257,7 +263,10 @@ const adminUpdateReviewStatus = asyncHandler(async (req, res) => {
   const { status, adminNotes } = req.body;
   if (!['pending', 'reviewed', 'flagged'].includes(status)) return res.status(400).json({ success: false, message: 'Invalid status' });
   if (adminNotes !== undefined && typeof adminNotes !== 'string') return res.status(400).json({ success: false, message: 'Admin notes must be text' });
-  const review = await Review.findByIdAndUpdate(reviewId, { reviewStatus: status, adminNotes: adminNotes || '', reviewedBy: req.actor.id, reviewedAt: new Date() }, { new: true });
+  // Notes are kept unless new ones are sent — changing a status used to wipe them.
+  const update = { reviewStatus: status, reviewedBy: req.actor.id, reviewedAt: new Date() };
+  if (adminNotes !== undefined) update.adminNotes = adminNotes;
+  const review = await Review.findByIdAndUpdate(reviewId, update, { new: true });
   if (!review) throw new NotFoundError('Review');
   // Flagging (or un-flagging) changes what is public, so the stored rating follows.
   if (review.reviewType === 'doctor') await _syncDoctorRating(review.doctorId);

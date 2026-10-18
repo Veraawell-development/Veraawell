@@ -47,6 +47,7 @@ async function approvedProfile(userId) {
     languages: ['English'], treatsFor: ['Anxiety'], type: 'Clinical Psychologist',
     pricing: { min: 1000, max: 1000, session20: 1000 },
     payoutApproved: true,
+    payoutBankStatus: 'approved',
     payoutBank: {
       accountHolderName: 'A Practitioner',
       accountNumber: '123456789012',
@@ -345,7 +346,7 @@ describe('locking cannot lose money', () => {
     const late = await payableSession(doctorA);
 
     const next = periodFor(new Date(PERIOD.periodEnd.getTime() + 2 * 864e5));
-    const generated = await ledger.generatePayouts(next.periodKey);
+    const generated = await ledger.generatePayouts(next.periodKey, { now: new Date(next.periodEnd.getTime() + 1000) });
     expect(generated.created).toHaveLength(1);
     expect(generated.created[0].claimed).toBe(1);
     expect(String((await Session.findById(late._id)).payoutId)).toBe(String(generated.created[0].payoutId));
@@ -591,7 +592,7 @@ describe('clawback when a paid-out session is refunded', () => {
     const next = periodFor(new Date(PERIOD.periodEnd.getTime() + 864e5));
     await payableSession(doctorA, { startsAt: new Date(next.periodStart.getTime() + 2 * 864e5) });
 
-    const w2 = await ledger.generatePayouts(next.periodKey);
+    const w2 = await ledger.generatePayouts(next.periodKey, { now: new Date(next.periodEnd.getTime() + 1000) });
     const locked2 = await ledger.lockPayout(w2.created[0].payoutId);
 
     expect(locked2.grossEarnings).toBe(800);
@@ -641,7 +642,94 @@ describe('preview', () => {
   });
 
   test('an invalid period key is rejected rather than silently returning nothing', async () => {
-    await expect(ledger.previewPeriod('not-a-week')).rejects.toThrow(/Invalid period key/);
-    await expect(ledger.previewPeriod('2026-W99')).rejects.toThrow(/Invalid period key/);
+    // A 400 the admin can read, not a 500.
+    await expect(ledger.previewPeriod('not-a-week')).rejects.toMatchObject({ statusCode: 400 });
+    await expect(ledger.previewPeriod('2026-W99')).rejects.toThrow(/Invalid period/);
+  });
+});
+
+describe('payouts only go to approved accounts, for finished weeks', () => {
+  test('a week that has not ended cannot be generated', async () => {
+    const current = periodFor(new Date());
+    await expect(ledger.generatePayouts(current.periodKey)).rejects.toThrow(/has not ended/);
+  });
+
+  test('a doctor whose bank details are not approved cannot be locked or paid', async () => {
+    // Changing bank details revokes approval. Lock used to snapshot whatever
+    // was on file, approved or not, and mark-paid never looked.
+    await payableSession(doctorA);
+    const { created } = await ledger.generatePayouts(PERIOD.periodKey);
+    await DoctorProfile.updateOne({ userId: doctorA }, { $set: { payoutApproved: false, payoutBankStatus: 'pending_admin_approval' } });
+
+    await expect(ledger.lockPayout(created[0].payoutId)).rejects.toThrow(/not approved/);
+    expect((await Payout.findById(created[0].payoutId)).status).toBe('draft');
+  });
+
+  test('approval revoked after lock blocks mark-paid until it is restored', async () => {
+    await payableSession(doctorA);
+    const { created } = await ledger.generatePayouts(PERIOD.periodKey);
+    await ledger.lockPayout(created[0].payoutId);
+    await DoctorProfile.updateOne({ userId: doctorA }, { $set: { payoutApproved: false, payoutBankStatus: 'pending_admin_approval' } });
+
+    await expect(ledger.markPaid(created[0].payoutId, { transferReference: 'UTR9' })).rejects.toThrow(/not approved/);
+
+    await DoctorProfile.updateOne({ userId: doctorA }, { $set: { payoutApproved: true, payoutBankStatus: 'approved' } });
+    const paid = await ledger.markPaid(created[0].payoutId, { transferReference: 'UTR9' });
+    expect(paid.status).toBe('paid');
+    expect(paid.bankSnapshot.accountNumberLast4).toBe('9012');
+  });
+
+  test('a zero payout can be closed without inventing a bank reference', async () => {
+    await payableSession(doctorA);
+    const { created } = await ledger.generatePayouts(PERIOD.periodKey);
+    await PayoutAdjustment.create({ doctorId: doctorA, amount: -800, kind: 'refund_clawback', idempotencyKey: 'clawback:zero-test', reason: 'test' });
+    const locked = await ledger.lockPayout(created[0].payoutId);
+    expect(locked.netPayable).toBe(0);
+    const paid = await ledger.markPaid(created[0].payoutId, {});
+    expect(paid.transferReference).toBe('NO-TRANSFER');
+  });
+});
+
+describe('ledger edge cases', () => {
+  test('locking or paying a payout that does not exist is a clear error', async () => {
+    const ghost = new mongoose.Types.ObjectId();
+    await expect(ledger.lockPayout(ghost)).rejects.toThrow(/not found/i);
+    await expect(ledger.markPaid(ghost, { transferReference: 'UTR1' })).rejects.toThrow(/not found/i);
+  });
+
+  test('a non-zero payout still needs a reference', async () => {
+    await payableSession(doctorA);
+    const { created } = await ledger.generatePayouts(PERIOD.periodKey);
+    await ledger.lockPayout(created[0].payoutId);
+    await expect(ledger.markPaid(created[0].payoutId, {})).rejects.toThrow(/reference/i);
+  });
+
+  test('a doctor with no profile at all cannot be locked', async () => {
+    const orphan = new mongoose.Types.ObjectId();
+    await payableSession(orphan);
+    const { created } = await ledger.generatePayouts(PERIOD.periodKey);
+    const mine = created.find((c) => String(c.doctorId) === String(orphan));
+    await expect(ledger.lockPayout(mine.payoutId)).rejects.toThrow(/not approved/);
+  });
+});
+
+describe('accounts approved the old way', () => {
+  test('a doctor marked payout-approved by the retired onboarding path, with no reviewed account, is not paid', async () => {
+    // The legacy approval set payoutApproved without any bank details on
+    // file. Those doctors are bookable, but nothing may be sent to them until
+    // an admin approves an account in Bank Details.
+    await payableSession(doctorA);
+    const { created } = await ledger.generatePayouts(PERIOD.periodKey);
+    await DoctorProfile.updateOne({ userId: doctorA }, { $set: { payoutApproved: true, payoutBankStatus: 'not_submitted' } });
+    await expect(ledger.lockPayout(created[0].payoutId)).rejects.toThrow(/not approved/);
+  });
+
+  test('an approved record with incomplete bank fields snapshots what it has rather than crashing', async () => {
+    await payableSession(doctorA);
+    const { created } = await ledger.generatePayouts(PERIOD.periodKey);
+    await DoctorProfile.collection.updateOne({ userId: doctorA }, { $unset: { payoutBank: 1 } });
+    const locked = await ledger.lockPayout(created[0].payoutId);
+    expect(locked.bankSnapshot.accountNumberLast4).toBeNull();
+    expect(locked.bankSnapshot.accountHolderName).toBeNull();
   });
 });

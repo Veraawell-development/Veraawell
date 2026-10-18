@@ -83,10 +83,13 @@ articleSchema.pre('save', async function (next) {
 
     try {
         // Generate base slug
+        // A title with no Latin letters or digits (Hindi, say) used to give an
+        // empty slug — an article with no reachable URL, and the next one got
+        // "-1". Fall back to something unique and readable.
         const baseSlug = this.title
             .toLowerCase()
             .replace(/[^a-z0-9]+/g, '-')
-            .replace(/^-+|-+$/g, '');
+            .replace(/^-+|-+$/g, '') || `article-${Date.now().toString(36)}`;
 
         let slug = baseSlug;
         let counter = 1;

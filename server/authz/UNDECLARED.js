@@ -58,8 +58,6 @@ module.exports = new Set([
   'POST /api/admin/auth/logout',
   'POST /api/admin/auth/reset-password/:token',
   'POST /api/admin/auth/setup',
-  'POST /api/admin/payments/onboarding-requests/:doctorId/approve',
-  'POST /api/admin/payments/onboarding-requests/:doctorId/reject',
   'POST /api/auth/forgot-password',
   'POST /api/auth/login',
   'POST /api/auth/logout',

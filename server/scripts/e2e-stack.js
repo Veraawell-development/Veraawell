@@ -147,9 +147,9 @@ async function main() {
   const { seedAll } = require('../__tests__/support/seed');
   const f = await seedAll();
 
-  // An admin-realm token, because AdminContext reads it out of localStorage
-  // and its checkAuth only fires on an /admin* pathname evaluated once at
-  // mount — so admin UI tests must arrive pre-authenticated.
+  // A super-admin token for the admin UI tests, which place it as the
+  // httpOnly `adminToken` cookie (client/e2e/adminHelpers.ts) — the admin
+  // session lives only there and in memory, never in localStorage.
   const jwt = require('jsonwebtoken');
   const { getAdminJWTSecret } = require('../config/auth');
   const adminToken = jwt.sign(

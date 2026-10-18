@@ -1,5 +1,9 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'react-hot-toast';
 import { API_BASE_URL } from '../config/api';
+import { SESSION_ENDED_MESSAGE, adminFetch, endsAdminSession, setAdminSessionEndedHandler } from '../utils/adminApi';
+import { clearLegacyAdminToken, getAdminToken, setAdminToken } from '../utils/adminToken';
 
 interface Admin {
   id: string;
@@ -9,133 +13,189 @@ interface Admin {
   role: 'admin' | 'super_admin';
 }
 
+interface LoginResult {
+  requiresPasswordChange: boolean;
+}
+
 interface AdminContextType {
   admin: Admin | null;
+  /** A status check is in flight. */
   loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+  /** At least one status check has finished (or a login/logout settled it). */
+  checked: boolean;
+  /** The last status check couldn't tell either way (offline, 5xx, 429). */
+  unreachable: boolean;
+  /** Signed in with a password that must be changed before anything else. */
+  passwordChangeRequired: boolean;
+  login: (email: string, password: string) => Promise<LoginResult>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
 const AdminContext = createContext<AdminContextType | undefined>(undefined);
 
+/**
+ * Survives a reload within the tab, so refreshing the page is not a way
+ * around a forced password change. The server is the real gate; this only
+ * keeps the screen honest about it.
+ */
+const MUST_CHANGE_KEY = 'veraawell:adminMustChangePassword';
+const readMustChange = (): string | null => {
+  try { return window.sessionStorage.getItem(MUST_CHANGE_KEY); } catch { return null; }
+};
+const writeMustChange = (adminId: string | null): void => {
+  try {
+    if (adminId) window.sessionStorage.setItem(MUST_CHANGE_KEY, adminId);
+    else window.sessionStorage.removeItem(MUST_CHANGE_KEY);
+  } catch { /* storage blocked */ }
+};
+
+const toAdmin = (raw: Record<string, unknown>): Admin => ({
+  id: String(raw.id ?? raw._id ?? ''),
+  email: String(raw.email ?? ''),
+  firstName: String(raw.firstName ?? ''),
+  lastName: String(raw.lastName ?? ''),
+  role: raw.role === 'super_admin' ? 'super_admin' : 'admin',
+});
+
+const bearer = (): HeadersInit => {
+  const token = getAdminToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+const isAdminPath = (pathname: string) =>
+  pathname.startsWith('/admin') || pathname.startsWith('/super-admin-dashboard');
+
 export const AdminProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const queryClient = useQueryClient();
   const [admin, setAdmin] = useState<Admin | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => isAdminPath(window.location.pathname));
+  const [checked, setChecked] = useState(false);
+  const [unreachable, setUnreachable] = useState(false);
+  const [passwordChangeRequired, setPasswordChangeRequired] = useState(false);
 
-  const checkAuth = async () => {
-    try {
-      // Get token from localStorage
-      const token = localStorage.getItem('adminToken');
+  const adminRef = useRef<Admin | null>(null);
+  adminRef.current = admin;
+  const inflight = useRef<Promise<void> | null>(null);
 
-      const headers: HeadersInit = {
-        'Content-Type': 'application/json'
-      };
+  /** Everything one admin's session leaves behind, gone before the next one. */
+  const clearSession = useCallback(() => {
+    setAdminToken(null);
+    writeMustChange(null);
+    setPasswordChangeRequired(false);
+    setAdmin(null);
+    queryClient.removeQueries({ queryKey: ['admin'] });
+  }, [queryClient]);
 
-      // Add Authorization header if token exists
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      const response = await fetch(`${API_BASE_URL}/admin/auth/status`, {
-        credentials: 'include',
-        headers
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const adminData = data.admin || data;
-        setAdmin({
-          id: adminData.id,
-          email: adminData.email,
-          firstName: adminData.firstName,
-          lastName: adminData.lastName,
-          role: adminData.role
+  const checkAuth = useCallback((): Promise<void> => {
+    if (inflight.current) return inflight.current;
+    setLoading(true);
+    const run = (async () => {
+      try {
+        const response = await fetch(`${API_BASE_URL}/admin/auth/status`, {
+          credentials: 'include',
+          headers: bearer(),
         });
-      } else {
-        setAdmin(null);
-        localStorage.removeItem('adminToken'); // Clear invalid token
+        const data = await response.json().catch(() => null);
+        if (response.ok && data) {
+          const next = toAdmin((data.admin || data) as Record<string, unknown>);
+          setAdmin(next);
+          setPasswordChangeRequired(readMustChange() === next.id);
+          setUnreachable(false);
+        } else if (endsAdminSession(response.status, data?.category)) {
+          clearSession();
+          setUnreachable(false);
+        } else {
+          // 5xx, 429 or anything else that isn't an answer about the session:
+          // keep whoever is signed in, and let the screen offer a retry
+          // rather than throwing the admin out.
+          setUnreachable(true);
+        }
+      } catch {
+        setUnreachable(true);
+      } finally {
+        setLoading(false);
+        setChecked(true);
+        inflight.current = null;
       }
-    } catch (error) {
-      console.error('Auth check failed:', error);
-      setAdmin(null);
-      localStorage.removeItem('adminToken');
-    } finally {
-      setLoading(false);
-    }
-  };
+    })();
+    inflight.current = run;
+    return run;
+  }, [clearSession]);
 
-  const login = async (email: string, password: string) => {
-    const response = await fetch(`${API_BASE_URL}/admin/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'include',
-      body: JSON.stringify({ email, password })
-    });
+  const login = useCallback(async (email: string, password: string): Promise<LoginResult> => {
+    const data = await adminFetch<{ token?: string; admin: Record<string, unknown>; requiresPasswordChange?: boolean }>(
+      '/admin/auth/login',
+      { method: 'POST', body: { email, password }, sessionAware: false }
+    );
+    // Nothing cached under the previous admin (a super admin's revenue, say)
+    // may render for this one.
+    queryClient.removeQueries({ queryKey: ['admin'] });
+    setAdminToken(data.token || null);
+    const next = toAdmin(data.admin || {});
+    const mustChange = data.requiresPasswordChange === true;
+    writeMustChange(mustChange ? next.id : null);
+    setPasswordChangeRequired(mustChange);
+    setAdmin(next);
+    setUnreachable(false);
+    setChecked(true);
+    return { requiresPasswordChange: mustChange };
+  }, [queryClient]);
 
-    if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.message || 'Login failed');
-    }
-
-    const data = await response.json();
-
-    // Store token in localStorage for Authorization header
-    if (data.token) {
-      localStorage.setItem('adminToken', data.token);
-      console.log('[ADMIN] Token stored in localStorage');
-    }
-
-    setAdmin({
-      id: data.admin.id,
-      email: data.admin.email,
-      firstName: data.admin.firstName,
-      lastName: data.admin.lastName,
-      role: data.admin.role
-    });
-  };
-
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
-      const token = localStorage.getItem('adminToken');
-      const headers: HeadersInit = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      await fetch(`${API_BASE_URL}/admin/auth/logout`, {
-        method: 'POST',
-        credentials: 'include',
-        headers
-      });
-    } catch (error) {
-      console.error('Logout error:', error);
+      // Clears the httpOnly cookie, which only the server can do.
+      await fetch(`${API_BASE_URL}/admin/auth/logout`, { method: 'POST', credentials: 'include', headers: bearer() });
+    } catch {
+      /* offline: the local session still ends */
     } finally {
-      localStorage.removeItem('adminToken'); // Clear token
-      setAdmin(null);
+      clearSession();
+      setChecked(true);
     }
-  };
+  }, [clearSession]);
 
-  useEffect(() => {
-    // Only check admin auth if we're on an admin route or super admin dashboard
-    const isAdminRoute = window.location.pathname.startsWith('/admin') || 
-                         window.location.pathname.startsWith('/super-admin-dashboard');
-
-    if (isAdminRoute) {
-      checkAuth();
-    } else {
-      // Not on admin route, skip auth check
-      setLoading(false);
-    }
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    const data = await adminFetch<{ token?: string }>('/admin/auth/change-password', {
+      method: 'POST',
+      body: { currentPassword, newPassword },
+      // A 401 here is "current password is incorrect", not a lapsed session.
+      sessionAware: false,
+    });
+    // The change retires every token issued before it; the server hands back
+    // (and sets as the cookie) a fresh one.
+    if (data.token) setAdminToken(data.token);
+    writeMustChange(null);
+    setPasswordChangeRequired(false);
   }, []);
 
+  // Any admin request answered with "session over" lands here, once.
+  useEffect(() => setAdminSessionEndedHandler(() => {
+    if (!adminRef.current) return;
+    toast.error(SESSION_ENDED_MESSAGE, { id: 'admin-session-ended' });
+    void fetch(`${API_BASE_URL}/admin/auth/logout`, { method: 'POST', credentials: 'include' }).catch(() => {});
+    clearSession();
+    // AdminProtectedRoute sees no admin and redirects to /admin-login.
+  }), [clearSession]);
+
+  useEffect(() => {
+    clearLegacyAdminToken();
+    // The admin realm is only checked where it matters; AdminProtectedRoute
+    // checks on demand when the SPA navigates into the console from elsewhere.
+    if (isAdminPath(window.location.pathname)) void checkAuth();
+  }, [checkAuth]);
+
   return (
-    <AdminContext.Provider value={{ admin, loading, login, logout, checkAuth }}>
+    <AdminContext.Provider value={{
+      admin, loading, checked, unreachable, passwordChangeRequired,
+      login, logout, checkAuth, changePassword,
+    }}>
       {children}
     </AdminContext.Provider>
   );
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAdmin = () => {
   const context = useContext(AdminContext);
   if (context === undefined) {

@@ -4,9 +4,13 @@ const User = require('../../models/user');
 const DoctorProfile = require('../../models/doctorProfile');
 const { verifyAdminToken, verifySuperAdmin } = require('../../middleware/auth.middleware');
 const emailService = require('../../services/email.service');
+const { validateObjectIdParam } = require('../../middleware/validation.middleware');
 const { createLogger } = require('../../utils/logger');
 
 const logger = createLogger('ADMIN-APPROVALS');
+
+/** Sessions that were really booked — not checkouts that were abandoned. */
+const REAL_BOOKING = { paymentStatus: { $nin: ['pending', 'failed'] } };
 
 /**
  * The User fields an admin screen may see — an allowlist, not `-password`.
@@ -75,7 +79,7 @@ router.get('/admins/all', verifyAdminToken, verifySuperAdmin, async (req, res) =
 });
 
 // Approve admin
-router.post('/admins/:adminId/approve', verifyAdminToken, verifySuperAdmin, async (req, res) => {
+router.post('/admins/:adminId/approve', verifyAdminToken, verifySuperAdmin, validateObjectIdParam('adminId'), async (req, res) => {
   try {
     const { adminId } = req.params;
     const superAdminId = req.admin._id;
@@ -105,6 +109,8 @@ router.post('/admins/:adminId/approve', verifyAdminToken, verifySuperAdmin, asyn
       timestamp: new Date()
     });
 
+    await notify('admin approval', () => emailService.sendAdminDecisionEmail(admin.email, admin.firstName, true));
+
     res.json({
       message: 'Admin approved successfully',
       admin: {
@@ -121,7 +127,7 @@ router.post('/admins/:adminId/approve', verifyAdminToken, verifySuperAdmin, asyn
 });
 
 // Reject admin
-router.post('/admins/:adminId/reject', verifyAdminToken, verifySuperAdmin, async (req, res) => {
+router.post('/admins/:adminId/reject', verifyAdminToken, verifySuperAdmin, validateObjectIdParam('adminId'), async (req, res) => {
   try {
     const { adminId } = req.params;
     const { reason } = req.body;
@@ -145,6 +151,8 @@ router.post('/admins/:adminId/reject', verifyAdminToken, verifySuperAdmin, async
       reason: admin.rejectionReason,
       timestamp: new Date()
     });
+
+    await notify('admin rejection', () => emailService.sendAdminDecisionEmail(admin.email, admin.firstName, false, admin.rejectionReason));
 
     res.json({
       message: 'Admin rejected successfully',
@@ -221,7 +229,7 @@ router.get('/doctors/all', verifyAdminToken, async (req, res) => {
 });
 
 // Approve doctor
-router.post('/doctors/:doctorId/approve', verifyAdminToken, async (req, res) => {
+router.post('/doctors/:doctorId/approve', verifyAdminToken, validateObjectIdParam('doctorId'), async (req, res) => {
   try {
     const { doctorId } = req.params;
     const adminId = req.admin._id;
@@ -286,7 +294,7 @@ router.post('/doctors/:doctorId/approve', verifyAdminToken, async (req, res) => 
 });
 
 // Reject doctor
-router.post('/doctors/:doctorId/reject', verifyAdminToken, async (req, res) => {
+router.post('/doctors/:doctorId/reject', verifyAdminToken, validateObjectIdParam('doctorId'), async (req, res) => {
   try {
     const { doctorId } = req.params;
     const { reason } = req.body;
@@ -328,7 +336,7 @@ router.post('/doctors/:doctorId/reject', verifyAdminToken, async (req, res) => {
       });
     }
 
-    await notify('doctor rejection', () => emailService.sendDoctorRejectedEmail(doctor.email, doctor.firstName));
+    await notify('doctor rejection', () => emailService.sendDoctorRejectedEmail(doctor.email, doctor.firstName, reason));
 
     res.json({
       message: 'Doctor rejected successfully',
@@ -420,21 +428,27 @@ router.get('/analytics', verifyAdminToken, async (req, res) => {
       newPatientsLast30Days, newDoctorsLast30Days,
       topDoctors
     ] = await Promise.all([
-      // Session counts
-      Session.countDocuments(),
-      Session.countDocuments({ status: 'completed' }),
-      Session.countDocuments({ status: 'cancelled' }),
-      Session.countDocuments({ status: 'scheduled', scheduledDate: { $gte: now } }),
-      Session.countDocuments({ createdAt: { $gte: last30Days } }),
-      Session.countDocuments({ createdAt: { $gte: last7Days } }),
-      
-      // Revenue aggregations
+      // Session counts — real bookings only. An abandoned checkout
+      // (payment_pending, or failed and cancelled) is not a session anyone
+      // had; counting them inflated every figure on the overview.
+      Session.countDocuments(REAL_BOOKING),
+      Session.countDocuments({ ...REAL_BOOKING, status: 'completed' }),
+      Session.countDocuments({ ...REAL_BOOKING, status: 'cancelled' }),
+      // `startsAt`, not `scheduledDate` — that field does not exist on
+      // Session, so this was always 0.
+      Session.countDocuments({ status: { $in: ['scheduled', 'active'] }, startsAt: { $gte: now } }),
+      Session.countDocuments({ ...REAL_BOOKING, createdAt: { $gte: last30Days } }),
+      Session.countDocuments({ ...REAL_BOOKING, createdAt: { $gte: last7Days } }),
+
+      // Revenue — money actually collected and kept, the same definition the
+      // Revenue tab uses. This summed every completed session's price,
+      // refunded and free ones included.
       Session.aggregate([
-        { $match: { status: 'completed', price: { $exists: true } } },
+        { $match: { paymentStatus: 'paid' } },
         { $group: { _id: null, total: { $sum: '$price' } } }
       ]),
       Session.aggregate([
-        { $match: { status: 'completed', price: { $exists: true }, createdAt: { $gte: last30Days } } },
+        { $match: { paymentStatus: 'paid', createdAt: { $gte: last30Days } } },
         { $group: { _id: null, total: { $sum: '$price' } } }
       ]),
 
@@ -508,7 +522,7 @@ router.get('/analytics', verifyAdminToken, async (req, res) => {
 });
 
 // Remove doctor (Super Admin only)
-router.delete('/doctors/:doctorId', verifyAdminToken, verifySuperAdmin, async (req, res) => {
+router.delete('/doctors/:doctorId', verifyAdminToken, verifySuperAdmin, validateObjectIdParam('doctorId'), async (req, res) => {
   try {
     const { doctorId } = req.params;
 
@@ -522,7 +536,25 @@ router.delete('/doctors/:doctorId', verifyAdminToken, verifySuperAdmin, async (r
       return res.status(400).json({ message: 'User is not a doctor' });
     }
 
-    // Delete doctor and their profile if exists
+    // A doctor with any booking history is not deleted. Removing the User and
+    // DoctorProfile used to strand everything that pointed at them: upcoming
+    // paid sessions stayed scheduled (patients kept getting reminders for a
+    // therapist who no longer existed), and earned money became unpayable
+    // because the bank details went with the profile. Rejecting them removes
+    // them from the platform — the directory, sign-in and booking all refuse
+    // a rejected doctor — while keeping the records.
+    const Session = require('../../models/session');
+    const Payout = require('../../models/payout');
+    const [hasSessions, hasPayouts] = await Promise.all([
+      Session.exists({ doctorId }),
+      Payout.exists({ doctorId })
+    ]);
+    if (hasSessions || hasPayouts) {
+      return res.status(409).json({
+        message: 'This doctor has session or payout history, so they cannot be deleted. Reject them instead — that removes them from the platform and keeps their patients\' records and any money owed.'
+      });
+    }
+
     await User.findByIdAndDelete(doctorId);
     await DoctorProfile.findOneAndDelete({ userId: doctorId });
 
@@ -540,7 +572,7 @@ router.delete('/doctors/:doctorId', verifyAdminToken, verifySuperAdmin, async (r
 });
 
 // Remove admin (Super Admin only)
-router.delete('/admins/:adminId', verifyAdminToken, verifySuperAdmin, async (req, res) => {
+router.delete('/admins/:adminId', verifyAdminToken, verifySuperAdmin, validateObjectIdParam('adminId'), async (req, res) => {
   try {
     const { adminId } = req.params;
     const superAdminId = req.admin._id;
