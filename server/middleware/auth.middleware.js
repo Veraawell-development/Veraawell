@@ -160,7 +160,7 @@ async function verifyToken(req, res, next) {
   try {
     const resolved = await authenticateRealm(req, REALM.USER);
     if (!resolved) {
-      logger.warn('No token provided', { ip: req.ip });
+      logger.debug('No token provided', { ip: req.ip });
       throw new AuthenticationError('No token provided');
     }
     const { user, decoded } = resolved;
