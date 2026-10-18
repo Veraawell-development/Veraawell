@@ -219,7 +219,7 @@ const AdminProtectedRoute: React.FC<{ children: React.ReactNode; superAdminOnly?
 };
 
 function AppRoutes() {
-  const { isLoggedIn, user, checkAuth, setAuthToken } = useAuth();
+  const { isLoggedIn, user, checkAuth } = useAuth();
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -253,8 +253,7 @@ function AppRoutes() {
     }
 
     // Returning from Google sign-in: the OAuth effect below runs the check
-    // once the URL token (cookie-blocked fallback) is in memory. Starting one
-    // here first would be deduplicated with it and go out without that token.
+    // and needs its answer, so it is the one that starts it.
     if (new URLSearchParams(window.location.search).get('auth') === 'success') return;
 
     // Check auth silently in background (don't block UI)
@@ -275,30 +274,30 @@ function AppRoutes() {
       handledOAuthReturn.current = location.key;
 
       const roleFromUrl = urlParams.get('role');
-      const tokenFromUrl = urlParams.get('token');
-
-      // If token is in URL (fallback for blocked cookies — Safari ITP blocks
-      // the cross-site httpOnly cookie in this OAuth redirect), keep it
-      // in-memory only via setAuthToken (see AuthContext.tsx / utils/authToken.ts)
-      // rather than localStorage, which would be readable by any script on
-      // the page — exactly what the httpOnly cookie exists to prevent.
-      if (tokenFromUrl) {
-        setAuthToken(tokenFromUrl);
-      }
 
       // Clean URL immediately (remove auth params)
       const cleanUrl = window.location.pathname;
       window.history.replaceState({}, '', cleanUrl);
 
-      // checkAuth retries a cold-starting API itself and never throws.
-      void checkAuth().then(() => {
+      // The session is the cookie the API set on its way back from Google
+      // (the token no longer rides in the URL). checkAuth retries a
+      // cold-starting API itself and never throws.
+      void checkAuth().then((signedIn) => {
+        if (!signedIn) {
+          // Google said yes but this browser holds no session — cookies
+          // blocked, or the API unreachable. Say so, rather than dropping
+          // the person on a dashboard that bounces them to the login form.
+          consumeOAuthRedirect();
+          navigate('/login?error=google-session', { replace: true });
+          return;
+        }
         // A deep link the user was sent to /login from, parked by AuthPage
         // before leaving for Google.
         const target = consumeOAuthRedirect() ?? dashboardFor(roleFromUrl ?? undefined);
         navigate(target, { replace: true });
       });
     }
-  }, [location, checkAuth, navigate, setAuthToken]);
+  }, [location, checkAuth, navigate]);
 
   // Redirect authenticated users from landing page and auth pages to their dashboards
   useEffect(() => {

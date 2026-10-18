@@ -194,7 +194,9 @@ function createSessionStore() {
     // OAuth role across the Google redirect (req.session.oauthRole). Auth
     // itself is the JWT cookie, so no one is logged out.
     collectionName: 'auth_sessions',
-    ttl: 30 * 24 * 60 * 60, // 30 days in seconds
+    // Matches the session cookie's 15 minutes (config/auth.js): a session
+    // only spans one Google sign-in.
+    ttl: 15 * 60,
     touchAfter: 24 * 3600, // Lazy session update (24 hours)
     crypto: {
       secret: secret

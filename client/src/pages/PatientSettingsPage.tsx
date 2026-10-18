@@ -33,7 +33,7 @@ const ComingSoonBadge = () => {
 
 const PatientSettingsPage: React.FC = () => {
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { logout, setAuthToken } = useAuth();
   
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -54,6 +54,9 @@ const PatientSettingsPage: React.FC = () => {
       return data;
     },
     onSuccess: (data) => {
+      // The change retires every older token, the one in memory included;
+      // the server hands this session a fresh one.
+      if (data.token) setAuthToken(data.token);
       toast.success(data.message || 'Password updated successfully');
       setShowPasswordForm(false);
       setCurrentPassword('');
@@ -78,8 +81,10 @@ const PatientSettingsPage: React.FC = () => {
     },
     onSuccess: async () => {
       toast.success('Account deleted successfully');
-      await logout(); // Clear frontend state and redirect
+      await logout(); // Clear frontend state
       queryClient.clear(); // Clear all queries
+      // Home, not the login page ProtectedRoute would otherwise bounce to.
+      navigate('/', { replace: true });
     },
     onError: (error: any) => {
       console.error('Account deletion error:', error);
@@ -91,6 +96,10 @@ const PatientSettingsPage: React.FC = () => {
     e.preventDefault();
     if (newPassword !== confirmPassword) {
       toast.error('New passwords do not match');
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast.error('New password must be at least 6 characters long');
       return;
     }
     updatePasswordMutation.mutate({ currentPassword, newPassword });

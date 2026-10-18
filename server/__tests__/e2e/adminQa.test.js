@@ -143,6 +143,20 @@ describe('admin accounts', () => {
     expect(res2.status).toBe(200);
   });
 
+  test('admin logout with only the console\'s Bearer token records the logout', async () => {
+    // It called an `extractToken` the auth middleware does not export, so
+    // without the cookie the activity log failed with a TypeError.
+    const jwt = require('jsonwebtoken');
+    const { getAdminJWTSecret } = require('../../config/auth');
+    const bearer = jwt.sign({ userId: String(f.admin._id), role: 'admin' }, getAdminJWTSecret(), { expiresIn: '1h' });
+    const before = (await User.findById(f.admin._id)).activityLog.filter((a) => a.action === 'logout').length;
+
+    const res = await call('post', '/api/admin/auth/logout', bearer, {});
+    expect(res.status).toBe(200);
+    const after = (await User.findById(f.admin._id)).activityLog.filter((a) => a.action === 'logout').length;
+    expect(after).toBe(before + 1);
+  });
+
   test('a database super admin gets the same 8-hour session as the master login', async () => {
     const email = `dbsuper.${Date.now()}@veraawell.test`;
     await User.create({ firstName: 'Db', lastName: 'Super', email, username: email, password: 'Super@12345', role: 'super_admin', approvalStatus: 'approved' });

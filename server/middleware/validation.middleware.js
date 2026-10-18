@@ -58,8 +58,18 @@ function isValidEmail(email) {
  * Validate password strength
  */
 function isValidPassword(password) {
+  if (typeof password !== 'string') {
+    return { valid: false, message: 'Password is required' };
+  }
   if (password.length < PASSWORD_POLICY.MIN_LENGTH) {
     return { valid: false, message: `Password must be at least ${PASSWORD_POLICY.MIN_LENGTH} characters long` };
+  }
+
+  // bcrypt reads only the first 72 bytes, so anything past that would be
+  // silently ignored; the ceiling also stops a megabyte "password" being
+  // hashed on every attempt.
+  if (password.length > PASSWORD_POLICY.MAX_LENGTH) {
+    return { valid: false, message: `Password must be at most ${PASSWORD_POLICY.MAX_LENGTH} characters long` };
   }
 
   if (PASSWORD_POLICY.REQUIRE_UPPERCASE && !/[A-Z]/.test(password)) {
@@ -88,20 +98,39 @@ function isValidRole(role) {
  * Validate registration data
  */
 function validateRegistration(req, res, next) {
-  const { firstName, email, password, role } = req.body;
+  const body = req.body || {};
+  // A phone keyboard's autocomplete leaves a trailing space after an address,
+  // which the format check below used to reject as "Invalid email format".
+  // Trimmed once here so every later step sees the same address.
+  if (typeof body.email === 'string') body.email = body.email.trim();
+  const { firstName, email, password, role, phoneNo } = body;
   const errors = {};
 
-  if (!firstName || !firstName.trim()) {
+  // Each field's type is checked before it is used: a number or an object in
+  // place of a string used to reach `.trim()` or bcrypt and come back as a
+  // 500 instead of a 400.
+  if (typeof firstName !== 'string' || !firstName.trim()) {
     errors.firstName = 'First name is required';
+  } else if (firstName.trim().length > 100) {
+    errors.firstName = 'Name must be 100 characters or fewer';
   }
 
-  if (!email || !email.trim()) {
+  if (typeof email !== 'string' || !email) {
     errors.email = 'Email is required';
-  } else if (!isValidEmail(email)) {
+  } else if (!isValidEmail(email) || email.length > 254) {
     errors.email = 'Invalid email format';
   }
 
-  if (!password) {
+  // Optional on the API, but if given it must be a number someone can call:
+  // the same 10-15 digit rule the User schema applies.
+  if (phoneNo !== undefined && phoneNo !== null && phoneNo !== '') {
+    const digits = typeof phoneNo === 'string' ? phoneNo.replace(/\D/g, '') : '';
+    if (typeof phoneNo !== 'string' || phoneNo.trim().length > 32 || digits.length < 10 || digits.length > 15) {
+      errors.phoneNo = 'Please enter a valid phone number (10 to 15 digits)';
+    }
+  }
+
+  if (typeof password !== 'string' || !password) {
     errors.password = 'Password is required';
   } else {
     const passwordValidation = isValidPassword(password);
@@ -118,13 +147,13 @@ function validateRegistration(req, res, next) {
 
   // Professional validation for doctor fields
   if (role === 'doctor') {
-    const { jobRole, specialization } = req.body;
-    
-    if (!jobRole || !jobRole.trim()) {
+    const { jobRole, specialization } = body;
+
+    if (typeof jobRole !== 'string' || !jobRole.trim()) {
       errors.jobRole = 'Job role is required for doctors';
     }
-    
-    if (!specialization || !specialization.trim()) {
+
+    if (typeof specialization !== 'string' || !specialization.trim()) {
       errors.specialization = 'Specialization is required for doctors';
     }
   }
@@ -143,16 +172,19 @@ function validateRegistration(req, res, next) {
  * Validate login data
  */
 function validateLogin(req, res, next) {
-  const { username, password } = req.body;
+  const body = req.body || {};
+  if (typeof body.username === 'string') body.username = body.username.trim();
+  const { username, password } = body;
   const errors = {};
 
-  if (!username || !username.trim()) {
-    errors.username = 'Username or email is required';
+  if (typeof username !== 'string' || !username) {
+    errors.username = 'Email is required';
   }
 
-  if (!password) {
+  if (typeof password !== 'string' || !password) {
     errors.password = 'Password is required';
   }
+
 
   if (Object.keys(errors).length > 0) {
     throw new ValidationError('Validation failed', errors);
@@ -165,14 +197,14 @@ function validateLogin(req, res, next) {
  * Validate password reset request
  */
 function validatePasswordReset(req, res, next) {
-  const { token, newPassword } = req.body;
+  const { token, newPassword } = req.body || {};
   const errors = {};
 
-  if (!token) {
+  if (typeof token !== 'string' || !token) {
     errors.token = 'Reset token is required';
   }
 
-  if (!newPassword) {
+  if (typeof newPassword !== 'string' || !newPassword) {
     errors.newPassword = 'New password is required';
   } else {
     const passwordValidation = isValidPassword(newPassword);

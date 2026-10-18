@@ -178,7 +178,7 @@ router.post('/reset-password/:token', async (req, res) => {
     }
 
     const admin = await User.findOne({
-      resetToken: token,
+      resetToken: User.hashResetToken(token),
       resetTokenExpiry: { $gt: Date.now() },
       role: { $in: ['admin', 'super_admin'] }
     });
@@ -478,8 +478,12 @@ router.post('/create', verifyAdminToken, verifySuperAdmin, async (req, res) => {
 // still identifies someone.
 router.post('/logout', async (req, res) => {
   try {
-    const { extractToken } = require('../../middleware/auth.middleware');
-    const token = (req.cookies && req.cookies.adminToken) || extractToken(req);
+    // The cookie, else the console's in-memory Bearer token. This called an
+    // `extractToken` the auth middleware does not export, so whenever the
+    // cookie was absent the activity log failed with a TypeError.
+    const header = req.headers.authorization;
+    const bearer = typeof header === 'string' && header.startsWith('Bearer ') ? header.slice(7).trim() : null;
+    const token = (req.cookies && req.cookies.adminToken) || bearer;
     if (token) {
       try {
         const decoded = jwt.verify(token, getAdminJWTSecret());

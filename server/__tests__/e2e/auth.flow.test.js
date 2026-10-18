@@ -25,11 +25,22 @@ const { connectDb, disconnectDb } = require('../support/db');
  * property, so intercepting the send is the only way to learn the code.
  */
 const mockSendOtp = jest.fn().mockResolvedValue({ id: 'sink' });
+// Reset tokens are stored hashed, so the emailed link is the only place the
+// usable token exists — the same as for a real user.
+const mockSendReset = jest.fn().mockResolvedValue({ id: 'sink' });
 jest.mock('../../services/email.service', () => new Proxy({}, {
-  get: (_t, name) => (name === 'sendOTPEmail'
-    ? (...a) => mockSendOtp(...a)
-    : jest.fn().mockResolvedValue({ id: 'sink' }))
+  get: (_t, name) => {
+    if (name === 'sendOTPEmail') return (...a) => mockSendOtp(...a);
+    if (name === 'sendPasswordResetEmail') return (...a) => mockSendReset(...a);
+    return jest.fn().mockResolvedValue({ id: 'sink' });
+  }
 }));
+
+/** The token in the most recent password-reset email. */
+function emailedResetToken() {
+  const calls = mockSendReset.mock.calls;
+  return calls.length ? calls[calls.length - 1][1] : null;
+}
 
 let User, PendingUser;
 let app;
@@ -38,7 +49,7 @@ let server;
 /** The real /api/auth/* surface, mounted exactly as app.js mounts it. */
 function buildApp() {
   const { validateRegistration, validateLogin, validatePasswordReset } = require('../../middleware/validation.middleware');
-  const { verifyToken } = require('../../middleware/auth.middleware');
+  const { verifyToken, optionalAuth } = require('../../middleware/auth.middleware');
   const authController = require('../../controllers/auth.controller');
   const { errorHandler } = require('../../middleware/error.middleware');
 
@@ -49,13 +60,13 @@ function buildApp() {
   app.post('/api/auth/verify-signup', authController.verifySignup);
   app.post('/api/auth/resend-signup-otp', authController.resendSignupOtp);
   app.post('/api/auth/login', validateLogin, authController.login);
-  app.post('/api/auth/logout', verifyToken, authController.logout);
+  app.post('/api/auth/logout', optionalAuth, authController.logout);
   app.post('/api/auth/forgot-password', authController.forgotPassword);
   app.post('/api/auth/reset-password', validatePasswordReset, authController.resetPassword);
   app.put('/api/auth/update-password', verifyToken, authController.updatePassword);
   app.delete('/api/auth/delete-account', verifyToken, authController.deleteAccount);
   app.get('/api/auth/profile', verifyToken, authController.getProfile);
-  app.get('/api/protected', verifyToken, authController.getProtected);
+  app.get('/api/protected', verifyToken, authController.getProtected, authController.clearRefusedSession);
   app.use(errorHandler);
   return app;
 }
@@ -80,6 +91,8 @@ beforeEach(async () => {
   await Promise.all([User.deleteMany({}), PendingUser.deleteMany({})]);
   mockSendOtp.mockReset();
   mockSendOtp.mockResolvedValue({ id: 'sink' });
+  mockSendReset.mockReset();
+  mockSendReset.mockResolvedValue({ id: 'sink' });
 });
 
 const PATIENT = {
@@ -174,7 +187,14 @@ describe('signup: register -> PendingUser -> OTP -> verify-signup -> User', () =
 
   test('a doctor signs up as approvalStatus pending and cannot log in until approved', async () => {
     const { otp } = await registerAndGetOtp(app, DOCTOR);
-    await request(server).post('/api/auth/verify-signup').send({ email: DOCTOR.email, otp });
+    const verified = await request(server).post('/api/auth/verify-signup').send({ email: DOCTOR.email, otp });
+    // Verified, but no session: the careers page tells them to sign in once
+    // approved, and a session issued here used to open the doctor dashboard
+    // before any admin had looked at the application.
+    expect(verified.status).toBe(200);
+    expect(verified.body.requiresApproval).toBe(true);
+    expect(verified.body.token).toBeUndefined();
+    expect(verified.headers['set-cookie']).toBeUndefined();
 
     const doctor = await User.findOne({ email: DOCTOR.email });
     expect(doctor.approvalStatus).toBe('pending');
@@ -350,15 +370,20 @@ describe('password reset', () => {
     expect(known.body.message).toBe(unknown.body.message);
   });
 
-  test('the reset token is stored in plaintext and is single-use', async () => {
+  test('the reset token is stored only as a hash, and is single-use', async () => {
     const user = await verifiedPatient(app);
     await request(server).post('/api/auth/forgot-password').send({ email: PATIENT.email });
 
-    const withToken = await User.findById(user._id).select('+resetToken');
-    const token = withToken.resetToken;
-    expect(token).toBeTruthy();
-    // A database read yields a usable token: it is not hashed at rest.
+    const token = emailedResetToken();
     expect(token).toMatch(/^[0-9a-f]{96}$/);
+    // A database read does not yield a usable token.
+    const stored = (await User.findById(user._id).select('+resetToken')).resetToken;
+    expect(stored).toBe(User.hashResetToken(token));
+    expect(stored).not.toBe(token);
+    const fromDb = await request(server)
+      .post('/api/auth/reset-password')
+      .send({ token: stored, newPassword: 'fromthedb123' });
+    expect(fromDb.status).toBe(404);
 
     const first = await request(server)
       .post('/api/auth/reset-password')
@@ -377,7 +402,7 @@ describe('password reset', () => {
   test('an expired reset token is refused', async () => {
     const user = await verifiedPatient(app);
     await request(server).post('/api/auth/forgot-password').send({ email: PATIENT.email });
-    const token = (await User.findById(user._id).select('+resetToken')).resetToken;
+    const token = emailedResetToken();
 
     await User.updateOne({ _id: user._id }, { $set: { resetTokenExpiry: new Date(Date.now() - 60000) } });
 
@@ -390,7 +415,7 @@ describe('password reset', () => {
   test('reusing the current password as the new password is refused', async () => {
     const user = await verifiedPatient(app);
     await request(server).post('/api/auth/forgot-password').send({ email: PATIENT.email });
-    const token = (await User.findById(user._id).select('+resetToken')).resetToken;
+    const token = emailedResetToken();
 
     const res = await request(server)
       .post('/api/auth/reset-password')
@@ -594,7 +619,7 @@ describe('tokens end when they should', () => {
     expect((await request(server).get('/api/auth/profile').set('Authorization', `Bearer ${stolen}`)).status).toBe(200);
 
     await request(server).post('/api/auth/forgot-password').send({ email: user.email });
-    const resetToken = (await User.findById(user._id)).resetToken;
+    const resetToken = emailedResetToken();
     expect((await request(server).post('/api/auth/reset-password').send({ token: resetToken, newPassword: 'a-new-password-1' })).status).toBe(200);
 
     expect((await request(server).get('/api/auth/profile').set('Authorization', `Bearer ${stolen}`)).status).toBe(401);
@@ -616,13 +641,19 @@ describe('tokens end when they should', () => {
     expect((await request(server).get('/api/auth/profile').set('Authorization', `Bearer ${res.body.token}`)).status).toBe(200);
   });
 
-  test('a rejected doctor\'s existing token stops working', async () => {
+  test('a doctor\'s token works only while the account is approved', async () => {
     // Regression. Login refused a rejected doctor, but a token issued before
-    // the rejection kept full access for the rest of its 30 days.
+    // the rejection kept full access for the rest of its 30 days. A pending
+    // doctor's token — verify-signup and Google sign-in used to issue one —
+    // opened the whole doctor dashboard before anyone had checked a licence.
     const { makeUser, tokenFor } = require('../helpers/harness');
     const doc = await makeUser('doctor', { approvalStatus: 'pending' });
     const token = tokenFor(doc);
-    // A pending doctor keeps access, to finish their profile.
+    const pending = await request(server).get('/api/auth/profile').set('Authorization', `Bearer ${token}`);
+    expect(pending.status).toBe(403);
+    expect(pending.body.message).toMatch(/awaiting approval/);
+
+    await User.updateOne({ _id: doc._id }, { $set: { approvalStatus: 'approved' } });
     expect((await request(server).get('/api/auth/profile').set('Authorization', `Bearer ${token}`)).status).toBe(200);
 
     await User.updateOne({ _id: doc._id }, { $set: { approvalStatus: 'rejected' } });
@@ -804,5 +835,160 @@ describe('the resend limiter, as production mounts it', () => {
 
     // Keyed on the address: another one from the same IP is unaffected.
     expect((await request(limited).post('/resend').send({ email: 'someone.else@test.local' })).status).toBe(200);
+  });
+});
+
+describe('auth QA: what a real person types, and sessions that end', () => {
+  const jwt = require('jsonwebtoken');
+  const { getJWTSecret } = require('../../config/auth');
+
+  async function verifiedPatient() {
+    const { otp } = await registerAndGetOtp(app, PATIENT);
+    await request(server).post('/api/auth/verify-signup').send({ email: PATIENT.email, otp });
+    return User.findOne({ email: PATIENT.email });
+  }
+
+  test('an address with stray spaces signs up, signs in and resets like the clean one', async () => {
+    // A phone keyboard's autocomplete leaves a trailing space after an
+    // address. Registration answered "Invalid email format" and login
+    // "User not found. Please sign up first."
+    const spaced = { ...PATIENT, email: `  ${PATIENT.email} `, username: undefined };
+    const { res, otp } = await registerAndGetOtp(app, spaced);
+    expect(res.status).toBe(201);
+    expect(res.body.email).toBe(PATIENT.email);
+    expect((await request(server).post('/api/auth/verify-signup').send({ email: ` ${PATIENT.email} `, otp })).status).toBe(200);
+
+    const login = await request(server).post('/api/auth/login').send({ username: `${PATIENT.email.toUpperCase()} `, password: PATIENT.password, role: 'patient' });
+    expect(login.status).toBe(200);
+
+    await request(server).post('/api/auth/forgot-password').send({ email: ` ${PATIENT.email}  ` });
+    expect(emailedResetToken()).toMatch(/^[0-9a-f]{96}$/);
+  });
+
+  test('a value of the wrong type is a 400, never a 500', async () => {
+    const bodies = [
+      ['/api/auth/login', { username: 12345, password: 'x' }],
+      ['/api/auth/login', { username: { a: 1 }, password: 'x' }],
+      ['/api/auth/login', { username: 'a@b.co', password: 12345678 }],
+      ['/api/auth/register', { ...PATIENT, firstName: 42 }],
+      ['/api/auth/register', { ...PATIENT, password: 12345678 }],
+      ['/api/auth/register', { ...DOCTOR, jobRole: 7 }],
+      ['/api/auth/reset-password', { token: { a: 1 }, newPassword: 'whatever1' }],
+      ['/api/auth/reset-password', { token: 'abc', newPassword: 12345678 }]
+    ];
+    for (const [url, body] of bodies) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await request(server).post(url).send(body);
+      expect([url, res.status]).toEqual([url, 400]);
+    }
+  });
+
+  test('a phone number that is not one is refused before any code is sent', async () => {
+    const res = await request(server).post('/api/auth/register').send({ ...PATIENT, phoneNo: '1234' });
+    expect(res.status).toBe(400);
+    expect(res.body.errors.phoneNo).toMatch(/10 to 15 digits/);
+    expect(mockSendOtp).not.toHaveBeenCalled();
+  });
+
+  test('a password longer than bcrypt reads is refused', async () => {
+    const res = await request(server).post('/api/auth/register').send({ ...PATIENT, password: 'a'.repeat(73) });
+    expect(res.status).toBe(400);
+    expect(res.body.errors.password).toMatch(/at most 72/);
+  });
+
+  test('a suspended account is told so at login, and only after the right password', async () => {
+    const user = await verifiedPatient();
+    await User.updateOne({ _id: user._id }, { $set: { status: 'suspended' } });
+
+    const wrong = await request(server).post('/api/auth/login').send({ username: PATIENT.email, password: 'not-it-123' });
+    expect(wrong.status).toBe(401);
+    expect(wrong.body.message).not.toMatch(/suspended/);
+
+    const right = await request(server).post('/api/auth/login').send({ username: PATIENT.email, password: PATIENT.password });
+    expect(right.status).toBe(403);
+    expect(right.body.message).toMatch(/suspended/);
+    expect(right.headers['set-cookie']).toBeUndefined();
+  });
+
+  test('update-password: the same rules as signup, and a 400 (not a 401) for a wrong current password', async () => {
+    await verifiedPatient();
+    const login = await request(server).post('/api/auth/login').send({ username: PATIENT.email, password: PATIENT.password });
+    const auth = { Authorization: `Bearer ${login.body.token}` };
+
+    const short = await request(server).put('/api/auth/update-password').set(auth).send({ currentPassword: PATIENT.password, newPassword: 'a' });
+    expect(short.status).toBe(400);
+    expect(short.body.message).toMatch(/at least 6/);
+
+    const same = await request(server).put('/api/auth/update-password').set(auth).send({ currentPassword: PATIENT.password, newPassword: PATIENT.password });
+    expect(same.status).toBe(400);
+    expect(same.body.message).toMatch(/different/);
+
+    // A 401 reads to the client as "your session has ended".
+    const wrong = await request(server).put('/api/auth/update-password').set(auth).send({ currentPassword: 'not-it-123', newPassword: 'changed-123' });
+    expect(wrong.status).toBe(400);
+    expect(wrong.body.message).toBe('Incorrect current password');
+
+    expect((await request(server).post('/api/auth/login').send({ username: PATIENT.email, password: PATIENT.password })).status).toBe(200);
+  });
+
+  test('update-password on a Google account says why, instead of "incorrect password"', async () => {
+    const { makeUser, tokenFor } = require('../helpers/harness');
+    const user = await makeUser('patient', { googleId: `g-${Date.now()}` });
+    const res = await request(server).put('/api/auth/update-password')
+      .set('Authorization', `Bearer ${tokenFor(user)}`)
+      .send({ currentPassword: 'anything-1', newPassword: 'changed-123' });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/signs in with Google/);
+  });
+
+  test('logout clears the cookie even when the session behind it is already dead', async () => {
+    // It sat behind verifyToken, so an expired or password-retired token got
+    // a 401 and stayed in the browser.
+    const { makeUser } = require('../helpers/harness');
+    const user = await makeUser('patient');
+    const expired = jwt.sign({ userId: String(user._id), role: 'patient' }, getJWTSecret(), { expiresIn: -10 });
+
+    for (const cookie of [`token=${expired}`, 'token=garbage', null]) {
+      const req = request(server).post('/api/auth/logout');
+      // eslint-disable-next-line no-await-in-loop
+      const res = await (cookie ? req.set('Cookie', cookie) : req);
+      expect(res.status).toBe(200);
+      expect((res.headers['set-cookie'] || []).join(';')).toMatch(/token=;/);
+    }
+  });
+
+  test('the session check clears a refused cookie, and leaves a good one alone', async () => {
+    const { makeUser, tokenFor } = require('../helpers/harness');
+    const user = await makeUser('patient');
+    const good = tokenFor(user);
+    const expired = jwt.sign({ userId: String(user._id), role: 'patient' }, getJWTSecret(), { expiresIn: -10 });
+
+    const dead = await request(server).get('/api/protected').set('Cookie', `token=${expired}`);
+    expect(dead.status).toBe(401);
+    expect((dead.headers['set-cookie'] || []).join(';')).toMatch(/token=;/);
+
+    const alive = await request(server).get('/api/protected').set('Cookie', `token=${good}`);
+    expect(alive.status).toBe(200);
+    expect(alive.headers['set-cookie']).toBeUndefined();
+    expect(alive.body.token).toBe(good);
+
+    // A refused ACCOUNT (not just a token) ends the same way.
+    await User.updateOne({ _id: user._id }, { $set: { status: 'suspended' } });
+    const suspended = await request(server).get('/api/protected').set('Cookie', `token=${good}`);
+    expect(suspended.status).toBe(403);
+    expect((suspended.headers['set-cookie'] || []).join(';')).toMatch(/token=;/);
+  });
+
+  test('the session check hands back the token that authenticated, not a stale cookie', async () => {
+    // The Bearer header is tried first and a stale cookie after it; the
+    // cookie used to be echoed back regardless, and the client adopted it.
+    const { makeUser, tokenFor } = require('../helpers/harness');
+    const user = await makeUser('patient');
+    const good = tokenFor(user);
+    const res = await request(server).get('/api/protected')
+      .set('Authorization', `Bearer ${good}`)
+      .set('Cookie', 'token=stale-garbage');
+    expect(res.status).toBe(200);
+    expect(res.body.token).toBe(good);
   });
 });

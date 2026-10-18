@@ -2,8 +2,8 @@
   "_comment": "A RATCHET, not a target. Regenerate with: node scripts/check-coverage.js --update. Values may only rise; a drop fails npm run test:coverage.",
   "_recorded": "2026-10-18",
   "_total": {
-    "statements": 83.03,
-    "branches": 71.95
+    "statements": 84.3,
+    "branches": 73.48
   },
   "files": {
     "authz/actor.js": {
@@ -52,7 +52,7 @@
     },
     "config/auth.js": {
       "statements": 67.56,
-      "branches": 60
+      "branches": 66.66
     },
     "config/cloudinary.js": {
       "statements": 83.33,
@@ -91,8 +91,8 @@
       "branches": 72
     },
     "controllers/auth.controller.js": {
-      "statements": 90.71,
-      "branches": 79.41
+      "statements": 91.39,
+      "branches": 81.92
     },
     "controllers/availability.controller.js": {
       "statements": 80.88,
@@ -163,8 +163,8 @@
       "branches": 80.88
     },
     "middleware/auth.middleware.js": {
-      "statements": 83.48,
-      "branches": 78.57
+      "statements": 90.67,
+      "branches": 85.13
     },
     "middleware/csrf.middleware.js": {
       "statements": 100,
@@ -179,8 +179,8 @@
       "branches": 95.45
     },
     "middleware/validation.middleware.js": {
-      "statements": 75.45,
-      "branches": 77.5
+      "statements": 88.88,
+      "branches": 86.16
     },
     "models/article.js": {
       "statements": 94.87,
@@ -227,8 +227,8 @@
       "branches": 100
     },
     "models/user.js": {
-      "statements": 72.22,
-      "branches": 86.36
+      "statements": 73.63,
+      "branches": 88.63
     },
     "routes/adminPayments.routes.js": {
       "statements": 100,
@@ -299,12 +299,12 @@
       "branches": 48.21
     },
     "routes/admin/auth.js": {
-      "statements": 87.89,
+      "statements": 88.08,
       "branches": 84.31
     },
     "services/auth.service.js": {
-      "statements": 90.37,
-      "branches": 79.31
+      "statements": 90.76,
+      "branches": 82.25
     },
     "services/cache.service.js": {
       "statements": 100,
@@ -327,8 +327,8 @@
       "branches": 71.03
     },
     "services/oauth.service.js": {
-      "statements": 20,
-      "branches": 3.03
+      "statements": 89.52,
+      "branches": 80.28
     },
     "services/payoutLedger.js": {
       "statements": 89.17,
