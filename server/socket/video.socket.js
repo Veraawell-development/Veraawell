@@ -31,6 +31,24 @@ async function completeCall(sessionId, extraSet) {
 }
 
 const logger = createLogger('SOCKET-HANDLER');
+const attendance = require('../services/attendance');
+
+/** The user's side of the session; only the two parties can be in a room. */
+const partyRole = (role) => (role === 'doctor' ? 'doctor' : 'patient');
+
+/**
+ * Close this user's attendance stay if this was their last socket in the
+ * room (a second tab keeps them in). Never throws: attendance must not break
+ * the socket's own cleanup.
+ */
+async function recordLeaveIfGone(io, room, sessionId, userId, role) {
+  try {
+    const stillHere = !!room && Array.from(room.users.values()).some((u) => u.userId === userId);
+    if (!stillHere) await attendance.recordLeave(sessionId, partyRole(role), { source: 'socket', io });
+  } catch (err) {
+    logger.error('Could not record leaving the call', { sessionId: String(sessionId).substring(0, 8), error: err.message });
+  }
+}
 
 // Store active rooms and users
 const activeRooms = new Map(); // roomId -> { users: Map<userId, {role, socketId}>, createdAt: Date }
@@ -62,6 +80,7 @@ module.exports = (io) => {
         const room = activeRooms.get(socket.roomId);
         if (room.users.has(socket.id)) {
           room.users.delete(socket.id);
+          await recordLeaveIfGone(io, room, socket.roomId, userId, role);
           // Notify other users in the room
           socket.to(socket.roomId).emit('user-left', { userId, role });
           log.info('User socket left room', { socketId: socket.id, userId, role, sessionId: socket.roomId });
@@ -182,14 +201,8 @@ module.exports = (io) => {
           set.callStatus = 'in-progress';
           set.callStartTime = new Date();
         }
-        if (isDoctor && !session.doctorJoined) {
-          set.doctorJoined = true;
-          set.doctorJoinedAt = new Date();
-        }
-        if (isPatient && !session.patientJoined) {
-          set.patientJoined = true;
-          set.patientJoinedAt = new Date();
-        }
+        // doctorJoined / patientJoined and their first-join times are written
+        // by the attendance service below, together with the stay itself.
 
         // Joining IS accepting.
         //
@@ -240,6 +253,14 @@ module.exports = (io) => {
           Object.assign(session, set);
           log.info('Call/join state updated', { sessionId: sessionId.substring(0, 8), isDoctor, isPatient });
         }
+
+        // Who is in the call, and since when (services/attendance.js) — what
+        // the lateness and no-show rules read. After the instant-request
+        // accept above, so a doctor joining to accept is on time by
+        // definition (the session starts at the accept).
+        await attendance.recordJoin(session._id, isDoctor ? 'doctor' : 'patient', { source: 'socket', io });
+        if (isDoctor) session.doctorJoined = true;
+        if (isPatient) session.patientJoined = true;
 
         // Leave any existing room
         if (socket.roomId) {
@@ -438,11 +459,12 @@ module.exports = (io) => {
       }
     });
 
-    on('leave-room', { mode: 'joined' }, ({ sessionId }) => {
+    on('leave-room', { mode: 'joined' }, async ({ sessionId }) => {
       log.info('User leaving room manually', { userId, role, sessionId });
       if (activeRooms.has(sessionId)) {
         const room = activeRooms.get(sessionId);
         room.users.delete(socket.id);
+        await recordLeaveIfGone(io, room, sessionId, userId, role);
         
         const uniqueUsers = new Set(Array.from(room.users.values()).map(u => u.userId)).size;
         

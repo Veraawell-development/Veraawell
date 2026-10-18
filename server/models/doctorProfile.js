@@ -273,6 +273,18 @@ const doctorProfileSchema = new mongoose.Schema({
   cancellationWarningIssued: {
     type: Boolean,
     default: false
+  },
+  /**
+   * Counted, never acted on automatically (docs/SESSION_RULES.md): joined more
+   * than 10 minutes late, or not at all. Shown to admins only.
+   */
+  lateCount: {
+    type: Number,
+    default: 0
+  },
+  noShowCount: {
+    type: Number,
+    default: 0
   }
 
 }, {

@@ -2,8 +2,8 @@
   "_comment": "A RATCHET, not a target. Regenerate with: node scripts/check-coverage.js --update. Values may only rise; a drop fails npm run test:coverage.",
   "_recorded": "2026-10-18",
   "_total": {
-    "statements": 84.52,
-    "branches": 73.83
+    "statements": 84.92,
+    "branches": 74.4
   },
   "files": {
     "authz/actor.js": {
@@ -223,7 +223,7 @@
       "branches": 100
     },
     "models/session.js": {
-      "statements": 82.85,
+      "statements": 83.78,
       "branches": 50
     },
     "models/sessionReport.js": {
@@ -306,6 +306,10 @@
       "statements": 87.62,
       "branches": 85.84
     },
+    "services/attendance.js": {
+      "statements": 98.38,
+      "branches": 75.67
+    },
     "services/auth.service.js": {
       "statements": 90.76,
       "branches": 82.25
@@ -361,6 +365,10 @@
     "services/sessionPayment.js": {
       "statements": 81.06,
       "branches": 67.56
+    },
+    "services/sessionPolicy.js": {
+      "statements": 99.08,
+      "branches": 97.84
     },
     "services/sessionRefund.js": {
       "statements": 96.87,

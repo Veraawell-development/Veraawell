@@ -67,8 +67,25 @@ const DELAY_GRACE_MINUTES = 3;
 /** The longest a doctor may ask an instant-request patient to wait. */
 const MAX_DELAY_MINUTES = 15;
 
+/**
+ * The session rules' grace period (docs/SESSION_RULES.md). Someone not in the
+ * room by start + GRACE_MINUTES counts as absent: a missing doctor lets the
+ * waiting patient leave with a full refund; a missing patient lets the doctor
+ * leave and still be paid. For an instant session, "start" is when the doctor
+ * accepted.
+ */
+const GRACE_MINUTES = 10;
+
+/**
+ * A patient left waiting on their own this long — the doctor never came, or
+ * came, left and hasn't returned — may leave with a full refund.
+ */
+const ALONE_REFUND_MINUTES = 10;
+
 module.exports = {
   PLATFORM_TIMEZONE,
+  GRACE_MINUTES,
+  ALONE_REFUND_MINUTES,
   JOIN_LEAD_MINUTES,
   JOIN_GRACE_MINUTES,
   NO_SHOW_GRACE_MINUTES,
