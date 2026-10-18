@@ -255,7 +255,10 @@ describe('input validation', () => {
   test('a failed upload does not echo the internal error to the caller', async () => {
     mockUpload.mockRejectedValue(new Error('cloudinary api_secret=SECRET is invalid'));
     const res = await uploadImage('/api/upload/profile-image', patientToken);
-    expect(res.status).toBe(500);
+    // 503 with an actionable message, not a bare 500 — and still never the
+    // internal error text.
+    expect(res.status).toBe(503);
+    expect(res.body.message).toMatch(/try again/i);
     expect(JSON.stringify(res.body)).not.toMatch(/SECRET/);
   });
 
@@ -264,5 +267,49 @@ describe('input validation', () => {
     const res = await uploadImage('/api/upload/profile-image', patientToken);
     expect(res.status).toBeGreaterThanOrEqual(400);
     expect(res.body.success).not.toBe(true);
+  });
+});
+
+describe('a failed upload says why, and a momentary failure is retried', () => {
+  // Every Cloudinary failure used to be a bare 500 "Failed to upload
+  // documents": the applicant could not tell a bad file from a hiccup, and a
+  // second click — which would usually have worked — was left to chance.
+  const post = (field = 'documents', name = 'licence.png') => request(server)
+    .post(`/api/upload/${field === 'documents' ? 'doctor-documents' : 'doctor-document'}`)
+    .attach(field, PNG, name);
+
+  test('a file Cloudinary cannot process is a 422 naming the file', async () => {
+    mockUpload.mockRejectedValue({ http_code: 400, message: 'Invalid image file' });
+    const res = await post('documents', 'scan.png');
+    expect(res.status).toBe(422);
+    expect(res.body.code).toBe('UPLOAD_REJECTED');
+    expect(res.body.message).toMatch(/scan\.png/);
+    expect(mockUpload).toHaveBeenCalledTimes(1); // the file's fault: not retried
+  });
+
+  test('a momentary failure is retried once and then succeeds', async () => {
+    mockUpload
+      .mockRejectedValueOnce({ http_code: 499, message: 'Request Timeout', name: 'TimeoutError' })
+      .mockResolvedValueOnce({ secure_url: 'https://res.cloudinary.com/stub/raw/upload/v1/ok.pdf', public_id: 'ok' });
+    const res = await post('document', 'cv.png');
+    expect(res.status).toBe(200);
+    expect(res.body.document.fileUrl).toMatch(/ok\.pdf/);
+    expect(mockUpload).toHaveBeenCalledTimes(2);
+  });
+
+  test('a persistent outage is a 503 that tells the applicant what to do', async () => {
+    mockUpload.mockRejectedValue({ http_code: 502, message: 'Bad Gateway' });
+    const res = await post('document', 'cv.png');
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('UPLOAD_FAILED');
+    expect(res.body.message).toMatch(/try again/i);
+  });
+
+  test('bad storage credentials say uploads are unavailable, not that the file is wrong', async () => {
+    mockUpload.mockRejectedValue({ http_code: 401, message: 'Invalid Signature' });
+    const res = await post('document', 'cv.png');
+    expect(res.status).toBe(503);
+    expect(res.body.code).toBe('UPLOAD_UNAVAILABLE');
+    expect(res.body.message).toMatch(/contact@veraawell\.com/);
   });
 });

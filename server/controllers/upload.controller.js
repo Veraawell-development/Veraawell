@@ -56,6 +56,83 @@ function withClientErrors(middleware) {
   };
 }
 
+// ==================== CLOUDINARY CALLS ====================
+
+const TRANSIENT_NETWORK_CODES = new Set(['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN', 'ENOTFOUND', 'EPIPE']);
+
+/** The Cloudinary SDK rejects with a plain object, sometimes nested under `error`. */
+function cloudinaryDetail(err) {
+  const inner = (err && err.error) || {};
+  return {
+    httpCode: (err && err.http_code) || inner.http_code || null,
+    message: (err && err.message) || inner.message || String(err),
+    name: (err && err.name) || inner.name || null,
+    code: (err && err.code) || null
+  };
+}
+
+function isTransient(err) {
+  const { httpCode, message, code } = cloudinaryDetail(err);
+  return TRANSIENT_NETWORK_CODES.has(code) || httpCode === 499 || httpCode >= 500 || /timeout/i.test(message);
+}
+
+/**
+ * Upload, retrying once when the failure is the network's or Cloudinary's
+ * rather than the file's. A doctor applicant who hit a momentary hiccup used
+ * to be told "Failed to upload documents" with no way to know a second click
+ * would work.
+ */
+async function uploadWithRetry(source, options) {
+  try {
+    return await cloudinary.uploader.upload(source, options);
+  } catch (err) {
+    if (!isTransient(err)) throw err;
+    logger.warn('Cloudinary upload failed transiently; retrying once', cloudinaryDetail(err));
+    await new Promise((resolve) => { setTimeout(resolve, 1000); });
+    return cloudinary.uploader.upload(source, options);
+  }
+}
+
+/**
+ * Turn a failed upload into something the person can act on, and log the
+ * real cause. Every failure used to be a bare 500 "Failed to upload …" — the
+ * page could not say whether to retry, fix the file, or give up, and the logs
+ * held only the message, not Cloudinary's status code.
+ *
+ * @param {string} subject  how to name the file to its owner, e.g. '“cv.pdf”'
+ */
+function sendUploadFailure(res, err, subject, logLabel) {
+  const detail = cloudinaryDetail(err);
+  const { httpCode } = detail;
+  let status = 503;
+  let code = 'UPLOAD_FAILED';
+  let message = `${subject} didn't upload — the connection to our file storage failed. Please try again.`;
+  let level = 'error';
+
+  if (httpCode === 400) {
+    status = 422; code = 'UPLOAD_REJECTED'; level = 'warn';
+    message = `We couldn't process ${subject}. Check that it opens on your device and is a PDF, JPG or PNG under 5 MB, then try again.`;
+  } else if (httpCode === 420 || httpCode === 429) {
+    code = 'UPLOAD_BUSY'; level = 'warn';
+    message = 'Our file storage is busy right now. Please try again in a minute.';
+  } else if (httpCode === 401 || httpCode === 403 || httpCode === 404) {
+    code = 'UPLOAD_UNAVAILABLE';
+    message = 'Uploads are temporarily unavailable on our side. Please try again later, or email your documents to contact@veraawell.com.';
+  }
+
+  logger[level](logLabel, detail);
+  return res.status(status).json({ success: false, code, message });
+}
+
+/** Remove multer's temp file, never throwing — this runs on the error path too. */
+function removeTempFile(file) {
+  try {
+    if (file && file.path && fs.existsSync(file.path)) fs.unlinkSync(file.path);
+  } catch (err) {
+    logger.warn('Could not remove a temp upload', { error: err.message });
+  }
+}
+
 // ==================== HANDLERS ====================
 
 /** POST /api/upload/profile-image — Upload user profile picture */
@@ -65,7 +142,7 @@ const uploadProfileImage = async (req, res) => {
     const b64 = Buffer.from(req.file.buffer).toString('base64');
     const dataURI = `data:${req.file.mimetype};base64,${b64}`;
     const userId = req.actor.id;
-    const result = await cloudinary.uploader.upload(dataURI, {
+    const result = await uploadWithRetry(dataURI, {
       folder: 'veerawell/profiles',
       transformation: [{ width: 500, height: 500, crop: 'fill', gravity: 'face' }, { quality: 'auto' }, { fetch_format: 'auto' }],
       public_id: `user_${userId}_${Date.now()}`
@@ -91,8 +168,7 @@ const uploadProfileImage = async (req, res) => {
     logger.info('Profile image uploaded and saved', { userId: userId.substring(0, 8) });
     res.json({ success: true, imageUrl: result.secure_url, publicId: result.public_id });
   } catch (error) {
-    logger.error('Profile image upload error', { error: error.message });
-    res.status(500).json({ success: false, message: 'Failed to upload image' });
+    return sendUploadFailure(res, error, 'Your photo', 'Profile image upload error');
   }
 };
 
@@ -103,7 +179,7 @@ const uploadBannerImage = async (req, res) => {
     const b64 = Buffer.from(req.file.buffer).toString('base64');
     const dataURI = `data:${req.file.mimetype};base64,${b64}`;
     const userId = req.actor.id;
-    const result = await cloudinary.uploader.upload(dataURI, {
+    const result = await uploadWithRetry(dataURI, {
       folder: 'veerawell/banners',
       transformation: [{ width: 2400, crop: 'limit' }, { quality: 'auto:best' }, { fetch_format: 'auto' }],
       public_id: `banner_${userId}_${Date.now()}`
@@ -121,62 +197,45 @@ const uploadBannerImage = async (req, res) => {
     logger.info('Banner image uploaded and saved', { userId: userId.substring(0, 8) });
     res.json({ success: true, imageUrl: result.secure_url, publicId: result.public_id });
   } catch (error) {
-    logger.error('Banner image upload error', { error: error.message || error });
-    res.status(500).json({ success: false, message: 'Failed to upload banner image' });
+    return sendUploadFailure(res, error, 'Your banner image', 'Banner image upload error');
   }
 };
 
 /** POST /api/upload/doctor-documents — Upload multiple doctor verification documents */
 const uploadDoctorDocuments = async (req, res) => {
+  if (!req.files || req.files.length === 0) return res.status(400).json({ success: false, message: 'No document files provided' });
+  const uploadedDocuments = [];
+  let current = null;
   try {
-    if (!req.files || req.files.length === 0) return res.status(400).json({ success: false, message: 'No document files provided' });
-    const uploadedDocuments = [];
     for (const file of req.files) {
+      current = file;
       const publicId = `doc_${Date.now()}_${Math.random().toString(36).substring(7)}`;
       const resourceType = file.mimetype === 'application/pdf' ? 'raw' : 'image';
-      const result = await cloudinary.uploader.upload(file.path, { folder: 'veerawell/doctor-documents', resource_type: resourceType, public_id: publicId });
-      
-      // Delete temp file after upload
-      fs.unlinkSync(file.path);
-      
+      const result = await uploadWithRetry(file.path, { folder: 'veerawell/doctor-documents', resource_type: resourceType, public_id: publicId });
+      removeTempFile(file);
       uploadedDocuments.push({ fileName: file.originalname, fileUrl: result.secure_url, fileType: file.mimetype, cloudinaryPublicId: result.public_id });
     }
     logger.info('Doctor documents uploaded', { count: uploadedDocuments.length });
-    res.json({ success: true, documents: uploadedDocuments });
+    return res.json({ success: true, documents: uploadedDocuments });
   } catch (error) {
-    // Cleanup temp files on error
-    if (req.files) {
-      req.files.forEach(file => {
-        if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-      });
-    }
-    logger.error('Doctor document upload error', { error: error.message });
-    res.status(500).json({ success: false, message: 'Failed to upload documents' });
+    req.files.forEach(removeTempFile);
+    return sendUploadFailure(res, error, current ? `“${current.originalname}”` : 'Your document', 'Doctor document upload error');
   }
 };
 
 /** POST /api/upload/doctor-document — Upload single doctor document */
 const uploadDoctorDocument = async (req, res) => {
+  if (!req.file) return res.status(400).json({ success: false, message: 'No document file provided' });
   try {
-    if (!req.file) return res.status(400).json({ success: false, message: 'No document file provided' });
-    
     const publicId = `doc_${Date.now()}_${Math.random().toString(36).substring(7)}`;
     const resourceType = req.file.mimetype === 'application/pdf' ? 'raw' : 'image';
-    
-    const result = await cloudinary.uploader.upload(req.file.path, { folder: 'veerawell/doctor-documents', resource_type: resourceType, public_id: publicId });
-    
-    // Delete temp file after upload
-    fs.unlinkSync(req.file.path);
-    
+    const result = await uploadWithRetry(req.file.path, { folder: 'veerawell/doctor-documents', resource_type: resourceType, public_id: publicId });
+    removeTempFile(req.file);
     logger.info('Single doctor document uploaded', { fileName: req.file.originalname });
-    res.json({ success: true, document: { fileName: req.file.originalname, fileUrl: result.secure_url, fileType: req.file.mimetype, cloudinaryPublicId: result.public_id } });
+    return res.json({ success: true, document: { fileName: req.file.originalname, fileUrl: result.secure_url, fileType: req.file.mimetype, cloudinaryPublicId: result.public_id } });
   } catch (error) {
-    // Cleanup temp file on error
-    if (req.file && req.file.path) {
-      if (fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
-    }
-    logger.error('Single document upload error', { error: error.message });
-    res.status(500).json({ success: false, message: 'Failed to upload document' });
+    removeTempFile(req.file);
+    return sendUploadFailure(res, error, `“${req.file.originalname}”`, 'Single document upload error');
   }
 };
 
@@ -186,13 +245,12 @@ const uploadArticleImage = async (req, res) => {
     if (!req.file) return res.status(400).json({ success: false, message: 'No image file provided' });
     const b64 = Buffer.from(req.file.buffer).toString('base64');
     const dataURI = `data:${req.file.mimetype};base64,${b64}`;
-    const result = await cloudinary.uploader.upload(dataURI, { folder: 'veerawell/articles', resource_type: 'image', public_id: `article_${Date.now()}_${Math.random().toString(36).substring(7)}` });
+    const result = await uploadWithRetry(dataURI, { folder: 'veerawell/articles', resource_type: 'image', public_id: `article_${Date.now()}_${Math.random().toString(36).substring(7)}` });
     logger.info('Article image uploaded');
     res.json({ success: true, imageUrl: result.secure_url, publicId: result.public_id });
   } catch (error) {
-    logger.error('Article image upload error', { error: error.message });
-    res.status(500).json({ success: false, message: 'Failed to upload article image' });
+    return sendUploadFailure(res, error, 'The article image', 'Article image upload error');
   }
 };
 
-module.exports = { imageUpload, documentUpload, withClientErrors, uploadProfileImage, uploadBannerImage, uploadDoctorDocuments, uploadDoctorDocument, uploadArticleImage };
+module.exports = { imageUpload, documentUpload, withClientErrors, uploadProfileImage, uploadBannerImage, uploadDoctorDocuments, uploadDoctorDocument, uploadArticleImage, sendUploadFailure, isTransient };

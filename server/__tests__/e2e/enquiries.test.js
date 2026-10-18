@@ -425,4 +425,15 @@ describe('rate limiting', () => {
     const other = await request(limited).post('/enquiries').send({ ...CONTACT, email: 'someone.else@x.test' });
     expect(other.status).toBe(201);
   });
+
+  test('a partner phone number that is not 10 to 15 digits is refused with a field error', async () => {
+    // Only the length was checked, so "1234" was accepted.
+    for (const phone of ['1234', '+91 12', '123456789012345678']) {
+      const res = await call('post', '/api/enquiries', null, { type: 'partner', name: 'P', email: `p${phone.length}@example.com`, organisation: 'Org', message: 'Hi', phone });
+      expect(res.status).toBe(400);
+      expect(res.body.errors.phone).toMatch(/valid phone/i);
+    }
+    const ok = await call('post', '/api/enquiries', null, { type: 'partner', name: 'P', email: 'ok@example.com', organisation: 'Org', message: 'Hi', phone: '+91 98200 11223' });
+    expect(ok.status).toBe(201);
+  });
 });

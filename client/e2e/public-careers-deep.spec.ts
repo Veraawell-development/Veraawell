@@ -121,13 +121,16 @@ test.describe('Join as Professional — the whole application, for real', () => 
 
     await page.fill('input[placeholder="Min 6 characters"]', 'SecurePass123');
     await page.fill('input[placeholder="Re-enter password"]', 'SecurePass123');
-    await page.locator('input[type="file"]').setInputFiles(PDF);
-    await expect(page.getByText('licence.pdf')).toBeVisible();
 
-    const uploaded = page.waitForResponse((r) => r.url().includes('/upload/doctor-documents') && r.request().method() === 'POST');
+    // Uploaded the moment it is chosen, with its status on screen.
+    const uploaded = page.waitForResponse((r) => r.url().includes('/upload/doctor-document') && r.request().method() === 'POST');
+    await page.locator('input[type="file"]').setInputFiles(PDF);
+    expect((await uploaded).ok()).toBeTruthy();
+    await expect(page.getByTestId('document-row')).toHaveAttribute('data-status', 'done');
+    await expect(page.getByText('Uploaded')).toBeVisible();
+
     const registered = page.waitForResponse((r) => r.url().includes('/auth/register') && r.request().method() === 'POST');
     await page.locator('button', { hasText: 'Submit Application' }).click();
-    expect((await uploaded).ok()).toBeTruthy();
     const reg = await registered;
     expect(reg.ok(), await reg.text()).toBeTruthy();
 
@@ -217,6 +220,88 @@ test.describe('Join as Professional — the whole application, for real', () => 
     await expect(page.locator('input[placeholder="000000"]')).toBeVisible();
     expect(registerCalls).toBe(1);
     await expect.poll(() => mailSink().filter((e) => e.fn === 'sendOTPEmail' && String(e.args[0]).toLowerCase() === email).length).toBe(1);
+  });
+});
+
+test.describe('Join as Professional — a failed upload says why and can be retried', () => {
+  async function toStep3(page: Page) {
+    await openProfessionalTab(page);
+    await fillStep1(page);
+    await next(page);
+    await fillStep2(page);
+    await next(page);
+    await page.fill('input[placeholder="Min 6 characters"]', 'SecurePass123');
+    await page.fill('input[placeholder="Re-enter password"]', 'SecurePass123');
+  }
+
+  test('the server\'s reason is shown on the file, Submit waits, and Retry recovers', async ({ page }) => {
+    await toStep3(page);
+    await page.route('**/api/upload/doctor-document', (route) => route.fulfill({
+      status: 503, contentType: 'application/json',
+      body: JSON.stringify({ success: false, code: 'UPLOAD_BUSY', message: 'Our file storage is busy right now. Please try again in a minute.' })
+    }));
+    await page.locator('input[type="file"]').setInputFiles(PDF);
+    await expect(page.getByTestId('document-row')).toHaveAttribute('data-status', 'error');
+    await expect(page.getByText('Our file storage is busy right now')).toBeVisible();
+
+    let registerCalls = 0;
+    page.on('request', (r) => { if (r.url().includes('/auth/register')) registerCalls += 1; });
+    await page.locator('button', { hasText: 'Submit Application' }).click();
+    await expect(page.getByText(/didn't upload\. Retry it or remove it/i)).toBeVisible();
+    expect(registerCalls).toBe(0);
+
+    await page.unroute('**/api/upload/doctor-document');
+    await page.getByRole('button', { name: 'Retry' }).click();
+    await expect(page.getByTestId('document-row')).toHaveAttribute('data-status', 'done');
+  });
+
+  test('a proxy error page (not JSON) still gives a readable message', async ({ page }) => {
+    await toStep3(page);
+    await page.route('**/api/upload/doctor-document', (route) => route.fulfill({ status: 502, contentType: 'text/html', body: '<html>Bad Gateway</html>' }));
+    await page.locator('input[type="file"]').setInputFiles(PDF);
+    await expect(page.getByText(/licence\.pdf.*didn't upload \(error 502\)/)).toBeVisible();
+  });
+
+  test('a dropped connection says so', async ({ page }) => {
+    await toStep3(page);
+    await page.route('**/api/upload/doctor-document', (route) => route.abort('connectionreset'));
+    await page.locator('input[type="file"]').setInputFiles(PDF);
+    await expect(page.getByText(/Couldn't reach our server/)).toBeVisible();
+  });
+
+  test('a removed file is not sent with the application', async ({ page, request }) => {
+    await toStep3(page);
+    await page.locator('input[type="file"]').setInputFiles(PDF);
+    await expect(page.getByTestId('document-row')).toHaveAttribute('data-status', 'done');
+    await page.getByRole('button', { name: /Remove licence\.pdf/ }).click();
+    await expect(page.getByTestId('document-row')).toHaveCount(0);
+    const registered = page.waitForResponse((r) => r.url().includes('/auth/register'));
+    await page.locator('button', { hasText: 'Submit Application' }).click();
+    const body = JSON.parse((await registered).request().postData() || '{}');
+    expect(body.documents).toEqual([]);
+    void request;
+  });
+});
+
+test.describe('Partner with us — phone number', () => {
+  test('"1234" is refused before anything is sent; a real number is accepted', async ({ page }) => {
+    await page.goto('/careers');
+    await page.locator('button', { hasText: 'Partner with us' }).click();
+    let posts = 0;
+    page.on('request', (r) => { if (r.url().includes('/api/enquiries') && r.method() === 'POST') posts += 1; });
+    await page.fill('#enquiry-partner-name', 'Rahul Verma');
+    await page.fill('#enquiry-partner-email', uniqueEmail('phone'));
+    await page.fill('#enquiry-partner-organisation', 'MindCare Hospital');
+    await page.fill('#enquiry-partner-phone', '1234');
+    await page.fill('#enquiry-partner-message', 'Partnership please.');
+    await page.getByRole('button', { name: 'Send Partnership Enquiry' }).click();
+    await expect(page.getByText(/valid phone number/i)).toBeVisible();
+    expect(posts).toBe(0);
+
+    await page.fill('#enquiry-partner-phone', '+91 98200 11223');
+    await page.getByRole('button', { name: 'Send Partnership Enquiry' }).click();
+    await expect(page.getByText('Thank you — we have it')).toBeVisible();
+    expect(posts).toBe(1);
   });
 });
 
