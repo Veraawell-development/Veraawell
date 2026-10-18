@@ -124,7 +124,7 @@ function jobRegistry(io) {
   const sessionPayment = require('../services/sessionPayment');
   const { sweepStuckUnacceptedSessions } = require('../controllers/session.controller');
   return {
-    'status-sweep': (now) => scheduler.runSessionStatusUpdate({ now }),
+    'status-sweep': (now) => scheduler.runStatusSweep({ now, io }),
     'checkout-expiry': (now) => sessionPayment.expireStaleCheckouts({ now, io }),
     reminders: (now) => scheduler.runReminderSweep({ now }),
     'instant-expiry': () => sweepStuckUnacceptedSessions(io),

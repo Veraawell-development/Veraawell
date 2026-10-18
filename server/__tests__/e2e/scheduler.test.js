@@ -47,7 +47,7 @@ jest.mock('razorpay', () => jest.fn().mockImplementation(() => ({
 })));
 
 const CRON = {
-  statusSweep: '*/5 * * * *',
+  statusSweep: '*/1 * * * *',
   notifications: '* * * * *',
   stuckSessions: '* * * * *',
   paymentCleanup: '* * * * *',
@@ -131,18 +131,44 @@ describe('session status sweep (every 5 minutes)', () => {
     expect(after.callStatus).toBe('completed');
   });
 
-  test('an ended session nobody joined becomes no-show', async () => {
+  test('an ended session nobody joined becomes no-show, refunded in full', async () => {
+    // docs/SESSION_RULES.md, D4: nobody came means the patient gets their
+    // money back, and it counts against the doctor. It used to be kept.
     const s = await Session.create({
       patientId: f.patientA._id, doctorId: f.doctorA._id,
       startsAt: past(2), duration: 60, price: 1000,
       status: 'scheduled', paymentStatus: 'paid', paymentId: 'pay_sweep_02'
     });
+    const before = await DoctorProfile.findOne({ userId: f.doctorA._id }).lean();
 
     await runJob(CRON.statusSweep);
-    expect((await Session.findById(s._id)).status).toBe('no-show');
-    // Nobody was stood up, so nothing is refunded.
+    const after = await Session.findById(s._id).lean();
+    expect(after.status).toBe('no-show');
+    expect(after.outcome.code).toBe('nobody_came');
+    expect(after.graceResult).toBe('nobody');
+    expect(after.paymentStatus).toBe('refunded');
+    expect(mockRefund).toHaveBeenCalledTimes(1);
+    const profile = await DoctorProfile.findOne({ userId: f.doctorA._id }).lean();
+    expect(profile.noShowCount).toBe((before.noShowCount || 0) + 1);
+  });
+
+  test('with SESSION_RULES=v1 the old sweep runs: nobody came keeps the money', async () => {
+    const s = await Session.create({
+      patientId: f.patientA._id, doctorId: f.doctorA._id,
+      startsAt: past(2), duration: 60, price: 1000,
+      status: 'scheduled', paymentStatus: 'paid', paymentId: 'pay_sweep_v1'
+    });
+    process.env.SESSION_RULES = 'v1';
+    try {
+      await runJob(CRON.statusSweep);
+    } finally {
+      delete process.env.SESSION_RULES;
+    }
+    const after = await Session.findById(s._id).lean();
+    expect(after.status).toBe('no-show');
+    expect(after.outcome && after.outcome.code).toBeFalsy();
     expect(mockRefund).not.toHaveBeenCalled();
-    expect((await Session.findById(s._id)).paymentStatus).toBe('paid');
+    expect(after.paymentStatus).toBe('paid');
   });
 
   test('a session where only the doctor joined is still a no-show', async () => {
@@ -357,6 +383,58 @@ describe('session status sweep (every 5 minutes)', () => {
     expect(await scheduler.runSessionStatusUpdate()).toBe(1);
     // Idempotent: a second pass has nothing left to do.
     expect(await scheduler.runSessionStatusUpdate()).toBe(0);
+  });
+});
+
+describe('the v1 sweep (SESSION_RULES=v1, the rollback)', () => {
+  // Kept for one release. Called directly: the cron runs the session rules
+  // unless the switch says otherwise.
+  const past = (h) => new Date(Date.now() - h * 3600 * 1000);
+  const make = (extra) => Session.create({
+    patientId: f.patientA._id, doctorId: f.doctorA._id,
+    startsAt: past(2), duration: 60, price: 1500,
+    status: 'scheduled', paymentStatus: 'paid', ...extra
+  });
+
+  test('both joined: completed, and the doctor gets the summary', async () => {
+    mockSummary.mockClear();
+    const s = await make({ paymentId: 'pay_v1_done', doctorJoined: true, patientJoined: true });
+    expect(await scheduler.runSessionStatusUpdate()).toBe(1);
+    const after = await Session.findById(s._id).lean();
+    expect(after.status).toBe('completed');
+    expect(after.callStatus).toBe('completed');
+    expect(mockSummary).toHaveBeenCalledTimes(1);
+  });
+
+  test('only the patient came: a no-show refunded in full', async () => {
+    const s = await make({ paymentId: 'pay_v1_noshow', patientJoined: true });
+    await scheduler.runSessionStatusUpdate();
+    const after = await Session.findById(s._id).lean();
+    expect(after.status).toBe('no-show');
+    expect(after.paymentStatus).toBe('refunded');
+    expect(mockRefund).toHaveBeenCalledTimes(1);
+  });
+
+  test('a gateway failure goes to the admin retry queue', async () => {
+    mockRefund.mockRejectedValueOnce(new Error('gateway down'));
+    const s = await make({ paymentId: 'pay_v1_fail', patientJoined: true });
+    await scheduler.runSessionStatusUpdate();
+    expect((await Session.findById(s._id).lean()).paymentStatus).toBe('refund_failed');
+  });
+
+  test('a late doctor\'s later end is respected here too', async () => {
+    const s = await make({
+      paymentId: 'pay_v1_late', startsAt: new Date(Date.now() - 70 * 60 * 1000),
+      doctorJoined: true, patientJoined: true, effectiveEndsAt: new Date(Date.now() + 10 * 60 * 1000)
+    });
+    expect(await scheduler.runSessionStatusUpdate()).toBe(0);
+    expect((await Session.findById(s._id)).status).toBe('scheduled');
+  });
+
+  test('a sweep already in progress is not run twice at once', async () => {
+    await make({ paymentId: 'pay_v1_overlap', doctorJoined: true, patientJoined: true });
+    const [a, b] = await Promise.all([scheduler.runStatusSweep(), scheduler.runStatusSweep()]);
+    expect(a + b).toBe(1);
   });
 });
 

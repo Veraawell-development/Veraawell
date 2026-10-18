@@ -101,6 +101,16 @@ const DoctorsTab: React.FC<{ isSuperAdmin: boolean }> = ({ isSuperAdmin }) => {
                     {user.heardAboutUs && <span><span className="font-medium text-neutral-400">Source:</span> {user.heardAboutUs}</span>}
                     <span><span className="font-medium text-neutral-400">Registered:</span> {formatPlatformDate(user.createdAt)}</span>
                   </div>
+                  {user.profile && (
+                    // Counted, never acted on (docs/SESSION_RULES.md, D7).
+                    <p className="text-[11px] text-neutral-600" data-doctor-counters>
+                      <span className="font-medium text-neutral-400">Late:</span> {user.profile.lateCount ?? 0}
+                      <span className="mx-1.5 text-neutral-300">·</span>
+                      <span className="font-medium text-neutral-400">No-show:</span> {user.profile.noShowCount ?? 0}
+                      <span className="mx-1.5 text-neutral-300">·</span>
+                      <span className="font-medium text-neutral-400">Cancelled:</span> {user.profile.cancellationCount ?? 0}
+                    </p>
+                  )}
                   {user.approvalStatus === 'rejected' && user.rejectionReason && (
                     <p className="text-[11px] text-red-600"><span className="font-semibold">Rejection reason:</span> {user.rejectionReason}</p>
                   )}

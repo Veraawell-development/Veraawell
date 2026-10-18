@@ -147,6 +147,38 @@ reached them and its window ran out — not when the patient withdrew early.
 
 ---
 
+## Lateness, no-shows and ending a session
+
+The rules are in [docs/SESSION_RULES.md](docs/SESSION_RULES.md). What the
+system does on its own:
+
+- **Ending.** A session ends when its time is up, or early when both people
+  agree (one asks, the other says yes). Leaving the call never ends it; either
+  person can rejoin until the end time.
+- **10-minute grace.** If the therapist hasn't joined 10 minutes after the
+  start — or joined, left, and the patient has waited on their own for 10
+  minutes — the patient sees **Leave & get a full refund** or **Keep
+  waiting**. Taking the refund cancels the session, refunds in full and counts
+  a *late* against the therapist.
+- **A late therapist** doesn't cost the patient minutes: the session ends at
+  the therapist's join time + the booked length.
+- **10 minutes after the end**, each session is decided: completed (both were
+  in the call together), or a no-show. A therapist who never came, or nobody
+  coming, refunds the patient in full automatically and counts a *no-show*
+  against the therapist. A patient who never came is not refunded, and the
+  therapist is paid.
+- **A patient cancelling within 4 hours** gets no refund, and the therapist is
+  paid their share in the weekly payout.
+- **Counters** (late / no-show / cancelled) appear under each doctor in
+  Admin → Doctors → All. Nothing happens automatically because of them.
+
+**Rollback switch.** Setting `SESSION_RULES=v1` in Render (Environment) and
+redeploying brings back the old end-of-session sweep (no refund when nobody
+came, no late counters). Sessions already decided keep their result. The
+ending and timer fixes stay either way.
+
+---
+
 ## Going live with real payments
 
 **Razorpay is in TEST mode.** The site works end to end, but a real card will be

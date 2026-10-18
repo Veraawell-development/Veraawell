@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { API_CONFIG } from '../config/api';
 import logger from '../utils/logger';
 import type { Session } from '../types';
-import { resolveSessionStart, sessionLocalDateKey } from '../utils/dateUtils';
+import { sessionLocalDateKey } from '../utils/dateUtils';
+import { canJoinNow, hasEnded, outcomeLabel } from '../utils/sessionRules';
 
 interface CalendarProps {
   userRole: 'patient' | 'doctor';
@@ -67,58 +68,25 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
 
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-  // Helper to check if a session is currently joinable (15 mins before to duration end)
-  const isSessionJoinable = (session: Session) => {
-    // If status is cancelled or explicitly completed/no-show, not joinable
-    if (session.status === 'cancelled' || session.status === 'completed' || session.status === 'no-show') return false;
+  // The server's window: 15 minutes before the start until the session
+  // really ends (utils/sessionRules.ts).
+  const isSessionJoinable = (session: Session) => canJoinNow(session);
 
-    const now = new Date();
-    const sessionDateTime = resolveSessionStart(session);
-
-    const durationInMs = (session.duration || 60) * 60 * 1000;
-    const timeDiff = sessionDateTime.getTime() - now.getTime(); // Positive if future, negative if past
-
-    // Joinable window: 15 mins before start (15 * 60 * 1000) until the END of the session
-    // timeDiff is (Start - Now). 
-    // If Now is 15 mins before Start: Start - Now = 15 mins. timeDiff <= 15mins.
-    // If Now is at End (Start + Duration): Start - (Start + Duration) = -Duration.
-    const isWithinJoinWindow = timeDiff <= (15 * 60 * 1000) && timeDiff >= -durationInMs;
-
-    return isWithinJoinWindow && (session.status === 'scheduled' || session.status === 'active');
+  // How a session reads on the calendar: Ready, upcoming, ended (time over,
+  // outcome not yet decided), or what it finally was.
+  const getSessionVisualStatus = (session: Session) => {
+    if (session.status === 'completed') return 'completed';
+    if (session.status === 'cancelled' || session.status === 'no-show') return 'cancelled';
+    if (isSessionJoinable(session)) return 'joinable';
+    if (hasEnded(session)) return 'ended';
+    return 'upcoming';
   };
 
-  // Helper to determine the visual status of a session
-  const getSessionVisualStatus = (session: Session) => {
-    if (session.status === 'cancelled') return 'cancelled';
-    if (session.status === 'completed') return 'completed';
-    if (session.status === 'no-show') return 'cancelled';
-    
-    // Check if Joinable (highest priority for active sessions)
-    if (isSessionJoinable(session)) return 'joinable';
-
-    if (session.status === 'active') return 'joinable'; // Explicitly allow active sessions as joinable
-
-    // Calculate end time
-    // Calculate end time
-    // Logic removed as it relies on strict backend status
-
-    // If time has passed, treat as completed (even if status update hasn't persisted yet)
-    // removed local override to respect strict participation rules from backend
-    // if (now > endTime) {
-    //   return 'completed';
-    // }
-
-    // If it's not joinable, and it's in the past (duration has elapsed), it shouldn't say "upcoming".
-    // This acts as a robust visual fallback against stale caching.
-    const now = new Date();
-    const sessionDateTime = resolveSessionStart(session);
-    const durationInMs = (session.duration || 60) * 60 * 1000;
-    
-    if (now.getTime() > sessionDateTime.getTime() + durationInMs) {
-      return 'cancelled';
-    }
-
-    return 'upcoming';
+  /** The words on a session's badge. */
+  const statusText = (session: Session) => {
+    const visual = getSessionVisualStatus(session);
+    if (visual === 'joinable') return 'Ready';
+    return outcomeLabel(session, userRole)?.label || visual;
   };
 
   const daysInMonth = getDaysInMonth(currentDate);
@@ -241,7 +209,7 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
                             getSessionVisualStatus(s) === 'joinable' ? 'bg-amber-100 text-amber-700' :
                             'bg-blue-50 text-blue-600'
                           }`}>
-                            {getSessionVisualStatus(s) === 'joinable' ? 'Ready' : getSessionVisualStatus(s)}
+                            {statusText(s)}
                           </span>
                         </div>
                       ))}
@@ -343,7 +311,7 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
                                 status === 'joinable' ? 'text-amber-600' :
                                   'text-gray-500'
                               }`}>
-                            {status === 'joinable' ? 'Ready' : status}
+                            {statusText(session)}
                           </span>
                         </div>
                       </div>

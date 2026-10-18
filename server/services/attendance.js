@@ -166,8 +166,11 @@ async function recordLeave(sessionId, role, { at = new Date(), source, io = null
 
 /** Close every open stay — the room has closed, or the session has ended. */
 async function closeAll(sessionId, { at = new Date() } = {}) {
+  // $elemMatch, not 'attendance.leftAt': null — that also matches a session
+  // with no attendance at all (null matches a missing path), and the array
+  // update below then fails on it.
   const result = await Session.updateOne(
-    { _id: sessionId, 'attendance.leftAt': null },
+    { _id: sessionId, attendance: { $elemMatch: { leftAt: null } } },
     { $set: { 'attendance.$[open].leftAt': at } },
     { arrayFilters: [{ 'open.leftAt': null }] }
   );

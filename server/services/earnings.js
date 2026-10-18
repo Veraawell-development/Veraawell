@@ -39,6 +39,12 @@
  * patient is not refunded in that case either, so the money is there to pay.
  * The mirror case, where the DOCTOR did not attend, is excluded by
  * `doctorJoined` and is auto-refunded by the sweep anyway.
+ *
+ * And a late cancellation — the patient cancelling inside the 4-hour window
+ * (docs/SESSION_RULES.md, D5): no refund, because the practitioner's time was
+ * reserved, so the practitioner is paid their share of it. `lateCancellation`
+ * is set by cancelSession only in that case; if the payment is later
+ * refunded after all, paymentStatus stops being 'paid' and it drops out.
  */
 
 const mongoose = require('mongoose');
@@ -54,12 +60,19 @@ const DELIVERED_STATUSES = ['completed', 'no-show'];
  * @param {boolean} [opts.unpaidOnly]        only sessions not yet in a payout
  * @param {{from: Date, to: Date}} [opts.period]  half-open [from, to) on endsAt
  * @returns {object} a filter fragment, safe to spread into a query or $match
+ *   (alongside a caller's own top-level `$or`, but not its own `$and`)
  */
 function payableSessionMatch({ doctorId, unpaidOnly = false, period } = {}) {
+  // The status condition lives inside `$and` so that a caller spreading this
+  // fragment can still add a top-level `$or` of its own (getStats does).
   const match = {
     paymentStatus: 'paid',
-    status: { $in: DELIVERED_STATUSES },
-    doctorJoined: true
+    $and: [{
+      $or: [
+        { status: { $in: DELIVERED_STATUSES }, doctorJoined: true },
+        { status: 'cancelled', lateCancellation: true }
+      ]
+    }]
   };
 
   if (doctorId) {

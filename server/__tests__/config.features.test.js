@@ -25,8 +25,8 @@ const configureLiveKit = () => {
 };
 
 describe('sessionRulesVersion', () => {
-  test('defaults to the rules production runs today', () => {
-    expect(features.sessionRulesVersion()).toBe('v1');
+  test('defaults to the session rules (v2); v1 is the rollback', () => {
+    expect(features.sessionRulesVersion()).toBe('v2');
   });
 
   test('reads the switch, case-insensitively, at call time', () => {
@@ -38,7 +38,7 @@ describe('sessionRulesVersion', () => {
 
   test('an unknown value falls back to the default rather than to anything new', () => {
     process.env.SESSION_RULES = 'v3';
-    expect(features.sessionRulesVersion()).toBe('v1');
+    expect(features.sessionRulesVersion()).toBe('v2');
   });
 });
 

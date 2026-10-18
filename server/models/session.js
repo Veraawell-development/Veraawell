@@ -182,11 +182,13 @@ const sessionSchema = new mongoose.Schema({
    * Null means "same as endsAt".
    */
   effectiveEndsAt: { type: Date, default: null },
-  /** The 10-minute grace check: when it ran, and who was there by then. */
+  /**
+   * Who had come by the 10-minute grace, recorded with the outcome (for an
+   * admin reading back what happened). The live screens work it out from the
+   * attendance record on each request instead, so nothing has to run at T+10.
+   */
   graceCheckedAt: { type: Date, default: null },
   graceResult: { type: String, enum: ['both', 'doctor_absent', 'patient_absent', 'nobody', null], default: null },
-  /** When the waiting patient was last offered "Leave & full refund". */
-  doctorAbsentOfferedAt: { type: Date, default: null },
   /** Ending early needs both people to agree. */
   endConsent: {
     requestedBy: { type: String, enum: ['patient', 'doctor', null], default: null },
@@ -400,8 +402,7 @@ sessionSchema.index({ payoutId: 1, paymentStatus: 1, status: 1, endsAt: 1 });
 // The unanswered-instant-request sweep, which now runs every minute: the two
 // equality fields first, the deadline range last.
 sessionSchema.index({ sessionType: 1, acceptanceStatus: 1, acceptanceDeadline: 1 });
-// The session-rules jobs: the 10-minute grace check and the final outcome sweep.
-sessionSchema.index({ status: 1, graceCheckedAt: 1, startsAt: 1 });
+// The end-of-session sweep, by the real end (later when the doctor was late).
 sessionSchema.index({ status: 1, effectiveEndsAt: 1 });
 
 /**
@@ -438,9 +439,9 @@ sessionSchema.methods.isUpcoming = function () {
 };
 
 /**
- * Joinable from JOIN_LEAD_MINUTES before the start until JOIN_GRACE_MINUTES
- * after the end. The 15/-60 minute literals used to live here, applied to a
- * server-local reinterpretation of the stored date.
+ * Joinable from JOIN_LEAD_MINUTES before the start until the session really
+ * ends (services/sessionTime.joinWindow). The 15/-60 minute literals used to
+ * live here, applied to a server-local reinterpretation of the stored date.
  */
 sessionSchema.methods.canJoin = function () {
   const { isWithinJoinWindow } = require('../services/sessionTime');

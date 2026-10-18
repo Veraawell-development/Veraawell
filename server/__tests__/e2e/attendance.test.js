@@ -260,6 +260,11 @@ describe('closeAll and the restart cleanup', () => {
     expect(doc.attendance.every((a) => a.leftAt && a.leftAt.getTime() === at(s, 20).getTime())).toBe(true);
   });
 
+  test('closeAll on a session with no attendance at all is a no-op, not an error', async () => {
+    const s = await liveSession();
+    await expect(attendance.closeAll(s._id, { at: at(s, 20) })).resolves.toEqual({ closed: false });
+  });
+
   test('a restart closes socket stays the old process left open, and nothing else', async () => {
     const s = await liveSession();
     const other = await liveSession();

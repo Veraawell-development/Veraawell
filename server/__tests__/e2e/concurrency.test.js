@@ -465,6 +465,8 @@ describe('where the state machine is NOT used', () => {
     //                                       withdraw/expiry (complete no longer
     //                                       completes anything)
     //   services/sessionEnding.js           ending early by agreement
+    //   services/sessionOutcomes.js         "Leave & full refund" (the
+    //                                       outcome sweep uses tryTransition)
     //   controllers/adminPayments.controller.js  the cancel before an admin refund
     //   services/sessionRefund.js           claim / fail / succeed, and the
     //                                       stuck-refund reconciliation
@@ -482,9 +484,10 @@ describe('where the state machine is NOT used', () => {
       { cwd: root, encoding: 'utf8' }
     ).trim().split('\n').filter(Boolean);
 
-    expect(callSites).toHaveLength(13);
+    expect(callSites).toHaveLength(14);
     expect(callSites.filter((l) => /session\.controller\.js/.test(l))).toHaveLength(2);
     expect(callSites.filter((l) => /sessionEnding\.js/.test(l))).toHaveLength(1);
+    expect(callSites.filter((l) => /sessionOutcomes\.js/.test(l))).toHaveLength(1);
     expect(callSites.filter((l) => /sessionRefund\.js/.test(l))).toHaveLength(4);
     expect(callSites.filter((l) => /sessionPayment\.js/.test(l))).toHaveLength(5);
     expect(callSites.filter((l) => /adminPayments\.controller\.js/.test(l))).toHaveLength(1);

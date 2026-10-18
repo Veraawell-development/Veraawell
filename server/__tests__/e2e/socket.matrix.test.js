@@ -594,10 +594,10 @@ describe('the video namespace: full signalling sequence', () => {
   });
 
   test("time up completes a session both people attended, and says so", async () => {
-    // Ended a second ago, both having been in from the start (a doctor
+    // Ends in two seconds, both having been in from the start (a doctor
     // joining only now would be late, and the end would move to give the
     // patient their full minutes).
-    const startsAt = new Date(Date.now() - 20 * 60 * 1000 - 1000);
+    const startsAt = new Date(Date.now() - 20 * 60 * 1000 + 2000);
     const session = await paidSession({
       paymentId: 'pay_sock_timeup', startsAt, duration: 20,
       doctorJoined: true, doctorJoinedAt: startsAt, patientJoined: true, patientJoinedAt: startsAt
@@ -636,7 +636,7 @@ describe('the video namespace: full signalling sequence', () => {
   });
 
   test('time up with only one person there completes nothing (the sweep decides)', async () => {
-    const startsAt = new Date(Date.now() - 20 * 60 * 1000 - 1000);
+    const startsAt = new Date(Date.now() - 20 * 60 * 1000 + 2000);
     const session = await paidSession({ paymentId: 'pay_sock_timeup_alone', startsAt, duration: 20 });
     const id = String(session._id);
     const patient = await connect(tokenFor(f.patientA));

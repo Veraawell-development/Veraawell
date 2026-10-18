@@ -5,13 +5,14 @@ import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-hot-toast';
 import { resolveSessionStart, sessionLocalDateKey, formatSessionDay, formatSessionClock } from '../utils/dateUtils';
 import { calculateRefundPreview } from '../utils/refundPolicy';
+import { canJoinNow, outcomeLabel, type SessionLike } from '../utils/sessionRules';
 
 interface PatientCalendarModalProps {
     isOpen: boolean;
     onClose: () => void;
 }
 
-interface Session {
+interface Session extends SessionLike {
     _id: string;
     patientId: string;
     // Nullable on purpose: mongoose populate() yields null when the doctor
@@ -160,19 +161,9 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
         return sessions.filter(session => sessionLocalDateKey(session) === key);
     };
 
-    const isSessionJoinable = (session: Session) => {
-        // If status is cancelled or explicitly completed/no-show, not joinable
-        if (session.status === 'cancelled' || session.status === 'completed' || session.status === 'no-show') return false;
-
-        const now = new Date();
-        const sessionDateTime = resolveSessionStart(session);
-
-        const durationInMs = (session.duration || 60) * 60 * 1000;
-        const timeDiff = sessionDateTime.getTime() - now.getTime();
-        const isWithinJoinWindow = timeDiff <= (15 * 60 * 1000) && timeDiff >= -durationInMs;
-
-        return isWithinJoinWindow && (session.status === 'scheduled' || session.status === 'active');
-    };
+    // The server's window: 15 minutes before the start until the session
+    // really ends (utils/sessionRules.ts).
+    const isSessionJoinable = (session: Session) => canJoinNow(session);
 
     const getSessionDotColor = (session: Session) => {
         if (session.status === 'active' || isSessionJoinable(session)) return T.amber;
@@ -359,11 +350,14 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
 
         const config = statusConfig[status] || statusConfig.scheduled;
 
-        if (status === 'cancelled' && session.paymentStatus === 'refund_failed') {
-            return <span style={{ ...badgeBase, background: T.redBg, color: T.red }}>Refund Failed</span>;
-        }
-        if (status === 'cancelled' && session.paymentStatus === 'refunded') {
-            return <span style={{ ...badgeBase, background: T.greenBg, color: T.green }}>Refunded</span>;
+        // What became of a finished session, in words (refunded or not, and why).
+        const outcome = outcomeLabel(session, 'patient');
+        if (outcome) {
+            const palette = outcome.tone === 'good' ? { background: T.greenBg, color: T.green }
+                : outcome.tone === 'bad' ? { background: T.redBg, color: T.red }
+                : outcome.tone === 'warn' ? { background: T.amberBg, color: T.amber }
+                : { background: '#f0efe9', color: T.text2 };
+            return <span style={{ ...badgeBase, ...palette }}>{outcome.label}</span>;
         }
 
         return (

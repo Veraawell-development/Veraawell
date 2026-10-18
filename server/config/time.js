@@ -23,9 +23,6 @@ const PLATFORM_TIMEZONE = 'Asia/Kolkata';
 /** A session becomes joinable this many minutes before its start. */
 const JOIN_LEAD_MINUTES = 15;
 
-/** ...and stops being joinable this many minutes after its end. */
-const JOIN_GRACE_MINUTES = 60;
-
 /** How long after the end a session is swept to completed / no-show. */
 const NO_SHOW_GRACE_MINUTES = 10;
 
@@ -94,7 +91,6 @@ module.exports = {
   GRACE_MINUTES,
   ALONE_REFUND_MINUTES,
   JOIN_LEAD_MINUTES,
-  JOIN_GRACE_MINUTES,
   NO_SHOW_GRACE_MINUTES,
   CHECKOUT_TTL_MINUTES,
   INSTANT_ACCEPT_WINDOW_MINUTES,
