@@ -10,6 +10,7 @@ const PlatformSettings = require('../models/platformSettings');
 const { calculateRefund } = require('../services/refundPolicy');
 const { payableSessionMatch } = require('../services/earnings');
 const { hoursUntilStart } = require('../services/sessionTime');
+const { PLATFORM_TIMEZONE } = require('../config/time');
 const { refundSession, reconcileStuckRefund, STUCK_REFUND_MINUTES } = require('../services/sessionRefund');
 const { releaseSessionSlot } = require('../services/sessionPayment');
 const { applyTransition } = require('../services/sessionTransition');
@@ -18,6 +19,14 @@ const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('ADMIN-PAYMENTS');
 
+
+/** A fee percentage from a request body, or null if it is not a number from 0 to 100. */
+function parseFeePercent(value) {
+  if (typeof value === 'string' && value.trim() === '') return null;
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  const fee = Number(value);
+  return Number.isFinite(fee) && fee >= 0 && fee <= 100 ? fee : null;
+}
 
 // ═══════════════════════════════════════════════════════════════════════
 // PHASE 2 — PLATFORM FEE MANAGEMENT
@@ -54,8 +63,10 @@ exports.updatePlatformFee = async (req, res) => {
       return res.status(400).json({ message: 'defaultPlatformFeePercentage is required' });
     }
 
-    const fee = Number(defaultPlatformFeePercentage);
-    if (isNaN(fee) || fee < 0 || fee > 100) {
+    // Strictly a number: Number('') and Number([]) are 0, so a blank form
+    // field used to set the platform fee for every future booking to 0%.
+    const fee = parseFeePercent(defaultPlatformFeePercentage);
+    if (fee === null) {
       return res.status(400).json({ message: 'Fee must be between 0 and 100' });
     }
 
@@ -93,8 +104,8 @@ exports.updateDoctorFee = async (req, res) => {
     }
 
     if (customFeePercentage !== null && customFeePercentage !== undefined) {
-      const fee = Number(customFeePercentage);
-      if (isNaN(fee) || fee < 0 || fee > 100) {
+      const fee = parseFeePercent(customFeePercentage);
+      if (fee === null) {
         return res.status(400).json({ message: 'Fee must be between 0 and 100' });
       }
       doctorProfile.customFeePercentage = fee;
@@ -108,8 +119,8 @@ exports.updateDoctorFee = async (req, res) => {
 
     res.json({
       success: true,
-      message: customFeePercentage !== null
-        ? `Doctor fee overridden to ${customFeePercentage}%`
+      message: doctorProfile.customFeePercentage !== null && doctorProfile.customFeePercentage !== undefined
+        ? `Doctor fee overridden to ${doctorProfile.customFeePercentage}%`
         : `Doctor fee reset to global default (${settings.defaultPlatformFeePercentage}%)`,
       customFeePercentage: doctorProfile.customFeePercentage,
       effectiveFee: doctorProfile.customFeePercentage ?? settings.defaultPlatformFeePercentage
@@ -215,17 +226,23 @@ exports.approveOnboarding = async (req, res) => {
 exports.rejectOnboarding = async (req, res) => {
   try {
     const { doctorId } = req.params;
-    const { reason = 'Application does not meet requirements.' } = req.body;
+    // The dashboard sent `message`; this read only `reason`, so whatever the
+    // admin typed was replaced by the default.
+    const reason = String((req.body && (req.body.reason || req.body.message)) || '').trim() || 'Application does not meet requirements.';
 
     const doctorProfile = await DoctorProfile.findOne({ userId: doctorId }).populate('userId');
     if (!doctorProfile) {
       return res.status(404).json({ message: 'Doctor profile not found' });
     }
 
-    // Revoke bookability too: a rejected doctor with payoutApproved still true
-    // would keep taking bookings the platform has no approved way to settle.
-    doctorProfile.payoutApproved = false;
-    doctorProfile.payoutApprovedAt = null;
+    // Only a request that is actually waiting. This legacy path also used to
+    // set payoutApproved = false on ANY doctor — reachable by any admin —
+    // which silently unlisted doctors whose bank details were approved, with
+    // no way back through the Bank Details queue. Payout approval now lives
+    // in Bank Details alone; this only closes the old onboarding request.
+    if (doctorProfile.razorpayOnboardingStatus !== 'pending_admin_approval') {
+      return res.status(409).json({ message: `Nothing to reject — this request is "${doctorProfile.razorpayOnboardingStatus || 'not_requested'}"` });
+    }
     doctorProfile.razorpayOnboardingStatus = 'rejected';
     doctorProfile.razorpayKYCRejectionReason = reason;
     await doctorProfile.save();
@@ -483,27 +500,35 @@ exports.getRevenueAnalytics = async (req, res) => {
 
     const [overallStats, timeSeriesStats, topDoctors] = await Promise.all([
       // Overall totals
+      // Revenue is what was collected and KEPT: price minus any refund. A
+      // partially refunded session used to vanish from these figures
+      // entirely, though the platform kept part of its price.
       Session.aggregate([
-        { $match: { paymentStatus: 'paid', createdAt: { $gte: startDate } } },
+        { $match: { paymentStatus: { $in: ['paid', 'refunded'] }, createdAt: { $gte: startDate } } },
+        { $addFields: { kept: { $subtract: ['$price', { $ifNull: ['$refundAmount', 0] }] } } },
+        { $match: { kept: { $gt: 0 } } },
         {
           $group: {
             _id: null,
-            totalRevenue: { $sum: '$price' },
-            totalPlatformFee: { $sum: '$platformFee' },
-            totalDoctorEarnings: { $sum: '$doctorEarnings' },
+            totalRevenue: { $sum: '$kept' },
+            totalPlatformFee: { $sum: { $cond: [{ $eq: ['$paymentStatus', 'paid'] }, '$platformFee', 0] } },
+            totalDoctorEarnings: { $sum: { $cond: [{ $eq: ['$paymentStatus', 'paid'] }, '$doctorEarnings', 0] } },
             totalSessions: { $count: {} }
           }
         }
       ]),
 
-      // Daily time series for charts
+      // Daily time series for charts, by the IST day — the UTC day put every
+      // booking made between midnight and 05:30 IST on the previous date.
       Session.aggregate([
-        { $match: { paymentStatus: 'paid', createdAt: { $gte: startDate } } },
+        { $match: { paymentStatus: { $in: ['paid', 'refunded'] }, createdAt: { $gte: startDate } } },
+        { $addFields: { kept: { $subtract: ['$price', { $ifNull: ['$refundAmount', 0] }] } } },
+        { $match: { kept: { $gt: 0 } } },
         {
           $group: {
-            _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
-            revenue: { $sum: '$price' },
-            platformFee: { $sum: '$platformFee' },
+            _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt', timezone: PLATFORM_TIMEZONE } },
+            revenue: { $sum: '$kept' },
+            platformFee: { $sum: { $cond: [{ $eq: ['$paymentStatus', 'paid'] }, '$platformFee', 0] } },
             sessions: { $count: {} }
           }
         },

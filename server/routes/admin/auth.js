@@ -214,7 +214,16 @@ router.post('/reset-password/:token', async (req, res) => {
  */
 async function masterLogin(res) {
   const adminId = masterAdminId();
-  let superAdmin = await User.findOne({ email: adminId, role: 'super_admin' });
+  // By email alone: a filter on role too missed an existing non-admin account
+  // with this email, and the create below then hit the unique email index — a
+  // 500 on every master login, with nothing to say why.
+  let superAdmin = await User.findOne({ email: adminId });
+  if (superAdmin && superAdmin.role !== 'super_admin') {
+    logger.error('ADMIN_ID belongs to a non-admin account; refusing master login', { role: superAdmin.role });
+    return res.status(409).json({
+      message: 'The master admin email is already used by another account. Set ADMIN_ID to an address no user has registered with.'
+    });
+  }
 
   if (!superAdmin) {
     superAdmin = new User({
@@ -315,7 +324,9 @@ router.post('/login', authLimiter, async (req, res) => {
       return res.status(403).json({ message: 'Your account is pending approval. Please wait for super admin to approve your request.' });
     }
 
-    const token = issueAdminSession(res, admin, ADMIN_TOKEN_HOURS);
+    // By role: a super admin signing in here got 1 hour, but 8 through the
+    // master login or after changing their password.
+    const token = issueAdminSession(res, admin, admin.role === 'super_admin' ? SUPER_ADMIN_TOKEN_HOURS : ADMIN_TOKEN_HOURS);
 
     // Update last login
     admin.lastLogin = new Date();
@@ -452,20 +463,33 @@ router.post('/create', verifyAdminToken, verifySuperAdmin, async (req, res) => {
 });
 
 // Logout route
-router.post('/logout', verifyAdminToken, async (req, res) => {
+//
+// Works without a valid session. It used to sit behind verifyAdminToken, so
+// an admin whose token had expired, or who had been suspended or demoted,
+// got a 401/403 and the cookie was never cleared — logout failed for exactly
+// the people most in need of it. The activity log is written when the token
+// still identifies someone.
+router.post('/logout', async (req, res) => {
   try {
-    // Log activity before clearing cookie
-    await req.admin.logActivity('logout', { timestamp: new Date() });
-
-    // Cleared with the attributes it was set with. The old clear omitted
-    // secure/sameSite, which a browser can treat as a different cookie.
-    res.clearCookie('adminToken', toClearOptions(getAdminCookieConfig()));
-
-    res.json({ message: 'Logged out successfully' });
+    const { extractToken } = require('../../middleware/auth.middleware');
+    const token = (req.cookies && req.cookies.adminToken) || extractToken(req);
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, getAdminJWTSecret());
+        const admin = await User.findById(decoded.userId);
+        if (admin) await admin.logActivity('logout', { timestamp: new Date() });
+      } catch (e) {
+        // An expired or invalid token still gets its cookie cleared.
+      }
+    }
   } catch (error) {
-    logger.error('Logout error', { error: error.message });
-    res.status(500).json({ message: 'Logout failed' });
+    logger.warn('Logout activity log failed', { error: error.message });
   }
+
+  // Cleared with the attributes it was set with. The old clear omitted
+  // secure/sameSite, which a browser can treat as a different cookie.
+  res.clearCookie('adminToken', toClearOptions(getAdminCookieConfig()));
+  res.json({ message: 'Logged out successfully' });
 });
 
 

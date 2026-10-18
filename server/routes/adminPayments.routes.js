@@ -19,8 +19,10 @@ router.patch('/doctors/:doctorId/fee', verifyAdminToken, requireSuperAdmin(), va
 
 // ── Phase 3: Payout onboarding approvals ────────────────────────────────────
 router.get('/onboarding-requests', verifyAdminToken, adminPayments.getOnboardingRequests);
-router.post('/onboarding-requests/:doctorId/approve', verifyAdminToken, validateObjectIdParam('doctorId'), adminPayments.approveOnboarding);
-router.post('/onboarding-requests/:doctorId/reject', verifyAdminToken, validateObjectIdParam('doctorId'), adminPayments.rejectOnboarding);
+// Super admin only, like every other decision about where money goes. These
+// were open to any admin, and reject unlisted the doctor.
+router.post('/onboarding-requests/:doctorId/approve', verifyAdminToken, requireSuperAdmin(), validateObjectIdParam('doctorId'), adminPayments.approveOnboarding);
+router.post('/onboarding-requests/:doctorId/reject', verifyAdminToken, requireSuperAdmin(), validateObjectIdParam('doctorId'), adminPayments.rejectOnboarding);
 
 // ── Phase 5: Admin refunds ────────────────────────────────────────────────────
 router.post('/sessions/:sessionId/refund', verifyAdminToken, requireSuperAdmin(), validateObjectIdParam('sessionId'), adminPayments.adminRefundSession);

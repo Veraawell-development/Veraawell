@@ -95,8 +95,11 @@ function previousPeriod(instant = new Date(), zone = PLATFORM_TIMEZONE) {
  * @throws {Error} on a key that is not a valid ISO week
  */
 function periodFromKey(key, zone = PLATFORM_TIMEZONE) {
+  const { ValidationError } = require('../utils/errors');
   const match = /^(\d{4})-W(\d{2})$/.exec(String(key || ''));
-  if (!match) throw new Error(`Invalid period key "${key}" — expected e.g. 2026-W37`);
+  // ValidationError, not Error: a half-typed key from the admin's period box
+  // reached here and came back as a 500.
+  if (!match) throw new ValidationError(`Invalid period "${key}" — expected a week like 2026-W37`);
   const [, year, week] = match;
 
   // Week 1 is the week containing 4 January, by the ISO rule.
@@ -104,7 +107,7 @@ function periodFromKey(key, zone = PLATFORM_TIMEZONE) {
   const target = addDays(mondayOf(jan4), (Number(week) - 1) * 7);
   const resolved = periodFor(zonedToUtc(target, '12:00', zone), zone);
   if (resolved.periodKey !== key) {
-    throw new Error(`Invalid period key "${key}" — resolves to ${resolved.periodKey}`);
+    throw new ValidationError(`Invalid period "${key}" — that week does not exist`);
   }
   return resolved;
 }

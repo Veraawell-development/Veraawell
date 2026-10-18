@@ -320,8 +320,12 @@ userSchema.pre('save', async function (next) {
     if (!this.isModified('password')) return next();
     if (this.googleId) return next();
     
-    // Skip if already a bcrypt hash
-    if (this.password.startsWith('$2a$') || this.password.startsWith('$2b$')) return next();
+    // Skip only when the caller says the value is already a hash (signup
+    // verification copies the PendingUser's hash across). This used to sniff
+    // the text for a bcrypt prefix, so anyone who chose a password starting
+    // "$2a$" or "$2b$" had it stored in plain text — and could then never
+    // log in, because comparing against a non-hash fails.
+    if (this.$locals && this.$locals.passwordIsHashed) return next();
 
     const salt = await bcrypt.genSalt(10);
     this.password = await bcrypt.hash(this.password, salt);

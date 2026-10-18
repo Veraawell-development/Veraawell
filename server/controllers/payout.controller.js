@@ -161,6 +161,27 @@ const listPayouts = asyncHandler(async (req, res) => {
   res.json({ success: true, count: payouts.length, payouts, currentPeriod: periodFor().periodKey });
 });
 
+/**
+ * Tell the doctor what happened to their bank details. They were told
+ * nothing: a rejected doctor learned only by noticing they had stopped being
+ * bookable.
+ */
+async function notifyDoctorOfBankDecision(doctorId, approved, reason) {
+  try {
+    const User = require('../models/user');
+    const doctor = await User.findById(doctorId).select('email firstName');
+    if (!doctor || !doctor.email) return;
+    const emailService = require('../services/email.service');
+    if (approved) {
+      await emailService.sendPayoutActivatedEmail(doctor.email, doctor.firstName);
+    } else {
+      await emailService.sendPayoutOnboardingRejectedEmail(doctor.email, doctor.firstName, reason);
+    }
+  } catch (err) {
+    logger.warn('Bank decision email failed', { error: err.message });
+  }
+}
+
 /** POST /api/admin/payments/payouts/bank-details/:doctorId/approve */
 const approveBankDetails = asyncHandler(async (req, res) => {
   const profile = await DoctorProfile.findOne({ userId: req.params.doctorId })
@@ -170,10 +191,20 @@ const approveBankDetails = asyncHandler(async (req, res) => {
     throw new ValidationError('This doctor has not submitted bank details yet');
   }
 
+  // Approve exactly the submission the admin reviewed. The filter used to be
+  // `{ userId }` alone: a doctor who resubmitted while the admin's queue was
+  // open had the NEW account approved — details nobody looked at, and where
+  // money will be sent. It also re-approved rejected or already-approved
+  // rows. The client sends the submittedAt it displayed.
+  const reviewed = req.body && req.body.submittedAt ? new Date(req.body.submittedAt) : null;
+  if (!reviewed || Number.isNaN(reviewed.getTime())) {
+    throw new ValidationError('submittedAt of the reviewed submission is required');
+  }
+
   // Written with updateOne rather than save(): assigning payoutBank would
   // trip the re-approval hook and immediately undo the approval.
-  await DoctorProfile.updateOne(
-    { userId: req.params.doctorId },
+  const updated = await DoctorProfile.updateOne(
+    { userId: req.params.doctorId, payoutBankStatus: 'pending_admin_approval', 'payoutBank.submittedAt': reviewed },
     {
       $set: {
         payoutApproved: true,
@@ -184,8 +215,15 @@ const approveBankDetails = asyncHandler(async (req, res) => {
       }
     }
   );
+  if (updated.matchedCount === 0) {
+    return res.status(409).json({
+      success: false,
+      message: 'These bank details changed or were already reviewed since you opened the list. Refresh and check them again.'
+    });
+  }
 
   logger.info('Bank details approved', { doctorId: String(req.params.doctorId).substring(0, 8) });
+  await notifyDoctorOfBankDecision(req.params.doctorId, true);
   res.json({ success: true, message: 'Approved. This therapist can now take bookings.' });
 });
 
@@ -193,9 +231,21 @@ const approveBankDetails = asyncHandler(async (req, res) => {
 const rejectBankDetails = asyncHandler(async (req, res) => {
   const reason = String((req.body && req.body.reason) || '').trim();
   if (!reason) throw new ValidationError('A reason is required', { reason: 'Tell the therapist what to correct' });
+  if (!(await DoctorProfile.exists({ userId: req.params.doctorId }))) throw new NotFoundError('Doctor profile');
+  const reviewed = req.body && req.body.submittedAt ? new Date(req.body.submittedAt) : null;
+  if (!reviewed || Number.isNaN(reviewed.getTime())) {
+    throw new ValidationError('submittedAt of the reviewed submission is required');
+  }
 
+  // Same rule as approval: only the submission the admin was looking at. An
+  // approved account can still be rejected (fraud found later, say) — but
+  // only the one on screen.
   const updated = await DoctorProfile.updateOne(
-    { userId: req.params.doctorId },
+    {
+      userId: req.params.doctorId,
+      payoutBankStatus: { $in: ['pending_admin_approval', 'approved'] },
+      'payoutBank.submittedAt': reviewed
+    },
     {
       $set: {
         payoutApproved: false,
@@ -205,8 +255,14 @@ const rejectBankDetails = asyncHandler(async (req, res) => {
       }
     }
   );
-  if (updated.matchedCount === 0) throw new NotFoundError('Doctor profile');
+  if (updated.matchedCount === 0) {
+    return res.status(409).json({
+      success: false,
+      message: 'These bank details changed or were already reviewed since you opened the list. Refresh and check them again.'
+    });
+  }
 
+  await notifyDoctorOfBankDecision(req.params.doctorId, false, reason);
   res.json({ success: true, message: 'Rejected. The therapist has been asked to resubmit.' });
 });
 

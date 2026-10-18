@@ -231,7 +231,7 @@ const verifySignup = asyncHandler(async (req, res) => {
     lastName: pendingUser.lastName,
     email: pendingUser.email,
     username: pendingUser.username,
-    password: pendingUser.password, // Already hashed in PendingUser, hook will skip
+    password: pendingUser.password, // Already hashed in PendingUser — flagged below so the hook skips it
     role: pendingUser.role,
     phoneNumber: pendingUser.phoneNumber,
     approvalStatus: pendingUser.approvalStatus,
@@ -239,8 +239,20 @@ const verifySignup = asyncHandler(async (req, res) => {
     isVerified: true
   });
   
+  newUser.$locals.passwordIsHashed = true;
   await newUser.save();
   await PendingUser.deleteOne({ _id: pendingUser._id });
+
+  // An admin applicant is verified but not yet an admin: a super admin has to
+  // approve them, and they sign in at /admin-login, in the admin realm. This
+  // used to hand them a 30-day USER-realm session the moment they verified.
+  if (newUser.role === 'admin') {
+    return res.json({
+      success: true,
+      requiresApproval: true,
+      message: 'Email verified. A super admin will review your request — you will get an email when you can sign in.'
+    });
+  }
 
   const token = authService.generateToken(newUser);
   authService.setAuthCookie(res, token);
@@ -276,10 +288,10 @@ const logout = asyncHandler(async (req, res) => {
     logger.error('Error setting doctor offline on logout', { error: error.message });
   }
 
-  // Clear cookies — each with the attributes it was set with.
-  const { getAdminCookieConfig, toClearOptions } = require('../config/auth');
+  // Clear the user session's cookie only. This also cleared `adminToken`, so
+  // signing out of a patient account in one tab signed the same person out of
+  // the admin dashboard in another — two realms, one logout.
   authService.clearAuthCookie(res);
-  res.clearCookie('adminToken', toClearOptions(getAdminCookieConfig()));
 
   // Destroy session
   if (req.session) {

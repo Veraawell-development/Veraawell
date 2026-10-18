@@ -62,6 +62,35 @@ function claimFloor() {
   return PAYOUT_EPOCH;
 }
 
+/**
+ * The doctor's profile, if their bank details are approved; otherwise a 409
+ * the admin can act on.
+ */
+async function assertPayableAccount(DoctorProfile, payoutId, Payout) {
+  const payout = await Payout.findById(payoutId).select('doctorId').lean();
+  if (!payout) throw new PayoutStateError('Payout not found');
+  const profile = await DoctorProfile.findOne({ userId: payout.doctorId })
+    .select('payoutApproved payoutBankStatus +payoutBank.accountHolderName +payoutBank.accountNumber +payoutBank.ifsc')
+    .lean();
+  if (!profile || !profile.payoutApproved || profile.payoutBankStatus !== 'approved') {
+    throw new PayoutStateError(
+      "This doctor's bank details are not approved (they may have changed them). Review them in Bank Details before locking or paying this payout."
+    );
+  }
+  return profile;
+}
+
+/** What a payout records about the account — the last four digits, never the whole number. */
+function snapshotOf(profile) {
+  const bank = (profile && profile.payoutBank) || {};
+  const account = bank.accountNumber || '';
+  return {
+    accountHolderName: bank.accountHolderName || null,
+    accountNumberLast4: account ? account.slice(-4) : null,
+    ifsc: bank.ifsc || null
+  };
+}
+
 class PayoutStateError extends AppError {
   constructor(message) { super(message, 409); this.code = 'PAYOUT_STATE'; }
 }
@@ -193,11 +222,19 @@ async function outstandingDebtByDoctor() {
  * so a session already claimed by a concurrent run simply does not match —
  * a short `modifiedCount` is information, not an error.
  */
-async function generatePayouts(periodKey, { adminId } = {}) {
+async function generatePayouts(periodKey, { adminId, now = new Date() } = {}) {
   const Session = require('../models/session');
   const Payout = require('../models/payout');
   const period = periodFromKey(periodKey);
   const from = claimFloor();
+
+  // Only a week that has ended. A current or future key claimed every unpaid
+  // session up to that date into a payout that could be locked and paid the
+  // same day — paying for sessions whose refund window had not closed, and
+  // before Razorpay had settled the money.
+  if (period.periodEnd > now) {
+    throw new PayoutStateError(`${periodKey} has not ended yet. Payouts are generated for a finished week (Monday–Sunday).`);
+  }
 
   const doctorIds = await Session.distinct('doctorId',
     payableSessionMatch({ unpaidOnly: true, period: { from, to: period.periodEnd } }));
@@ -261,6 +298,14 @@ async function lockPayout(payoutId, { now = new Date() } = {}) {
   const PayoutAdjustment = require('../models/payoutAdjustment');
   const DoctorProfile = require('../models/doctorProfile');
 
+  // ── 0. Only to an account an admin approved. ───────────────────────────
+  // Lock froze whatever bank details were on file, approved or not: a doctor
+  // who submitted a new account on Monday had THAT account snapshotted on
+  // Tuesday and paid, though nobody had reviewed it. Changing details revokes
+  // approval (models/doctorProfile.js), so "approved" means the details on
+  // file are the reviewed ones.
+  await assertPayableAccount(DoctorProfile, payoutId, Payout);
+
   // ── 1. Claim the lock. ──────────────────────────────────────────────────
   // This used to settle adjustments into the payout FIRST and compare-and-set
   // draft -> locked LAST. Locking an already-locked payout passed the
@@ -321,8 +366,8 @@ async function lockPayout(payoutId, { now = new Date() } = {}) {
   const rawNet = grossEarnings + adjustmentsTotal;
 
   const profile = await DoctorProfile.findOne({ userId: payout.doctorId })
-    .select('+payoutBank.accountHolderName +payoutBank.accountNumber +payoutBank.ifsc');
-  const account = (profile && profile.payoutBank && profile.payoutBank.accountNumber) || '';
+    .select('+payoutBank.accountHolderName +payoutBank.accountNumber +payoutBank.ifsc')
+    .lean();
 
   const updated = await Payout.findOneAndUpdate(
     { _id: payout._id, status: 'locked', totalsComputedAt: null },
@@ -336,11 +381,7 @@ async function lockPayout(payoutId, { now = new Date() } = {}) {
         adjustmentsTotal,
         netPayable: Math.max(0, rawNet),
         carriedForward: Math.max(0, -rawNet),
-        bankSnapshot: {
-          accountHolderName: (profile && profile.payoutBank && profile.payoutBank.accountHolderName) || null,
-          accountNumberLast4: account ? account.slice(-4) : null,
-          ifsc: (profile && profile.payoutBank && profile.payoutBank.ifsc) || null
-        }
+        bankSnapshot: snapshotOf(profile)
       }
     },
     { new: true }
@@ -390,8 +431,24 @@ async function lockPayout(payoutId, { now = new Date() } = {}) {
  */
 async function markPaid(payoutId, { transferReference, adminId }) {
   const Payout = require('../models/payout');
-  const ref = String(transferReference || '').trim();
+  const DoctorProfile = require('../models/doctorProfile');
+  const existing = await Payout.findById(payoutId).select('netPayable status').lean();
+  if (!existing) throw new PayoutStateError('Payout not found');
+
+  // Nothing is transferred for a zero payout, so there is no UTR to give —
+  // it used to demand one anyway, and an admin had to invent it.
+  let ref = String(transferReference || '').trim();
+  if (!ref && existing.netPayable === 0) ref = 'NO-TRANSFER';
   if (!ref) throw new AppError('A transfer reference (UTR) is required to mark a payout paid', 400);
+
+  // The account must still be approved at payment time — and the receipt
+  // records the account actually paid, which is the approved one on file
+  // now, not necessarily the one snapshotted at lock.
+  let bankSnapshot;
+  if (existing.netPayable > 0) {
+    const profile = await assertPayableAccount(DoctorProfile, payoutId, Payout);
+    bankSnapshot = snapshotOf(profile);
+  }
 
   const updated = await Payout.findOneAndUpdate(
     {
@@ -402,7 +459,7 @@ async function markPaid(payoutId, { transferReference, adminId }) {
       // such field and were frozen in the same write as the lock.
       $or: [{ totalsComputedAt: { $exists: false } }, { totalsComputedAt: { $ne: null } }]
     },
-    { $set: { status: 'paid', paidAt: new Date(), paidBy: adminId || null, transferReference: ref } },
+    { $set: { status: 'paid', paidAt: new Date(), paidBy: adminId || null, transferReference: ref, ...(bankSnapshot ? { bankSnapshot } : {}) } },
     { new: true }
   );
   if (!updated) {

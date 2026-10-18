@@ -345,6 +345,13 @@ async function requestPasswordReset(email) {
     throw new NotFoundError('User with that email does not exist.');
   }
 
+  // Admin accounts reset through /api/admin/auth/forgot-password, which has
+  // its own rate limit and rules. This user-realm path used to work for them
+  // too, side-stepping both.
+  if (['admin', 'super_admin'].includes(user.role)) {
+    throw new NotFoundError('User with that email does not exist.');
+  }
+
   if (user.googleId) {
     throw new AuthenticationError('This account uses Google login. Please use Google Sign-In.');
   }
@@ -368,7 +375,7 @@ async function requestPasswordReset(email) {
  * Reset password with token
  */
 async function resetPassword(token, newPassword) {
-  const user = await User.findOne({ resetToken: token });
+  const user = await User.findOne({ resetToken: token, role: { $nin: ['admin', 'super_admin'] } });
 
   if (!user) {
     throw new NotFoundError('Invalid reset token. Please request a new password reset.');

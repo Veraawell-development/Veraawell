@@ -269,7 +269,7 @@ function generatePasswordResetEmailHTML(user, resetUrl) {
  * Generate OTP email HTML (Veraawell Brand)
  */
 function generateOTPEmailHTML(otp, userType) {
-  const userTypeDisplay = userType === 'doctor' ? 'Professional' : 'Patient';
+  const userTypeDisplay = userType === 'doctor' ? 'Professional' : userType === 'admin' ? 'Admin' : 'Patient';
 
   return `
     <!DOCTYPE html>
@@ -428,7 +428,9 @@ async function sendSessionReminderEmail(email, session, reminderType) {
  * Send doctor approval email
  */
 async function sendDoctorApprovedEmail(email, name) {
-  const frontendLoginUrl = `${getFrontendUrl()}/auth`;
+  // /login, not /auth — there is no /auth route, so the button in this email
+  // landed every newly approved doctor on the 404 page.
+  const frontendLoginUrl = `${getFrontendUrl()}/login`;
   return sendBestEffort('doctor approval', {
     to: email,
     subject: 'Welcome to Veraawell! Your account is approved.',
@@ -439,11 +441,27 @@ async function sendDoctorApprovedEmail(email, name) {
 /**
  * Send doctor rejection email
  */
-async function sendDoctorRejectedEmail(email, name) {
+async function sendDoctorRejectedEmail(email, name, reason) {
   return sendBestEffort('doctor rejection', {
     to: email,
     subject: 'Update regarding your Veraawell application',
-    html: generateDoctorStatusHTML(name, 'rejected', null)
+    html: generateDoctorStatusHTML(name, 'rejected', null, { reason })
+  });
+}
+
+/**
+ * The outcome of an admin's signup request. Doctors were told; admins were
+ * not, so a pending admin had no way to learn they could now sign in.
+ */
+async function sendAdminDecisionEmail(email, name, approved, reason) {
+  return sendBestEffort(approved ? 'admin approval' : 'admin rejection', {
+    to: email,
+    subject: approved ? 'Your Veraawell admin access is approved' : 'Update on your Veraawell admin request',
+    html: generateDoctorStatusHTML(name, approved ? 'approved' : 'rejected', `${getFrontendUrl()}/admin-login`, {
+      reason,
+      approvedMessage: 'Your admin account has been approved. You can now sign in to the admin dashboard.',
+      rejectedMessage: 'Your request for admin access was not approved.'
+    })
   });
 }
 
@@ -540,13 +558,17 @@ function generateBookingConfirmationHTML(sessionDetails = {}) {
 /**
  * Generate Doctor Status HTML
  */
-function generateDoctorStatusHTML(name, status, loginUrl) {
+function generateDoctorStatusHTML(name, status, loginUrl, options = {}) {
   const isApproved = status === 'approved';
   const color = isApproved ? '#0097b2' : '#f43f5e';
   const title = isApproved ? 'Application Approved' : 'Application Update';
-  const msg = isApproved 
-    ? 'Congratulations! Your professional account has been approved. You can now log in and start accepting sessions.'
-    : 'We regret to inform you that we cannot approve your application at this time.';
+  const msg = isApproved
+    ? (options.approvedMessage || 'Congratulations! Your professional account has been approved. You can now log in and start accepting sessions.')
+    : (options.rejectedMessage || 'We regret to inform you that we cannot approve your application at this time.');
+  // The reason the admin typed was recorded and never sent.
+  const reasonLine = !isApproved && present(options.reason)
+    ? `<p class="message"><strong>Reason:</strong> ${e(options.reason)}</p>`
+    : '';
 
   return `
     <!DOCTYPE html>
@@ -624,6 +646,7 @@ function generateDoctorStatusHTML(name, status, loginUrl) {
         <h1 class="header" style="color: ${color};">${title}</h1>
         <p class="message">${present(name) ? `Dear ${e(name)},` : 'Hello,'}</p>
         <p class="message">${msg}</p>
+        ${reasonLine}
         ${isApproved ? `
         <div class="button-container">
           <a href="${e(loginUrl)}" class="button">Log In Now</a>
@@ -1002,6 +1025,7 @@ module.exports = {
   sendOnboardingRejectedEmail: sendPayoutOnboardingRejectedEmail,
   // exported for tests
   escapeHtml,
+  sendAdminDecisionEmail,
   _deliver: deliver,
   _templates: {
     generateDoctorNewBookingHTML,

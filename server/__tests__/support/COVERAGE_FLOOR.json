@@ -1,9 +1,9 @@
 {
   "_comment": "A RATCHET, not a target. Regenerate with: node scripts/check-coverage.js --update. Values may only rise; a drop fails npm run test:coverage.",
-  "_recorded": "2026-10-17",
+  "_recorded": "2026-10-18",
   "_total": {
-    "statements": 81.12,
-    "branches": 69.72
+    "statements": 83.03,
+    "branches": 71.95
   },
   "files": {
     "authz/actor.js": {
@@ -52,7 +52,7 @@
     },
     "config/auth.js": {
       "statements": 67.56,
-      "branches": 56
+      "branches": 60
     },
     "config/cloudinary.js": {
       "statements": 83.33,
@@ -79,20 +79,20 @@
       "branches": 100
     },
     "controllers/adminPayments.controller.js": {
-      "statements": 66.49,
-      "branches": 47.2
+      "statements": 71.71,
+      "branches": 52.44
     },
     "controllers/article.controller.js": {
-      "statements": 67.27,
-      "branches": 62.61
+      "statements": 70.29,
+      "branches": 67.22
     },
     "controllers/assessment.controller.js": {
       "statements": 79.31,
       "branches": 72
     },
     "controllers/auth.controller.js": {
-      "statements": 83.45,
-      "branches": 71.21
+      "statements": 90.71,
+      "branches": 79.41
     },
     "controllers/availability.controller.js": {
       "statements": 80.88,
@@ -131,8 +131,8 @@
       "branches": 65.13
     },
     "controllers/payout.controller.js": {
-      "statements": 97.91,
-      "branches": 74.39
+      "statements": 97.45,
+      "branches": 79.62
     },
     "controllers/profile.controller.js": {
       "statements": 90.78,
@@ -143,8 +143,8 @@
       "branches": 57.14
     },
     "controllers/review.controller.js": {
-      "statements": 63.84,
-      "branches": 67
+      "statements": 73.33,
+      "branches": 74.03
     },
     "controllers/session.controller.js": {
       "statements": 84.29,
@@ -159,8 +159,8 @@
       "branches": 50
     },
     "controllers/upload.controller.js": {
-      "statements": 67.01,
-      "branches": 41.66
+      "statements": 86.61,
+      "branches": 80.88
     },
     "middleware/auth.middleware.js": {
       "statements": 83.48,
@@ -179,12 +179,12 @@
       "branches": 95.45
     },
     "middleware/validation.middleware.js": {
-      "statements": 74.07,
-      "branches": 75.43
+      "statements": 75.45,
+      "branches": 77.5
     },
     "models/article.js": {
       "statements": 94.87,
-      "branches": 85.71
+      "branches": 87.5
     },
     "models/conversation.js": {
       "statements": 68,
@@ -295,16 +295,16 @@
       "branches": 100
     },
     "routes/admin/approvals.js": {
-      "statements": 47.66,
-      "branches": 26.92
+      "statements": 67.15,
+      "branches": 48.21
     },
     "routes/admin/auth.js": {
-      "statements": 83.97,
-      "branches": 84.26
+      "statements": 87.89,
+      "branches": 84.31
     },
     "services/auth.service.js": {
-      "statements": 89.72,
-      "branches": 77.19
+      "statements": 90.37,
+      "branches": 79.31
     },
     "services/cache.service.js": {
       "statements": 100,
@@ -320,19 +320,19 @@
     },
     "services/earnings.js": {
       "statements": 100,
-      "branches": 90
+      "branches": 100
     },
     "services/email.service.js": {
-      "statements": 84.12,
-      "branches": 64.06
+      "statements": 85.15,
+      "branches": 71.03
     },
     "services/oauth.service.js": {
       "statements": 20,
       "branches": 3.03
     },
     "services/payoutLedger.js": {
-      "statements": 88.23,
-      "branches": 82.72
+      "statements": 89.17,
+      "branches": 85.03
     },
     "services/payoutPeriod.js": {
       "statements": 100,

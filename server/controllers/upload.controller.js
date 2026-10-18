@@ -111,7 +111,8 @@ function sendUploadFailure(res, err, subject, logLabel) {
 
   if (httpCode === 400) {
     status = 422; code = 'UPLOAD_REJECTED'; level = 'warn';
-    message = `We couldn't process ${subject}. Check that it opens on your device and is a PDF, JPG or PNG under 5 MB, then try again.`;
+    const kinds = /image|photo|banner/i.test(subject) ? 'a JPG or PNG' : 'a PDF, JPG or PNG';
+    message = `We couldn't process ${subject}. Check that it opens on your device and is ${kinds} under 5 MB, then try again.`;
   } else if (httpCode === 420 || httpCode === 429) {
     code = 'UPLOAD_BUSY'; level = 'warn';
     message = 'Our file storage is busy right now. Please try again in a minute.';

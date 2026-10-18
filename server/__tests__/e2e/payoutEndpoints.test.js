@@ -38,8 +38,12 @@ const { connectDb, disconnectDb } = require('../support/db');
 jest.setTimeout(60000);
 
 jest.mock('isomorphic-dompurify', () => ({ sanitize: (v) => v }));
+const mockMail = {};
 jest.mock('../../services/email.service', () => new Proxy({}, {
-  get: () => jest.fn().mockResolvedValue({ id: 'sink' })
+  get: (_t, name) => {
+    if (!mockMail[name]) mockMail[name] = jest.fn().mockResolvedValue({ id: 'sink' });
+    return mockMail[name];
+  }
 }));
 
 let app, server, f;
@@ -117,6 +121,12 @@ beforeEach(async () => {
 
 /* ───────────────────────── the doctor's own details ────────────────────── */
 
+/** The submission timestamp the admin's screen shows — approve/reject must echo it. */
+async function submittedAtFor(doctorId) {
+  const p = await DoctorProfile.findOne({ userId: doctorId }).select('+payoutBank.submittedAt').lean();
+  return p && p.payoutBank ? p.payoutBank.submittedAt : null;
+}
+
 describe('a doctor submitting bank details', () => {
   test('a valid submission is accepted and parks the doctor in the approval queue', async () => {
     const res = await call('post', '/api/payouts/bank-details', doctorToken, GOOD);
@@ -181,7 +191,7 @@ describe('a doctor submitting bank details', () => {
 
   test('a resubmission replaces the details and revokes an existing approval', async () => {
     await call('post', '/api/payouts/bank-details', doctorToken, GOOD);
-    await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/approve`, superAdminToken, {});
+    await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/approve`, superAdminToken, { submittedAt: await submittedAtFor(f.doctorA._id) });
     expect((await DoctorProfile.findOne({ userId: f.doctorA._id })).payoutApproved).toBe(true);
 
     const res = await call('post', '/api/payouts/bank-details', doctorToken, {
@@ -225,7 +235,7 @@ describe('a doctor reading back their own details', () => {
   test('a rejection comes back with the reason, so the doctor knows what to fix', async () => {
     await call('post', '/api/payouts/bank-details', doctorToken, GOOD);
     await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/reject`, superAdminToken,
-      { reason: 'Name does not match the account' });
+      { reason: 'Name does not match the account', submittedAt: await submittedAtFor(f.doctorA._id) });
 
     const res = await call('get', '/api/payouts/bank-details', doctorToken);
     expect(res.body.status).toBe('rejected');
@@ -265,7 +275,7 @@ describe('the admin approval queue', () => {
 
   test('the queue defaults to pending, and an approved doctor drops out of it', async () => {
     await call('post', '/api/payouts/bank-details', doctorToken, GOOD);
-    await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/approve`, superAdminToken, {});
+    await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/approve`, superAdminToken, { submittedAt: await submittedAtFor(f.doctorA._id) });
 
     const pending = await call('get', '/api/admin/payments/payouts/bank-details', superAdminToken);
     expect(pending.body.submissions.map((s) => String(s.doctorId)))
@@ -293,7 +303,7 @@ describe('approving and rejecting', () => {
   test('approval makes the doctor bookable and records who decided', async () => {
     await call('post', '/api/payouts/bank-details', doctorToken, GOOD);
 
-    const res = await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/approve`, superAdminToken, {});
+    const res = await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/approve`, superAdminToken, { submittedAt: await submittedAtFor(f.doctorA._id) });
     expect(res.status).toBe(200);
 
     const profile = await DoctorProfile.findOne({ userId: f.doctorA._id });
@@ -306,7 +316,7 @@ describe('approving and rejecting', () => {
   test('approving a doctor who never submitted anything is refused', async () => {
     // Otherwise an admin can grant a payout route by clicking a stale row,
     // and the doctor becomes bookable with no account on file at all.
-    const res = await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/approve`, superAdminToken, {});
+    const res = await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/approve`, superAdminToken, { submittedAt: await submittedAtFor(f.doctorA._id) });
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/not submitted/i);
     expect((await DoctorProfile.findOne({ userId: f.doctorA._id })).payoutApproved).toBe(false);
@@ -328,10 +338,10 @@ describe('approving and rejecting', () => {
 
   test('rejection revokes approval as well as setting the reason', async () => {
     await call('post', '/api/payouts/bank-details', doctorToken, GOOD);
-    await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/approve`, superAdminToken, {});
+    await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/approve`, superAdminToken, { submittedAt: await submittedAtFor(f.doctorA._id) });
 
     const res = await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/reject`, superAdminToken,
-      { reason: 'IFSC belongs to a closed branch' });
+      { reason: 'IFSC belongs to a closed branch', submittedAt: await submittedAtFor(f.doctorA._id) });
     expect(res.status).toBe(200);
 
     const profile = await DoctorProfile.findOne({ userId: f.doctorA._id });
@@ -344,6 +354,53 @@ describe('approving and rejecting', () => {
   test('rejecting a doctor id that has no profile is a 404', async () => {
     const res = await call('post', `/api/admin/payments/payouts/bank-details/${new mongoose.Types.ObjectId()}/reject`, superAdminToken, { reason: 'nope' });
     expect(res.status).toBe(404);
+  });
+
+  test('approving details that changed since the list was loaded is refused', async () => {
+    // The filter used to be { userId } alone, so a resubmission made while
+    // the admin's queue was open got approved — an account nobody reviewed,
+    // and the one money would be sent to.
+    await call('post', '/api/payouts/bank-details', doctorToken, GOOD);
+    const seen = await submittedAtFor(f.doctorA._id);
+    await new Promise((r) => setTimeout(r, 20));
+    await call('post', '/api/payouts/bank-details', doctorToken, { ...GOOD, accountNumber: '999888777666' });
+
+    const res = await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/approve`, superAdminToken, { submittedAt: seen });
+    expect(res.status).toBe(409);
+    expect((await DoctorProfile.findOne({ userId: f.doctorA._id })).payoutApproved).toBe(false);
+  });
+
+  test('approval without saying which submission was reviewed is refused', async () => {
+    await call('post', '/api/payouts/bank-details', doctorToken, GOOD);
+    const res = await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/approve`, superAdminToken, {});
+    expect(res.status).toBe(400);
+  });
+
+  test('the doctor is told the outcome — approval and rejection both email them', async () => {
+    await call('post', '/api/payouts/bank-details', doctorToken, GOOD);
+    await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/approve`, superAdminToken, { submittedAt: await submittedAtFor(f.doctorA._id) });
+    expect(mockMail.sendPayoutActivatedEmail).toHaveBeenCalledWith(f.doctorA.email, expect.anything());
+
+    await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/reject`, superAdminToken,
+      { reason: 'Name mismatch', submittedAt: await submittedAtFor(f.doctorA._id) });
+    expect(mockMail.sendPayoutOnboardingRejectedEmail).toHaveBeenCalledWith(f.doctorA.email, expect.anything(), 'Name mismatch');
+  });
+
+  test('a failing email never fails the decision', async () => {
+    await call('post', '/api/payouts/bank-details', doctorToken, GOOD);
+    mockMail.sendPayoutActivatedEmail = jest.fn().mockRejectedValue(new Error('smtp down'));
+    const res = await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/approve`, superAdminToken, { submittedAt: await submittedAtFor(f.doctorA._id) });
+    expect(res.status).toBe(200);
+    mockMail.sendPayoutActivatedEmail = jest.fn().mockResolvedValue({ id: 'sink' });
+  });
+
+  test('rejecting details that changed since the list loaded is refused', async () => {
+    await call('post', '/api/payouts/bank-details', doctorToken, GOOD);
+    const res = await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/reject`, superAdminToken,
+      { reason: 'x', submittedAt: new Date(Date.now() - 864e5).toISOString() });
+    expect(res.status).toBe(409);
+    const noDate = await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/reject`, superAdminToken, { reason: 'x' });
+    expect(noDate.status).toBe(400);
   });
 
   test('a doctor cannot approve themselves', async () => {
@@ -392,7 +449,15 @@ describe('the weekly payout run over HTTP', () => {
     expect(generated.status).toBe(200);
     expect(generated.body.created.length).toBe(1);
 
+    // Payouts go only to an approved account: the doctor submits bank
+    // details and a super admin approves exactly that submission.
     const payoutId = generated.body.created[0].payoutId;
+    const refused = await call('post', `/api/admin/payments/payouts/${payoutId}/lock`, superAdminToken, {});
+    expect(refused.status).toBe(409);
+    await call('post', '/api/payouts/bank-details', doctorToken, GOOD);
+    const approval = await call('post', `/api/admin/payments/payouts/bank-details/${f.doctorA._id}/approve`, superAdminToken, { submittedAt: await submittedAtFor(f.doctorA._id) });
+    expect(approval.status).toBe(200);
+
     const locked = await call('post', `/api/admin/payments/payouts/${payoutId}/lock`, superAdminToken, {});
     expect(locked.status).toBe(200);
     expect(locked.body.payout.netPayable).toBe(800);

@@ -116,3 +116,39 @@ describe('missing optional fields drop out instead of printing "undefined"', () 
     expect(subject).toBe('New Session Booked with Asha on 1 Jan');
   });
 });
+
+describe('approval outcomes', () => {
+  const lastMessage = () => mockSend.mock.calls[mockSend.mock.calls.length - 1][0];
+
+  test('an approved doctor is sent to /login, not the /auth route that 404s', async () => {
+    await email.sendDoctorApprovedEmail('doc@example.com', 'Neha');
+    expect(lastMessage().html).toContain('/login');
+    expect(lastMessage().html).not.toMatch(/\/auth["']/);
+  });
+
+  test('a rejection carries the reason the admin typed, escaped', async () => {
+    await email.sendDoctorRejectedEmail('doc@example.com', 'Neha', 'Licence <expired>');
+    expect(lastMessage().html).toContain('Licence &lt;expired&gt;');
+  });
+
+  test('a rejection with no reason has no empty Reason line', async () => {
+    await email.sendDoctorRejectedEmail('doc@example.com', 'Neha');
+    expect(lastMessage().html).not.toContain('Reason:');
+  });
+
+  test('admins hear the outcome of their request, with their own wording and link', async () => {
+    await email.sendAdminDecisionEmail('a@example.com', 'Asha', true);
+    expect(lastMessage().subject).toMatch(/approved/i);
+    expect(lastMessage().html).toContain('/admin-login');
+    expect(lastMessage().html).toMatch(/admin dashboard/i);
+
+    await email.sendAdminDecisionEmail('a@example.com', 'Asha', false, 'Unknown requester');
+    expect(lastMessage().html).toContain('Unknown requester');
+    expect(lastMessage().html).toMatch(/admin access was not approved/i);
+  });
+
+  test('an admin signup code is labelled for an admin, not a patient', async () => {
+    await email.sendOTPEmail('a@example.com', '123456', 'admin');
+    expect(lastMessage().html).toContain('<strong>Admin</strong>');
+  });
+});

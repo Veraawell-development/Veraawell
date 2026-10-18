@@ -3,6 +3,43 @@ const { createLogger } = require('../utils/logger');
 const logger = createLogger('ARTICLE-CONTROLLER');
 const { asyncHandler } = require('../middleware/error.middleware');
 const DOMPurify = require('isomorphic-dompurify');
+const { plainText } = require('../utils/plainText');
+
+/**
+ * What survives in an article body. `s` because the editor offers
+ * strikethrough and it was stripped on save; `data-list` because Quill 2
+ * writes every list as <ol> and says bullet or numbered in that attribute;
+ * `rel` so a link can carry noopener.
+ */
+const ARTICLE_TAGS = ['p', 'br', 'strong', 'em', 'u', 's', 'h2', 'h3', 'h4', 'ul', 'ol', 'li', 'a', 'blockquote', 'img', 'iframe', 'figure', 'figcaption'];
+const ARTICLE_ATTRS = ['href', 'target', 'rel', 'src', 'alt', 'width', 'height', 'style', 'class', 'allowfullscreen', 'frameborder', 'title', 'data-list'];
+
+/**
+ * Tell connected readers a new article is live. This only ran from the
+ * /publish endpoint, which the editor never calls — it publishes by saving
+ * with status 'published' — so nobody was ever told. Doctors read articles
+ * too, so both roles hear it.
+ */
+function announcePublished(req, article) {
+    const io = req.app.get('io');
+    if (!io) return;
+    const SocketEmitter = require('../utils/socketEmitter');
+    const emitter = new SocketEmitter(io);
+    const payload = {
+        article: {
+            _id: article._id,
+            title: article.title,
+            description: article.description,
+            category: article.category,
+            image: article.image,
+            slug: article.slug,
+            publishedDate: article.publishedDate
+        },
+        timestamp: new Date()
+    };
+    emitter.emitToRole('patient', 'article:new', payload);
+    emitter.emitToRole('doctor', 'article:new', payload);
+}
 const validator = require('validator');
 const cache = require('../services/cache.service');
 
@@ -201,8 +238,13 @@ exports.getAllArticles = asyncHandler(async (req, res) => {
             filter.category = category;
         }
 
+        // Archived (deleted) articles stay out of the default list. They were
+        // listed under "All", badged "Draft", and could be re-published by
+        // opening one — after a dialog had promised the delete was final.
         if (status && status !== 'All') {
             filter.status = status;
+        } else {
+            filter.status = { $ne: 'archived' };
         }
 
         if (search) {
@@ -282,14 +324,14 @@ exports.createArticle = asyncHandler(async (req, res) => {
         }
 
         // Sanitize all text inputs to prevent XSS
-        const sanitizedTitle = DOMPurify.sanitize(title, { ALLOWED_TAGS: [] }).trim();
-        const sanitizedDescription = DOMPurify.sanitize(description, { ALLOWED_TAGS: [] }).trim();
-        const sanitizedAuthor = DOMPurify.sanitize(author, { ALLOWED_TAGS: [] }).trim();
+        const sanitizedTitle = plainText(title);
+        const sanitizedDescription = plainText(description);
+        const sanitizedAuthor = plainText(author);
 
         // Sanitize content but allow safe HTML for rich text
         const sanitizedContent = DOMPurify.sanitize(content, {
-            ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'h2', 'h3', 'h4', 'ul', 'ol', 'li', 'a', 'blockquote', 'img', 'iframe', 'figure', 'figcaption'],
-            ALLOWED_ATTR: ['href', 'target', 'src', 'alt', 'width', 'height', 'style', 'class', 'allowfullscreen', 'frameborder', 'title']
+            ALLOWED_TAGS: ARTICLE_TAGS,
+            ALLOWED_ATTR: ARTICLE_ATTRS
         });
 
         // Sanitize tags array
@@ -297,7 +339,7 @@ exports.createArticle = asyncHandler(async (req, res) => {
         if (tags) {
             const tagsArray = Array.isArray(tags) ? tags : [tags];
             sanitizedTags = tagsArray.map(tag =>
-                DOMPurify.sanitize(tag, { ALLOWED_TAGS: [] }).trim()
+                plainText(tag)
             ).filter(tag => tag.length > 0);
         }
 
@@ -327,6 +369,7 @@ exports.createArticle = asyncHandler(async (req, res) => {
         cache.clearPrefix('articles_list');
 
         logger.info(`Article created: ${article.title} by ${req.admin._id}`);
+        if (article.status === 'published') announcePublished(req, article);
 
         res.status(201).json({
             message: 'Article created successfully',
@@ -366,19 +409,19 @@ exports.updateArticle = asyncHandler(async (req, res) => {
         }
 
         // Sanitize specific fields before update if they exist
-        if (updateData.title) updateData.title = DOMPurify.sanitize(updateData.title, { ALLOWED_TAGS: [] }).trim();
-        if (updateData.description) updateData.description = DOMPurify.sanitize(updateData.description, { ALLOWED_TAGS: [] }).trim();
-        if (updateData.author) updateData.author = DOMPurify.sanitize(updateData.author, { ALLOWED_TAGS: [] }).trim();
+        if (updateData.title) updateData.title = plainText(updateData.title);
+        if (updateData.description) updateData.description = plainText(updateData.description);
+        if (updateData.author) updateData.author = plainText(updateData.author);
         if (updateData.tags) {
             const tagsArray = Array.isArray(updateData.tags) ? updateData.tags : [updateData.tags];
             updateData.tags = tagsArray.map(tag =>
-                DOMPurify.sanitize(tag, { ALLOWED_TAGS: [] }).trim()
+                plainText(tag)
             ).filter(tag => tag.length > 0);
         }
         if (updateData.content) {
             updateData.content = DOMPurify.sanitize(updateData.content, {
-                ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'h2', 'h3', 'h4', 'ul', 'ol', 'li', 'a', 'blockquote', 'img', 'iframe', 'figure', 'figcaption'],
-                ALLOWED_ATTR: ['href', 'target', 'src', 'alt', 'width', 'height', 'style', 'class', 'allowfullscreen', 'frameborder', 'title']
+                ALLOWED_TAGS: ARTICLE_TAGS,
+                ALLOWED_ATTR: ARTICLE_ATTRS
             });
         }
 
@@ -389,6 +432,12 @@ exports.updateArticle = asyncHandler(async (req, res) => {
         // Super Admin-gated so the practical exposure was limited, but an
         // explicit allowlist is the correct fix rather than trusting whatever
         // the client happens to send.
+        // The same image rule as create, which this path skipped.
+        if (updateData.image && !validator.isURL(String(updateData.image), { require_protocol: true })) {
+            return res.status(400).json({ message: 'Invalid image URL format' });
+        }
+
+        const wasPublished = article.status === 'published';
         const UPDATABLE_FIELDS = ['title', 'description', 'content', 'category', 'tags', 'author', 'image', 'featured', 'status'];
         UPDATABLE_FIELDS.forEach(key => {
             if (updateData[key] !== undefined) {
@@ -406,6 +455,7 @@ exports.updateArticle = asyncHandler(async (req, res) => {
         cache.del(`article_slug_${article.slug}`);
 
         logger.info(`Article updated: ${article.title} by ${req.admin?._id || 'unknown'}`);
+        if (!wasPublished && article.status === 'published') announcePublished(req, article);
 
         res.json({
             message: 'Article updated successfully',
