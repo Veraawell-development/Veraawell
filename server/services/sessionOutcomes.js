@@ -307,8 +307,13 @@ async function claimAbsentRefund(session, { now = new Date(), io = null } = {}) 
   await doctorCounters.increment(session.doctorId._id || session.doctorId, 'late', { now });
   await sendOutcomeEmails(session._id, OUTCOME.DOCTOR_ABSENT_REFUND);
 
-  const message = 'The patient left after waiting for the therapist; the session was refunded.';
-  tellBoth(io, current, 'session:cancelled', { status: 'cancelled', cancelledBy: 'patient', refundAmount: current.price, message });
+  // `cancelledBy` is the patient's id, like every other cancellation, so the
+  // patient's own screens know it was theirs and stay quiet; the message is
+  // for the doctor.
+  const message = 'Your patient left after waiting for you, and the session was refunded.';
+  tellBoth(io, current, 'session:cancelled', {
+    status: 'cancelled', cancelledBy: String(session.patientId._id || session.patientId), refundAmount: current.price, message
+  });
   // Anyone on the call screen (a therapist arriving right now) is told too.
   if (io) io.to(String(session._id)).emit('session-ended', { reason: OUTCOME.DOCTOR_ABSENT_REFUND });
   logger.info('absent-refund-claimed', { sessionId: short(session._id) });
