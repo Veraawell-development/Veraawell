@@ -26,46 +26,76 @@ const generalLimiter = rateLimit({
   }
 });
 
+/** The account a sign-in, code or reset request is about, normalised. */
+function accountOf(req) {
+  const body = req.body || {};
+  const value = typeof body.username === 'string' ? body.username
+    : typeof body.email === 'string' ? body.email
+      : '';
+  return value.trim().toLowerCase().slice(0, 254);
+}
+
+const limitFor = (max) => (isProduction() ? max.production : max.development);
+
+function authLimit({ windowMs, max, key, skipSuccessfulRequests = false, message }) {
+  return rateLimit({
+    windowMs,
+    max: limitFor(max),
+    keyGenerator: key,
+    skipSuccessfulRequests,
+    skip: (req) => req.method === 'OPTIONS', // Skip rate limiting for OPTIONS requests
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: () => {
+      throw new RateLimitError(message);
+    }
+  });
+}
+
+const byAccountAndIp = (req) => `${accountOf(req)}|${ipKeyGenerator(req.ip)}`;
+const byIp = (req) => ipKeyGenerator(req.ip);
+
 /**
- * Authentication rate limiter (stricter)
+ * Sign-in limits (see AUTH in config/constants.js): failed attempts per
+ * account on one network, and per network. Each place that signs people in
+ * gets its own pair — the old single `authLimiter` instance was shared by the
+ * user login, signup, code verification and the admin login, so failures on
+ * one counted against all of them. Mount AFTER body parsing: the per-account
+ * key reads the address from the body.
  */
-const authLimiter = rateLimit({
-  windowMs: RATE_LIMITS.AUTH.windowMs,
-  max: isProduction() 
-    ? RATE_LIMITS.AUTH.max.production 
-    : RATE_LIMITS.AUTH.max.development,
-  message: 'Too many authentication attempts, please try again later.',
-  skipSuccessfulRequests: RATE_LIMITS.AUTH.skipSuccessfulRequests,
-  skip: (req) => req.method === 'OPTIONS', // Skip rate limiting for OPTIONS requests
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: (req, res) => {
-    throw new RateLimitError('Too many authentication attempts, please try again later.');
-  }
+function signInLimiters(message = 'Too many sign-in attempts. Please wait 15 minutes, or reset your password.') {
+  return [
+    authLimit({ windowMs: RATE_LIMITS.AUTH.windowMs, max: RATE_LIMITS.AUTH.max.perAccount, key: byAccountAndIp, skipSuccessfulRequests: true, message }),
+    authLimit({ windowMs: RATE_LIMITS.AUTH.windowMs, max: RATE_LIMITS.AUTH.max.perIp, key: byIp, skipSuccessfulRequests: true, message: 'Too many sign-in attempts from this network. Please try again in a few minutes.' })
+  ];
+}
+
+const loginLimiters = signInLimiters();
+const verifySignupLimiters = signInLimiters('Too many incorrect codes. Please wait 15 minutes and try again.');
+const adminLoginLimiters = signInLimiters('Too many sign-in attempts. Please wait 15 minutes and try again.');
+
+/** POST /api/auth/register — see SIGNUP in config/constants.js. Every request counts. */
+const signupLimiter = authLimit({
+  windowMs: RATE_LIMITS.SIGNUP.windowMs,
+  max: RATE_LIMITS.SIGNUP.max,
+  key: byIp,
+  message: 'Too many sign-ups from this network. Please try again later.'
 });
 
 /**
- * Password reset rate limiter — see PASSWORD_RESET in config/constants.js.
- *
- * Mounted on the user forgot-password route in production (app.js) and
- * directly on the admin one. It used to be 3 per hour in every environment:
- * harmless where app.js mounts it production-only, but a router that mounts
- * it unconditionally would throttle a development or test run after three
- * requests.
+ * Password reset limiters — see PASSWORD_RESET in config/constants.js. Used
+ * by the user and the admin forgot-password routes, each with its own pair.
  */
-const passwordResetLimiter = rateLimit({
-  windowMs: RATE_LIMITS.PASSWORD_RESET.windowMs,
-  max: isProduction()
-    ? RATE_LIMITS.PASSWORD_RESET.max.production
-    : RATE_LIMITS.PASSWORD_RESET.max.development,
-  message: 'Too many password reset attempts, please try again later.',
-  skip: (req) => req.method === 'OPTIONS', // Skip rate limiting for OPTIONS requests
-  standardHeaders: true,
-  legacyHeaders: false,
-  handler: (req, res) => {
-    throw new RateLimitError('Too many password reset attempts, please try again later.');
-  }
-});
+function passwordResetLimiters() {
+  const message = 'Too many password reset attempts, please try again later.';
+  return [
+    authLimit({ windowMs: RATE_LIMITS.PASSWORD_RESET.windowMs, max: RATE_LIMITS.PASSWORD_RESET.max.perAddress, key: (req) => accountOf(req) || byIp(req), message }),
+    authLimit({ windowMs: RATE_LIMITS.PASSWORD_RESET.windowMs, max: RATE_LIMITS.PASSWORD_RESET.max.perIp, key: byIp, message })
+  ];
+}
+
+const userPasswordResetLimiters = passwordResetLimiters();
+const adminPasswordResetLimiters = passwordResetLimiters();
 
 /**
  * Public document-upload rate limiter — see PUBLIC_UPLOAD in config/constants.js
@@ -140,8 +170,12 @@ const signupOtpResendLimiter = rateLimit({
 
 module.exports = {
   generalLimiter,
-  authLimiter,
-  passwordResetLimiter,
+  loginLimiters,
+  verifySignupLimiters,
+  adminLoginLimiters,
+  signupLimiter,
+  userPasswordResetLimiters,
+  adminPasswordResetLimiters,
   publicUploadLimiter,
   enquiryLimiter,
   signupOtpResendLimiter

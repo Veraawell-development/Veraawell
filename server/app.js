@@ -21,7 +21,9 @@ const { createLogger } = require('./utils/logger');
 const appLogger = createLogger('APP');
 
 // Middleware
-const { generalLimiter, authLimiter, passwordResetLimiter, signupOtpResendLimiter } = require('./middleware/rateLimit.middleware');
+const {
+  generalLimiter, loginLimiters, signupLimiter, verifySignupLimiters, userPasswordResetLimiters, signupOtpResendLimiter
+} = require('./middleware/rateLimit.middleware');
 const { publicRoute } = require('./authz');
 const { errorHandler, notFoundHandler } = require('./middleware/error.middleware');
 const { validateRegistration, validateLogin, validatePasswordReset } = require('./middleware/validation.middleware');
@@ -131,16 +133,6 @@ if (isProduction()) {
   appLogger.warn('Rate limiting DISABLED for development');
 }
 
-// Stricter rate limiting for auth endpoints
-if (isProduction()) {
-  app.use('/api/auth/login', authLimiter);
-  app.use('/api/auth/register', authLimiter);
-  app.use('/api/auth/forgot-password', passwordResetLimiter);
-  // Signup OTP verification previously had no rate limit at all — a 6-digit
-  // code with unlimited guesses is brute-forceable in well under a minute.
-  app.use('/api/auth/verify-signup', authLimiter);
-}
-
 // Request timeout middleware (60 seconds)
 app.use((req, res, next) => {
   req.setTimeout(60000, () => {
@@ -165,6 +157,19 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(cookieParser());
+
+// Stricter rate limiting for auth endpoints (see AUTH, SIGNUP and
+// PASSWORD_RESET in config/constants.js). After body parsing on purpose: the
+// per-account limits key on the address in the body. They used to sit above
+// it, so they could only ever count per IP.
+if (isProduction()) {
+  app.use('/api/auth/login', loginLimiters);
+  app.use('/api/auth/register', signupLimiter);
+  app.use('/api/auth/forgot-password', userPasswordResetLimiters);
+  // Signup OTP verification previously had no rate limit at all — a 6-digit
+  // code with unlimited guesses is brute-forceable in well under a minute.
+  app.use('/api/auth/verify-signup', verifySignupLimiters);
+}
 
 // ── CSRF protection (double-submit cookie) ──────────────────────────────────
 // See middleware/csrf.middleware.js for the full rationale. The token is

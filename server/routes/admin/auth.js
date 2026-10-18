@@ -4,7 +4,7 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const User = require('../../models/user');
 const { verifyAdminToken, verifySuperAdmin } = require('../../middleware/auth.middleware');
-const { authLimiter, passwordResetLimiter } = require('../../middleware/rateLimit.middleware');
+const { adminLoginLimiters, adminPasswordResetLimiters } = require('../../middleware/rateLimit.middleware');
 const { getAdminJWTSecret, getAdminCookieConfig, toClearOptions, getFrontendUrl } = require('../../config/auth');
 const emailService = require('../../services/email.service');
 const { createLogger } = require('../../utils/logger');
@@ -69,7 +69,7 @@ const checkFirstTimeSetup = async (req, res, next) => {
   }
 };
 
-router.post('/setup', authLimiter, checkFirstTimeSetup, async (req, res) => {
+router.post('/setup', adminLoginLimiters, checkFirstTimeSetup, async (req, res) => {
   try {
     const email = (process.env.INITIAL_ADMIN_EMAIL || '').trim().toLowerCase();
     // Both come from the environment. A hardcoded password here (there used
@@ -111,7 +111,7 @@ router.post('/setup', authLimiter, checkFirstTimeSetup, async (req, res) => {
 // on the most privileged login in the app, with no rate limit in front of it.
 const FORGOT_PASSWORD_RESPONSE = { message: 'If that address belongs to an admin account, a reset link is on its way.' };
 
-router.post('/forgot-password', passwordResetLimiter, async (req, res) => {
+router.post('/forgot-password', adminPasswordResetLimiters, async (req, res) => {
   try {
     const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
 
@@ -274,7 +274,7 @@ const BAD_CREDENTIALS = { message: 'Invalid email or password' };
 // Admin login route — this is the most privileged login path in the app
 // (super-admin master password + regular admin login), so it gets the auth
 // rate limiter applied directly rather than relying on any outer wiring.
-router.post('/login', authLimiter, async (req, res) => {
+router.post('/login', adminLoginLimiters, async (req, res) => {
   try {
     const email = typeof req.body.email === 'string' ? req.body.email.trim().toLowerCase() : '';
     const { password } = req.body;

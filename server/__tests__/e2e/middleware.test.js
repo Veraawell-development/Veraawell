@@ -216,7 +216,7 @@ describe('error handling', () => {
   });
 
   test('rate limiting is NOT mounted outside production', async () => {
-    // app.js:122-137. In production the authLimiter allows 5 attempts per 15
+    // In production the sign-in limiters allow 10 failures per account per 15
     // minutes; here nothing is mounted, so twenty consecutive failures all
     // return 401. Pinned because it means local runs and any non-production
     // deployment have no brute-force protection at all.

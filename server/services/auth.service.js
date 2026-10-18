@@ -355,14 +355,14 @@ async function requestPasswordReset(email) {
   const user = await User.findOne({ email: String(email).trim().toLowerCase() });
 
   if (!user) {
-    throw new NotFoundError('User with that email does not exist.');
+    throw new NotFoundError('User');
   }
 
   // Admin accounts reset through /api/admin/auth/forgot-password, which has
   // its own rate limit and rules. This user-realm path used to work for them
   // too, side-stepping both.
   if (['admin', 'super_admin'].includes(user.role)) {
-    throw new NotFoundError('User with that email does not exist.');
+    throw new NotFoundError('User');
   }
 
   if (user.googleId) {
@@ -393,23 +393,27 @@ async function resetPassword(token, newPassword) {
     role: { $nin: ['admin', 'super_admin'] }
   });
 
+  // All 400s: each is an answer about the link or the form. NotFoundError
+  // appends " not found" to its argument, so this one used to read "...a new
+  // password reset. not found" on the page; and a 401 is how the client
+  // recognises a session that has ended, which these are not.
   if (!user) {
-    throw new NotFoundError('Invalid reset token. Please request a new password reset.');
+    throw new ValidationError('This reset link is invalid or has already been used. Please request a new one.');
   }
 
   if (!user.isResetActive) {
     await user.clearResetToken();
-    throw new AuthenticationError('Reset token has expired. Please request a new password reset.');
+    throw new ValidationError('This reset link has expired. Please request a new one.');
   }
 
   if (user.googleId) {
-    throw new AuthenticationError('You signed up with Google. Please use Google Sign-In to log in.');
+    throw new ValidationError('You signed up with Google. Please use Google Sign-In to log in.');
   }
 
   // Verify the new password is different from the current one
   const isSamePassword = await user.comparePassword(newPassword);
   if (isSamePassword) {
-    throw new AuthenticationError('New password must be different from your current password');
+    throw new ValidationError('New password must be different from your current password');
   }
 
   // Update password
