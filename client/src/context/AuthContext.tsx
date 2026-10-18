@@ -31,6 +31,26 @@ interface CheckAuthOptions {
   force?: boolean;
 }
 
+const SESSION_HINT_KEY = 'vw_had_session';
+
+function readSessionHint(): boolean {
+  try {
+    return window.localStorage.getItem(SESSION_HINT_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeSessionHint(present: boolean): void {
+  try {
+    if (present) window.localStorage.setItem(SESSION_HINT_KEY, '1');
+    else window.localStorage.removeItem(SESSION_HINT_KEY);
+  } catch {
+    // Storage blocked (private mode, site data cleared): the hint is only a
+    // rendering shortcut, so its absence just means the safe default.
+  }
+}
+
 interface AuthContextType {
   isLoggedIn: boolean;
   user: User | null;
@@ -43,6 +63,15 @@ interface AuthContextType {
    * possibly-logged-in user to the login page.
    */
   serverUnreachable: boolean;
+  /**
+   * Whether this browser had a confirmed session last time. Lets UI that
+   * only needs a guess — the navbar's Sign In buttons — render at once for
+   * a first-time or logged-out visitor instead of waiting on the auth check,
+   * which takes ~50s while the free-tier API is waking up. Not a credential,
+   * and never used to grant anything: ProtectedRoute still waits for the
+   * real answer.
+   */
+  likelySignedIn: boolean;
   checkAuth: (options?: CheckAuthOptions) => Promise<void>;
   logout: () => Promise<void>;
   setAuthToken: (token: string) => void;
@@ -90,6 +119,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [serverUnreachable, setServerUnreachable] = useState<boolean>(false);
+  const [likelySignedIn, setLikelySignedIn] = useState<boolean>(readSessionHint);
 
   // Read inside checkAuth without making it depend on (and be recreated by)
   // isLoggedIn — several effects list checkAuth as a dependency.
@@ -108,6 +138,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setUser(null);
     setToken(null);
     setAuthTokenInMemory(null);
+    writeSessionHint(false);
+    setLikelySignedIn(false);
   }, []);
 
   const checkAuth = useCallback(async (options?: CheckAuthOptions) => {
@@ -192,6 +224,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       isLoggedInRef.current = true;
       setIsLoggedIn(true);
       setServerUnreachable(false);
+      writeSessionHint(true);
+      setLikelySignedIn(true);
       setUser({
         ...sessionData.user,
         profileCompleted: sessionData.profileCompleted
@@ -241,7 +275,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, [queryClient, clearLocalSession]);
 
   return (
-    <AuthContext.Provider value={{ isLoggedIn, user, token, loading, serverUnreachable, checkAuth, logout, setAuthToken }}>
+    <AuthContext.Provider value={{ isLoggedIn, user, token, loading, serverUnreachable, likelySignedIn, checkAuth, logout, setAuthToken }}>
       {children}
     </AuthContext.Provider>
   );

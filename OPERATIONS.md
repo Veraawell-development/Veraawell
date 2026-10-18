@@ -214,11 +214,13 @@ by hand.
 **Render is on the free plan.** The server sleeps after ~15 minutes idle, so the
 first visitor waits 30–60 seconds — and while it is asleep the scheduled jobs do
 not run: session reminders, no-show refunds, instant-request expiry, and
-clawback reconciliation all pause. Move to a paid plan before real traffic.
+clawback reconciliation all pause. `.github/workflows/keepalive.yml` pings it
+every 10 minutes as a stopgap (it only fits the free hours if this is the
+workspace's only free service). Move to a paid plan before real traffic, then
+delete that workflow.
 
-**Render does not auto-deploy.** Pushing to `main` deploys the frontend but not
-the backend, so the two can end up on different versions. Deploy the server
-manually from the Render dashboard, or turn Auto-Deploy on there. CI
+**Both sides auto-deploy from `main`** — Vercel (client) and Render (server),
+so a merge ships both within minutes. Merge only a green PR. CI
 (`.github/workflows/ci.yml`) runs on every push and pull request — deploy only
 a green commit.
 
