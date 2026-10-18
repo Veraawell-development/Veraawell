@@ -226,7 +226,16 @@ function validateEnquiry(req, res, next) {
   // store arbitrarily large blobs.
   if (organisation && String(organisation).trim().length > 160) errors.organisation = 'Organisation must be 160 characters or fewer';
   if (subject && String(subject).trim().length > 200) errors.subject = 'Subject must be 200 characters or fewer';
-  if (phone && String(phone).trim().length > 32) errors.phone = 'Phone number is too long';
+  // Optional, but if given it must be a number someone can call back — the
+  // same 10–15 digit rule the User schema applies. Only the length was
+  // checked, so "1234" was accepted and the partnerships team had nothing to
+  // dial.
+  if (phone !== undefined && phone !== null && String(phone).trim() !== '') {
+    const digits = String(phone).replace(/\D/g, '');
+    if (String(phone).trim().length > 32 || digits.length < 10 || digits.length > 15) {
+      errors.phone = 'Please enter a valid phone number (10 to 15 digits), or leave it blank';
+    }
+  }
 
   if (Object.keys(errors).length > 0) {
     const { createLogger } = require('../utils/logger');

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Loader2, CheckCircle2 } from 'lucide-react';
 import { useSubmitEnquiry, EnquiryError, type EnquiryType } from '../hooks/useEnquiry';
+import { isValidPhone } from '../utils/phone';
 
 /**
  * The single-step enquiry form behind the careers page's "Partner with us" and
@@ -51,6 +52,8 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ type }) => {
     if (!email.trim()) errors.email = 'We need an email to reply to';
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) errors.email = 'That email address looks incomplete';
     if (isPartner && !organisation.trim()) errors.organisation = 'Which organisation are you writing from?';
+    // Optional, but "1234" is not a number anyone can call back.
+    if (isPartner && phone.trim() && !isValidPhone(phone)) errors.phone = 'Please enter a valid phone number (10 to 15 digits), or leave it blank';
     if (!isPartner && !subject.trim()) errors.subject = 'A short subject helps us route your query';
     if (!message.trim()) errors.message = 'Please add a short message';
     else if (message.trim().length > 4000) errors.message = 'Please keep this under 4000 characters';

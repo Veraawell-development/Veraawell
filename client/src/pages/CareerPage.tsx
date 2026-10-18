@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { API_BASE_URL } from '../config/api';
+import { isValidPhone } from '../utils/phone';
 import { Upload, X, FileText, Loader2, ClipboardCheck, Users, CheckCircle2, Handshake, UserPlus, MessageCircle } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 import { useMutation } from '@tanstack/react-query';
@@ -26,6 +27,17 @@ const hiringSteps = [
   { icon: Users, title: 'Quick Interview', description: 'A short conversation to understand your practice and how we can support it.', accent: 'var(--gold)' },
   { icon: CheckCircle2, title: 'Get Onboarded', description: 'Once approved, set your availability and start seeing clients on your terms.', accent: 'var(--warm)' },
 ];
+
+type UploadedDoc = { fileName: string; fileUrl: string; fileType: string; cloudinaryPublicId: string };
+type DocItem = { id: string; file: File; status: 'uploading' | 'done' | 'error'; error?: string; result?: UploadedDoc };
+
+/** What to tell an applicant whose document did not upload. The server's message wins when there is one. */
+function uploadErrorMessage(status: number, data: { message?: string }, fileName: string): string {
+  if (data && data.message) return data.message;
+  if (status === 413) return `“${fileName}” is too large to upload (max 5 MB).`;
+  if (status === 429) return 'Too many uploads in a short time. Please wait a few minutes, then retry.';
+  return `“${fileName}” didn't upload (error ${status}). Please retry.`;
+}
 
 const CareerPage: React.FC = () => {
 
@@ -79,10 +91,12 @@ const CareerPage: React.FC = () => {
     professionalMessage: '',
     heardAboutUs: ''
   });
-  const [documents, setDocuments] = useState<{ file: File, uploading: boolean, error?: string, uploaded?: boolean }[]>([]);
-  const [uploadedDocs, setUploadedDocs] = useState<{ fileName: string, fileUrl: string, fileType: string, cloudinaryPublicId: string }[]>([]);
+  // One entry per chosen file, uploaded the moment it is chosen. Files used to
+  // upload in one batch at Submit, so a failure appeared only at the very end
+  // as a bare "Failed to upload documents" — with no way to tell which file,
+  // why, or whether trying again would help.
+  const [docs, setDocs] = useState<DocItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [otp, setOtp] = useState('');
@@ -130,6 +144,26 @@ const CareerPage: React.FC = () => {
     }
   };
 
+  const uploadDoc = async (id: string, file: File) => {
+    setDocs(prev => prev.map(d => (d.id === id ? { ...d, status: 'uploading', error: undefined } : d)));
+    const body = new FormData();
+    body.append('document', file);
+    try {
+      const response = await fetch(`${API_BASE_URL}/upload/doctor-document`, { method: 'POST', body });
+      // A proxy error page (502, 413) is HTML, not JSON — read it defensively.
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.document) throw new Error(uploadErrorMessage(response.status, data, file.name));
+      setDocs(prev => prev.map(d => (d.id === id ? { ...d, status: 'done', result: data.document } : d)));
+    } catch (err) {
+      const message = err instanceof TypeError
+        ? "Couldn't reach our server. Check your connection, then retry."
+        : (err as Error).message;
+      setDocs(prev => prev.map(d => (d.id === id ? { ...d, status: 'error', error: message } : d)));
+    }
+  };
+
+  const removeDoc = (id: string) => setDocs(prev => prev.filter(d => d.id !== id));
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     // Clear the input so choosing the same file again still fires onChange.
@@ -153,13 +187,18 @@ const CareerPage: React.FC = () => {
     });
 
     // Limit to 5 documents total
-    const totalDocs = documents.length + uploadedDocs.length + validFiles.length;
-    if (totalDocs > 5) {
+    if (docs.length + validFiles.length > 5) {
       setError('You can upload a maximum of 5 documents.');
       return;
     }
 
-    setDocuments(prev => [...prev, ...validFiles.map(file => ({ file, uploading: false }))]);
+    const added: DocItem[] = validFiles.map(file => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      file,
+      status: 'uploading'
+    }));
+    setDocs(prev => [...prev, ...added]);
+    added.forEach(item => { void uploadDoc(item.id, item.file); });
     // Only clear the message when every file was accepted. This used to call
     // setError('') unconditionally at the end, wiping the "not a valid file
     // type" message set a moment earlier — the file just silently vanished.
@@ -176,8 +215,7 @@ const CareerPage: React.FC = () => {
     if (step === 1) {
       if (!formData.firstName.trim()) return 'Please enter your first name.';
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email.trim())) return 'Please enter a valid email address.';
-      const digits = formData.phoneNo.replace(/\D/g, '');
-      if (digits.length < 10 || digits.length > 15) return 'Please enter a valid phone number (10 to 15 digits).';
+      if (!isValidPhone(formData.phoneNo)) return 'Please enter a valid phone number (10 to 15 digits).';
     }
     if (step === 2) {
       if (!formData.jobRole) return 'Please select your job role.';
@@ -190,90 +228,6 @@ const CareerPage: React.FC = () => {
     const problem = stepError(currentStep);
     setError(problem);
     if (!problem) setCurrentStep(prev => prev + 1);
-  };
-
-  const uploadSingleMutation = useMutation({
-    mutationFn: async (payload: { index: number, formDataObj: FormData }) => {
-      const response = await fetch(`${API_BASE_URL}/upload/doctor-document`, {
-        method: 'POST',
-        body: payload.formDataObj
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'Failed to upload document');
-      return { index: payload.index, data };
-    },
-    onSuccess: ({ index, data }) => {
-      setUploadedDocs(prev => [...prev, data.document]);
-      setDocuments(prev => prev.filter((_, i) => i !== index));
-      toast.success(`Document uploaded`);
-    },
-    onError: (err: any, { index }) => {
-      const message = err.message || 'Upload failed';
-      setDocuments(prev => {
-        const copy = [...prev];
-        if (copy[index]) copy[index] = { ...copy[index], uploading: false, error: message };
-        return copy;
-      });
-      toast.error(`Failed to upload: ${message}`);
-    }
-  });
-
-  const uploadSingleDocument = (index: number) => {
-    const doc = documents[index];
-    if (doc.uploaded || doc.uploading) return;
-
-    setDocuments(prev => {
-      const copy = [...prev];
-      copy[index] = { ...copy[index], uploading: true, error: undefined };
-      return copy;
-    });
-
-    const formDataObj = new FormData();
-    formDataObj.append('document', doc.file);
-
-    uploadSingleMutation.mutate({ index, formDataObj });
-  };
-
-  const removeDocument = (index: number) => {
-    setDocuments(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const removeUploadedDoc = (index: number) => {
-    setUploadedDocs(prev => prev.filter((_, i) => i !== index));
-  };
-
-  const uploadDocumentsMutation = useMutation({
-    mutationFn: async (formDataObj: FormData) => {
-      const response = await fetch(`${API_BASE_URL}/upload/doctor-documents`, {
-        method: 'POST',
-        body: formDataObj
-      });
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.message || 'Failed to upload documents');
-      return data;
-    },
-    onSuccess: (data) => {
-      setUploadedDocs(prev => [...prev, ...data.documents]);
-      setDocuments([]);
-    }
-  });
-
-  const uploadDocuments = async (): Promise<typeof uploadedDocs> => {
-    if (documents.length === 0) return uploadedDocs;
-    setUploading(true);
-    const formDataObj = new FormData();
-    documents.forEach(doc => {
-      formDataObj.append('documents', doc.file);
-    });
-
-    try {
-      const data = await uploadDocumentsMutation.mutateAsync(formDataObj);
-      return [...uploadedDocs, ...data.documents];
-    } catch (err: any) {
-      throw new Error(err.message || 'Document upload failed');
-    } finally {
-      setUploading(false);
-    }
   };
 
   const verifyOtpMutation = useMutation({
@@ -315,8 +269,7 @@ const CareerPage: React.FC = () => {
         professionalMessage: '',
         heardAboutUs: ''
       });
-      setUploadedDocs([]);
-      setDocuments([]);
+      setDocs([]);
       setOtp('');
       setCurrentStep(1); // Reset back to step 1
     },
@@ -388,12 +341,19 @@ const CareerPage: React.FC = () => {
       return;
     }
 
+    if (docs.some(d => d.status === 'uploading')) {
+      setError('Please wait for your documents to finish uploading.');
+      return;
+    }
+    if (docs.some(d => d.status === 'error')) {
+      setError("One of your documents didn't upload. Retry it or remove it, then submit again.");
+      return;
+    }
+    const allDocs = docs.filter(d => d.status === 'done' && d.result).map(d => d.result as UploadedDoc);
+
     setLoading(true);
 
     try {
-      // STEP 1: Upload documents first
-      const allDocs = await uploadDocuments();
-      // STEP 2: Submit registration directly (No OTP)
       await registerDoctorMutation.mutateAsync({
         firstName: formData.firstName,
         email: formData.email,
@@ -877,38 +837,44 @@ const CareerPage: React.FC = () => {
                         </p>
                         
                         <div className="space-y-3 mb-4">
-                          {uploadedDocs.map((doc, index) => (
-                            <div key={`uploaded-${index}`} className="flex items-center justify-between p-3 bg-green-50/50 border border-green-200/50 rounded-xl">
-                              <div className="flex items-center gap-3">
-                                <FileText className="w-5 h-5 text-green-600" />
-                                <span className="text-sm font-medium text-green-800">{doc.fileName}</span>
+                          {docs.map((doc) => (
+                            <div
+                              key={doc.id}
+                              data-testid="document-row"
+                              data-status={doc.status}
+                              className={`p-3 rounded-xl border ${doc.status === 'done' ? 'bg-green-50/50 border-green-200/50' : doc.status === 'error' ? 'bg-red-50/50 border-red-200/60' : 'bg-[var(--bg)] border-[var(--border)]'}`}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-3 min-w-0">
+                                  {doc.status === 'uploading'
+                                    ? <Loader2 className="w-5 h-5 animate-spin text-[var(--teal)] shrink-0" />
+                                    : <FileText className={`w-5 h-5 shrink-0 ${doc.status === 'done' ? 'text-green-600' : doc.status === 'error' ? 'text-red-600' : 'text-[var(--text-2)]'}`} />}
+                                  <span className={`text-sm font-medium truncate ${doc.status === 'done' ? 'text-green-800' : 'text-[var(--text-2)]'}`}>{doc.file.name}</span>
+                                  <span className="text-xs text-[var(--text-3)] shrink-0">
+                                    {doc.status === 'uploading' ? 'Uploading…' : doc.status === 'done' ? 'Uploaded' : ''}
+                                  </span>
+                                </div>
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {doc.status === 'error' && (
+                                    <button type="button" onClick={() => void uploadDoc(doc.id, doc.file)} className="text-xs font-semibold text-[var(--teal)] hover:underline">
+                                      Retry
+                                    </button>
+                                  )}
+                                  {doc.status !== 'uploading' && (
+                                    <button type="button" aria-label={`Remove ${doc.file.name}`} onClick={() => removeDoc(doc.id)} className="p-1 hover:bg-[var(--border)] rounded-full transition-colors">
+                                      <X className="w-4 h-4 text-[var(--text-3)]" />
+                                    </button>
+                                  )}
+                                </div>
                               </div>
-                              <button type="button" onClick={() => removeUploadedDoc(index)} className="p-1 hover:bg-green-100 rounded-full transition-colors">
-                                <X className="w-4 h-4 text-green-700" />
-                              </button>
-                            </div>
-                          ))}
-
-                          {documents.map((doc, index) => (
-                            <div key={`pending-${index}`} className="flex items-center justify-between p-3 bg-[var(--bg)] border border-[var(--border)] rounded-xl">
-                              <div className="flex items-center gap-3">
-                                <FileText className="w-5 h-5 text-[var(--text-2)]" />
-                                <span className="text-sm font-medium text-[var(--text-2)]">{doc.file.name}</span>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                {doc.uploading && <Loader2 className="w-4 h-4 animate-spin text-[var(--teal)]" />}
-                                {doc.error && <span className="text-xs text-red-500 mr-2">{doc.error}</span>}
-                                {!doc.uploading && (
-                                  <button type="button" onClick={() => removeDocument(index)} className="p-1 hover:bg-[var(--border)] rounded-full transition-colors">
-                                    <X className="w-4 h-4 text-[var(--text-3)]" />
-                                  </button>
-                                )}
-                              </div>
+                              {doc.status === 'error' && doc.error && (
+                                <p className="text-xs text-red-600 mt-2">{doc.error}</p>
+                              )}
                             </div>
                           ))}
                         </div>
 
-                        {documents.length + uploadedDocs.length < 5 && (
+                        {docs.length < 5 && (
                           <div className="relative">
                             <input
                               type="file"
@@ -995,13 +961,13 @@ const CareerPage: React.FC = () => {
                       ) : (
                         <button
                           type="submit"
-                          disabled={loading || uploading || registerDoctorMutation.isPending}
+                          disabled={loading || registerDoctorMutation.isPending || docs.some(d => d.status === 'uploading')}
                           className="rounded-full text-white font-medium shadow-md hover:shadow-lg transition-all px-8 py-3 disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2 bg-[var(--teal)] hover:bg-[var(--teal-muted)]"
                         >
-                          {loading || uploading || registerDoctorMutation.isPending ? (
+                          {loading || registerDoctorMutation.isPending || docs.some(d => d.status === 'uploading') ? (
                             <>
                               <Loader2 className="w-5 h-5 animate-spin" />
-                              {uploading ? 'Uploading...' : 'Registering...'}
+                              {docs.some(d => d.status === 'uploading') ? 'Uploading...' : 'Registering...'}
                             </>
                           ) : (
                             'Submit Application'
