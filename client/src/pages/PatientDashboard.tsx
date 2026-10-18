@@ -887,8 +887,10 @@ const PatientDashboard: React.FC = () => {
                         style={{ width: 30, height: 30, borderRadius: '50%', fontSize: 13, color: c.isSelected ? '#fff' : T.text, background: c.isSelected ? T.teal : 'transparent' }}
                       >
                         {c.day}
-                        {c.hasSession && !c.isSelected && (
-                          <span style={{ position: 'absolute', bottom: -1, width: 4, height: 4, borderRadius: '50%', background: T.teal }} />
+                        {/* Shown on the selected day too (white) — today is selected
+                            by default, so its sessions used to show no mark at all. */}
+                        {c.hasSession && (
+                          <span style={{ position: 'absolute', bottom: c.isSelected ? 3 : -1, width: 4, height: 4, borderRadius: '50%', background: c.isSelected ? '#fff' : T.teal }} />
                         )}
                       </span>
                     )}

@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { toast } from 'react-hot-toast';
 import { resolveSessionStart, sessionLocalDateKey, formatSessionDay, formatSessionClock } from '../utils/dateUtils';
 import { calculateRefundPreview } from '../utils/refundPolicy';
+import SessionModal from './SessionModal';
 import { canJoinNow, outcomeLabel, type SessionLike } from '../utils/sessionRules';
 
 interface PatientCalendarModalProps {
@@ -85,6 +86,9 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
     const [filter, setFilter] = useState<'all' | 'video' | 'in-person'>('all');
     const [view, setView] = useState<'upcoming' | 'past'>('upcoming');
     const [loading, setLoading] = useState(false);
+    // The session opened from "View Details" / "Rate Session" — both used to
+    // be TODOs that did nothing when pressed.
+    const [detail, setDetail] = useState<{ session: Session; rate: boolean } | null>(null);
     const [cancelLoadingId, setCancelLoadingId] = useState<string | null>(null);
     const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
 
@@ -505,10 +509,10 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                     </div>
                 )}
                 {/* Actions for Past Sessions */}
-                {(session.status === 'completed' || session.status === 'cancelled') && (
+                {(session.status === 'completed' || session.status === 'cancelled' || session.status === 'no-show') && (
                     <div className="flex gap-3">
                         <button
-                            onClick={() => {/* TODO: View session details */ }}
+                            onClick={() => setDetail({ session, rate: false })}
                             className="flex-1 px-4 py-2.5 rounded-full font-bold transition-all text-sm"
                             style={{ fontFamily: FONT_SANS, background: '#fff', color: T.teal, border: `1px solid ${T.teal}` }}
                         >
@@ -516,7 +520,7 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                         </button>
                         {session.status === 'completed' && (
                             <button
-                                onClick={() => {/* TODO: Open rating modal */ }}
+                                onClick={() => setDetail({ session, rate: true })}
                                 className="flex-1 px-4 py-2.5 rounded-full font-bold transition-all text-sm"
                                 style={{ fontFamily: FONT_SANS, background: T.teal, color: '#fff' }}
                                 onMouseEnter={(e) => { (e.currentTarget as HTMLButtonElement).style.background = T.tealHover; }}
@@ -669,6 +673,13 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                     </button>
                 </div>
             </div>
+            <SessionModal
+                session={detail ? (detail.session as unknown as React.ComponentProps<typeof SessionModal>['session']) : null}
+                userRole="patient"
+                isOpen={!!detail}
+                startWithRating={!!detail?.rate}
+                onClose={() => { setDetail(null); void fetchSessions(); }}
+            />
         </div>
     );
 };
