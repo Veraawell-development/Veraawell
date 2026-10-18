@@ -19,10 +19,11 @@ const SESSION_RULE_VERSIONS = Object.freeze(['v1', 'v2']);
 const VIDEO_PROVIDERS = Object.freeze(['legacy', 'livekit']);
 
 /**
- * The default until the new rules ship. Phase 1 flips this to 'v2' in the
- * same change that brings the rules, so merging this file changes nothing.
+ * The session rules in docs/SESSION_RULES.md (lateness, absence, outcomes,
+ * refunds) are on. SESSION_RULES=v1 in the environment brings back the old
+ * end-of-session sweep — a rollback, kept for one release.
  */
-const DEFAULT_SESSION_RULES = 'v1';
+const DEFAULT_SESSION_RULES = 'v2';
 
 function readChoice(name, allowed, fallback) {
   const raw = String(process.env[name] || '').trim().toLowerCase();

@@ -70,6 +70,18 @@ module.exports = {
         message: 'Only the patient of this session can report it as missed'
       },
 
+    /**
+     * "Leave & full refund" — the patient's own claim that their therapist
+     * left them waiting (docs/SESSION_RULES.md, D3). The rule itself (who is
+     * in the call, for how long) is checked by services/sessionOutcomes.
+     */
+    'session:claim-absent-refund': ({ actor, resource }) =>
+      isPatient(actor, resource) || {
+        allow: false,
+        code: CODE.NOT_PARTICIPANT,
+        message: 'Only the patient of this session can claim this refund'
+      },
+
     // Live-call surface. Used by the socket registrar for state-changing
     // events; high-frequency signaling uses the cheaper room-membership check.
     'session:signal': ({ actor, resource }) => isParty(actor, resource) || notParticipant,

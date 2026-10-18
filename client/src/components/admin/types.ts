@@ -26,6 +26,12 @@ export interface PendingUser {
     cloudinaryPublicId: string;
     uploadedAt: string;
   }[];
+  /** The doctor's profile, on the all-doctors list. Counters are admin-only. */
+  profile?: {
+    lateCount?: number;
+    noShowCount?: number;
+    cancellationCount?: number;
+  } | null;
 }
 
 export interface Statistics {

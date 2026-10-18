@@ -258,6 +258,37 @@ describe('ending early by agreement (CONSENT_END)', () => {
   });
 });
 
+describe('the absent-therapist refund and the late cancellation', () => {
+  test('DOCTOR_ABSENT_REFUND is the patient\'s, only when the rules allow it, and ends the session without moving money', () => {
+    const start = new Date(NOW.getTime() - 12 * 60 * 1000);
+    const waiting = make(STATUS.SCHEDULED, PAYMENT.PAID, {
+      startsAt: start, endsAt: new Date(start.getTime() + 20 * 60 * 1000), duration: 20,
+      attendance: [{ role: 'patient', joinedAt: start, leftAt: null, source: 'socket' }]
+    });
+    const plan = planTransition({ session: waiting, event: EVENT.DOCTOR_ABSENT_REFUND, actor: ACTOR.PATIENT, now: NOW, payload: { cancelledBy: 'patient' } });
+    expect(plan.set).toEqual({ status: STATUS.CANCELLED, cancelledBy: 'patient' });
+
+    expect(() => planTransition({ session: waiting, event: EVENT.DOCTOR_ABSENT_REFUND, actor: ACTOR.DOCTOR, now: NOW }))
+      .toThrow(IllegalTransitionError);
+    const tooEarly = new Date(start.getTime() + 5 * 60 * 1000);
+    expect(() => planTransition({ session: waiting, event: EVENT.DOCTOR_ABSENT_REFUND, actor: ACTOR.PATIENT, now: tooEarly }))
+      .toThrow(/not available/);
+    expect(planTransition({ session: make(STATUS.CANCELLED, PAYMENT.REFUNDED), event: EVENT.DOCTOR_ABSENT_REFUND, actor: ACTOR.PATIENT, now: NOW }).kind)
+      .toBe('noop');
+  });
+
+  test('I11: a late cancellation is a patient\'s cancellation, and nothing else', () => {
+    expect(assertInvariants({ ...make(STATUS.CANCELLED, PAYMENT.PAID), cancelledBy: 'patient', lateCancellation: true }, { strict: false }))
+      .toEqual([]);
+    for (const bad of [
+      { ...make(STATUS.SCHEDULED, PAYMENT.PAID), lateCancellation: true },
+      { ...make(STATUS.CANCELLED, PAYMENT.PAID), cancelledBy: 'doctor', lateCancellation: true }
+    ]) {
+      expect(assertInvariants(bad, { strict: false }).map((v) => v.rule)).toContain('I11 lateCancellation => cancelled by the patient');
+    }
+  });
+});
+
 describe('late capture', () => {
   test('a capture after the checkout expired refunds rather than resurrecting the booking', () => {
     // The slot has already been released and may have been rebooked, so the

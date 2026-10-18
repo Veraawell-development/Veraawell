@@ -27,7 +27,7 @@
 
 const { zonedToUtc, utcToZoned, to12hSlot, formatForDisplay, formatTimeForDisplay } = require('../utils/zonedTime');
 const {
-  PLATFORM_TIMEZONE, JOIN_LEAD_MINUTES, JOIN_GRACE_MINUTES
+  PLATFORM_TIMEZONE, JOIN_LEAD_MINUTES
 } = require('../config/time');
 const { createLogger } = require('../utils/logger');
 
@@ -104,11 +104,19 @@ function hoursUntilStart(session, now = new Date()) {
   return (resolveStartsAt(session).getTime() - now.getTime()) / (60 * MINUTE_MS);
 }
 
-/** `{ opensAt, closesAt }` — the interval in which a call may be joined. */
+/**
+ * `{ opensAt, closesAt }` — the interval in which a call may be joined: from
+ * 15 minutes before the start until the session really ends — the booked end,
+ * or later when the doctor joined late (`effectiveEndsAt`, kept by
+ * services/attendance.js). It used to stay open an hour past the booked end,
+ * so a call could be rejoined after its time was over, and the call screen
+ * and the server each had their own idea of when joining stopped.
+ */
 function joinWindow(session) {
+  const end = session.effectiveEndsAt ? new Date(session.effectiveEndsAt) : resolveEndsAt(session);
   return {
     opensAt: new Date(resolveStartsAt(session).getTime() - JOIN_LEAD_MINUTES * MINUTE_MS),
-    closesAt: new Date(resolveEndsAt(session).getTime() + JOIN_GRACE_MINUTES * MINUTE_MS)
+    closesAt: end
   };
 }
 

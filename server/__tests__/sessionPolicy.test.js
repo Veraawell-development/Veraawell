@@ -146,6 +146,51 @@ describe('"Leave & full refund" for a waiting patient', () => {
   });
 });
 
+describe("the screen's view of the rules", () => {
+  test('a patient waiting for a therapist who never came: refund from the grace', () => {
+    const s = session({ attendance: [stay('patient', 0)] });
+    const v = policy.view(s, 'patient', at(5));
+    expect(v.absentRefundAt).toEqual(at(10));
+    expect(v.graceEndsAt).toEqual(at(10));
+    expect(v.joinOpensAt).toEqual(at(-15));
+    expect(v.joinClosesAt).toEqual(at(20));
+    expect(v.present).toEqual({ patient: true, doctor: false });
+    expect(v.missed).toBe(false);
+    // The doctor's view never carries the patient's refund.
+    expect(policy.view(s, 'doctor', at(5)).absentRefundAt).toBeNull();
+  });
+
+  test('the doctor is told the patient is absent only after the grace, and only while they still are', () => {
+    const s = session({ attendance: [stay('doctor', 0)] });
+    expect(policy.view(s, 'doctor', at(9)).patientAbsent).toBe(false);
+    expect(policy.view(s, 'doctor', at(11)).patientAbsent).toBe(true);
+    const arrived = session({ attendance: [stay('doctor', 0), stay('patient', 12)] });
+    expect(policy.view(arrived, 'doctor', at(13)).patientAbsent).toBe(false);
+  });
+
+  test('E2: the therapist waited and left before the patient came — missed, and no refund for waiting after', () => {
+    const s = session({ attendance: [stay('doctor', 1, 11), stay('patient', 13)] });
+    const v = policy.view(s, 'patient', at(30));
+    expect(v.missed).toBe(true);
+    expect(v.absentRefundAt).toBeNull();
+    expect(policy.doctorAbsentRefundAvailable(s, at(30))).toBe(false);
+  });
+
+  test('…but once they had met, a therapist leaving for 10 minutes is E4 again', () => {
+    const s = session({ attendance: [stay('doctor', 1, 14), stay('patient', 12)] });
+    expect(policy.doctorAbsentRefundAt(s, at(20))).toEqual(at(24));
+    expect(policy.view(s, 'patient', at(20)).missed).toBe(false);
+  });
+
+  test('a late doctor is flagged and the window closes at the later end', () => {
+    const s = session({ attendance: [stay('patient', 0), stay('doctor', 6)] });
+    const v = policy.view(s, 'patient', at(7));
+    expect(v.doctorJoinedLate).toBe(true);
+    expect(v.effectiveEndsAt).toEqual(at(26));
+    expect(v.joinClosesAt).toEqual(at(26));
+  });
+});
+
 describe('aloneSince', () => {
   test('null when both are in, or the patient is not', () => {
     expect(policy.aloneSince(session({ attendance: [stay('patient', 0), stay('doctor', 0)] }), at(5))).toBeNull();

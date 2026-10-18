@@ -52,6 +52,8 @@ const FORBIDDEN_KEYS = [
   'payoutSetupCompleted',
   'customFeePercentage',
   'cancellationCount',
+  'lateCount',
+  'noShowCount',
   'lastCancellationDate',
   'cancellationWarningIssued',
   // Added by the payout work; listed now so the guard is already in place.
@@ -111,6 +113,8 @@ beforeAll(async () => {
         payoutSetupCompleted: true,
         customFeePercentage: 12.5,
         cancellationCount: 3,
+        lateCount: 2,
+        noShowCount: 1,
         cancellationWarningIssued: true,
         signature: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==',
         signatureUpdatedAt: new Date()

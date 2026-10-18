@@ -96,7 +96,8 @@ describe('missing optional fields drop out instead of printing "undefined"', () 
     ['refund confirmed', () => email.sendRefundConfirmedEmail('p@test.local', {})],
     ['booking confirmation', () => email.sendBookingConfirmationEmail('p@test.local', {})],
     ['payout activated', () => email.sendPayoutActivatedEmail('d@test.local')],
-    ['session reminder', () => email.sendSessionReminderEmail('p@test.local', { patientId: {}, doctorId: {} }, '15min')]
+    ['session reminder', () => email.sendSessionReminderEmail('p@test.local', { patientId: {}, doctorId: {} }, '15min')],
+    ['session outcome', () => email.sendSessionOutcomeEmail('p@test.local', { subject: 'We missed you today', title: 'We missed you today' })]
   ])('%s', async (_name, send) => {
     await send();
     const { subject, html } = lastMessage();
@@ -114,6 +115,46 @@ describe('missing optional fields drop out instead of printing "undefined"', () 
     expect(html).toContain('40 minutes');
     expect(html).toContain('₹800');
     expect(subject).toBe('New Session Booked with Asha on 1 Jan');
+  });
+});
+
+describe('session outcome emails', () => {
+  const lastMessage = () => mockSend.mock.calls[mockSend.mock.calls.length - 1][0];
+
+  test('a refund outcome: the words, the amount, and the patient\'s dashboard', async () => {
+    await email.sendSessionOutcomeEmail('p@test.local', {
+      subject: "Your session didn't happen — full refund on its way",
+      title: "Your therapist didn't join",
+      recipientName: 'Asha',
+      paragraphs: ["Your therapist didn't join your session, so we're refunding you in full.", 'Usually within 5–7 working days.'],
+      when: 'Mon, 2 Nov 2026, 10:00 am (20 min)',
+      amountLabel: 'Refund',
+      amount: 1000
+    });
+    const { subject, html, to } = lastMessage();
+    expect(to).toBe('p@test.local');
+    expect(subject).toBe("Your session didn't happen — full refund on its way | Veraawell");
+    expect(html).toContain('Hi Asha,');
+    expect(html).toContain('₹1000');
+    expect(html).toContain('patient-dashboard');
+    expect(html).toContain('2 Nov 2026');
+  });
+
+  test('to a doctor: addressed as Dr., linked to their dashboard, and values escaped', async () => {
+    await email.sendSessionOutcomeEmail('d@test.local', {
+      subject: 'Session refunded', title: 'Session refunded', doctor: true, recipientName: 'Rao',
+      paragraphs: ['<b>Asha</b> waited for you.']
+    });
+    const { html } = lastMessage();
+    expect(html).toContain('Hi Dr. Rao,');
+    expect(html).toContain('doctor-dashboard');
+    expect(html).toContain('&lt;b&gt;Asha&lt;/b&gt;');
+    expect(html).not.toContain('<b>Asha</b>');
+  });
+
+  test('the session summary says payouts are weekly', async () => {
+    await email.sendDoctorSessionSummaryEmail('d@test.local', { earnings: 800 });
+    expect(lastMessage().html).toContain('Earnings are paid out weekly');
   });
 });
 

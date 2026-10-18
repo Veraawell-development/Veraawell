@@ -7,9 +7,10 @@ import { API_BASE_URL } from '../config/api';
 import { resolveSessionStart, PLATFORM_TIMEZONE } from '../utils/dateUtils';
 import { toast } from 'react-hot-toast';
 import { calculateRefundPreview } from '../utils/refundPolicy';
+import { canJoinNow, hasEnded, outcomeLabel, type SessionLike } from '../utils/sessionRules';
 import { getAuthToken } from '../utils/authToken';
 
-interface Session {
+interface Session extends SessionLike {
   _id: string;
   sessionDate: string;
   sessionTime: string;
@@ -161,28 +162,12 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
 
   if (!isOpen || !session) return null;
 
-  const canJoinSession = () => {
-    // Scheduled, or already under way. 'active' used to be excluded, so a
-    // paid instant session — which is 'active' from the moment payment
-    // lands — could not be (re)joined from here at all.
-    if (session.status !== 'scheduled' && session.status !== 'active') {
-      return false;
-    }
-
-    // Immediate sessions can be joined right away
-    if (session.sessionType === 'immediate') {
-      return true;
-    }
-
-    const now = new Date();
-    const timeDiff = sessionDateTime.getTime() - now.getTime();
-    const minutesDiff = timeDiff / (1000 * 60);
-
-    // Can join if:
-    // - Within 15 minutes before session start
-    // - Up to 60 minutes after session start (for late joiners)
-    return minutesDiff <= 15 && minutesDiff >= -60;
-  };
+  // From 15 minutes before the start until the session really ends — the
+  // server's window (utils/sessionRules.ts). This used to allow up to an hour
+  // after the START, whatever the session's length, and disagree with the
+  // server about when joining stopped.
+  const canJoinSession = () => canJoinNow(session);
+  const outcome = outcomeLabel(session, userRole);
 
   const canCancelSession = () => {
     // Only patients can cancel sessions
@@ -535,7 +520,14 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
               </button>
             )}
 
-            {!canJoinSession() && !canCancelSession() && session.status === 'scheduled' && (
+            {!canJoinSession() && session.status === 'scheduled' && hasEnded(session) && (
+              <div className="text-center py-3 px-6 rounded-xl bg-gray-50 border border-gray-100 w-full">
+                <p className="text-sm font-semibold text-gray-700">This session's time is over</p>
+                <p className="text-xs mt-1 text-gray-500">What happened will show here within a few minutes.</p>
+              </div>
+            )}
+
+            {!canJoinSession() && !canCancelSession() && session.status === 'scheduled' && !hasEnded(session) && (
               <div className="text-center py-3 px-6 rounded-xl bg-amber-50 border border-amber-100 w-full">
                 <p className="text-sm font-semibold text-amber-800">
                   ⏰ Session will be available to join 15 minutes before start time
@@ -549,7 +541,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
             {(session.status === 'completed' || session.status === 'ended') && (
               <div className="space-y-3 w-full">
                 <div className="text-center py-3 px-6 rounded-xl bg-green-50 border border-green-100">
-                  <p className="text-sm font-semibold text-green-800"> Session Completed</p>
+                  <p className="text-sm font-semibold text-green-800">{outcome?.label || 'Completed'}</p>
                 </div>
 
                 <div className="flex gap-4 justify-center">
@@ -579,7 +571,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
                   </svg>
-                  <span className="text-[11px] font-bold uppercase tracking-wider">Session Cancelled</span>
+                  <span className="text-[11px] font-bold uppercase tracking-wider">{outcome?.label || 'Session Cancelled'}</span>
                 </div>
               </div>
             )}
@@ -590,7 +582,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
                   <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  <span className="text-[11px] font-bold uppercase tracking-wider">No Show</span>
+                  <span className="text-[11px] font-bold uppercase tracking-wider">{outcome?.label || 'No Show'}</span>
                 </div>
               </div>
             )}

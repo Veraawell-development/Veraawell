@@ -1,3 +1,4 @@
+import type { SessionRulesView } from '../utils/sessionRules';
 // Shared TypeScript Types for the entire application
 
 // ============================================================================
@@ -55,6 +56,17 @@ export interface Session {
     review: string;
     ratedAt: string;
   };
+  callMode?: string;
+  paymentStatus?: string;
+  refundAmount?: number;
+  cancelledBy?: string | null;
+  lateCancellation?: boolean;
+  /** The real end when the doctor joined late (the patient keeps their minutes). */
+  effectiveEndsAt?: string | null;
+  /** What the session finally was (server/services/sessionPolicy OUTCOME). */
+  outcome?: { code?: string | null } | null;
+  /** The session rules as this viewer's screen needs them (utils/sessionRules.ts). */
+  rules?: SessionRulesView | null;
 }
 
 // ============================================================================

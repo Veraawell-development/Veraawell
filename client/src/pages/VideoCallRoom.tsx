@@ -8,6 +8,7 @@ import SessionToolsModal from '../components/SessionToolsModal';
 import SessionChat from '../components/SessionChat';
 import { API_BASE_URL, SOCKET_URL } from '../config/api';
 import { useQuery } from '@tanstack/react-query';
+import type { SessionRulesView } from '../utils/sessionRules';
 
 /** Fallback when a session predates server-stamped acceptanceDeadline (server: INSTANT_ACCEPT_WINDOW_MINUTES). */
 const INSTANT_ACCEPT_WINDOW_MS = 2 * 60 * 1000;
@@ -135,11 +136,27 @@ const VideoCallRoom: React.FC = () => {
       setTimeout(() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard'), 3000);
     };
 
+    // Someone joined or left, or the end moved: the server's view of the
+    // rules (who may leave with a refund, when the session ends) changed.
+    const handleRulesChanged = (data: { sessionId?: string }) => {
+      if (data?.sessionId === sessionId) void refetchRef.current();
+    };
+    // The session was decided while this screen was open.
+    const handleEnded = (data: { sessionId?: string; reason?: string }) => {
+      if (data?.sessionId === sessionId) finishCallRef.current(data.reason || 'ended');
+    };
+
     dataSocket.on('session:status-update', handleStatusUpdate);
     dataSocket.on('session:cancelled', handleCancelled);
+    dataSocket.on('session:attendance', handleRulesChanged);
+    dataSocket.on('session:timing', handleRulesChanged);
+    dataSocket.on('session:ended', handleEnded);
     return () => {
       dataSocket.off('session:status-update', handleStatusUpdate);
       dataSocket.off('session:cancelled', handleCancelled);
+      dataSocket.off('session:attendance', handleRulesChanged);
+      dataSocket.off('session:timing', handleRulesChanged);
+      dataSocket.off('session:ended', handleEnded);
     };
   }, [dataSocket, sessionId]);
 
@@ -198,6 +215,33 @@ const VideoCallRoom: React.FC = () => {
       setError('Failed to load session details');
     }
   }, [isError]);
+
+  // ── The session rules, as the server sees them for us ──────────────────
+  // sessionPolicy.view on the server: when a waiting patient may leave with
+  // a refund, whether the patient has missed the grace, whether a late doctor
+  // moved the end. Refetched when someone joins or leaves (above) and at the
+  // moments it changes by itself (the end of the grace, the refund becoming
+  // available) — never worked out on this device's clock.
+  const refetchRef = useRef(refetchSession);
+  refetchRef.current = refetchSession;
+  const rules: SessionRulesView | null = sessionData?.rules || null;
+  const [refundDismissed, setRefundDismissed] = useState(false);
+  const [claimingRefund, setClaimingRefund] = useState(false);
+
+  useEffect(() => {
+    if (!rules) return;
+    const offset = new Date(rules.serverNow).getTime() - Date.now();
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (const moment of [rules.graceEndsAt, rules.absentRefundAt]) {
+      if (!moment) continue;
+      const wait = new Date(moment).getTime() - (Date.now() + offset) + 1000;
+      if (wait > 0 && wait < 3 * 60 * 60 * 1000) timers.push(setTimeout(() => { void refetchRef.current(); }, wait));
+    }
+    return () => timers.forEach(clearTimeout);
+  }, [rules?.serverNow, rules?.graceEndsAt, rules?.absentRefundAt]);
+
+  const refundReady = !!rules?.absentRefundAt && new Date(rules.absentRefundAt) <= new Date(rules.serverNow);
+  const refundOpensAt = rules?.absentRefundAt && !refundReady ? new Date(rules.absentRefundAt) : null;
 
   const autoCancelled = useRef(false);
 
@@ -1116,6 +1160,32 @@ const VideoCallRoom: React.FC = () => {
 
   finishCallRef.current = finishCall;
 
+  // "Leave & full refund": the therapist didn't come (or left), and the
+  // patient has waited long enough. The server checks it all again.
+  const claimAbsentRefund = async () => {
+    if (claimingRefund) return;
+    setClaimingRefund(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/sessions/${sessionId}/claim-absent-refund`, {
+        method: 'POST',
+        credentials: 'include'
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.message || 'Could not process the refund. Please try again.');
+        void refetchSession();
+        return;
+      }
+      finishingRef.current = true;
+      toast.success(data.message || 'Your full refund is on its way.', { duration: 7000 });
+      leaveRoom();
+      cleanup();
+      navigate('/patient-dashboard');
+    } finally {
+      setClaimingRefund(false);
+    }
+  };
+
   const isVoiceMode = sessionData?.callMode === 'Voice Calling';
   otherPartyRef.current = user?.role === 'patient' ? 'Your therapist' : 'Your patient';
 
@@ -1333,6 +1403,48 @@ const VideoCallRoom: React.FC = () => {
         <div className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-black/80 backdrop-blur-md border border-white/10 text-white/90 px-4 py-2 rounded-full shadow-lg z-20 text-sm flex items-center gap-2">
           <div className="animate-pulse">{getSignalIcon()}</div>
           {qualityMessage}
+        </div>
+      )}
+
+      {/* Session rules: what the waiting person may do now */}
+      {user?.role === 'patient' && rules && !remoteUserJoined && !error && (
+        <>
+          {rules.missed && (
+            <div role="status" className="absolute top-32 left-1/2 -translate-x-1/2 z-30 w-[calc(100%-2rem)] max-w-md bg-[#18181B] border border-white/10 rounded-2xl p-5 text-center shadow-2xl">
+              <p className="text-white font-medium">This session counts as missed</p>
+              <p className="text-white/60 text-sm mt-1">Your therapist waited for you for the first 10 minutes, then left.</p>
+              <button onClick={leaveCall} className="mt-4 px-5 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm font-medium">
+                Back to dashboard
+              </button>
+            </div>
+          )}
+          {!rules.missed && refundOpensAt && (
+            <div role="status" className="absolute top-32 left-1/2 -translate-x-1/2 z-20 w-[calc(100%-2rem)] max-w-md bg-white/5 border border-white/10 rounded-full px-4 py-2 text-center text-white/70 text-xs">
+              If your therapist hasn't joined by {istTime(refundOpensAt)}, you can leave with a full refund.
+            </div>
+          )}
+          {!rules.missed && refundReady && refundDismissed && (
+            <div role="status" className="absolute top-32 left-1/2 -translate-x-1/2 z-20 w-[calc(100%-2rem)] max-w-md bg-[#18181B] border border-white/10 rounded-2xl px-4 py-3 flex items-center justify-between gap-3 shadow-xl">
+              <span className="text-white/80 text-sm">Your therapist still hasn't joined.</span>
+              <button onClick={() => { void claimAbsentRefund(); }} disabled={claimingRefund} className="shrink-0 px-4 py-1.5 rounded-full bg-teal-500 hover:bg-teal-600 text-white text-xs font-semibold disabled:opacity-50">
+                Leave &amp; get a full refund
+              </button>
+            </div>
+          )}
+        </>
+      )}
+      {user?.role === 'doctor' && rules?.patientAbsent && !remoteUserJoined && !error && (
+        <div role="status" className="absolute top-32 left-1/2 -translate-x-1/2 z-30 w-[calc(100%-2rem)] max-w-md bg-[#18181B] border border-white/10 rounded-2xl p-5 text-center shadow-2xl">
+          <p className="text-white font-medium">Your patient hasn't joined</p>
+          <p className="text-white/60 text-sm mt-1">You can leave now — you'll still be paid for this session. If they arrive while you're here, you can carry on.</p>
+          <button onClick={leaveCall} className="mt-4 px-5 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm font-medium">
+            Leave
+          </button>
+        </div>
+      )}
+      {user?.role === 'patient' && rules?.doctorJoinedLate && remoteUserJoined && endsAt && (
+        <div role="status" className="absolute top-20 right-4 md:right-6 z-20 bg-white/5 border border-white/10 rounded-full px-3 py-1 text-white/70 text-xs">
+          Your full {sessionData?.duration || ''} minutes are kept — ends at {istTime(endsAt)}
         </div>
       )}
 
@@ -1703,6 +1815,34 @@ const VideoCallRoom: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* "Leave & full refund" or "Keep waiting" (docs/SESSION_RULES.md, D3) */}
+      {user?.role === 'patient' && refundReady && !refundDismissed && !remoteUserJoined && !rules?.missed && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-[100]">
+          <div role="dialog" aria-modal="true" aria-labelledby="absent-refund-title" className="bg-[#18181B] border border-white/10 p-8 rounded-[2rem] max-w-sm w-full mx-4 shadow-2xl shadow-black/50">
+            <h3 id="absent-refund-title" className="text-xl font-medium tracking-wide text-white mb-2">Your therapist hasn't joined yet</h3>
+            <p className="text-white/60 font-light mb-6 leading-relaxed text-sm">
+              You can leave now and get a full refund of ₹{sessionData?.price}, or keep waiting.
+              If you keep waiting and they join, you'll still get your full {sessionData?.duration} minutes.
+            </p>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={() => { void claimAbsentRefund(); }}
+                disabled={claimingRefund}
+                className="px-5 py-3 bg-teal-500 hover:bg-teal-600 text-white rounded-xl font-semibold transition-all text-sm disabled:opacity-50"
+              >
+                {claimingRefund ? 'Processing…' : 'Leave & get a full refund'}
+              </button>
+              <button
+                onClick={() => setRefundDismissed(true)}
+                className="px-5 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-white rounded-xl font-medium transition-all text-sm"
+              >
+                Keep waiting
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Consent Modal */}
       {showConsentModal && (

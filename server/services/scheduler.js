@@ -36,7 +36,29 @@ let paymentCleanupRunning = false;
 let clawbackSweepRunning = false;
 
 /**
- * Sweep past sessions and mark them completed/no-show.
+ * The end-of-session sweep, by the switch in config/features.js: the session
+ * rules (services/sessionOutcomes.runOutcomeSweep) by default, or the old
+ * sweep below with SESSION_RULES=v1 — the rollback, kept for one release.
+ */
+const runStatusSweep = async ({ now = new Date(), io = null } = {}) => {
+    if (statusSweepRunning) return 0;
+    statusSweepRunning = true;
+    try {
+        const { sessionRulesVersion } = require('../config/features');
+        if (sessionRulesVersion() === 'v2') {
+            return await require('./sessionOutcomes').runOutcomeSweep({ now, io });
+        }
+        return await runSessionStatusUpdate({ now });
+    } catch (error) {
+        logger.error('Error in session status sweep', { error: error.message, stack: error.stack });
+        return 0;
+    } finally {
+        statusSweepRunning = false;
+    }
+};
+
+/**
+ * Sweep past sessions and mark them completed/no-show (SESSION_RULES=v1).
  *
  * A session is swept NO_SHOW_GRACE_MINUTES after its end, not at it: the
  * constant existed for exactly this and nothing read it, so a call running a
@@ -315,16 +337,13 @@ const startScheduler = (io) => {
 
     logger.info('Starting schedulers...');
 
-    // --- Session Status Sweep: every 5 minutes ---
-    statusUpdateTask = cron.schedule('*/5 * * * *', async () => {
-        if (statusSweepRunning) return;
-        statusSweepRunning = true;
-        try {
-            await runSessionStatusUpdate();
-        } finally {
-            statusSweepRunning = false;
-        }
-    });
+    // --- Session Status Sweep: every minute ---
+    // Every minute, not every five: the patient is told their session was
+    // refunded (or missed) up to five minutes sooner, and the query is an
+    // indexed range that is almost always empty. Written `*/1` rather than
+    // `*` so it is a registration of its own, told apart from the other
+    // every-minute jobs.
+    statusUpdateTask = cron.schedule('*/1 * * * *', () => runStatusSweep({ io }));
 
     // --- Notification Reminder: every minute ---
     notificationTask = cron.schedule('* * * * *', () => runReminderSweep());
@@ -377,7 +396,7 @@ const startScheduler = (io) => {
     // almost always empty.
     paymentCleanupTask = cron.schedule('* * * * *', () => runCheckoutExpiry(io));
 
-    logger.info('All schedulers started (reminders: 1min, checkout expiry: 1min, instant requests: 1min, status sweep: 5min, refunds+clawbacks: hourly)');
+    logger.info('All schedulers started (reminders: 1min, checkout expiry: 1min, instant requests: 1min, status sweep: 1min, refunds+clawbacks: hourly)');
 
     // Catch up once at boot. The host sleeps when idle and every cron above
     // pauses with it; without this, work that fell due during the sleep
@@ -396,7 +415,7 @@ const startScheduler = (io) => {
 const runBootCatchUp = async (io = null) => {
     try {
         await runCheckoutExpiry(io);
-        await runSessionStatusUpdate();
+        await runStatusSweep({ io });
         await runClawbackReconciliation();
         return true;
     } catch (error) {
@@ -435,6 +454,7 @@ const stopScheduler = () => {
 module.exports = {
     startScheduler,
     stopScheduler,
+    runStatusSweep,
     runSessionStatusUpdate,
     runClawbackReconciliation,
     runStuckRefundReconciliation,

@@ -846,6 +846,23 @@ async function sendDoctorSessionSummaryEmail(email, details) {
 }
 
 /**
+ * What became of a session — a no-show, a refund for an absent therapist, a
+ * late cancellation (services/sessionOutcomes.js decides the words). One
+ * template, because these differ only in their text.
+ *
+ * @param {string} email
+ * @param {{ subject: string, title: string, recipientName?: string, doctor?: boolean,
+ *           paragraphs: string[], when?: string, amountLabel?: string, amount?: number }} details
+ */
+async function sendSessionOutcomeEmail(email, details) {
+  return sendBestEffort('session outcome', {
+    to: email,
+    subject: `${details.subject} | Veraawell`,
+    html: generateSessionOutcomeHTML(details)
+  });
+}
+
+/**
  * Send payout account activated email to doctor
  */
 async function sendPayoutActivatedEmail(email, name) {
@@ -982,8 +999,22 @@ function generateDoctorSessionSummaryHTML(d = {}) {
         rowStyle: 'border-top:1px solid rgba(0,151,178,0.2);padding-top:12px;margin-top:4px'
       })
     ])}
-    <p class="body-text" style="font-size:13px;color:#9ca3af">Earnings are transferred within 3 business days.</p>
+    <p class="body-text" style="font-size:13px;color:#9ca3af">Earnings are paid out weekly, by bank transfer.</p>
     <div class="btn-wrap"><a href="${e(getFrontendUrl())}/doctor-dashboard" class="btn">View Dashboard</a></div>
+  `);
+}
+
+function generateSessionOutcomeHTML(d = {}) {
+  const rows = [row('Session', d.when)];
+  if (present(d.amountLabel) && present(d.amount)) rows.push(row(d.amountLabel, d.amount, { prefix: '₹' }));
+  const dashboard = d.doctor ? 'doctor-dashboard' : 'patient-dashboard';
+  return wrap(`
+    <h1 class="header">${e(d.title)}</h1>
+    <p class="body-text">${greeting(d.recipientName, d.doctor ? 'Dr. ' : '')}</p>
+    ${(d.paragraphs || []).map((p) => `<p class="body-text">${e(p)}</p>`).join('')}
+    ${box(rows)}
+    <p class="body-text" style="font-size:13px;color:#9ca3af">Questions? Write to support@veraawell.com</p>
+    <div class="btn-wrap"><a href="${e(getFrontendUrl())}/${dashboard}" class="btn">Go to Dashboard</a></div>
   `);
 }
 
@@ -1018,6 +1049,7 @@ module.exports = {
   sendRefundInitiatedEmail,
   sendRefundConfirmedEmail,
   sendDoctorSessionSummaryEmail,
+  sendSessionOutcomeEmail,
   sendPayoutActivatedEmail,
   sendPayoutOnboardingRejectedEmail,
   // Aliases for adminPayments.controller.js
@@ -1033,6 +1065,7 @@ module.exports = {
     generateCancellationHTML,
     generateRefundHTML,
     generateDoctorSessionSummaryHTML,
+    generateSessionOutcomeHTML,
     generatePayoutStatusHTML,
     generateBookingConfirmationHTML,
     generateSessionReminderHTML

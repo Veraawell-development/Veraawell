@@ -1,21 +1,41 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { FiPhone } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
-import BackToDashboard from '../components/BackToDashboard';
 import { API_BASE_URL } from '../config/api';
 import { useQuery } from '@tanstack/react-query';
+import { outcomeLabel } from '../utils/sessionRules';
+import { formatPlatformDate } from '../utils/dateUtils';
 
 interface CallRecord {
   _id: string;
   name: string;
   date: string;
+  startsAt?: string;
   duration: number;
-  mode: 'Video Calling' | 'Voice Calling' | 'Cancelled & Refunded';
+  mode: 'Video Calling' | 'Voice Calling';
   paymentAmount: number;
   paymentStatus: string;
+  refundAmount?: number;
   sessionType: string;
   status: string;
+  outcome?: string | null;
+  cancelledBy?: string | null;
+  lateCancellation?: boolean;
 }
+
+/**
+ * What became of the session. Every cancellation used to read "Cancelled &
+ * Refunded", refunded or not; now it says what actually happened.
+ */
+const callOutcome = (call: CallRecord) =>
+  outcomeLabel({ ...call, price: call.paymentAmount, refundAmount: call.refundAmount }, 'patient');
+
+const TONE_CLASS: Record<string, string> = {
+  good: 'bg-teal-50 text-teal-600',
+  neutral: 'bg-gray-100 text-gray-600',
+  warn: 'bg-amber-50 text-amber-700',
+  bad: 'bg-red-50 text-red-600'
+};
 
 const CallHistoryPage: React.FC = () => {
   const navigate = useNavigate();
@@ -43,32 +63,9 @@ const CallHistoryPage: React.FC = () => {
       : queryError.message || 'Failed to load call history'
   ) : null;
 
-  const formatDate = (dateString: string) => {
-    const date = new Date(dateString);
-    const day = date.getDate();
-    const month = date.toLocaleString('en-US', { month: 'long' });
-    const year = date.getFullYear();
-
-    const suffix = (day: number) => {
-      if (day > 3 && day < 21) return 'th';
-      switch (day % 10) {
-        case 1: return 'st';
-        case 2: return 'nd';
-        case 3: return 'rd';
-        default: return 'th';
-      }
-    };
-
-    return `${day}${suffix(day)} ${month},${year}`;
-  };
-
-  const getModeColor = (mode: string) => {
-    if (mode === 'Cancelled & Refunded') return 'text-red-600';
-    if (mode === 'Voice Calling') return 'text-purple-600';
-    return 'text-green-600';
-  };
-
-
+  // In IST, like everywhere else: the viewer's own zone could put a late
+  // evening session on the next day.
+  const formatDate = (call: CallRecord) => formatPlatformDate(call.startsAt || call.date);
 
   const getInitials = (name: string) => {
     const parts = name.replace('Dr. ', '').split(' ');
@@ -151,20 +148,23 @@ const CallHistoryPage: React.FC = () => {
                           {call.name}
                         </h3>
                         <p className="text-[12px] font-medium text-gray-400" style={{ fontFamily: 'Inter, sans-serif' }}>
-                          {formatDate(call.date)}
+                          {formatDate(call)}
                         </p>
                       </div>
                     </div>
                   </div>
                   
-                  <div className="mb-6">
+                  <div className="mb-6 flex flex-wrap gap-1.5">
                     <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide uppercase ${
-                      call.mode === 'Cancelled & Refunded' ? 'bg-red-50 text-red-600' : 
-                      call.mode === 'Voice Calling' ? 'bg-purple-50 text-purple-600' : 
-                      'bg-teal-50 text-teal-600'
+                      call.mode === 'Voice Calling' ? 'bg-purple-50 text-purple-600' : 'bg-teal-50 text-teal-600'
                     }`} style={{ fontFamily: 'Inter, sans-serif' }}>
-                      {call.mode}
+                      {call.mode === 'Voice Calling' ? 'Voice' : 'Video'}
                     </span>
+                    {callOutcome(call) && (
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide ${TONE_CLASS[callOutcome(call)!.tone]}`} style={{ fontFamily: 'Inter, sans-serif' }}>
+                        {callOutcome(call)!.label}
+                      </span>
+                    )}
                   </div>
 
                   <div className="mt-auto pt-5 border-t border-gray-50 flex items-center justify-between">

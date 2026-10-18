@@ -58,6 +58,7 @@ const EVENT = Object.freeze({
   CANCEL: 'CANCEL',
   COMPLETE: 'COMPLETE',
   CONSENT_END: 'CONSENT_END',
+  DOCTOR_ABSENT_REFUND: 'DOCTOR_ABSENT_REFUND',
   CALL_STARTED: 'CALL_STARTED',
   SWEEP_ELAPSED: 'SWEEP_ELAPSED',
   ACCEPT_TIMEOUT: 'ACCEPT_TIMEOUT',
@@ -95,6 +96,29 @@ class InvariantViolationError extends AppError {
     this.rule = rule;
     this.detail = detail;
   }
+}
+
+/**
+ * What a session that ran its course becomes: completed if patient and doctor
+ * were in the call together, otherwise a no-show — decided by the session
+ * rules (services/sessionPolicy.finalOutcome), which read the attendance
+ * record and fall back to the old joined flags for sessions from before it.
+ */
+function sweptStatus(session) {
+  const { finalOutcome, OUTCOME } = require('./sessionPolicy');
+  return finalOutcome(session).code === OUTCOME.COMPLETED ? STATUS.COMPLETED : STATUS.NO_SHOW;
+}
+
+/**
+ * "Leave & full refund" (docs/SESSION_RULES.md, D3): only while the patient
+ * is waiting on their own and the therapist has been absent long enough.
+ */
+function absentRefundGuard({ session, now }) {
+  const { doctorAbsentRefundAvailable } = require('./sessionPolicy');
+  if (!doctorAbsentRefundAvailable(session, now)) {
+    return 'A refund for an absent therapist is not available for this session right now';
+  }
+  return null;
 }
 
 /**
@@ -154,8 +178,17 @@ const STATUS_TABLE = [
       }
       return null;
     } },
-  { from: STATUS.SCHEDULED, event: EVENT.SWEEP_ELAPSED, actors: [ACTOR.SYSTEM],
-    to: (s) => ((s.doctorJoined && s.patientJoined) ? STATUS.COMPLETED : STATUS.NO_SHOW) },
+  { from: STATUS.SCHEDULED, event: EVENT.SWEEP_ELAPSED, actors: [ACTOR.SYSTEM], to: sweptStatus },
+
+  /**
+   * The patient leaves a session the therapist did not come to (or left), and
+   * takes a full refund. The refund itself goes through sessionRefund, which
+   * moves the money; this only ends the session.
+   */
+  { from: STATUS.SCHEDULED, event: EVENT.DOCTOR_ABSENT_REFUND, actors: [ACTOR.PATIENT], to: STATUS.CANCELLED,
+    guard: absentRefundGuard },
+  { from: STATUS.ACTIVE, event: EVENT.DOCTOR_ABSENT_REFUND, actors: [ACTOR.PATIENT], to: STATUS.CANCELLED,
+    guard: absentRefundGuard },
 
   // ── active (an immediate session, or a call in progress) ──
   { from: STATUS.ACTIVE, event: EVENT.COMPLETE, actors: [ACTOR.SYSTEM], to: STATUS.COMPLETED },
@@ -198,8 +231,7 @@ const STATUS_TABLE = [
    * came was swept to `completed`: the patient was not refunded and, because
    * doctorJoined was false, the doctor was not paid either.
    */
-  { from: STATUS.ACTIVE, event: EVENT.SWEEP_ELAPSED, actors: [ACTOR.SYSTEM],
-    to: (s) => ((s.doctorJoined && s.patientJoined) ? STATUS.COMPLETED : STATUS.NO_SHOW) },
+  { from: STATUS.ACTIVE, event: EVENT.SWEEP_ELAPSED, actors: [ACTOR.SYSTEM], to: sweptStatus },
   { from: STATUS.ACTIVE, event: EVENT.CALL_STARTED, actors: [ACTOR.PATIENT, ACTOR.DOCTOR], to: null },
 
   // Scheduled sessions can also be timed out on the unaccepted-instant path.
@@ -216,6 +248,7 @@ const STATUS_TABLE = [
   { from: STATUS.CANCELLED, event: EVENT.CANCEL, actors: ANY, to: null },
   { from: STATUS.COMPLETED, event: EVENT.COMPLETE, actors: ANY, to: null },
   { from: STATUS.COMPLETED, event: EVENT.CONSENT_END, actors: ANY, to: null },
+  { from: STATUS.CANCELLED, event: EVENT.DOCTOR_ABSENT_REFUND, actors: [ACTOR.PATIENT], to: null },
   { from: STATUS.CANCELLED, event: EVENT.CHECKOUT_EXPIRED, actors: [ACTOR.SYSTEM], to: null },
   { from: STATUS.CANCELLED, event: EVENT.ACCEPT_TIMEOUT, actors: [ACTOR.SYSTEM], to: null },
   { from: STATUS.COMPLETED, event: EVENT.SWEEP_ELAPSED, actors: [ACTOR.SYSTEM], to: null },
@@ -309,6 +342,10 @@ const PAYMENT_TABLE = [
 
   // Cancelling a paid session does not itself move money; the refund does.
   { from: PAYMENT.PAID, event: EVENT.CANCEL, actors: ANY, to: null },
+  // Same for the absent-therapist refund — only a paid session has one; a
+  // repeat after the refund was claimed is a no-op.
+  ...[PAYMENT.PAID, PAYMENT.REFUND_PENDING, PAYMENT.REFUNDED, PAYMENT.REFUND_FAILED].map((from) =>
+    ({ from, event: EVENT.DOCTOR_ABSENT_REFUND, actors: [ACTOR.PATIENT], to: null })),
   { from: PAYMENT.REFUND_PENDING, event: EVENT.CANCEL, actors: ANY, to: null },
   { from: PAYMENT.REFUNDED, event: EVENT.CANCEL, actors: ANY, to: null },
   { from: PAYMENT.REFUND_FAILED, event: EVENT.CANCEL, actors: ANY, to: null }
@@ -355,6 +392,11 @@ function assertInvariants(session, { strict = true } = {}) {
   }
   if (paymentStatus === PAYMENT.NOT_REQUIRED && refundAmount > 0) {
     add(fail('I9 nothing was charged, so nothing can be refunded', { refundAmount }));
+  }
+  // A late cancellation is the patient's, inside the no-refund window: the
+  // flag is what makes the doctor's share of it payable (services/earnings.js).
+  if (session.lateCancellation && !(status === STATUS.CANCELLED && session.cancelledBy === 'patient')) {
+    add(fail('I11 lateCancellation => cancelled by the patient', { status, cancelledBy: session.cancelledBy }));
   }
   // The free-paid-booking bug, made unrepresentable — even for a code path
   // written years from now.

@@ -31,6 +31,9 @@ const { sealedFilter } = require('../authz');
 const { idOf } = require('../authz/actor');
 const { NotFoundError, AuthorizationError, ValidationError } = require('../utils/errors');
 const sessionEnding = require('../services/sessionEnding');
+const sessionOutcomes = require('../services/sessionOutcomes');
+const sessionPolicy = require('../services/sessionPolicy');
+const doctorCounters = require('../services/doctorCounters');
 const { getRazorpay } = require('../services/razorpay.client');
 const { isStubMode } = require('../config/payments');
 const { createLogger } = require('../utils/logger');
@@ -160,23 +163,6 @@ async function resolveBookingPaymentState({ doctorProfile, finalPrice, receiptPr
  * auto-cancel-on-no-show path (_autoCancelUnacceptedSession) — previously each
  * had its own copy-pasted copy of this increment-and-warn logic.
  */
-async function _incrementDoctorCancellationCount(doctorId, warnMessageOnFailure) {
-  try {
-    const docProfile = await DoctorProfile.findOne({ userId: doctorId });
-    if (docProfile) {
-      docProfile.cancellationCount = (docProfile.cancellationCount || 0) + 1;
-      docProfile.lastCancellationDate = new Date();
-      if (docProfile.cancellationCount >= 3) {
-        docProfile.cancellationWarningIssued = true;
-        logger.warn(`Doctor ${doctorId} has reached ${docProfile.cancellationCount} cancellations.`);
-      }
-      await docProfile.save();
-    }
-  } catch (err) {
-    logger.warn(warnMessageOnFailure, { error: err.message });
-  }
-}
-
 /** GET /api/sessions/stats — Doctor session statistics + earnings breakdown */
 const getStats = asyncHandler(async (req, res) => {
   const userId = req.actor.id;
@@ -314,13 +300,19 @@ const getCallHistory = asyncHandler(async (req, res) => {
   const limit = parseInt(req.query.limit) || 100;
   const skip = (page - 1) * limit;
 
-  const callHistory = await Session.find({ ...req.authz.scope, $or: [{ status: { $in: ['completed', 'cancelled'] } }, { callStatus: { $in: ['in-progress', 'completed'] } }, { callStartTime: { $exists: true, $ne: null } }] })
+  const callHistory = await Session.find({ ...req.authz.scope, $or: [{ status: { $in: ['completed', 'cancelled', 'no-show'] } }, { callStatus: { $in: ['in-progress', 'completed'] } }, { callStartTime: { $exists: true, $ne: null } }] })
     .populate('patientId', 'firstName lastName').populate('doctorId', 'firstName lastName').select('+rating').sort({ sessionDate: -1, sessionTime: -1 }).skip(skip).limit(limit).lean();
   const formatted = callHistory.map(s => ({
     _id: s._id,
     name: userRole === 'patient' ? (s.doctorId ? `Dr. ${s.doctorId.firstName} ${s.doctorId.lastName}` : 'Test Session (Self)') : (s.patientId ? `${s.patientId.firstName} ${s.patientId.lastName}` : 'Test Session (Self)'),
-    date: s.sessionDate, duration: s.actualDuration || s.duration, mode: s.status === 'cancelled' ? 'Cancelled & Refunded' : (s.callMode || 'Video Calling'),
-    paymentAmount: s.price, paymentStatus: s.paymentStatus, sessionType: s.sessionType, status: s.status, callStatus: s.callStatus, rating: s.rating
+    // `mode` is the call mode. It used to read "Cancelled & Refunded" for
+    // every cancellation, refunded or not; what became of the session is now
+    // its outcome, labelled by the app (client/src/utils/outcomeLabels.ts).
+    date: s.sessionDate, startsAt: s.startsAt, duration: s.actualDuration || s.duration, mode: s.callMode || 'Video Calling',
+    paymentAmount: s.price, paymentStatus: s.paymentStatus, refundAmount: s.refundAmount || 0,
+    sessionType: s.sessionType, status: s.status, callStatus: s.callStatus, rating: s.rating,
+    outcome: s.outcome && s.outcome.code ? s.outcome.code : null,
+    cancelledBy: s.cancelledBy || null, lateCancellation: !!s.lateCancellation
   }));
   res.json(formatted);
 });
@@ -575,7 +567,13 @@ const bookSession = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, message: 'Session order created', session: populated });
 });
 
-const attachDoctorProfiles = async (sessions) => {
+/**
+ * Doctor photos, plus what each session's screen needs of the session rules
+ * (join window, the real end, refund availability — sessionPolicy.view) as
+ * seen by the caller, so the app never works these out on its own clock.
+ */
+const attachDoctorProfiles = async (sessions, role = null) => {
+  const now = new Date();
   const doctorIds = [...new Set(sessions.map(s => s.doctorId?._id?.toString()).filter(Boolean))];
   const doctorProfiles = await DoctorProfile.find({ userId: { $in: doctorIds } }).select('userId profileImage');
   const profileMap = {};
@@ -591,6 +589,7 @@ const attachDoctorProfiles = async (sessions) => {
     if (s.doctorId && (!s.doctorId.profileImage || s.doctorId.profileImage.includes('doctor-0') || s.doctorId.profileImage === '/doctor-placeholder.svg')) {
       s.doctorId.profileImage = getGenderBasedImage(s.doctorId);
     }
+    if (role) s.rules = sessionPolicy.view(s, role, now);
     return s;
   });
 };
@@ -602,7 +601,7 @@ const getMySessions = asyncHandler(async (req, res) => {
   const skip = (page - 1) * limit;
 
   const sessions = await Session.find(req.authz.scope).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ sessionDate: -1, sessionTime: -1 }).skip(skip).limit(limit);
-  const enrichedSessions = await attachDoctorProfiles(sessions);
+  const enrichedSessions = await attachDoctorProfiles(sessions, req.actor.role);
   res.json(enrichedSessions);
 });
 
@@ -613,7 +612,7 @@ const getUpcoming = asyncHandler(async (req, res) => {
   // from the list as soon as the day began.
   const query = sealedFilter(req.authz.scope, { status: { $in: ['scheduled', 'active'] }, endsAt: { $gte: new Date() } });
   const sessions = await Session.find(query).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ startsAt: 1 }).limit(10);
-  const enrichedSessions = await attachDoctorProfiles(sessions);
+  const enrichedSessions = await attachDoctorProfiles(sessions, req.actor.role);
   res.json(enrichedSessions);
 });
 
@@ -722,6 +721,9 @@ const getSessionById = asyncHandler(async (req, res) => {
     }
   }
 
+  // The session rules as this caller's screen needs them — the call screen
+  // refetches this whenever someone joins or leaves (session:attendance).
+  session.rules = sessionPolicy.view(session, req.actor.id === idOf(session.doctorId) ? 'doctor' : 'patient', new Date());
   res.json(session);
 });
 
@@ -786,6 +788,24 @@ const respondEndSession = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * POST /api/sessions/:sessionId/claim-absent-refund — "Leave & full refund".
+ * The patient was left waiting for a therapist who didn't come, or came and
+ * left (docs/SESSION_RULES.md, D3). sessionOutcomes owns the rule and says
+ * why, in words for the patient, when it doesn't apply yet.
+ */
+const claimAbsentRefund = asyncHandler(async (req, res) => {
+  const result = await sessionOutcomes.claimAbsentRefund(req.authz.resource, { io: req.app.get('io') });
+  res.json({
+    success: true,
+    refundAmount: result.refundAmount,
+    paymentStatus: result.paymentStatus,
+    message: result.alreadyDone
+      ? 'Your refund is already on its way.'
+      : `Your full refund of ₹${result.refundAmount} is on its way (usually 5–7 working days).`
+  });
+});
+
 /** POST /api/sessions/:sessionId/cancel */
 const cancelSession = asyncHandler(async (req, res) => {
   const { sessionId } = req.params;
@@ -839,6 +859,18 @@ const cancelSession = asyncHandler(async (req, res) => {
   const refundAmount = calculateRefund(session.price, hoursUntil, cancellerRole);
   const actor = cancellerRole === 'doctor' ? ACTOR.DOCTOR : ACTOR.PATIENT;
 
+  // A patient cancelling a paid session inside the 4-hour window gets no
+  // refund, because the therapist's time was reserved — so the therapist is
+  // paid their share of it (docs/SESSION_RULES.md, D5). `lateCancellation`
+  // is what makes it payable (services/earnings.js).
+  const now = new Date();
+  const lateCancellation = cancellerRole === 'patient' && refundAmount === 0 && session.paymentStatus === 'paid';
+  const outcomeCode = session.status === 'payment_pending'
+    ? sessionPolicy.OUTCOME.CHECKOUT_ABANDONED
+    : lateCancellation
+      ? sessionPolicy.OUTCOME.LATE_CANCELLATION
+      : cancellerRole === 'doctor' ? sessionPolicy.OUTCOME.CANCELLED_BY_DOCTOR : sessionPolicy.OUTCOME.CANCELLED_BY_PATIENT;
+
   // ── 1. CLAIM THE CANCELLATION ─────────────────────────────────────────────
   // A compare-and-set through the transition table, not a read-then-save.
   //
@@ -857,7 +889,12 @@ const cancelSession = asyncHandler(async (req, res) => {
   const cancelled = await applyTransition(session, {
     event: EVENT.CANCEL,
     actor,
-    payload: { cancelledBy: cancellerRole }
+    now,
+    payload: { cancelledBy: cancellerRole },
+    extraSet: {
+      outcome: { code: outcomeCode, decidedAt: now, by: cancellerRole, note: null },
+      ...(lateCancellation ? { lateCancellation: true } : {})
+    }
   });
 
   if (!cancelled.changed) {
@@ -890,9 +927,9 @@ const cancelSession = asyncHandler(async (req, res) => {
     }
   }
 
-  // Track doctor cancellations
+  // Counted against the doctor (shown to admins only).
   if (cancellerRole === 'doctor') {
-    await _incrementDoctorCancellationCount(session.doctorId, 'Failed to update doctor cancellation tracking');
+    await doctorCounters.increment(session.doctorId, 'cancel', { now });
   }
 
   // Release the slot. By the session's own localDate/localTime and id, so a
@@ -927,7 +964,9 @@ const cancelSession = asyncHandler(async (req, res) => {
         refundAmount,
         message: cancellerRole === 'doctor'
           ? `We're sorry, your session has been cancelled by the doctor. A full refund will be processed.`
-          : `Your session has been cancelled.`
+          : lateCancellation
+            ? 'Your session has been cancelled. Cancellations within 4 hours of the start are not refunded, because your therapist\'s time was reserved for you — they are still paid for it.'
+            : 'Your session has been cancelled.'
       });
     }
     // Email doctor
@@ -939,7 +978,9 @@ const cancelSession = asyncHandler(async (req, res) => {
         cancelledBy: cancellerLabel,
         refundAmount: 0, // No refund info for doctor
         message: cancellerRole === 'patient'
-          ? `The patient has cancelled their upcoming session.`
+          ? (lateCancellation
+            ? `The patient cancelled within 4 hours of the start, so you'll still be paid your share${session.doctorEarnings ? ` (₹${session.doctorEarnings})` : ''} in your weekly payout.`
+            : 'The patient has cancelled their upcoming session.')
           : `You have cancelled your session with ${populatedSession.patientId.firstName} ${populatedSession.patientId.lastName}.`
       });
     }
@@ -951,6 +992,7 @@ const cancelSession = asyncHandler(async (req, res) => {
     success: true,
     message: 'Session cancelled successfully',
     refundAmount,
+    lateCancellation,
     refundPolicy: describeRefundPolicy(refundAmount, session.price)
   });
 });
@@ -967,7 +1009,7 @@ const getCalendar = asyncHandler(async (req, res) => {
   const query = sealedFilter(req.authz.scope, { sessionDate: { $gte: startDate, $lt: endDate } });
   const sessions = await Session.find(query).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ sessionDate: 1, sessionTime: 1 });
 
-  const enrichedSessions = await attachDoctorProfiles(sessions);
+  const enrichedSessions = await attachDoctorProfiles(sessions, req.actor.role);
   res.json(enrichedSessions);
 });
 
@@ -1135,7 +1177,15 @@ async function _autoCancelUnacceptedSession(session, io, { by = 'system', now = 
       // The doctor may accept or walk in between the read and this write.
       // Both are preconditions, so that race resolves in the doctor's favour.
       extraFilter: { acceptanceStatus: { $ne: 'accepted' }, doctorJoined: { $ne: true } },
-      extraSet: { acceptanceDeadline: null },
+      extraSet: {
+        acceptanceDeadline: null,
+        outcome: {
+          code: by === 'patient' ? sessionPolicy.OUTCOME.CANCELLED_BY_PATIENT : sessionPolicy.OUTCOME.INSTANT_UNANSWERED,
+          decidedAt: now,
+          by,
+          note: null
+        }
+      },
       now
     });
   } catch (err) {
@@ -1162,7 +1212,7 @@ async function _autoCancelUnacceptedSession(session, io, { by = 'system', now = 
   // emitted into an empty room, is neither.
   const deadlinePassed = !session.acceptanceDeadline || new Date(session.acceptanceDeadline) <= now;
   if (deadlinePassed && session.ringDeliveredAt) {
-    await _incrementDoctorCancellationCount(session.doctorId._id || session.doctorId, 'Failed to update doctor cancellation tracking on missed session');
+    await doctorCounters.increment(session.doctorId._id || session.doctorId, 'cancel', { now });
   } else if (by === 'system') {
     logger.warn('Instant request expired without ever reaching the doctor — not counted against them', { sessionId: short });
   }
@@ -1374,4 +1424,4 @@ const getTurnCredentials = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { getStats, getMyDoctors, getPendingFeedback, getCallHistory, getDoctorSlots, bookImmediate, bookSession, getMySessions, getUpcoming, getAllDoctors, getDoctorById, getSessionById, joinSession, completeSession, requestEndSession, respondEndSession, cancelSession, getCalendar, getPatientEmergencyContact, getMyTherapists, acceptSession, delaySession, getTurnCredentials, missedSession, getDelayedSessions, getInstantRequests, sweepStuckUnacceptedSessions };
+module.exports = { getStats, getMyDoctors, getPendingFeedback, getCallHistory, getDoctorSlots, bookImmediate, bookSession, getMySessions, getUpcoming, getAllDoctors, getDoctorById, getSessionById, joinSession, completeSession, requestEndSession, respondEndSession, claimAbsentRefund, cancelSession, getCalendar, getPatientEmergencyContact, getMyTherapists, acceptSession, delaySession, getTurnCredentials, missedSession, getDelayedSessions, getInstantRequests, sweepStuckUnacceptedSessions };

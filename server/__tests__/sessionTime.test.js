@@ -127,9 +127,14 @@ describe('join window', () => {
     expect(opensAt.toISOString()).toBe('2026-03-14T03:15:00.000Z');
   });
 
-  test('closes 60 minutes after the end', () => {
+  test('closes when the session ends — not an hour after', () => {
     const { closesAt } = joinWindow(s());
-    expect(closesAt.toISOString()).toBe('2026-03-14T05:30:00.000Z');
+    expect(closesAt.toISOString()).toBe('2026-03-14T04:30:00.000Z');
+  });
+
+  test('…or later, when a late doctor moved the real end', () => {
+    const { closesAt } = joinWindow({ ...s(), effectiveEndsAt: new Date('2026-03-14T04:42:00.000Z') });
+    expect(closesAt.toISOString()).toBe('2026-03-14T04:42:00.000Z');
   });
 
   test('closed 15 minutes and 1ms before the start', () => {

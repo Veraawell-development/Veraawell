@@ -26,5 +26,7 @@ export function calculateRefundPreview(price: number, sessionDateTime: Date): Re
   if (hoursUntil > 4) {
     return { amount: price, label: '100% refund — full amount returned', color: '#10b981' };
   }
-  return { amount: 0, label: 'No refund — cancelled less than 4 hours before session', color: '#ef4444' };
+  // The therapist's time was reserved, so they are paid for it
+  // (docs/SESSION_RULES.md, D5) — said plainly, so it doesn't read as a penalty.
+  return { amount: 0, label: 'No refund — within 4 hours of the start, your therapist is still paid for the reserved time', color: '#ef4444' };
 }

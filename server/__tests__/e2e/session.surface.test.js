@@ -254,18 +254,22 @@ describe('joining a session', () => {
     expect((await call('get', `/api/sessions/join/${s._id}`, doctorA)).status).toBe(200);
   });
 
-  test('the join window closes 60 minutes after the session ENDS, not after it starts', async () => {
-    // joinWindow (services/sessionTime.js:108) is
+  test('the join window closes when the session really ends', async () => {
+    // joinWindow (services/sessionTime.js) is
     //   opensAt  = startsAt - 15m
-    //   closesAt = endsAt   + 60m
-    // so a 60-minute session that began 90 minutes ago is still joinable for
-    // another half hour. Pinning the real boundary rather than the intuitive one.
-    const stillOpen = await makeSession({ startsAt: new Date(Date.now() - 90 * 60 * 1000) });
+    //   closesAt = effectiveEndsAt (a late doctor's later end) or endsAt
+    // It used to stay open an hour past the end, so a call whose time was
+    // over could be rejoined.
+    const stillOpen = await makeSession({ startsAt: new Date(Date.now() - 50 * 60 * 1000) });
     expect((await call('get', `/api/sessions/join/${stillOpen._id}`, patientA)).status).toBe(200);
 
     await Session.deleteMany({});
-    const closed = await makeSession({ startsAt: new Date(Date.now() - 5 * 3600 * 1000) });
-    expect((await call('get', `/api/sessions/join/${closed._id}`, patientA)).status).toBeGreaterThanOrEqual(400);
+    const ended = await makeSession({ startsAt: new Date(Date.now() - 70 * 60 * 1000) });
+    expect((await call('get', `/api/sessions/join/${ended._id}`, patientA)).status).toBeGreaterThanOrEqual(400);
+
+    // The same session, with a doctor who joined 20 minutes late: still on.
+    await Session.updateOne({ _id: ended._id }, { $set: { effectiveEndsAt: new Date(Date.now() + 10 * 60 * 1000) } });
+    expect((await call('get', `/api/sessions/join/${ended._id}`, patientA)).status).toBe(200);
   });
 
   test('a stranger cannot join', async () => {

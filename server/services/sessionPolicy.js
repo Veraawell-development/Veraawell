@@ -190,6 +190,10 @@ function doctorAbsentRefundAvailable(session, now) {
 function doctorAbsentRefundAt(session, now) {
   if (!LIVE_STATUSES.includes(session.status)) return null;
   if (session.paymentStatus !== 'paid') return null;
+  // The therapist was there within the grace and the patient was not, and
+  // they never met: the patient missed the session (E2). Waiting on their own
+  // afterwards does not turn that into the therapist's absence.
+  if (classifyAtGrace(session) === GRACE.PATIENT_ABSENT && !everTogether(session)) return null;
   const since = aloneSince(session, now);
   if (!since) return null;
   const grace = graceDeadline(session);
@@ -209,6 +213,51 @@ function classifyAtGrace(session) {
   if (doctorIn) return GRACE.PATIENT_ABSENT;
   if (patientIn) return GRACE.DOCTOR_ABSENT;
   return GRACE.NOBODY;
+}
+
+/**
+ * What one party's screen needs to show the rules, as of `now`. Sent with the
+ * session (GET /api/sessions/:id) and refetched whenever someone joins or
+ * leaves, so the call screen never works any of this out on its own clock.
+ *
+ *   absentRefundAt  (patient) when "Leave & full refund" becomes available,
+ *                   or null while it doesn't apply
+ *   missed          (patient) the therapist waited the grace out and left
+ *                   before the patient came: the session counts as missed
+ *   patientAbsent   (doctor) the patient has not come within the grace (and
+ *                   is not here now): the doctor may leave and is still paid
+ *   doctorJoinedLate  the end moved so the patient keeps their minutes
+ */
+function view(session, role, now) {
+  const at = toDate(now);
+  const start = resolveStartsAt(session);
+  const grace = graceDeadline(session);
+  const end = effectiveEndsAt(session);
+  const live = LIVE_STATUSES.includes(session.status);
+  const pastGrace = at.getTime() >= grace.getTime();
+  const doctorFirst = firstJoin(session, 'doctor');
+  const patientFirst = firstJoin(session, 'patient');
+  const patientByGrace = !!patientFirst && patientFirst.getTime() <= grace.getTime();
+  const doctorByGrace = !!doctorFirst && doctorFirst.getTime() <= grace.getTime();
+  const doctorPresent = isPresent(session, 'doctor', at);
+  const patientPresent = isPresent(session, 'patient', at);
+  return {
+    serverNow: at,
+    startsAt: start,
+    graceEndsAt: grace,
+    endsAt: resolveEndsAt(session),
+    effectiveEndsAt: end,
+    joinOpensAt: joinWindow(session).opensAt,
+    joinClosesAt: end,
+    present: { patient: patientPresent, doctor: doctorPresent },
+    doctorJoinedLate: !!doctorFirst && doctorFirst.getTime() > start.getTime(),
+    absentRefundAt: role === 'patient' ? doctorAbsentRefundAt(session, at) : null,
+    missed: role === 'patient' && live && pastGrace && doctorByGrace && !patientByGrace
+      && !doctorPresent && !everTogether(session),
+    // Once a late patient does arrive while the doctor is there, they talk
+    // until the end (E1), so this is only while the patient is still away.
+    patientAbsent: role === 'doctor' && live && pastGrace && !patientByGrace && !patientPresent
+  };
 }
 
 const result = (code, refund, doctorPaid, counter = null) => ({ code, refund, doctorPaid, counter });
@@ -257,5 +306,6 @@ module.exports = {
   doctorAbsentRefundAt,
   doctorAbsentRefundAvailable,
   classifyAtGrace,
-  finalOutcome
+  finalOutcome,
+  view
 };
