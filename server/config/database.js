@@ -1,12 +1,10 @@
 /**
  * Database Configuration
- * MongoDB connection and session store setup
+ * MongoDB connection
  */
 
 const mongoose = require('mongoose');
-const MongoStore = require('connect-mongo');
 const { getEnv, isProduction } = require('./environment');
-const { getSessionSecret } = require('./auth');
 const { createLogger } = require('../utils/logger');
 const User = require('../models/user');
 
@@ -166,45 +164,6 @@ async function connectDatabase() {
 }
 
 /**
- * Create MongoDB session store
- */
-function createSessionStore() {
-  const mongoUri = getEnv('MONGO_URI', 'mongodb://localhost:27017/veraawell');
-
-  // Second copy of the SESSION_SECRET fallback removed. It duplicated the
-  // logic in config/auth.js getSessionSecret(), which meant the two could
-  // (and did) disagree about whether an absent secret is fatal — this one
-  // silently minted its own random key. One source of truth: getSessionSecret()
-  // fails closed in production and warns in development.
-  const secret = getSessionSecret();
-
-  return MongoStore.create({
-    mongoUrl: mongoUri,
-    // NOT connect-mongo's default. Its default collection is 'sessions' —
-    // the same collection the therapy Session model uses (Mongoose
-    // pluralises 'Session' to 'sessions'). Login-store rows were therefore
-    // interleaved with bookings: any query over Session that did not filter
-    // on a booking field could see them, connect-mongo built its `expires`
-    // TTL index on the bookings collection, and the old admin
-    // "cleanup-sessions" endpoint, meant for login state, deleted every
-    // booking. migrations/splitLoginSessions.js removes the rows and the
-    // index this left behind.
-    //
-    // Nothing is lost by the move: express-session here only carries the
-    // OAuth role across the Google redirect (req.session.oauthRole). Auth
-    // itself is the JWT cookie, so no one is logged out.
-    collectionName: 'auth_sessions',
-    // Matches the session cookie's 15 minutes (config/auth.js): a session
-    // only spans one Google sign-in.
-    ttl: 15 * 60,
-    touchAfter: 24 * 3600, // Lazy session update (24 hours)
-    crypto: {
-      secret: secret
-    }
-  });
-}
-
-/**
  * Close database connection
  */
 async function closeDatabase() {
@@ -286,7 +245,6 @@ mongoose.connection.on('connecting', () => {
 
 module.exports = {
   connectDatabase,
-  createSessionStore,
   closeDatabase,
   isConnected
 };

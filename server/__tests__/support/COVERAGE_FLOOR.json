@@ -2,8 +2,8 @@
   "_comment": "A RATCHET, not a target. Regenerate with: node scripts/check-coverage.js --update. Values may only rise; a drop fails npm run test:coverage.",
   "_recorded": "2026-10-18",
   "_total": {
-    "statements": 84.3,
-    "branches": 73.48
+    "statements": 84.43,
+    "branches": 73.67
   },
   "files": {
     "authz/actor.js": {
@@ -51,8 +51,8 @@
       "branches": 73.52
     },
     "config/auth.js": {
-      "statements": 67.56,
-      "branches": 66.66
+      "statements": 82.05,
+      "branches": 76
     },
     "config/cloudinary.js": {
       "statements": 83.33,
@@ -63,7 +63,7 @@
       "branches": 75
     },
     "config/database.js": {
-      "statements": 28.16,
+      "statements": 22.72,
       "branches": 4.16
     },
     "config/environment.js": {
@@ -91,8 +91,8 @@
       "branches": 72
     },
     "controllers/auth.controller.js": {
-      "statements": 91.39,
-      "branches": 81.92
+      "statements": 91.78,
+      "branches": 82.27
     },
     "controllers/availability.controller.js": {
       "statements": 80.88,
@@ -299,8 +299,8 @@
       "branches": 48.21
     },
     "routes/admin/auth.js": {
-      "statements": 88.08,
-      "branches": 84.31
+      "statements": 87.62,
+      "branches": 85.84
     },
     "services/auth.service.js": {
       "statements": 90.76,
@@ -327,8 +327,8 @@
       "branches": 71.03
     },
     "services/oauth.service.js": {
-      "statements": 89.52,
-      "branches": 80.28
+      "statements": 90.9,
+      "branches": 80
     },
     "services/payoutLedger.js": {
       "statements": 89.17,
@@ -388,7 +388,7 @@
     },
     "utils/logger.js": {
       "statements": 100,
-      "branches": 82.35
+      "branches": 85.29
     },
     "utils/otpGenerator.js": {
       "statements": 90,

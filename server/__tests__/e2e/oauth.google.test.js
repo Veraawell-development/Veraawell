@@ -14,7 +14,6 @@ process.env.GOOGLE_CLIENT_ID = 'test-google-client';
 process.env.GOOGLE_CLIENT_SECRET = 'test-google-secret';
 
 const express = require('express');
-const session = require('express-session');
 const cookieParser = require('cookie-parser');
 const passport = require('passport');
 const request = require('supertest');
@@ -35,16 +34,14 @@ function profileFor(email, { verified = true, id = `g-${email}` } = {}) {
   };
 }
 
+/**
+ * Mounted as app.js mounts them — and, like app.js, with no session
+ * middleware: the round trip must survive on its own cookie. Production's
+ * session store never saved anything, which is how Google sign-in broke.
+ */
 function buildApp() {
-  const { getSessionCookieConfig } = require('../../config/auth');
   const app = express();
   app.use(cookieParser());
-  app.use(session({
-    secret: 'oauth-test-session-secret',
-    resave: false,
-    saveUninitialized: false,
-    cookie: getSessionCookieConfig()
-  }));
   app.use(passport.initialize());
   app.get('/api/auth/google', oauthService.startGoogleSignIn);
   app.get('/api/auth/google/callback', oauthService.finishGoogleSignIn);
@@ -158,7 +155,7 @@ describe('a successful Google sign-in', () => {
 describe('a Google sign-in that must not succeed', () => {
   test('a callback whose state does not match the one this browser started is refused (login CSRF)', async () => {
     const res = await signInWithGoogle({ tamperState: true });
-    expect(errorCode(res)).toBe('google-auth-failed');
+    expect(errorCode(res)).toBe('google-expired');
     expect(setsSession(res)).toBe(false);
     expect(await User.countDocuments({})).toBe(0);
   });
@@ -166,8 +163,65 @@ describe('a Google sign-in that must not succeed', () => {
   test('a callback the browser never started is refused', async () => {
     // An attacker's link: their own authorization code, the victim's browser.
     const res = await request(server).get('/api/auth/google/callback?code=attackers-code&state=whatever');
-    expect(errorCode(res)).toBe('google-auth-failed');
+    expect(errorCode(res)).toBe('google-expired');
     expect(setsSession(res)).toBe(false);
+  });
+
+  test('a state cookie that was tampered with, or is too old, is refused', async () => {
+    const agent = request.agent(server);
+    const start = await agent.get('/api/auth/google?role=patient');
+    const state = new URL(start.headers.location).searchParams.get('state');
+    const cookie = start.headers['set-cookie'].find((c) => c.startsWith(`${oauthService.STATE_COOKIE}=`));
+    const value = decodeURIComponent(cookie.split(';')[0].split('=').slice(1).join('='));
+    const [body] = value.split('.');
+
+    // Re-signed with the wrong key: the intent cannot be forged to 'doctor'.
+    const forged = Buffer.from(JSON.stringify({ n: state, r: 'doctor', t: Date.now() })).toString('base64url');
+    const tampered = await request(server)
+      .get(`/api/auth/google/callback?code=c&state=${encodeURIComponent(state)}`)
+      .set('Cookie', `${oauthService.STATE_COOKIE}=${forged}.${value.split('.')[1]}`);
+    expect(errorCode(tampered)).toBe('google-expired');
+
+    // Genuine, but from more than ten minutes ago.
+    const realNow = Date.now;
+    Date.now = () => realNow() + 11 * 60 * 1000;
+    try {
+      const stale = await request(server)
+        .get(`/api/auth/google/callback?code=c&state=${encodeURIComponent(state)}`)
+        .set('Cookie', `${oauthService.STATE_COOKIE}=${body}.${value.split('.')[1]}`);
+      expect(errorCode(stale)).toBe('google-expired');
+      expect(setsSession(stale)).toBe(false);
+    } finally {
+      Date.now = realNow;
+    }
+  });
+
+  test('the state cookie is HttpOnly, Lax, scoped to the Google routes, and used once', async () => {
+    const agent = request.agent(server);
+    const start = await agent.get('/api/auth/google?role=patient');
+    const cookie = start.headers['set-cookie'].find((c) => c.startsWith(`${oauthService.STATE_COOKIE}=`));
+    expect(cookie).toMatch(/HttpOnly/i);
+    expect(cookie).toMatch(/SameSite=Lax/i);
+    expect(cookie).toMatch(/Path=\/api\/auth\/google/);
+    expect(cookie).toMatch(/Max-Age=600/);
+
+    const state = new URL(start.headers.location).searchParams.get('state');
+    const done = await agent.get(`/api/auth/google/callback?code=c&state=${encodeURIComponent(state)}`);
+    expect(new URL(done.headers.location).searchParams.get('auth')).toBe('success');
+    // Cleared on the way back, so the same state cannot be replayed.
+    expect((done.headers['set-cookie'] || []).join(';')).toMatch(new RegExp(`${oauthService.STATE_COOKIE}=;`));
+    const replay = await agent.get(`/api/auth/google/callback?code=c&state=${encodeURIComponent(state)}`);
+    expect(errorCode(replay)).toBe('google-expired');
+  });
+
+  test('in production the state cookie is Secure', () => {
+    const previous = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      expect(oauthService.stateCookieOptions()).toMatchObject({ secure: true, sameSite: 'lax', httpOnly: true });
+    } finally {
+      process.env.NODE_ENV = previous;
+    }
   });
 
   test.each([

@@ -2,10 +2,11 @@
  * One in-memory MongoDB for the whole jest run, used ONLY as the target of
  * process.env.MONGO_URI.
  *
- * Why this exists: app.js builds a connect-mongo session store at module load
- * (app.js:253) using MONGO_URI, and that client keeps retrying in the
- * background for the rest of the process. With `--runInBand` every test file
- * shares one process, so:
+ * Why this exists: app.js used to build a connect-mongo session store at
+ * module load using MONGO_URI (there is no session store now, but anything
+ * that reads MONGO_URI must still never see server/.env's value), and that
+ * client kept retrying in the background for the rest of the process. With
+ * `--runInBand` every test file shares one process, so:
  *
  *   - left at the value in server/.env, requiring app.js dials the live Atlas
  *     cluster from a test run;

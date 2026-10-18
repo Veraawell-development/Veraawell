@@ -6,7 +6,6 @@
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
-const session = require('express-session');
 const passport = require('passport');
 const helmet = require('helmet');
 const compression = require('compression');
@@ -15,8 +14,6 @@ const morgan = require('morgan');
 
 // Configuration
 const { CORS_ORIGINS } = require('./config/constants');
-const { createSessionStore } = require('./config/database');
-const { getSessionSecret, getSessionCookieConfig } = require('./config/auth');
 const { isProduction } = require('./config/environment');
 const { createLogger } = require('./utils/logger');
 
@@ -236,38 +233,13 @@ app.use(mongoSanitize({
   }
 }));
 
-// Session middleware with MongoDB store
-// Using a lazy store or initializing early to ensure routes have access to req.session
-const sessionStore = createSessionStore();
-
-app.use(session({
-  secret: getSessionSecret(),
-  resave: false,
-  saveUninitialized: false,
-  store: sessionStore,
-  cookie: getSessionCookieConfig()
-}));
-
-// Initialize Passport
+// No server-side sessions. Sign-in is the JWT cookie, and the one thing a
+// session ever carried — Google sign-in's state across Google's redirect — is
+// a signed cookie now (services/oauth.service.js). express-session, its Mongo
+// store and passport.session() used to sit here; in production the store
+// never saved a row, so they did nothing but hold a second Mongo connection
+// open, until Google sign-in came to depend on them and broke.
 app.use(passport.initialize());
-app.use(passport.session());
-
-appLogger.info('Session and Passport middleware initialized');
-
-// Passport serialization
-passport.serializeUser((user, done) => {
-  done(null, user.id);
-});
-
-passport.deserializeUser(async (id, done) => {
-  try {
-    const User = require('./models/user');
-    const user = await User.findById(id);
-    done(null, user);
-  } catch (error) {
-    done(error, null);
-  }
-});
 
 // Initialize Google OAuth strategy
 oauthService.initializeGoogleStrategy();

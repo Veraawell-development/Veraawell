@@ -4,7 +4,7 @@ import { authFailureMessage, loginErrorMessage } from '../utils/authMessages';
 describe('loginErrorMessage', () => {
   it('explains every code the API sends back to /login', () => {
     for (const code of [
-      'google-auth-failed', 'google-cancelled', 'google-session', 'google-unavailable', 'google-email-unverified',
+      'google-auth-failed', 'google-cancelled', 'google-expired', 'google-session', 'google-unavailable', 'google-email-unverified',
       'google-doctor-signup', 'account-pending', 'account-rejected', 'account-suspended', 'admin-account',
     ]) {
       expect(loginErrorMessage(code)).toMatch(/\w/);
