@@ -76,5 +76,13 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
       testMatch: /.*admin.*\.spec\.ts/,
     },
+    {
+      // Session lifecycle: booking, the call, lateness, outcomes, refunds.
+      // Each spec signs its own patient and doctor in (two browser contexts),
+      // so no stored auth state.
+      name: 'session-tests',
+      use: { ...devices['Desktop Chrome'] },
+      testMatch: /.*session.*\.spec\.ts/,
+    },
   ],
 });

@@ -102,6 +102,66 @@ function waitForHealth(port, timeoutMs = 30000) {
   });
 }
 
+/**
+ * Test-only job trigger.
+ *
+ * The session rules are driven by the clock (10 minutes after the start, the
+ * end of a session, an unpaid checkout's age), and the browser tests can't
+ * wait real minutes. This runs the same job functions the scheduler runs, on
+ * demand and with an injected `now`, so a spec can say "it is now 11 minutes
+ * after the start" and see what the patient and doctor see.
+ *
+ * It lives here, in the e2e stack, and nowhere in the application: it listens
+ * on loopback only, on its own port, inside a process that refuses to run
+ * against anything but an in-memory database (assertLoopback).
+ *
+ *   POST http://127.0.0.1:<CONTROL_PORT>/jobs/<name>   body: { "now": "<ISO>" }
+ */
+const CONTROL_PORT = Number(process.env.E2E_CONTROL_PORT || 5099);
+
+function jobRegistry(io) {
+  const scheduler = require('../services/scheduler');
+  const sessionPayment = require('../services/sessionPayment');
+  const { sweepStuckUnacceptedSessions } = require('../controllers/session.controller');
+  return {
+    'status-sweep': (now) => scheduler.runSessionStatusUpdate({ now }),
+    'checkout-expiry': (now) => sessionPayment.expireStaleCheckouts({ now, io }),
+    reminders: (now) => scheduler.runReminderSweep({ now }),
+    'instant-expiry': () => sweepStuckUnacceptedSessions(io),
+    'stuck-refunds': (now) => scheduler.runStuckRefundReconciliation(now)
+  };
+}
+
+function startControlServer(io) {
+  const jobs = jobRegistry(io);
+  const server = http.createServer((req, res) => {
+    const match = req.method === 'POST' && /^\/jobs\/([a-z-]+)$/.exec(req.url || '');
+    const job = match && jobs[match[1]];
+    if (!job) {
+      res.writeHead(404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'unknown job', jobs: Object.keys(jobs) }));
+      return;
+    }
+    let raw = '';
+    req.on('data', (chunk) => { raw += chunk; });
+    req.on('end', async () => {
+      try {
+        const body = raw ? JSON.parse(raw) : {};
+        const now = body.now ? new Date(body.now) : new Date();
+        if (Number.isNaN(now.getTime())) throw new Error('now is not a date');
+        const result = await job(now);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ job: match[1], now: now.toISOString(), result: result === undefined ? null : result }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+  });
+  server.listen(CONTROL_PORT, '127.0.0.1');
+  return server;
+}
+
 async function main() {
   const { MongoMemoryServer } = require('mongodb-memory-server');
   const mongod = await MongoMemoryServer.create();
@@ -140,9 +200,10 @@ async function main() {
   const sink = installMailSink();
   installCloudinaryStub();
 
-  const { startServer } = require('../server.js');
+  const { startServer, io } = require('../server.js');
   await startServer();
   const health = await waitForHealth(process.env.PORT);
+  startControlServer(io);
 
   const { seedAll } = require('../__tests__/support/seed');
   const f = await seedAll();
@@ -162,6 +223,7 @@ async function main() {
     mongoUri: uri,
     port: Number(process.env.PORT),
     mailSink: sink,
+    controlUrl: `http://127.0.0.1:${CONTROL_PORT}`,
     passwords: f.passwords,
     adminToken,
     users: {
@@ -182,6 +244,7 @@ async function main() {
   console.log(`  api      : http://localhost:${fixtures.port}  (mongoConnected=${health.mongoConnected})`);
   console.log(`  fixtures : ${FIXTURE_FILE}`);
   console.log(`  mail sink: ${sink}`);
+  console.log(`  jobs     : http://127.0.0.1:${CONTROL_PORT}/jobs/<name>`);
   console.log('');
 
   if (process.argv.includes('--seed-only')) {
@@ -198,4 +261,4 @@ if (require.main === module) {
   main().catch((err) => { console.error('e2e stack failed:', err.message); process.exit(1); });
 }
 
-module.exports = { assertLoopback, installMailSink, installCloudinaryStub, FIXTURE_FILE, MAIL_SINK };
+module.exports = { assertLoopback, installMailSink, installCloudinaryStub, jobRegistry, FIXTURE_FILE, MAIL_SINK };

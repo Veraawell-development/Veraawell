@@ -18,6 +18,7 @@ require('../support/env');
 const request = require('supertest');
 const mongoose = require('mongoose');
 const { connectDb, disconnectDb } = require('../support/db');
+const { startServer, stopServer } = require('../support/server');
 
 jest.setTimeout(120000);
 
@@ -35,6 +36,11 @@ const FRONTEND = 'https://veraawell.vercel.app';
 const HOSTILE = 'https://veraawell-clone.example.com';
 
 let prodApp;
+// One listening server for the suite — see __tests__/support/server.js. The
+// throttle test fires a dozen requests back to back, and supertest's
+// server-per-request mode intermittently answered one of them with
+// "socket hang up".
+let prodServer;
 const saved = {};
 
 /**
@@ -71,9 +77,11 @@ beforeAll(async () => {
 
   for (const [k, v] of Object.entries(PRODUCTION_ENV)) { saved[k] = process.env[k]; process.env[k] = v; }
   jest.isolateModules(() => { prodApp = require('../../app'); });
+  prodServer = await startServer(prodApp);
 }, 180000);
 
 afterAll(async () => {
+  await stopServer(prodServer);
   for (const [k, v] of Object.entries(saved)) {
     if (v === undefined) delete process.env[k]; else process.env[k] = v;
   }
@@ -82,7 +90,7 @@ afterAll(async () => {
 
 describe('CORS under production settings', () => {
   test('the whitelisted frontend origin is allowed', async () => {
-    const res = await request(prodApp)
+    const res = await request(prodServer)
       .options('/api/sessions/book')
       .set('Origin', FRONTEND)
       .set('Access-Control-Request-Method', 'POST');
@@ -92,7 +100,7 @@ describe('CORS under production settings', () => {
   });
 
   test('an origin outside the whitelist is refused', async () => {
-    const res = await request(prodApp)
+    const res = await request(prodServer)
       .options('/api/sessions/book')
       .set('Origin', HOSTILE)
       .set('Access-Control-Request-Method', 'POST');
@@ -106,7 +114,7 @@ describe('CORS under production settings', () => {
     // different origins, so the browser sends a preflight and asks permission
     // for X-CSRF-Token. When it was refused, every POST, PUT, PATCH and DELETE
     // from the app failed before it left the browser.
-    const res = await request(prodApp)
+    const res = await request(prodServer)
       .options('/api/sessions/book')
       .set('Origin', FRONTEND)
       .set('Access-Control-Request-Method', 'POST')
@@ -121,7 +129,7 @@ describe('CORS under production settings', () => {
   test('and the server still demands that header on a mutating request', async () => {
     // The other half of the pair: the header the preflight now permits is
     // still required by the CSRF middleware. Allowing it is not waiving it.
-    const res = await request(prodApp)
+    const res = await request(prodServer)
       .post('/api/session-tools/journal')
       .set('Origin', FRONTEND)
       .send({ title: 'x', content: 'y' });
@@ -133,7 +141,7 @@ describe('CORS under production settings', () => {
   test('a request with no Origin at all is still allowed through', async () => {
     // app.js:78 — deliberate for curl and native clients, but it means Origin
     // is not a security boundary even in production.
-    const res = await request(prodApp).get('/api/health');
+    const res = await request(prodServer).get('/api/health');
     expect(res.status).toBe(200);
   });
 });
@@ -148,7 +156,7 @@ describe('the general limiter leaves room for ordinary use', () => {
     const statuses = [];
     for (let i = 0; i < 120; i += 1) {
       // eslint-disable-next-line no-await-in-loop
-      const res = await request(prodApp).get('/api/health');
+      const res = await request(prodServer).get('/api/health');
       statuses.push(res.status);
     }
     expect(statuses).not.toContain(429);
@@ -166,7 +174,7 @@ describe('rate limiting is mounted in production', () => {
     const statuses = [];
     for (let i = 0; i < 12; i += 1) {
       // eslint-disable-next-line no-await-in-loop
-      const res = await request(prodApp)
+      const res = await request(prodServer)
         .post('/api/auth/login')
         .set('Origin', FRONTEND)
         .send({ username: 'nobody@test.local', password: 'wrongpass1' });
@@ -177,14 +185,14 @@ describe('rate limiting is mounted in production', () => {
   });
 
   test('the throttle does not leak across to an unrelated endpoint', async () => {
-    const res = await request(prodApp).get('/api/health');
+    const res = await request(prodServer).get('/api/health');
     expect(res.status).toBe(200);
   });
 });
 
 describe('cookies under production settings', () => {
   test('the CSRF cookie is marked Secure and SameSite=None for cross-site use', async () => {
-    const res = await request(prodApp).get('/api/csrf-token');
+    const res = await request(prodServer).get('/api/csrf-token');
     const cookie = String(res.headers['set-cookie'] || '');
 
     expect(cookie).toMatch(/csrfToken=/);
@@ -267,16 +275,16 @@ describe('what production mode does NOT change', () => {
   // production. The debug route is gone and health says only what a probe
   // needs.
   test('health is public but says nothing about configuration, and the debug route is gone', async () => {
-    const health = await request(prodApp).get('/api/health');
+    const health = await request(prodServer).get('/api/health');
     expect(health.status).toBe(200);
     expect(Object.keys(health.body).sort()).toEqual(['mongoConnected', 'success', 'timestamp']);
 
-    const debug = await request(prodApp).get('/api/test-google-routes');
+    const debug = await request(prodServer).get('/api/test-google-routes');
     expect(debug.status).toBe(404);
   });
 
   test('Content-Security-Policy remains disabled', async () => {
-    const res = await request(prodApp).get('/api/health');
+    const res = await request(prodServer).get('/api/health');
     expect(res.headers['content-security-policy']).toBeUndefined();
   });
 });
