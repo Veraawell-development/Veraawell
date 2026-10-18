@@ -11,6 +11,7 @@ const { asyncHandler } = require('../middleware/error.middleware');
 const { AppError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
 const { generateOTP, hashOTP, verifyOTP } = require('../utils/otpGenerator');
+const { isValidPassword } = require('../middleware/validation.middleware');
 
 const { MAX_SIGNUP_OTP_ATTEMPTS, MAX_SIGNUP_OTP_RESENDS } = authService;
 
@@ -138,7 +139,8 @@ const login = asyncHandler(async (req, res) => {
   } catch (error) {
     if (error.name === 'AuthenticationError' && error.message.includes('User not found')) {
       // Check if they are in pending state
-      const pendingUser = await PendingUser.findOne({ $or: [{ email: username.toLowerCase() }, { username: username.toLowerCase() }] });
+      const identifier = String(username).trim().toLowerCase();
+      const pendingUser = await PendingUser.findOne({ $or: [{ email: identifier }, { username: identifier }] });
 
       // Only the person who registered may ask for a new code. This used to
       // skip the password entirely, so anyone who knew an address that was
@@ -196,12 +198,13 @@ const verifySignup = asyncHandler(async (req, res) => {
   }
 
   const PendingUser = require('../models/pendingUser');
-  const pendingUser = await PendingUser.findOne({ email: email.toLowerCase() });
-  
+  const normalizedEmail = email.trim().toLowerCase();
+  const pendingUser = await PendingUser.findOne({ email: normalizedEmail });
+
   if (!pendingUser) {
     // Check if they are already a verified User
     const User = require('../models/user');
-    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    const existingUser = await User.findOne({ email: normalizedEmail });
     if (existingUser) {
       return res.status(400).json({ success: false, message: 'User is already verified' });
     }
@@ -254,6 +257,20 @@ const verifySignup = asyncHandler(async (req, res) => {
     });
   }
 
+  // The same for a practitioner applicant. They were handed a 30-day
+  // session cookie here, silently — the careers page tells them to sign in
+  // once approved — so their next visit to /login dropped them straight into
+  // the doctor dashboard while still unapproved, and once they signed out the
+  // login page refused them as "pending approval". No session until an admin
+  // approves; the approval email tells them to sign in.
+  if (newUser.role === 'doctor' && newUser.approvalStatus !== 'approved') {
+    return res.json({
+      success: true,
+      requiresApproval: true,
+      message: 'Email verified. Our team will review your application — you will get an email when you can sign in.'
+    });
+  }
+
   const token = authService.generateToken(newUser);
   authService.setAuthCookie(res, token);
 
@@ -277,6 +294,10 @@ const verifySignup = asyncHandler(async (req, res) => {
  * Logout user
  */
 const logout = asyncHandler(async (req, res) => {
+  // Signing out needs no valid session (optionalAuth on the route). A
+  // token that had already expired, or been retired by a password change,
+  // used to make this a 401 that left the dead cookie in the browser.
+
   // Set doctor offline if they're logging out
   try {
     if (req.user && req.user.role === 'doctor') {
@@ -314,7 +335,7 @@ const logout = asyncHandler(async (req, res) => {
  * Request password reset
  */
 const forgotPassword = asyncHandler(async (req, res) => {
-  const { email } = req.body;
+  const email = typeof req.body.email === 'string' ? req.body.email.trim() : '';
 
   if (!email) {
     return res.status(400).json({
@@ -330,8 +351,10 @@ const forgotPassword = asyncHandler(async (req, res) => {
       await emailService.sendPasswordResetEmail(result.user, result.resetToken);
     }
   } catch (e) {
-    // Log internally but never expose to the client
-    logger.warn('Forgot password attempt for unknown/invalid email', { email });
+    // Log internally but never expose to the client. The reason is logged
+    // too: "no such account" and "the reset email could not be sent" are
+    // very different things to find in the logs.
+    logger.warn('Password reset not sent', { reason: e.message });
   }
 
   // Always return the same success message (security: prevents email enumeration)
@@ -395,10 +418,27 @@ const getProtected = asyncHandler(async (req, res) => {
       lastName: user.lastName,
       emergencyContact: user.emergencyContact || { name: null, phone: null, relationship: null }
     },
-    // Send token to client for WebSocket auth (stored in memory)
-    token: req.cookies.token || null
+    // Send token to client for WebSocket auth (stored in memory). The one
+    // that actually authenticated this request: the cookie used to be echoed
+    // back even when it was a stale one the Bearer header had been preferred
+    // over, and the client then adopted the stale token as its own.
+    token: req.authToken || null
   });
 });
+
+/**
+ * Error handler for GET /api/protected: a session the server refuses —
+ * expired, retired by a password change, account suspended or not approved —
+ * has its cookie cleared before the error goes on to the error middleware.
+ * Anything else (a database outage) leaves the cookie alone: that session
+ * may be perfectly good.
+ */
+function clearRefusedSession(err, req, res, next) {
+  if (err && (err.statusCode === 401 || err.statusCode === 403)) {
+    authService.clearAuthCookie(res);
+  }
+  next(err);
+}
 
 /**
  * Update password
@@ -407,8 +447,15 @@ const updatePassword = asyncHandler(async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   const userId = req.user._id;
 
-  if (!currentPassword || !newPassword) {
+  if (typeof currentPassword !== 'string' || typeof newPassword !== 'string' || !currentPassword || !newPassword) {
     return res.status(400).json({ success: false, message: 'Please provide both current and new passwords' });
+  }
+
+  // The same rule registration and reset apply. This route applied none, so
+  // a one-character password was accepted here.
+  const strength = isValidPassword(newPassword);
+  if (!strength.valid) {
+    return res.status(400).json({ success: false, message: strength.message, errors: { newPassword: strength.message } });
   }
 
   await authService.updatePassword(userId, currentPassword, newPassword);
@@ -456,6 +503,7 @@ module.exports = {
   resetPassword,
   getProfile,
   getProtected,
+  clearRefusedSession,
   updatePassword,
   deleteAccount
 };

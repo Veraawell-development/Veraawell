@@ -100,6 +100,7 @@ if (process.env.FRONTEND_URL) {
 
 const PASSWORD_POLICY = {
   MIN_LENGTH: 6,
+  MAX_LENGTH: 72,
   REQUIRE_UPPERCASE: false,
   REQUIRE_LOWERCASE: false,
   REQUIRE_NUMBER: false,

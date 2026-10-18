@@ -13,10 +13,10 @@
  *
  * The token is still needed in a few places even though the cookie usually
  * suffices: Socket.IO handshakes read it from `auth.token`, and Safari's
- * Intelligent Tracking Prevention can block the cross-site cookie entirely
- * (the frontend and API are on different domains — see App.tsx's OAuth
- * callback fallback), so a request may need to fall back to an explicit
- * token. This module gives every consumer that value without persisting it:
+ * Intelligent Tracking Prevention can block the cookie when the frontend and
+ * API are on different sites (a preview deployment, say — in production
+ * both are on veraawell.com), so a request may need to fall back to an
+ * explicit token. This module gives every consumer that value without persisting it:
  * a plain module-level variable is not attached to `window`/`localStorage`,
  * so it isn't reachable by a simple injected `<script>` payload the way
  * localStorage is — it requires code actually executing inside this

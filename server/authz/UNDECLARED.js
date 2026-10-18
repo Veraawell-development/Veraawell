@@ -60,7 +60,6 @@ module.exports = new Set([
   'POST /api/admin/auth/setup',
   'POST /api/auth/forgot-password',
   'POST /api/auth/login',
-  'POST /api/auth/logout',
   'POST /api/auth/patient-profile',
   'POST /api/auth/register',
   'POST /api/auth/reset-password',

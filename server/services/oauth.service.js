@@ -14,6 +14,44 @@ const { ValidationError } = require('../utils/errors');
 const logger = createLogger('OAUTH');
 
 /**
+ * Where passport-oauth2 keeps the `state` nonce in the session. Named
+ * explicitly so the callback route in app.js can carry it across the session
+ * regeneration it does before verifying.
+ */
+const GOOGLE_STATE_KEY = 'oauth2:accounts.google.com';
+
+/**
+ * Why a Google sign-in is refused, as the `?error=` code the login page
+ * explains. Everything a password login refuses is refused here too: this
+ * used to issue a session to any account Google vouched for, so a pending or
+ * rejected practitioner, a suspended account or an admin got in through the
+ * Google button that the password form would have stopped.
+ */
+function refusalFor(user) {
+  if (['admin', 'super_admin'].includes(user.role)) return 'admin-account';
+  if (user.status && user.status !== 'active') return 'account-suspended';
+  if (user.role === 'doctor' && user.approvalStatus === 'rejected') return 'account-rejected';
+  if (user.role === 'doctor' && user.approvalStatus !== 'approved') return 'account-pending';
+  return null;
+}
+
+/** An error the strategy raises to refuse a sign-in with a specific code. */
+function refusal(code) {
+  const error = new Error(code);
+  error.oauthRefusal = code;
+  return error;
+}
+
+/**
+ * The login-page address for a failed or refused Google sign-in.
+ */
+function failureRedirect(code = 'google-auth-failed') {
+  const url = new URL('/login', getFrontendUrl());
+  url.searchParams.set('error', code);
+  return url.toString();
+}
+
+/**
  * Initialize Google OAuth strategy
  */
 function initializeGoogleStrategy() {
@@ -32,6 +70,13 @@ function initializeGoogleStrategy() {
     clientID: oauthConfig.clientId,
     clientSecret: oauthConfig.clientSecret,
     callbackURL: callbackURL,
+    // A nonce in the session, checked on the way back. Without it the
+    // callback accepted any authorization code, so a link carrying the
+    // attacker's own code signed the victim in to the attacker's account
+    // (login CSRF) — and on a mental-health platform whatever they then
+    // wrote, journal and assessments included, went to that account.
+    state: true,
+    sessionKey: GOOGLE_STATE_KEY,
     // Needed so the strategy can read the signup intent that
     // GET /api/auth/google stashed in the session. The intent is applied only
     // when creating a brand-new account — never to an existing one.
@@ -62,23 +107,34 @@ function initializeGoogleStrategy() {
         const existing = await User.findOne({ email: email.toLowerCase() });
         if (existing) {
           if (!emailVerified) {
-            logger.warn('Refusing to link an unverified Google email to an existing account', { email });
-            return cb(new Error('EMAIL_NOT_VERIFIED'), null);
+            logger.warn('Refusing an unverified Google email for an existing account', { email });
+            return cb(refusal('google-email-unverified'), null);
           }
-          existing.googleId = profile.id;
-          await existing.save();
-          logger.info('Linked Google identity to an existing account', { email: existing.email });
+          // Signed in, NOT linked. Writing googleId onto the account used to
+          // switch its password off for good: password login and "forgot
+          // password" both refuse any account with a googleId, so one click
+          // on the Google button cost a patient their password — and a
+          // practitioner applicant, refused at the next step as pending,
+          // their only way in once approved. Google has vouched for the
+          // address, which is what matching on it here relies on.
+          logger.info('Existing account signed in with Google', { email: existing.email });
           return cb(null, existing);
+        }
+
+        // Practitioners apply through the careers page, with a licence and
+        // documents for an admin to review. A Google account carries none of
+        // that, so ?role=doctor used to create an empty application that
+        // could only ever be rejected. The button is not offered to
+        // doctors; this covers the URL.
+        const intent = req.session && req.session.oauthRole;
+        if (intent === 'doctor') {
+          logger.info('Refused to create a practitioner account through Google', { email });
+          return cb(refusal('google-doctor-signup'), null);
         }
 
         const firstName = profile.name?.givenName || profile.displayName || 'Google';
         const lastName = profile.name?.familyName || 'User';
-
-        // The signup intent (?role=) is applied HERE, at creation, and nowhere
-        // else — see handleOAuthCallback. A doctor created this way starts
-        // 'pending' and must still be approved by an admin.
-        const intent = req.session && req.session.oauthRole;
-        const role = intent === 'doctor' ? 'doctor' : 'patient';
+        const role = 'patient';
 
         user = new User({
           googleId: profile.id,
@@ -91,7 +147,7 @@ function initializeGoogleStrategy() {
           // than Math.random() so it is not a weak secret sitting in the DB.
           password: `google-auth-${require('crypto').randomBytes(24).toString('hex')}`,
           role,
-          approvalStatus: role === 'doctor' ? 'pending' : 'approved'
+          approvalStatus: 'approved'
         });
         await user.save();
         logger.info('New Google user created', { email: user.email, role, approvalStatus: user.approvalStatus });
@@ -145,6 +201,15 @@ async function handleOAuthCallback(req, res, user, requestedRole) {
       });
     }
 
+    const refused = refusalFor(user);
+    if (refused) {
+      logger.warn('Google sign-in refused', {
+        userId: user._id.toString().substring(0, 8),
+        reason: refused
+      });
+      return res.redirect(failureRedirect(refused));
+    }
+
     // Generate token
     const token = generateToken(user);
 
@@ -156,25 +221,84 @@ async function handleOAuthCallback(req, res, user, requestedRole) {
       email: user.email
     });
 
-    // Redirect to frontend. We are passing the token in the URL as a fallback
-    // because cookies are blocked in production due to cross-domain setup.
-    // Frontend should extract it and save to localStorage, then clean the URL.
-    const frontendBaseUrl = getFrontendUrl();
-    const redirectUrl = new URL(frontendBaseUrl);
+    // Redirect to frontend. The session travels in the cookie set above:
+    // veraawell.com and api.veraawell.com are the same site, so no browser
+    // treats it as a third-party cookie. The token used to ride along in the
+    // URL as a "fallback", which put a 30-day credential into the frontend
+    // host's access logs on every Google sign-in.
+    const redirectUrl = new URL(getFrontendUrl());
     redirectUrl.searchParams.set('auth', 'success');
     redirectUrl.searchParams.set('role', user.role);
-    redirectUrl.searchParams.set('isGoogle', 'true');
-    redirectUrl.searchParams.set('token', token); // Fallback for blocked cookies
 
-    logger.debug('Redirecting to frontend', { 
-      url: redirectUrl.toString().split('?')[0] // Don't log query params with sensitive data
-    });
     return res.redirect(redirectUrl.toString());
   } catch (error) {
     logger.error('OAuth callback error', { error: error.message });
-    const frontendBaseUrl = getFrontendUrl();
-    return res.redirect(`${frontendBaseUrl}/login?error=oauth-failed`);
+    return res.redirect(failureRedirect('google-auth-failed'));
   }
+}
+
+/**
+ * GET /api/auth/google — the Google button. The role is only a signup intent
+ * (see the strategy); it is carried across Google's redirect in the session,
+ * next to passport's state nonce.
+ */
+function startGoogleSignIn(req, res, next) {
+  const role = req.query.role || 'patient';
+  if (!['patient', 'doctor'].includes(role)) {
+    return res.redirect(failureRedirect('google-auth-failed'));
+  }
+
+  req.session.oauthRole = role;
+
+  return passport.authenticate('google', {
+    scope: ['profile', 'email'],
+    prompt: 'select_account'
+  })(req, res, next);
+}
+
+/**
+ * GET /api/auth/google/callback — Google sends the person back here.
+ * Every way this can end lands them on a page of ours: signed in, or the
+ * login page with a code it explains. None of them is a bare JSON error on
+ * the API host.
+ */
+function finishGoogleSignIn(req, res) {
+  const role = req.session.oauthRole || 'patient';
+  // The state nonce GET /api/auth/google stored. Regenerating the session
+  // (against fixation) would otherwise drop it before passport checks it.
+  const pendingState = req.session[GOOGLE_STATE_KEY];
+
+  req.session.regenerate((regenerateError) => {
+    if (regenerateError) {
+      logger.error('Could not regenerate the session for a Google sign-in', { error: regenerateError.message });
+      return res.redirect(failureRedirect('google-auth-failed'));
+    }
+
+    req.session.oauthRole = role;
+    if (pendingState) req.session[GOOGLE_STATE_KEY] = pendingState;
+
+    return passport.authenticate('google', async (err, user) => {
+      // The session existed only to carry the role and the nonce across
+      // Google's redirect; it has nothing left to do.
+      req.session.destroy(() => {});
+
+      if (err || !user) {
+        // Cancelling on Google's consent screen comes back as
+        // ?error=access_denied — not a failure worth alarming anyone about.
+        const code = (err && err.oauthRefusal)
+          || (req.query.error === 'access_denied' ? 'google-cancelled' : 'google-auth-failed');
+        if (err && !err.oauthRefusal) logger.warn('Google sign-in failed', { error: err.message });
+        return res.redirect(failureRedirect(code));
+      }
+
+      return handleOAuthCallback(req, res, user, role);
+    })(req, res, () => res.redirect(failureRedirect('google-auth-failed')));
+  });
+}
+
+/** Both Google routes, when this deployment has no Google credentials. */
+function googleUnavailable(req, res) {
+  res.redirect(failureRedirect('google-unavailable'));
 }
 
 /**
@@ -187,6 +311,12 @@ function validateOAuthRole(role) {
 }
 
 module.exports = {
+  GOOGLE_STATE_KEY,
+  refusalFor,
+  failureRedirect,
+  startGoogleSignIn,
+  finishGoogleSignIn,
+  googleUnavailable,
   initializeGoogleStrategy,
   handleOAuthCallback,
   validateOAuthRole

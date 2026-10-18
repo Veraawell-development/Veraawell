@@ -11,6 +11,8 @@ import toast from 'react-hot-toast';
 import LeafDecor from '../components/ui/LeafDecor';
 import ResendCodeButton from '../components/ResendCodeButton';
 import { getRedirectFromSearch, sanitizeRedirect, rememberOAuthRedirect } from '../utils/safeRedirect';
+import { authFailureMessage, loginErrorMessage } from '../utils/authMessages';
+import { isValidPhone } from '../utils/phone';
 
 // ── Animation variants ────────────────────────────────────────────────────────
 const fadeUp = {
@@ -94,7 +96,6 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   const [registerConfirm, setRegisterConfirm] = useState('');
   const [registerMode, setRegisterMode] = useState(mode === 'signup');
   const [isProfessional, setIsProfessional] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [registerMsg, setRegisterMsg] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -123,6 +124,18 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
     if (redirectMessage) setError(redirectMessage);
   }, [mode, redirectMessage]);
 
+  // A Google sign-in that failed or was refused comes back as ?error=<code>.
+  // Shown once, then dropped from the address so a refresh doesn't repeat it.
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const message = loginErrorMessage(params.get('error'));
+    if (!message) return;
+    setError(message);
+    params.delete('error');
+    const rest = params.toString();
+    navigate(`${location.pathname}${rest ? `?${rest}` : ''}`, { replace: true, state: location.state });
+  }, [location.search, location.pathname, location.state, navigate]);
+
   useEffect(() => { if (isProfessional && registerMode) setRegisterMode(false); }, [isProfessional]);
 
   const canSignUp = !isProfessional;
@@ -135,18 +148,22 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (data.errors) throw new Error(Object.values(data.errors).join(', '));
-        if (data.requiresVerification) return { ...data, needsVerify: true };
-        throw new Error(data.message || 'Login failed');
+        // Signed up but never verified: the server has mailed a fresh code
+        // (403), or has sent its last one (429) — the verify step is the
+        // place for both, with the 429's explanation shown on it.
+        if (data.requiresVerification) return { ...data, needsVerify: true, notice: res.status === 429 ? data.message : '' };
+        throw new Error(authFailureMessage(data, 'Login failed. Please try again.'));
       }
       return data;
     },
     onSuccess: (data) => {
       if (data.needsVerify) {
-        setRegisteredEmail(data.email || username);
+        setRegisteredEmail(data.email || username.trim());
+        setOtp('');
         setStep('verify');
+        setError(data.notice || '');
         return;
       }
       if (data.token) setAuthToken(data.token);
@@ -163,26 +180,26 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const validateData = await validateRes.json();
+      const validateData = await validateRes.json().catch(() => ({}));
       if (!validateRes.ok) {
-        if (validateData.errors) throw new Error(Object.values(validateData.errors).join(', '));
-        throw new Error(validateData.message || 'Validation failed');
+        throw new Error(authFailureMessage(validateData, 'Please check your details and try again.'));
       }
 
       const res = await fetch(`${API_BASE_URL}/auth/register`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
         body: JSON.stringify(payload),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        if (data.errors) throw new Error(Object.values(data.errors).join(', '));
-        throw new Error(data.message || 'Registration failed');
+        throw new Error(authFailureMessage(data, 'Registration failed. Please try again.'));
       }
       return data;
     },
     onSuccess: async (data, variables) => {
       if (data.requiresVerification) {
         setRegisteredEmail(data.email || variables.email);
+        setOtp('');
+        setError('');
         setStep('verify');
         return;
       }
@@ -201,11 +218,24 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.message || 'Verification failed');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const message = authFailureMessage(data, 'Verification failed. Please try again.');
+        throw new Error(typeof data.attemptsLeft === 'number' && data.attemptsLeft > 0
+          ? `${message}. ${data.attemptsLeft} ${data.attemptsLeft === 1 ? 'attempt' : 'attempts'} left.`
+          : message);
+      }
       return data;
     },
     onSuccess: async (data) => {
+      // Verified, but awaiting review (a practitioner): there is no session
+      // to sign in to yet.
+      if (data.requiresApproval) {
+        setStep('auth');
+        setRegisterMode(false);
+        setError(data.message || 'Email verified. We will email you when you can sign in.');
+        return;
+      }
       toast.success('Email verified successfully!');
       if (data.token) setAuthToken(data.token);
       await checkAuth();
@@ -216,7 +246,9 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault(); setError('');
-    loginMutation.mutate({ username, password, role: isProfessional ? 'doctor' : 'patient' });
+    if (!username.trim()) return setError('Please enter your email');
+    if (!password) return setError('Please enter your password');
+    loginMutation.mutate({ username: username.trim(), password, role: isProfessional ? 'doctor' : 'patient' });
   };
 
   const handleRegister = (e: React.FormEvent) => {
@@ -224,11 +256,14 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
     if (!firstName.trim()) return setRegisterMsg('Name is required');
     if (!email.trim()) return setRegisterMsg('Email is required');
     if (!phoneNo.trim()) return setRegisterMsg('Phone number is required');
+    if (!isValidPhone(phoneNo)) return setRegisterMsg('Please enter a valid phone number (10 to 15 digits)');
     if (!registerPassword.trim()) return setRegisterMsg('Password is required');
+    if (registerPassword.length < 6) return setRegisterMsg('Password must be at least 6 characters long');
     if (!registerConfirm.trim()) return setRegisterMsg('Confirm your password');
     if (registerPassword !== registerConfirm) return setRegisterMsg('Passwords do not match');
-    
-    registerMutation.mutate({ firstName, lastName: '', email, username: email, password: registerPassword, phoneNo, role: 'patient' });
+
+    const cleanEmail = email.trim();
+    registerMutation.mutate({ firstName: firstName.trim(), lastName: '', email: cleanEmail, username: cleanEmail, password: registerPassword, phoneNo: phoneNo.trim(), role: 'patient' });
   };
 
   const handleGoogleAuth = () => {
@@ -440,8 +475,8 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
                   {/* Keyed so going back and signing up again restarts the cooldown. */}
                   <ResendCodeButton key={registeredEmail} email={registeredEmail} />
                   <span className="text-neutral-300" aria-hidden="true">·</span>
-                  <button type="button" onClick={() => setStep('auth')} className="text-[12px] text-neutral-400 hover:text-neutral-600 font-medium">
-                    Back to login
+                  <button type="button" onClick={() => { setStep('auth'); setError(''); }} className="text-[12px] text-neutral-400 hover:text-neutral-600 font-medium">
+                    {registerMode ? 'Back to sign up' : 'Back to sign in'}
                   </button>
                 </div>
               </motion.form>
@@ -545,8 +580,10 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
             ) : (
               <motion.form key="login" variants={stagger} initial="initial" animate="animate" exit="exit"
                 onSubmit={handleLogin} className="space-y-3">
-                <Field label="Email or Phone" type="text" value={username} onChange={setUsername}
-                  placeholder="Enter your email or phone" icon={<FiMail size={15} />} disabled={isMutationLoading} />
+                {/* Email only: sign-in matches the address (or username), never
+                    the phone number this label used to promise. */}
+                <Field label="Email" type="email" value={username} onChange={setUsername}
+                  placeholder="Enter your email" icon={<FiMail size={15} />} disabled={isMutationLoading} />
                 <Field label="Password" type="password" value={password} onChange={setPassword}
                   placeholder="Enter your password" icon={<FiLock size={15} />} disabled={isMutationLoading}
                   toggle showPw={showLoginPw} onToggle={() => setShowLoginPw(p => !p)} />
@@ -556,12 +593,12 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
                     Forgot password?
                   </button>
                 </motion.div>
-                <motion.button variants={fadeUp} type="submit" disabled={loading} whileTap={{ scale: 0.98 }}
+                <motion.button variants={fadeUp} type="submit" disabled={isMutationLoading} whileTap={{ scale: 0.98 }}
                   className="w-full py-2.5 text-white text-[14px] font-semibold rounded-xl transition-all shadow-sm flex items-center justify-center gap-2"
                   style={{ background: isProfessional ? 'var(--sage)' : 'var(--teal)', border: '1px solid rgba(0,0,0,0.05)' }}
                   onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = isProfessional ? '#5b8f74' : 'var(--teal-dark)'}
                   onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = isProfessional ? 'var(--sage)' : 'var(--teal)'}>
-                  {loading ? <Spinner text="Signing in..." /> : `Sign In as ${isProfessional ? 'Doctor' : 'Patient'}`}
+                  {loginMutation.isPending ? <Spinner text="Signing in..." /> : `Sign In as ${isProfessional ? 'Doctor' : 'Patient'}`}
                 </motion.button>
               </motion.form>
             )}

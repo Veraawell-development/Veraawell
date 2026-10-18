@@ -74,21 +74,34 @@ function tokenPredatesPasswordChange(user, decoded) {
  * the error to raise, or null. Exported for the socket handshake.
  */
 function accountProblem(user) {
+  const refused = (message) => {
+    const error = new AuthorizationError(message);
+    // The account itself is refused, not this one request: the client signs
+    // the browser out on seeing it (utils/csrfFetchInterceptor.ts).
+    error.code = 'ACCOUNT_REFUSED';
+    error.category = 'authentication';
+    return error;
+  };
   // Account status was never checked here, only in verifyAdminToken. So
   // suspending a patient or doctor did nothing at all: their existing token
   // kept full access for its 30-day life, and they could continue booking,
   // messaging and joining calls. Verified against the running server — a
   // user with status 'suspended' got HTTP 200 from /api/protected.
   if (user.status !== 'active') {
-    return new AuthorizationError('This account has been suspended');
+    return refused('This account has been suspended');
   }
   // Login refuses a rejected doctor, but a token issued before the rejection
-  // (or at verify-signup, which hands a pending doctor a token so they can
-  // finish their profile) kept working for its whole 30-day life — a
-  // rejected practitioner could still edit a public profile and take calls.
-  // Pending stays allowed for that same profile-completion reason.
+  // kept working for its whole 30-day life — a rejected practitioner could
+  // still edit a public profile and take calls.
   if (user.role === 'doctor' && user.approvalStatus === 'rejected') {
-    return new AuthorizationError('This practitioner account has been rejected');
+    return refused('This practitioner account has been rejected');
+  }
+  // Pending, likewise. Password login has always refused a pending doctor,
+  // but verify-signup and Google sign-in used to hand one a session anyway,
+  // and with it the whole doctor dashboard before any admin had looked at
+  // their licence. Neither issues one now; this retires the ones already out.
+  if (user.role === 'doctor' && user.approvalStatus !== 'approved') {
+    return refused('Your practitioner account is awaiting approval. We will email you when you can sign in.');
   }
   return null;
 }
@@ -147,7 +160,7 @@ async function authenticateRealm(req, realm) {
       continue;
     }
 
-    return { user, decoded, source };
+    return { user, decoded, source, token };
   }
 
   throw failure;
@@ -163,7 +176,7 @@ async function verifyToken(req, res, next) {
       logger.debug('No token provided', { ip: req.ip });
       throw new AuthenticationError('No token provided');
     }
-    const { user, decoded } = resolved;
+    const { user, decoded, token } = resolved;
 
     const problem = accountProblem(user);
     if (problem) {
@@ -178,6 +191,8 @@ async function verifyToken(req, res, next) {
     // Attach user to request
     req.user = user;
     req.token = decoded;
+    // The credential itself, for GET /api/protected to hand back.
+    req.authToken = token;
     // Single normalized view of the caller, correct in both auth realms. See
     // authz/actor.js — handlers read req.actor.id rather than guessing
     // between req.user and req.admin.

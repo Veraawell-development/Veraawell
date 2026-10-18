@@ -1,6 +1,7 @@
 import { API_CONFIG } from '../config/api';
 import { getCsrfToken, invalidateCsrfToken } from './csrfToken';
 import { getAuthToken } from './authToken';
+import { reportSessionRejected } from './sessionEvents';
 
 /**
  * Installs a global fetch wrapper for requests aimed at this app's own API.
@@ -37,7 +38,15 @@ import { getAuthToken } from './authToken';
  *     in. Admin API calls are left alone — they authenticate with the admin
  *     token, and a user's Bearer header would take precedence over it.
  *
- *  3. On mutations (POST/PUT/PATCH/DELETE), attaches X-CSRF-Token (the
+ *  3. Reports a 401 from the user API, or a 403 refusing the account itself
+ *     (code ACCOUNT_REFUSED: suspended, not approved) — see
+ *     utils/sessionEvents.ts — so a
+ *     session that ended mid-use is noticed and signed out cleanly instead
+ *     of every screen failing one request at a time. Not for the session
+ *     check itself, which AuthContext reads directly, nor for a sign-in
+ *     attempt, where a 401 means a wrong password.
+ *
+ *  4. On mutations (POST/PUT/PATCH/DELETE), attaches X-CSRF-Token (the
  *     double-submit half; see utils/csrfToken.ts). If the server rejects it
  *     with a 403 whose body says `category: 'csrf'`, the cached token is
  *     dropped, a fresh one fetched, and the request retried once — provided
@@ -114,6 +123,29 @@ async function isCsrfRejection(response: Response): Promise<boolean> {
   }
 }
 
+/** API paths whose 401 is an answer, not a sign the session has ended. */
+const SESSION_REPORT_EXEMPT = new Set(['/protected', '/auth/login', '/auth/logout']);
+
+/** A 403 the server attributes to the account itself (suspended, not approved). */
+async function isAccountRefusal(response: Response): Promise<boolean> {
+  if (response.status !== 403) return false;
+  if (!(response.headers.get('content-type') || '').includes('json')) return false;
+  try {
+    const data = await response.clone().json();
+    return data?.code === 'ACCOUNT_REFUSED';
+  } catch {
+    return false;
+  }
+}
+
+async function watchForEndedSession(response: Response, path: string, credentials: RequestCredentials): Promise<Response> {
+  if (credentials === 'omit' || isAdminContext(path) || SESSION_REPORT_EXEMPT.has(path)) return response;
+  if (response.status === 401 || (await isAccountRefusal(response))) {
+    reportSessionRejected();
+  }
+  return response;
+}
+
 /**
  * Wraps `originalFetch` with the behaviour described above. Exported
  * separately from the installer so it can be unit-tested without touching
@@ -153,7 +185,7 @@ export function createApiFetch(originalFetch: typeof fetch): typeof fetch {
     }
 
     if (!isMutating) {
-      return originalFetch(input, { ...init, headers, credentials });
+      return watchForEndedSession(await originalFetch(input, { ...init, headers, credentials }), path, credentials);
     }
 
     // A Request's body can only be read once; keep an unread copy for a retry.
@@ -168,7 +200,7 @@ export function createApiFetch(originalFetch: typeof fetch): typeof fetch {
     const response = await send(input, await getCsrfToken());
 
     if (!(await isCsrfRejection(response))) {
-      return response;
+      return watchForEndedSession(response, path, credentials);
     }
 
     // The cached token no longer matches the cookie (rotated, expired, or the
@@ -181,7 +213,7 @@ export function createApiFetch(originalFetch: typeof fetch): typeof fetch {
     const freshToken = await getCsrfToken();
     if (!freshToken) return response;
 
-    return send(replayRequest ?? input, freshToken);
+    return watchForEndedSession(await send(replayRequest ?? input, freshToken), path, credentials);
   };
 }
 

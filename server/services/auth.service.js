@@ -25,6 +25,8 @@ const logger = createLogger('AUTH-SERVICE');
 const MAX_SIGNUP_OTP_ATTEMPTS = 5;
 const MAX_SIGNUP_OTP_RESENDS = 5;
 
+const SUSPENDED_MESSAGE = 'This account has been suspended. Please contact support@veraawell.com.';
+
 /**
  * Generate JWT token
  */
@@ -261,11 +263,14 @@ async function registerUser(userData) {
  * Authenticate user login
  */
 async function authenticateUser(username, password, requestedRole = null) {
-  // Find user by email or username
+  // Find user by email or username. Trimmed: a phone keyboard's autocomplete
+  // leaves a trailing space after an address, and " a@b.com" used to come
+  // back as "User not found. Please sign up first."
+  const identifier = String(username).trim().toLowerCase();
   const user = await User.findOne({
     $or: [
-      { email: username.toLowerCase() },
-      { username: username.toLowerCase() }
+      { email: identifier },
+      { username: identifier }
     ]
   });
 
@@ -286,6 +291,14 @@ async function authenticateUser(username, password, requestedRole = null) {
   const isMatch = await user.comparePassword(password);
   if (!isMatch) {
     throw new AuthenticationError('Invalid credentials');
+  }
+
+  // A suspended account was let through here and refused by verifyToken on
+  // the very next request, so the person saw "Login successful" and then
+  // the login page again with no explanation. Refused here instead, with
+  // the reason — after the password, so only the owner learns it.
+  if (user.status && user.status !== 'active') {
+    throw new AuthorizationError(SUSPENDED_MESSAGE, 403);
   }
 
   // Check role mismatch
@@ -339,7 +352,7 @@ async function authenticateUser(username, password, requestedRole = null) {
  * Handle password reset request
  */
 async function requestPasswordReset(email) {
-  const user = await User.findOne({ email: email.toLowerCase() });
+  const user = await User.findOne({ email: String(email).trim().toLowerCase() });
 
   if (!user) {
     throw new NotFoundError('User with that email does not exist.');
@@ -375,7 +388,10 @@ async function requestPasswordReset(email) {
  * Reset password with token
  */
 async function resetPassword(token, newPassword) {
-  const user = await User.findOne({ resetToken: token, role: { $nin: ['admin', 'super_admin'] } });
+  const user = await User.findOne({
+    resetToken: User.hashResetToken(token),
+    role: { $nin: ['admin', 'super_admin'] }
+  });
 
   if (!user) {
     throw new NotFoundError('Invalid reset token. Please request a new password reset.');
@@ -428,9 +444,23 @@ async function updatePassword(userId, currentPassword, newPassword) {
     throw new NotFoundError('User');
   }
 
+  // A Google account has no password the person knows, so "current
+  // password" could only ever come back "incorrect".
+  if (user.googleId) {
+    throw new ValidationError('This account signs in with Google, so it has no password to change.');
+  }
+
+  // 400, not 401: the session is fine, the field is wrong. A 401 here reads
+  // to the client as "your session has ended".
   const isMatch = await user.comparePassword(currentPassword);
   if (!isMatch) {
-    throw new AuthenticationError('Incorrect current password');
+    throw new ValidationError('Incorrect current password', { currentPassword: 'Incorrect current password' });
+  }
+
+  if (currentPassword === newPassword) {
+    throw new ValidationError('New password must be different from your current password', {
+      newPassword: 'New password must be different from your current password'
+    });
   }
 
   user.password = newPassword;
@@ -597,6 +627,7 @@ async function anonymiseUser(user) {
 }
 
 module.exports = {
+  SUSPENDED_MESSAGE,
   MAX_SIGNUP_OTP_ATTEMPTS,
   MAX_SIGNUP_OTP_RESENDS,
   generateToken,

@@ -28,7 +28,7 @@ const { generalLimiter, authLimiter, passwordResetLimiter, signupOtpResendLimite
 const { publicRoute } = require('./authz');
 const { errorHandler, notFoundHandler } = require('./middleware/error.middleware');
 const { validateRegistration, validateLogin, validatePasswordReset } = require('./middleware/validation.middleware');
-const { verifyToken } = require('./middleware/auth.middleware');
+const { verifyToken, optionalAuth } = require('./middleware/auth.middleware');
 
 // Controllers
 const authController = require('./controllers/auth.controller');
@@ -312,13 +312,24 @@ app.post('/api/auth/resend-signup-otp',
   publicRoute('signup verification: resend a code to a pending, unverified signup'),
   authController.resendSignupOtp);
 app.post('/api/auth/login', validateLogin, authController.login);
-app.post('/api/auth/logout', verifyToken, authController.logout);
+// Signing out needs no valid session: a token that has expired, or been
+// retired by a password change, still sits in the browser as a cookie, and
+// only this response can clear it. It used to be behind verifyToken, so
+// exactly those sessions got a 401 and kept their dead cookie.
+app.post('/api/auth/logout',
+  optionalAuth,
+  publicRoute('sign out: clears the session cookie whether or not it is still valid'),
+  authController.logout);
 app.post('/api/auth/forgot-password', authController.forgotPassword);
 app.post('/api/auth/reset-password', validatePasswordReset, authController.resetPassword);
 app.put('/api/auth/update-password', verifyToken, authController.updatePassword);
 app.delete('/api/auth/delete-account', verifyToken, authController.deleteAccount);
 app.get('/api/auth/profile', verifyToken, authController.getProfile);
-app.get('/api/protected', verifyToken, authController.getProtected);
+// The client's "am I signed in?" check. When the answer is no, the cookie
+// that failed is cleared in the same response, so a dead session ends here
+// instead of being re-sent (and re-refused) on every request until it
+// expires.
+app.get('/api/protected', verifyToken, authController.getProtected, authController.clearRefusedSession);
 
 // Profile routes
 // Profile routes
@@ -348,57 +359,15 @@ app.post('/api/auth/patient-profile', verifyToken, profileController.setupProfil
 const { getOAuthConfig } = require('./config/auth');
 const oauthConfig = getOAuthConfig();
 
+// The handlers live in services/oauth.service.js, where they are tested
+// against a stubbed Google. Without Google configured, both send the person
+// back to the login page with a message instead of a bare JSON error.
 if (oauthConfig.enabled) {
-  app.get('/api/auth/google', (req, res, next) => {
-    const role = req.query.role || 'patient';
-    oauthService.validateOAuthRole(role);
-
-    // Store role in session for callback
-    req.session.oauthRole = role;
-
-    passport.authenticate('google', {
-      scope: ['profile', 'email'],
-      prompt: 'select_account'
-    })(req, res, next);
-  });
-
-  app.get('/api/auth/google/callback', (req, res, next) => {
-    const role = req.session.oauthRole || 'patient';
-
-    // Regenerate session to prevent reuse
-    req.session.regenerate((err) => {
-      if (err) {
-        return next(err);
-      }
-
-      req.session.oauthRole = role;
-
-      passport.authenticate('google', async (err, user) => {
-        if (err || !user) {
-          const { getFrontendUrl } = require('./config/auth');
-          const frontendUrl = getFrontendUrl();
-          return res.redirect(`${frontendUrl}/login?error=google-auth-failed`);
-        }
-
-        await oauthService.handleOAuthCallback(req, res, user, role);
-      })(req, res, next);
-    });
-  });
+  app.get('/api/auth/google', oauthService.startGoogleSignIn);
+  app.get('/api/auth/google/callback', oauthService.finishGoogleSignIn);
 } else {
-  // Fallback routes if Google OAuth is not configured
-  app.get('/api/auth/google', (req, res) => {
-    res.status(400).json({
-      success: false,
-      message: 'Google OAuth not configured'
-    });
-  });
-
-  app.get('/api/auth/google/callback', (req, res) => {
-    res.status(400).json({
-      success: false,
-      message: 'Google OAuth not configured'
-    });
-  });
+  app.get('/api/auth/google', oauthService.googleUnavailable);
+  app.get('/api/auth/google/callback', oauthService.googleUnavailable);
 }
 
 

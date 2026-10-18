@@ -45,8 +45,9 @@ function errorHandler(err, req, res, next) {
   //   - utils/csrfFetchInterceptor.ts treats every 403 as a stale CSRF token
   //     and discards its cached token; it should only do that for
   //     category === 'csrf'.
-  //   - context/AuthContext.tsx treats a 403 from /api/protected as a logout;
-  //     an authorization denial is not a logout.
+  //   - a 403 coded ACCOUNT_REFUSED (suspended, or a practitioner not
+  //     approved) ends the session wherever it comes from; any other 403 is
+  //     an answer about that one request.
   if (err instanceof AppError) {
     return res.status(err.statusCode).json({
       success: false,

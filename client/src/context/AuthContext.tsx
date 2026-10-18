@@ -1,10 +1,12 @@
-import React, { createContext, useState, useContext, useCallback, useRef } from 'react';
+import React, { createContext, useState, useContext, useCallback, useEffect, useRef } from 'react';
 import type { ReactNode } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../config/api';
 import { getAuthToken, setAuthTokenInMemory } from '../utils/authToken';
 import { invalidateCsrfToken } from '../utils/csrfToken';
 import { fetchWithRetry } from '../utils/backendWakeup';
+import { onSessionRejected } from '../utils/sessionEvents';
 
 interface User {
   userId: string;
@@ -72,7 +74,8 @@ interface AuthContextType {
    * real answer.
    */
   likelySignedIn: boolean;
-  checkAuth: (options?: CheckAuthOptions) => Promise<void>;
+  /** Resolves true when the server confirmed a signed-in session. */
+  checkAuth: (options?: CheckAuthOptions) => Promise<boolean>;
   logout: () => Promise<void>;
   setAuthToken: (token: string) => void;
 }
@@ -93,21 +96,37 @@ class AuthCheckError extends Error {
   status?: number;
   /** The server said this session is not valid — clear it. */
   loggedOut: boolean;
+  /** What the server said, for telling the person why. */
+  serverMessage?: string;
 
-  constructor(message: string, loggedOut: boolean, status?: number) {
+  constructor(message: string, loggedOut: boolean, status?: number, serverMessage?: string) {
     super(message);
     this.loggedOut = loggedOut;
     this.status = status;
+    this.serverMessage = serverMessage;
   }
 }
 
-async function readCategory(res: Response): Promise<string | undefined> {
+async function readMessage(res: Response): Promise<string | undefined> {
   try {
     const data = await res.clone().json();
-    return typeof data?.category === 'string' ? data.category : undefined;
+    return typeof data?.message === 'string' ? data.message : undefined;
   } catch {
     return undefined;
   }
+}
+
+const SESSION_ENDED_MESSAGE = 'Your session has ended. Please sign in again.';
+
+/**
+ * What to tell someone whose session the server just refused. A 403 here is
+ * about the account (suspended, not approved) and its message says so; most
+ * 401s are just an expired token, but a password change elsewhere says so too.
+ */
+function endedSessionMessage(error: AuthCheckError): string {
+  if (error.status === 403 && error.serverMessage) return error.serverMessage;
+  if (error.serverMessage && /password was changed/i.test(error.serverMessage)) return error.serverMessage;
+  return SESSION_ENDED_MESSAGE;
 }
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -185,12 +204,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
           if (!res.ok) {
             // Only a definite "this session is not valid" logs the user out:
-            // a 401, or a 403 the server tags as an authentication failure.
-            // A 5xx that outlived the retries, or an authorization 403, is
-            // not proof the user is logged out.
-            const loggedOut = res.status === 401
-              || (res.status === 403 && (await readCategory(res)) === 'authentication');
-            throw new AuthCheckError(`Auth check failed: ${res.status}`, loggedOut, res.status);
+            // a 401, or a 403. /protected has no authorization rule of its
+            // own, so its 403 is always about the account — suspended, or a
+            // practitioner not (or no longer) approved — and that session is
+            // over. A 403 used to leave the app half signed in: no user, but
+            // the dead cookie kept and every page bouncing to the login form
+            // with no word of why. A 5xx that outlived the retries is not
+            // proof of anything.
+            const loggedOut = res.status === 401 || res.status === 403;
+            throw new AuthCheckError(`Auth check failed: ${res.status}`, loggedOut, res.status, await readMessage(res));
           }
 
           const data = await res.json();
@@ -239,10 +261,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       } else if (storedToken) {
         setToken(storedToken);
       }
+      return true;
     } catch (error: unknown) {
       if (error instanceof AuthCheckError && error.loggedOut) {
+        const wasSignedIn = isLoggedInRef.current;
         setServerUnreachable(false);
         clearLocalSession();
+        // Ended under someone who was using the app, or refused for a reason
+        // about the account: say so. A plain 401 on a first visit is just a
+        // signed-out visitor.
+        if (wasSignedIn || error.status === 403) {
+          toast.error(endedSessionMessage(error), { id: 'session-ended', duration: 6000 });
+        }
+        if (wasSignedIn) {
+          invalidateCsrfToken();
+          // The previous session's cached data must not outlive it.
+          queryClient.clear();
+        }
       } else {
         const unreachable = !(error instanceof AuthCheckError) || error.status === undefined || error.status >= 500;
         setServerUnreachable(unreachable);
@@ -250,10 +285,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // DO NOT clear the in-memory token or state here — they might still
         // be valid once the server is reachable again.
       }
+      return false;
     } finally {
       if (blocking) setLoading(false);
     }
   }, [queryClient, clearLocalSession]);
+
+  // Any request the API turned away with a 401 (utils/sessionEvents.ts):
+  // ask whether the session is still good. If it is not, checkAuth signs the
+  // browser out and ProtectedRoute sends the person to the login page, with
+  // the page they were on kept for after they sign in.
+  const recheckInFlight = useRef(false);
+  useEffect(() => onSessionRejected(() => {
+    if (!isLoggedInRef.current || recheckInFlight.current) return;
+    recheckInFlight.current = true;
+    void checkAuth({ force: true }).finally(() => {
+      recheckInFlight.current = false;
+    });
+  }), [checkAuth]);
 
   const logout = useCallback(async () => {
     try {

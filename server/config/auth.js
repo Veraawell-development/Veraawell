@@ -148,9 +148,15 @@ function toClearOptions(config) {
 function getSessionCookieConfig() {
   return {
     httpOnly: true,
-    secure: true,
-    sameSite: 'none',
-    maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+    // Secure only where there is HTTPS. express-session refuses to set a
+    // Secure cookie on a plain-http request, so locally the Google round trip
+    // lost its session — and with it the state check — every time.
+    secure: isProduction(),
+    sameSite: isProduction() ? 'none' : 'lax',
+    // Sessions only carry a Google sign-in across Google's redirect (auth is
+    // the JWT cookie), which takes minutes, not the 30 days this was. Each
+    // click on the Google button left a 30-day row in auth_sessions.
+    maxAge: 15 * 60 * 1000,
     path: '/',
     domain: isProduction() ? '.veraawell.com' : undefined
   };

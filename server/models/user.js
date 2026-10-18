@@ -360,13 +360,25 @@ userSchema.methods.comparePassword = async function (candidatePassword) {
   }
 };
 
-// Initialize reset token
+/**
+ * Reset tokens are stored as their SHA-256, never as issued. The plaintext
+ * goes out in the emailed link and nowhere else, so a read of the users
+ * collection (a backup, a leaked connection string) no longer hands over a
+ * working "set this account's password" link for everyone mid-reset. The
+ * token is 48 random bytes, so an unsalted fast hash is enough: there is
+ * nothing to brute-force.
+ */
+userSchema.statics.hashResetToken = function (token) {
+  return crypto.createHash('sha256').update(String(token)).digest('hex');
+};
+
+// Initialize reset token. Returns the plaintext for the email; stores the hash.
 userSchema.methods.initializeResetToken = async function () {
   try {
     const buffer = await crypto.randomBytes(48);
     const token = buffer.toString('hex');
 
-    this.resetToken = token;
+    this.resetToken = this.constructor.hashResetToken(token);
     this.resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour
 
     await this.save();

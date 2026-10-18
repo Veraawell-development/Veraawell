@@ -349,3 +349,69 @@ describe('invalidateCsrfToken', () => {
     expect(headersOf(calls[1]).get('X-CSRF-Token')).toBe('token-2');
   });
 });
+
+describe('a session the API turns away', () => {
+  async function loadWithListener(pagePath?: string) {
+    const loaded = await load(pagePath);
+    const events = await import('../utils/sessionEvents');
+    const heard = vi.fn();
+    events.onSessionRejected(heard);
+    return { ...loaded, heard };
+  }
+
+  it('is reported on a 401 from any user API call, read or write', async () => {
+    const { apiFetch, heard } = await loadWithListener();
+    respond = () => json(401, { message: 'Invalid or expired token' });
+    await apiFetch(`${API}/sessions/my-sessions`);
+    await apiFetch(`${API}/session-tools/journal`, { method: 'POST', body: '{}' });
+    expect(heard).toHaveBeenCalledTimes(2);
+  });
+
+  it('is reported on a 403 that refuses the account itself, and not on an ordinary 403', async () => {
+    const { apiFetch, heard } = await loadWithListener();
+    respond = () => json(403, { message: 'This account has been suspended', code: 'ACCOUNT_REFUSED' });
+    await apiFetch(`${API}/sessions/my-sessions`);
+    expect(heard).toHaveBeenCalledTimes(1);
+
+    respond = () => json(403, { message: 'Insufficient permissions', category: 'authz' });
+    await apiFetch(`${API}/sessions/someone-elses`);
+    expect(heard).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not reported where a 401 is an answer: the session check, sign-in, sign-out', async () => {
+    const { apiFetch, heard } = await loadWithListener();
+    respond = () => json(401, { message: 'Invalid credentials' });
+    await apiFetch(`${API}/protected`);
+    await apiFetch(`${API}/auth/login`, { method: 'POST', body: '{}' });
+    await apiFetch(`${API}/auth/logout`, { method: 'POST' });
+    expect(heard).not.toHaveBeenCalled();
+  });
+
+  it('is not reported for the admin console, which has its own session', async () => {
+    const onAdminPage = await loadWithListener('/super-admin-dashboard');
+    respond = () => json(401, {});
+    await onAdminPage.apiFetch(`${API}/sessions/x`);
+    expect(onAdminPage.heard).not.toHaveBeenCalled();
+
+    const adminApi = await loadWithListener('/patient-dashboard');
+    await adminApi.apiFetch(`${API}/admin/approvals/doctors/pending`);
+    expect(adminApi.heard).not.toHaveBeenCalled();
+  });
+
+  it('is not reported for an anonymous request or a success', async () => {
+    const { apiFetch, heard } = await loadWithListener();
+    respond = () => json(401, {});
+    await apiFetch(`${API}/doctors`, { credentials: 'omit' });
+    respond = () => json(200, { ok: true });
+    await apiFetch(`${API}/sessions/my-sessions`);
+    expect(heard).not.toHaveBeenCalled();
+  });
+
+  it('still hands the caller the response', async () => {
+    const { apiFetch } = await loadWithListener();
+    respond = () => json(401, { message: 'Invalid or expired token' });
+    const res = await apiFetch(`${API}/sessions/my-sessions`);
+    expect(res.status).toBe(401);
+    expect((await res.json()).message).toBe('Invalid or expired token');
+  });
+});
