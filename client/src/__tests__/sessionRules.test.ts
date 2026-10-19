@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { joinWindow, canJoinNow, hasEnded, outcomeLabel, type SessionLike } from '../utils/sessionRules';
+import { joinWindow, canJoinNow, hasEnded, isBooked, outcomeLabel, type SessionLike } from '../utils/sessionRules';
 
 const MIN = 60 * 1000;
 const T = new Date('2026-11-02T04:30:00.000Z'); // 10:00 IST
@@ -47,6 +47,9 @@ describe('what became of a session', () => {
 
   it('says nothing for a session still to come', () => {
     expect(outcomeLabel(booked(), 'patient')).toBeNull();
+    // A checkout that was never paid: nothing was charged, nothing to refund.
+    expect(label({ status: 'cancelled', paymentStatus: 'failed' })).toBe('Payment not completed');
+    expect(label({ status: 'cancelled', paymentStatus: 'failed' }, 'doctor')).toBe('Payment not completed');
   });
 
   it('a cancellation says whether money came back — it used to read "Cancelled & Refunded" every time', () => {
@@ -75,5 +78,12 @@ describe('what became of a session', () => {
 
   it('accepts the outcome as call history sends it (a bare code)', () => {
     expect(label({ status: 'no-show', outcome: 'patient_no_show' })).toBe('Missed — no refund');
+  });
+});
+
+describe('isBooked', () => {
+  it('counts paid, free and refunded bookings, not open or failed checkouts', () => {
+    for (const p of ['paid', 'not_required', 'refunded', 'refund_pending', 'refund_failed']) expect(isBooked({ paymentStatus: p } as SessionLike)).toBe(true);
+    for (const p of ['pending', 'failed', undefined]) expect(isBooked({ paymentStatus: p } as SessionLike)).toBe(false);
   });
 });

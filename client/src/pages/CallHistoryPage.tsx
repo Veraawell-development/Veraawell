@@ -5,6 +5,7 @@ import { API_BASE_URL } from '../config/api';
 import { useQuery } from '@tanstack/react-query';
 import { outcomeLabel } from '../utils/sessionRules';
 import { formatPlatformDate } from '../utils/dateUtils';
+import { useAuth } from '../context/AuthContext';
 
 interface CallRecord {
   _id: string;
@@ -27,11 +28,11 @@ interface CallRecord {
  * What became of the session. Every cancellation used to read "Cancelled &
  * Refunded", refunded or not; now it says what actually happened.
  */
-const callOutcome = (call: CallRecord) =>
-  outcomeLabel({ ...call, price: call.paymentAmount, refundAmount: call.refundAmount }, 'patient');
+const callOutcome = (call: CallRecord, viewer: 'patient' | 'doctor') =>
+  outcomeLabel({ ...call, price: call.paymentAmount, refundAmount: call.refundAmount }, viewer);
 
 const TONE_CLASS: Record<string, string> = {
-  good: 'bg-teal-50 text-teal-600',
+  good: 'bg-teal-50 text-[var(--teal)]',
   neutral: 'bg-gray-100 text-gray-600',
   warn: 'bg-amber-50 text-amber-700',
   bad: 'bg-red-50 text-red-600'
@@ -39,6 +40,10 @@ const TONE_CLASS: Record<string, string> = {
 
 const CallHistoryPage: React.FC = () => {
   const navigate = useNavigate();
+  // Doctors reach this page too (their sidebar links here): their labels, and
+  // their dashboard to go back to.
+  const { user } = useAuth();
+  const viewer: 'patient' | 'doctor' = user?.role === 'doctor' ? 'doctor' : 'patient';
   const { data: callHistory = [], isLoading: loading, error: queryError } = useQuery({
     queryKey: ['patient', 'call-history'],
     queryFn: async () => {
@@ -59,13 +64,19 @@ const CallHistoryPage: React.FC = () => {
 
   const error = queryError ? (
     queryError.message.includes('Failed to fetch') || queryError.message.includes('ERR_CONNECTION_REFUSED')
-      ? 'Cannot connect to server. Please make sure the backend is running on port 5001.'
+      ? "We couldn't reach Veraawell. Check your connection and try again."
       : queryError.message || 'Failed to load call history'
   ) : null;
 
   // In IST, like everywhere else: the viewer's own zone could put a late
   // evening session on the next day.
-  const formatDate = (call: CallRecord) => formatPlatformDate(call.startsAt || call.date);
+  const formatDate = (call: CallRecord) => {
+    const day = formatPlatformDate(call.startsAt || call.date);
+    // With the time: several sessions on one day were indistinguishable.
+    return call.startsAt
+      ? `${day} · ${new Date(call.startsAt).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' })}`
+      : day;
+  };
 
   const getInitials = (name: string) => {
     const parts = name.replace('Dr. ', '').split(' ');
@@ -75,9 +86,9 @@ const CallHistoryPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="h-[calc(100vh-80px)] flex items-center justify-center bg-[#FAFAFA] font-sans">
+      <div className="h-[calc(100vh-80px)] flex items-center justify-center bg-[var(--bg)] font-sans">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <div className="w-8 h-8 border-2 border-[var(--teal)] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-500 text-[13px] font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>Loading call history...</p>
         </div>
       </div>
@@ -85,14 +96,14 @@ const CallHistoryPage: React.FC = () => {
   }
 
   return (
-    <div className="h-screen pt-[64px] md:pt-[80px] bg-[#FAFAFA] font-sans flex flex-col overflow-hidden box-border">
+    <div className="h-screen pt-[64px] md:pt-[80px] bg-[var(--bg)] font-sans flex flex-col overflow-hidden box-border">
       {/* Main Content Area */}
       <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 md:py-10 flex flex-col min-h-0">
         
         <div className="mb-8 max-w-2xl relative shrink-0">
           <button 
-            onClick={() => navigate('/patient-dashboard')} 
-            className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 hover:text-teal-600 transition-colors mb-5 group"
+            onClick={() => navigate(viewer === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard')} 
+            className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 hover:text-[var(--teal)] transition-colors mb-5 group"
             aria-label="Back to Dashboard"
             style={{ fontFamily: 'Inter, sans-serif' }}
           >
@@ -102,7 +113,7 @@ const CallHistoryPage: React.FC = () => {
             Back to Dashboard
           </button>
           
-          <h1 className="text-[32px] md:text-[36px] font-extrabold text-gray-800 tracking-tight mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
+          <h1 className="page-title mb-3">
             Call History
           </h1>
           <p className="text-[15px] text-gray-500 font-medium leading-relaxed max-w-2xl" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -156,13 +167,13 @@ const CallHistoryPage: React.FC = () => {
                   
                   <div className="mb-6 flex flex-wrap gap-1.5">
                     <span className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide uppercase ${
-                      call.mode === 'Voice Calling' ? 'bg-purple-50 text-purple-600' : 'bg-teal-50 text-teal-600'
+                      call.mode === 'Voice Calling' ? 'bg-purple-50 text-purple-600' : 'bg-teal-50 text-[var(--teal)]'
                     }`} style={{ fontFamily: 'Inter, sans-serif' }}>
                       {call.mode === 'Voice Calling' ? 'Voice' : 'Video'}
                     </span>
-                    {callOutcome(call) && (
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide ${TONE_CLASS[callOutcome(call)!.tone]}`} style={{ fontFamily: 'Inter, sans-serif' }}>
-                        {callOutcome(call)!.label}
+                    {callOutcome(call, viewer) && (
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide ${TONE_CLASS[callOutcome(call, viewer)!.tone]}`} style={{ fontFamily: 'Inter, sans-serif' }}>
+                        {callOutcome(call, viewer)!.label}
                       </span>
                     )}
                   </div>
@@ -172,17 +183,20 @@ const CallHistoryPage: React.FC = () => {
                       <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Duration</p>
                       <div className="flex items-baseline gap-1">
                         <span className="text-[20px] font-black leading-none text-gray-800 tracking-tighter" style={{ fontFamily: 'Inter, sans-serif' }}>
-                          {call.duration}
+                          {call.duration > 0 ? call.duration : '—'}
                         </span>
-                        <span className="text-[12px] font-bold text-gray-400">mins</span>
+                        {call.duration > 0 && <span className="text-[12px] font-bold text-gray-400">mins</span>}
                       </div>
                     </div>
                     
                     <div className="text-right">
                       <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Amount</p>
-                      <span className="text-[16px] font-bold text-teal-600 tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
+                      <span className="text-[16px] font-bold text-[var(--teal)] tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
                         ₹{call.paymentAmount}
                       </span>
+                      {call.paymentStatus === 'refunded' && (
+                        <p className="text-[11px] font-semibold text-gray-400">refunded</p>
+                      )}
                     </div>
                   </div>
                 </div>

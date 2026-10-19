@@ -9,6 +9,7 @@ const Session = require('../models/session');
 const Conversation = require('../models/conversation');
 const User = require('../models/user');
 const DoctorProfile = require('../models/doctorProfile');
+const DoctorAvailability = require('../models/doctorAvailability');
 const { PUBLIC_DOCTOR_FIELDS } = require('../models/doctorProfile');
 const Review = require('../models/review');
 const PlatformSettings = require('../models/platformSettings');
@@ -287,11 +288,16 @@ const getPendingFeedback = asyncHandler(async (req, res) => {
   const userId = req.actor.id;
   const threeDaysAgo = new Date(Date.now() - 72 * 60 * 60 * 1000);
   const completedSessions = await Session.find({ patientId: new mongoose.Types.ObjectId(userId), status: 'completed', sessionDate: { $gte: threeDaysAgo } })
-    .populate('doctorId', 'firstName lastName').sort({ sessionDate: -1, sessionTime: -1 }).lean();
-  for (const session of completedSessions) {
-    const review = await Review.findOne({ sessionId: new mongoose.Types.ObjectId(session._id), patientId: new mongoose.Types.ObjectId(userId), reviewType: 'doctor' });
-    if (!review) return res.json({ session: { _id: session._id, sessionDate: session.sessionDate, sessionTime: session.sessionTime, status: session.status, doctorId: session.doctorId, sessionType: session.sessionType } });
-  }
+    .populate('doctorId', 'firstName lastName').sort({ startsAt: -1, sessionDate: -1 }).lean();
+  // One query for the reviews, not one per session (this runs on every
+  // dashboard load).
+  const reviewed = new Set((await Review.find({
+    sessionId: { $in: completedSessions.map((s) => s._id) },
+    patientId: new mongoose.Types.ObjectId(userId),
+    reviewType: 'doctor'
+  }).select('sessionId').lean()).map((r) => String(r.sessionId)));
+  const session = completedSessions.find((s) => !reviewed.has(String(s._id)));
+  if (session) return res.json({ session: { _id: session._id, sessionDate: session.sessionDate, sessionTime: session.sessionTime, status: session.status, doctorId: session.doctorId, sessionType: session.sessionType } });
   res.json({ session: null });
 });
 
@@ -303,15 +309,20 @@ const getCallHistory = asyncHandler(async (req, res) => {
   const limit = parseInt(req.query.limit) || 100;
   const skip = (page - 1) * limit;
 
-  const callHistory = await Session.find({ ...req.authz.scope, $or: [{ status: { $in: ['completed', 'cancelled', 'no-show'] } }, { callStatus: { $in: ['in-progress', 'completed'] } }, { callStartTime: { $exists: true, $ne: null } }] })
-    .populate('patientId', 'firstName lastName').populate('doctorId', 'firstName lastName').select('+rating').sort({ sessionDate: -1, sessionTime: -1 }).skip(skip).limit(limit).lean();
+  // Booked sessions only — a checkout that was never paid isn't a call — and
+  // in time order: sorting on the "hh:mm AM" text put 01:00 PM before 09:00 AM.
+  const { RELATIONSHIP_PAYMENT_STATES } = require('../services/chat.service');
+  const callHistory = await Session.find({ ...req.authz.scope, paymentStatus: { $in: RELATIONSHIP_PAYMENT_STATES }, $or: [{ status: { $in: ['completed', 'cancelled', 'no-show'] } }, { callStatus: { $in: ['in-progress', 'completed'] } }, { callStartTime: { $exists: true, $ne: null } }] })
+    .populate('patientId', 'firstName lastName').populate('doctorId', 'firstName lastName').select('+rating').sort({ startsAt: -1, sessionDate: -1 }).skip(skip).limit(limit).lean();
   const formatted = callHistory.map(s => ({
     _id: s._id,
-    name: userRole === 'patient' ? (s.doctorId ? `Dr. ${s.doctorId.firstName} ${s.doctorId.lastName}` : 'Test Session (Self)') : (s.patientId ? `${s.patientId.firstName} ${s.patientId.lastName}` : 'Test Session (Self)'),
+    name: userRole === 'patient' ? (s.doctorId ? `Dr. ${s.doctorId.firstName} ${s.doctorId.lastName}` : 'Deleted account') : (s.patientId ? `${s.patientId.firstName} ${s.patientId.lastName}` : 'Deleted account'),
     // `mode` is the call mode. It used to read "Cancelled & Refunded" for
     // every cancellation, refunded or not; what became of the session is now
     // its outcome, labelled by the app (client/src/utils/outcomeLabels.ts).
-    date: s.sessionDate, startsAt: s.startsAt, duration: s.actualDuration || s.duration, mode: s.callMode || 'Video Calling',
+    // Minutes actually spent in the call. A session nobody attended used to
+    // show its full booked length ("20 mins") as if it had happened.
+    date: s.sessionDate, startsAt: s.startsAt, duration: s.actualDuration || (s.status === 'completed' ? s.duration : 0), plannedDuration: s.duration, mode: s.callMode || 'Video Calling',
     paymentAmount: s.price, paymentStatus: s.paymentStatus, refundAmount: s.refundAmount || 0,
     sessionType: s.sessionType, status: s.status, callStatus: s.callStatus, rating: s.rating,
     outcome: s.outcome && s.outcome.code ? s.outcome.code : null,
@@ -333,7 +344,10 @@ const getDoctorSlots = asyncHandler(async (req, res) => {
   // and not overlapping anything the doctor is already doing — an instant
   // call can run into the next hour.
   const { doctorId, date } = req.params;
-  const availability = await getOrCreateAvailability(doctorId);
+  // Read only: a public GET used to CREATE a calendar (with default slots)
+  // for any id it was given, patients' ids included.
+  const availability = await DoctorAvailability.findOne({ doctorId });
+  if (!availability) return res.json({ availableSlots: [] });
   const earliest = new Date(Date.now() + JOIN_LEAD_MINUTES * 60 * 1000);
   const open = [];
   for (const slot of availability.getAvailableSlotsForDate(date).filter(s => !s.isBooked)) {
@@ -342,6 +356,10 @@ const getDoctorSlots = asyncHandler(async (req, res) => {
     if (startsAt < earliest) continue;
     open.push({ time: slot.time, startsAt });
   }
+  // In time order: a doctor's saved slots can be in any order ("01:00 PM"
+  // before "12:00 PM"), which the patient saw as is — and the busy check
+  // below takes its range from the first and last slot.
+  open.sort((a, b) => a.startsAt - b.startsAt);
   let availableSlots = open.map((o) => o.time);
   if (open.length) {
     const spans = await availabilityService.busySpans(doctorId, open[0].startsAt,
@@ -652,7 +670,7 @@ const getMySessions = asyncHandler(async (req, res) => {
   const limit = parseInt(req.query.limit) || 100;
   const skip = (page - 1) * limit;
 
-  const sessions = await Session.find(req.authz.scope).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ sessionDate: -1, sessionTime: -1 }).skip(skip).limit(limit);
+  const sessions = await Session.find(req.authz.scope).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ startsAt: -1, sessionDate: -1 }).skip(skip).limit(limit);
   const enrichedSessions = await attachDoctorProfiles(sessions, req.actor.role);
   res.json(enrichedSessions);
 });
@@ -757,6 +775,18 @@ const getDoctorById = asyncHandler(async (req, res) => {
   obj.instantBookable = can.instant;
   delete obj.payoutApproved;
   delete obj.bookableUntil;
+  // Which of the next 14 days (IST) have a free slot, so the booking page can
+  // show the rest as off. Every day looked bookable and only said "No
+  // available slots" once tapped.
+  obj.openDates = [];
+  const availability = await DoctorAvailability.findOne({ doctorId });
+  if (availability) {
+    const { utcToZoned } = require('../utils/zonedTime');
+    for (let i = 0; i < 14; i += 1) {
+      const day = utcToZoned(new Date(Date.now() + i * 24 * 60 * 60 * 1000), PLATFORM_TIMEZONE).localDate;
+      if (availability.getAvailableSlotsForDate(day).some((slot) => !slot.isBooked)) obj.openDates.push(day);
+    }
+  }
   res.json(obj);
 });
 
@@ -1084,12 +1114,19 @@ const cancelSession = asyncHandler(async (req, res) => {
 const getCalendar = asyncHandler(async (req, res) => {
   const { year, month } = req.params;
   const userId = req.actor.id;
-  const yearNum = parseInt(year);
-  const monthNum = parseInt(month);
+  const yearNum = parseInt(year, 10);
+  const monthNum = parseInt(month, 10);
+  // A bad year/month used to reach Mongo as an Invalid Date and come back a 500.
+  if (!Number.isInteger(yearNum) || !Number.isInteger(monthNum) || monthNum < 1 || monthNum > 12 || yearNum < 2000 || yearNum > 2100) {
+    return res.status(400).json({ success: false, message: 'Year and month must be a real month' });
+  }
   const startDate = new Date(Date.UTC(yearNum, monthNum - 1, 1));
   const endDate = new Date(Date.UTC(yearNum, monthNum, 1));
-  const query = sealedFilter(req.authz.scope, { sessionDate: { $gte: startDate, $lt: endDate } });
-  const sessions = await Session.find(query).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ sessionDate: 1, sessionTime: 1 });
+  // Booked sessions only (an open or abandoned checkout isn't a session), in
+  // time order — sorting on the "hh:mm AM" text put 01:00 PM before 09:00 AM.
+  const { RELATIONSHIP_PAYMENT_STATES } = require('../services/chat.service');
+  const query = sealedFilter(req.authz.scope, { sessionDate: { $gte: startDate, $lt: endDate }, paymentStatus: { $in: RELATIONSHIP_PAYMENT_STATES } });
+  const sessions = await Session.find(query).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ startsAt: 1, sessionDate: 1 });
 
   const enrichedSessions = await attachDoctorProfiles(sessions, req.actor.role);
   res.json(enrichedSessions);

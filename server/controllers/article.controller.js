@@ -109,10 +109,16 @@ exports.getPublishedArticles = asyncHandler(async (req, res) => {
                 .sort(search ? { score: { $meta: 'textScore' } } : { publishedDate: -1 })
                 .skip(skip)
                 .limit(limit)
-                .select(`-content ${PUBLIC_EXCLUDE}`) // Exclude content for list view
+                .select(PUBLIC_EXCLUDE)
                 .lean(),
             Article.countDocuments(filter)
         ]);
+        // Read time from the text itself (stored values from before the
+        // &nbsp; fix say "1 min read"); the body isn't sent in a list.
+        for (const a of articles) {
+            a.readTime = Article.readTimeOf(a.content);
+            delete a.content;
+        }
 
         const responseData = {
             articles,
@@ -150,6 +156,7 @@ exports.getArticleBySlug = asyncHandler(async (req, res) => {
         if (!article) {
             return res.status(404).json({ message: 'Article not found' });
         }
+        article.readTime = Article.readTimeOf(article.content);
 
         cache.set(cacheKey, article);
         res.json(article);

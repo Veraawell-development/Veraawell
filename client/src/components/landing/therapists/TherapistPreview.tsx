@@ -3,52 +3,44 @@ import { useNavigate } from 'react-router-dom';
 import { useScrollReveal } from '../../../hooks/useScrollReveal';
 import LeafDecor from '../../ui/LeafDecor';
 import DoctorCard from '../../DoctorCard';
+import { useQuery } from '@tanstack/react-query';
+import { API_BASE_URL } from '../../../config/api';
+import { getDoctorAccentColor } from '../../../utils/doctorColor';
+import { getDoctorImage } from '../../../utils/doctorImage';
 
-/* ─── Placeholder Therapist Data ─────────────────────────────── */
-const therapists = [
-  {
-    initials: 'PS',
-    image: '/priya.png',
-    name: 'Dr. Priya Sharma',
-    credential: 'Ph.D. Clinical Psychology',
-    specialisations: ['Anxiety', 'CBT', 'Trauma'],
-    experience: '8 years',
-    rating: 4.9,
-    reviews: 142,
-    color: '#0097B2',
-    available: true,
-    startingPrice: 499,
+/**
+ * The real, bookable therapists (the directory's own list and cache). This
+ * section used to show three invented ones — "Dr. Priya Sharma, 4.9 (142)" —
+ * that a visitor could not find or book.
+ */
+const useFeaturedTherapists = () => useQuery<any[]>({
+  queryKey: ['doctors', 'all'],
+  queryFn: async () => {
+    const response = await fetch(`${API_BASE_URL}/sessions/doctors`);
+    if (!response.ok) throw new Error('Failed to fetch doctors');
+    return response.json();
   },
-  {
-    initials: 'RK',
-    image: '/rohit.png',
-    name: 'Dr. Rohit Kumar',
-    credential: 'M.Phil Psychiatry',
-    specialisations: ['Depression', 'Relationships', 'Grief'],
-    experience: '11 years',
-    rating: 4.8,
-    reviews: 201,
-    color: '#6BA888',
-    available: true,
-    startingPrice: 599,
-  },
-  {
-    initials: 'AN',
-    image: '/anjali.png',
-    name: 'Dr. Anjali Nair',
-    credential: 'M.Sc. Counselling',
-    specialisations: ['Mindfulness', 'Stress', 'Women\'s Health'],
-    experience: '6 years',
-    rating: 4.7,
-    reviews: 98,
-    color: '#C4A882',
-    available: false,
-    startingPrice: 449,
-  },
-];
+});
+
+const priceText = (pricing?: { min?: number; max?: number }) => {
+  const min = pricing?.min || 0;
+  const max = pricing?.max || 0;
+  if (!min && !max) return '';
+  return !max || min === max ? `₹${min || max}` : `₹${min} - ₹${max}`;
+};
+
 
 /* ─── Therapist Preview Section ──────────────────────────────── */
 const TherapistPreview: React.FC = () => {
+  const { data: doctors = [] } = useFeaturedTherapists();
+  const featured = doctors.slice(0, 3);
+  // Nobody to show yet: no section, rather than an empty grid. The section
+  // mounts once the list is here, so its scroll-reveal finds the cards.
+  if (featured.length === 0) return null;
+  return <TherapistPreviewSection featured={featured} />;
+};
+
+const TherapistPreviewSection: React.FC<{ featured: any[] }> = ({ featured }) => {
   const navigate = useNavigate();
   const sectionRef = useScrollReveal<HTMLElement>();
 
@@ -131,20 +123,20 @@ const TherapistPreview: React.FC = () => {
 
         {/* Cards Grid — reuses the same DoctorCard used everywhere else, so this stays in sync */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-          {therapists.map((t, i) => (
-            <div key={t.name} data-reveal data-delay={`${i + 1}` as any}>
+          {featured.map((doctor, i) => (
+            <div key={doctor._id} data-reveal data-delay={`${i + 1}` as any}>
               <DoctorCard
-                name={t.name}
-                experience={t.experience}
-                qualification={t.credential}
-                pricing={`₹${t.startingPrice}`}
-                language=""
-                treatsFor={t.specialisations.join(', ')}
-                imageSrc={t.image}
-                rating={{ average: t.rating, totalReviews: t.reviews }}
-                isOnline={t.available}
-                bgColor={t.color}
-                onViewProfile={() => navigate('/choose-professional')}
+                name={`Dr. ${doctor.userId.firstName} ${doctor.userId.lastName}`}
+                experience={doctor.experience ? `${doctor.experience} years` : ''}
+                qualification={(doctor.qualification || []).join(', ')}
+                pricing={priceText(doctor.pricing)}
+                language={(doctor.languages || []).join(', ')}
+                treatsFor={(doctor.treatsFor || []).join(', ')}
+                imageSrc={getDoctorImage(doctor)}
+                rating={doctor.rating}
+                bgColor={getDoctorAccentColor(doctor.userId._id)}
+                onViewProfile={() => navigate(`/doctor/${doctor.userId._id}`)}
+                onBookSession={() => navigate(`/doctor/${doctor.userId._id}`)}
               />
             </div>
           ))}

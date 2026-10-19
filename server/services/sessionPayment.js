@@ -298,6 +298,9 @@ async function expireCheckout(session, { now = new Date(), io = null } = {}) {
     event: EVENT.CHECKOUT_EXPIRED,
     actor: ACTOR.SYSTEM,
     payload: { cancelledBy: 'system' },
+    // Recorded so every screen says "Payment not completed" — without it the
+    // row read "Cancelled — no refund", as if the patient had lost money.
+    extraSet: { outcome: { code: 'checkout_abandoned', by: 'system', decidedAt: now } },
     now
   });
   if (!expired.changed) return { outcome: 'noop' };

@@ -38,24 +38,23 @@ const MyTestsPage: React.FC = () => {
         }
     };
 
+    // One pill per test the assessments page offers — it offers ten, and a
+    // PTSD or bipolar result used to have no filter of its own. (No DLA-20
+    // pill: the client has no such assessment, so it could never match.)
     const testTypes = [
         { id: 'all', label: 'All Tests' },
-        { id: 'depression', label: 'Depression' },
-        { id: 'anxiety', label: 'Anxiety' },
-        { id: 'adhd', label: 'ADHD' }
-        // No DLA-20 pill: the client has no such assessment, so it could never
-        // match a record. See defaultTestIds in PatientDashboard.tsx.
+        ...Object.values(MENTAL_HEALTH_TESTS).map((t) => ({ id: t.id, label: t.name.replace(/ Test$/, '') }))
     ];
 
     return (
-        <div className="min-h-screen pt-[64px] md:pt-[80px] bg-[#FAFAFA] font-sans flex flex-col pb-12 box-border">
+        <div className="min-h-screen pt-[64px] md:pt-[80px] bg-[var(--bg)] font-sans flex flex-col pb-12 box-border">
             {/* Main Content Area */}
             <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 md:py-10">
                 
                 <div className="mb-8 max-w-2xl relative">
                     <button 
                         onClick={() => navigate('/patient-dashboard')} 
-                        className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 hover:text-teal-600 transition-colors mb-5 group"
+                        className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 hover:text-[var(--teal)] transition-colors mb-5 group"
                         aria-label="Back to Dashboard"
                         style={{ fontFamily: 'Inter, sans-serif' }}
                     >
@@ -63,7 +62,7 @@ const MyTestsPage: React.FC = () => {
                         Back to Dashboard
                     </button>
 
-                    <h1 className="text-[32px] md:text-[36px] font-extrabold text-gray-800 tracking-tight mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
+                    <h1 className="page-title mb-3">
                         My Tests
                     </h1>
                     <p className="text-[15px] text-gray-500 font-medium leading-relaxed max-w-2xl" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -81,7 +80,7 @@ const MyTestsPage: React.FC = () => {
                                 onClick={() => setFilterType(type.id)}
                                 className={`px-4 py-2 rounded-full text-[13px] font-semibold transition-all duration-200 border ${
                                     isSelected
-                                    ? 'bg-teal-600 text-white border-teal-600 shadow-sm'
+                                    ? 'bg-[var(--teal)] text-white border-[var(--teal)] shadow-sm'
                                     : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
                                 }`}
                                 style={{ fontFamily: 'Inter, sans-serif' }}
@@ -95,7 +94,7 @@ const MyTestsPage: React.FC = () => {
                 {/* Loading State */}
                 {loading && (
                     <div className="text-center py-20">
-                        <div className="w-8 h-8 border-2 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                        <div className="w-8 h-8 border-2 border-[var(--teal)] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
                         <p className="text-gray-500 text-[13px] font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>Loading records...</p>
                     </div>
                 )}
@@ -114,7 +113,7 @@ const MyTestsPage: React.FC = () => {
                         </p>
                         <button
                             onClick={() => navigate('/mental-health')}
-                            className="px-6 py-2.5 rounded-[12px] text-[14px] font-semibold text-white bg-teal-600 hover:bg-teal-700 transition-colors shadow-sm"
+                            className="px-6 py-2.5 rounded-[12px] text-[14px] font-semibold text-white bg-[var(--teal)] hover:bg-[var(--teal-dark)] transition-colors shadow-sm"
                             style={{ fontFamily: 'Inter, sans-serif' }}
                         >
                             Take an Assessment
@@ -179,7 +178,7 @@ const MyTestsPage: React.FC = () => {
                                                 />
                                             </div>
                                         </div>
-                                        <div className="w-8 h-8 rounded-full border border-gray-100 bg-gray-50 flex items-center justify-center group-hover:bg-teal-50 group-hover:border-teal-200 group-hover:text-teal-600 text-gray-400 transition-all flex-shrink-0">
+                                        <div className="w-8 h-8 rounded-full border border-gray-100 bg-gray-50 flex items-center justify-center group-hover:bg-teal-50 group-hover:border-teal-200 group-hover:text-[var(--teal)] text-gray-400 transition-all flex-shrink-0">
                                             <FiChevronRight className="w-4 h-4" />
                                         </div>
                                     </div>

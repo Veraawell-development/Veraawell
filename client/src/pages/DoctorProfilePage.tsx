@@ -215,6 +215,17 @@ const DoctorProfilePage: React.FC = () => {
     }));
   };
 
+  // Days the therapist has a free slot (from the server). The others show as
+  // off; every day used to look bookable until tapped.
+  const openDates: string[] | null = Array.isArray((doctorProfile as any)?.openDates) ? (doctorProfile as any).openDates : null;
+  const isOffDay = (date: string) => !!openDates && !openDates.includes(date);
+  const firstOpen = openDates?.[0];
+  useEffect(() => {
+    // Start on the first day with something to book, not on an empty today.
+    if (firstOpen && booking.date && isOffDay(booking.date)) setBooking((prev) => ({ ...prev, date: firstOpen, timeSlot: '' }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [firstOpen]);
+
   const handleDateChange = (date: string) => {
     setBooking(prev => ({ ...prev, date }));
   };
@@ -291,7 +302,7 @@ const DoctorProfilePage: React.FC = () => {
                 setTimeout(() => navigate('/patient-dashboard'), 1500);
               } else if (verifyRes.ok && verifyData.success) {
                 toast.success(isImmediate ? 'Payment confirmed! Joining session...' : 'Session scheduled successfully!');
-                queryClient.invalidateQueries({ queryKey: ['patient', 'sessions'] });
+                queryClient.invalidateQueries({ queryKey: ['patient'] }); // every patient list: upcoming, calendar, history
                 setTimeout(() => { 
                   if (isImmediate && sessionData._id) {
                     navigate(`/video-call/${sessionData._id}`);
@@ -344,7 +355,7 @@ const DoctorProfilePage: React.FC = () => {
           ? 'Requesting session... Waiting for doctor to join.'
           : 'Session scheduled! Check your dashboard for details.';
         toast.success(successMessage);
-        queryClient.invalidateQueries({ queryKey: ['patient', 'sessions'] });
+        queryClient.invalidateQueries({ queryKey: ['patient'] }); // every patient list: upcoming, calendar, history
         setTimeout(() => { 
           if (isImmediate && sessionData?._id) {
             navigate(`/video-call/${sessionData._id}`);
@@ -487,7 +498,9 @@ const DoctorProfilePage: React.FC = () => {
         <meta property="og:title" content={`Dr. ${doctorName} | Veraawell`} />
         <meta property="og:description" content={`Book a session with Dr. ${doctorName}.`} />
         {doctorProfile.profileImage && <meta property="og:image" content={doctorProfile.profileImage} />}
-        <link rel="canonical" href={`https://veraawell.com/doctor/${doctorProfile._id}`} />
+        {/* The page's own address, which takes the doctor's user id; the
+            profile's id here pointed search engines at "Doctor not found". */}
+        <link rel="canonical" href={`https://veraawell.com/doctor/${doctorId}`} />
         <script type="application/ld+json">
           {JSON.stringify({
             "@context": "https://schema.org",
@@ -498,11 +511,15 @@ const DoctorProfilePage: React.FC = () => {
                 "image": doctorProfile.profileImage,
                 "description": doctorProfile.bio || `Specializes in ${specializationText}`,
                 "medicalSpecialty": doctorProfile.specialization.length > 0 ? doctorProfile.specialization[0] : "General Practice",
-                "aggregateRating": {
-                  "@type": "AggregateRating",
-                  "ratingValue": rating || 5,
-                  "reviewCount": doctorProfile.rating.totalReviews || 1
-                },
+                // Only real ratings: a doctor with none was published as
+                // "5 stars from 1 review".
+                ...(doctorProfile.rating?.totalReviews ? {
+                  "aggregateRating": {
+                    "@type": "AggregateRating",
+                    "ratingValue": rating,
+                    "reviewCount": doctorProfile.rating.totalReviews
+                  }
+                } : {}),
                 "priceRange": `Rs. ${doctorProfile.pricing.min}+`
               },
               {
@@ -853,12 +870,13 @@ const DoctorProfilePage: React.FC = () => {
                             key={dateObj.date}
                             onClick={() => handleDateChange(dateObj.date)}
                             className="font-semibold py-2.5 px-3 rounded-2xl text-center flex-shrink-0 transition-all duration-300 flex flex-col items-center min-w-[56px]"
-                            style={pillStyle(booking.date === dateObj.date)}
+                            style={{ ...pillStyle(booking.date === dateObj.date), ...(isOffDay(dateObj.date) && booking.date !== dateObj.date ? { opacity: 0.45 } : {}) }}
                             {...pillHoverHandlers(booking.date === dateObj.date)}
+                            aria-label={`${dateObj.weekday} ${dateObj.dayNum} ${dateObj.monthName}${isOffDay(dateObj.date) ? ' (no free times)' : ''}`}
                           >
                             <span className="text-[10px] font-bold uppercase opacity-80 mb-1">{dateObj.weekday.toUpperCase()}</span>
                             <span className="text-2xl font-bold leading-none mb-1">{dateObj.dayNum}</span>
-                            <span className="text-[10px] font-medium opacity-80">{dateObj.monthName}</span>
+                            <span className="text-[10px] font-medium opacity-80">{isOffDay(dateObj.date) ? 'Off' : dateObj.monthName}</span>
                           </button>
                         ))}
                       </div>

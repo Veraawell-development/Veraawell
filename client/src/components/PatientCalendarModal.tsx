@@ -6,7 +6,7 @@ import { toast } from 'react-hot-toast';
 import { resolveSessionStart, sessionLocalDateKey, formatSessionDay, formatSessionClock } from '../utils/dateUtils';
 import { calculateRefundPreview } from '../utils/refundPolicy';
 import SessionModal from './SessionModal';
-import { canJoinNow, outcomeLabel, type SessionLike } from '../utils/sessionRules';
+import { canJoinNow, isBooked, outcomeLabel, type SessionLike } from '../utils/sessionRules';
 
 interface PatientCalendarModalProps {
     isOpen: boolean;
@@ -83,7 +83,7 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
     const [sessions, setSessions] = useState<Session[]>([]);
     const [currentMonth, setCurrentMonth] = useState(new Date());
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
-    const [filter, setFilter] = useState<'all' | 'video' | 'in-person'>('all');
+    const [filter, setFilter] = useState<'all' | 'video' | 'voice'>('all');
     const [view, setView] = useState<'upcoming' | 'past'>('upcoming');
     const [loading, setLoading] = useState(false);
     // The session opened from "View Details" / "Rate Session" — both used to
@@ -103,7 +103,10 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
             const data = await response.json();
             if (response.ok && data.success) {
                 // Update local state to reflect cancellation
-                setSessions(prev => prev.map(s => s._id === sessionId ? { ...s, status: 'cancelled' } : s));
+                // The server's own record — with the outcome and refund — so
+                // the label matches the toast. Patching just the status read
+                // "Cancelled — no refund" right after "₹X will be refunded".
+                fetchSessions();
                 // The server's figure, not the preview's: it is what was actually refunded.
                 toast.success(data.refundAmount > 0
                     ? `Session cancelled. ₹${data.refundAmount} will be refunded.`
@@ -134,8 +137,9 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
             });
             if (response.ok) {
                 const data = await response.json();
-                console.log('Fetched sessions:', data); // Debug log
-                setSessions(data);
+                // Booked sessions only: a checkout that was closed or never
+                // paid isn't a session (it showed as "Cancelled — no refund").
+                setSessions((data as Session[]).filter(isBooked));
             } else {
                 console.error('Failed to fetch sessions:', response.status);
             }
@@ -196,13 +200,14 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
             }
         }
 
-        // 2. Filter by session mode (All/Video/In-person)
+        // 2. Filter by session mode (All/Video/Voice). It was labelled
+        //    "In-person" — there are no in-person sessions; it showed voice calls.
         if (filter !== 'all') {
             const sessionMode = session.callMode || 'Video Calling';
             if (filter === 'video' && !sessionMode.toLowerCase().includes('video')) {
                 return false;
             }
-            if (filter === 'in-person' && !sessionMode.toLowerCase().includes('voice')) {
+            if (filter === 'voice' && !sessionMode.toLowerCase().includes('voice')) {
                 return false;
             }
         }
@@ -585,7 +590,7 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                     <div className="flex-1">
                         {/* Filters */}
                         <div className="flex flex-wrap gap-2 mb-4">
-                            {(['all', 'video', 'in-person'] as const).map((f) => (
+                            {(['all', 'video', 'voice'] as const).map((f) => (
                                 <button
                                     key={f}
                                     onClick={() => setFilter(f)}
@@ -596,7 +601,7 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                                             : { fontFamily: FONT_SANS, background: '#fff', color: T.text2, border: `1px solid ${T.border}` }
                                     }
                                 >
-                                    {f === 'all' ? 'All' : f === 'video' ? 'Video' : 'In-person'}
+                                    {f === 'all' ? 'All' : f === 'video' ? 'Video' : 'Voice'}
                                 </button>
                             ))}
                         </div>

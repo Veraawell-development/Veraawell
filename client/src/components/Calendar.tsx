@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { createPortal } from 'react-dom';
 import { API_CONFIG } from '../config/api';
 import logger from '../utils/logger';
 import type { Session } from '../types';
@@ -12,11 +13,17 @@ interface CalendarProps {
   refreshTrigger?: number;
   hideTitle?: boolean;
   hideManageButton?: boolean;
+  /** The month to show (any day in it). Without it, the current month. */
+  month?: Date;
 }
 
-const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTrigger, hideTitle, hideManageButton }) => {
+const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTrigger, hideTitle, hideManageButton, month }) => {
   const navigate = useNavigate();
-  const [currentDate, _setCurrentDate] = useState(new Date());
+  // The parent picks the month (the doctor dashboard has arrows). It was a
+  // fixed `new Date()`, so next month's sessions could never be seen here.
+  const [fallbackDate] = useState(new Date());
+  const currentDate = month || fallbackDate;
+  const monthKey = `${currentDate.getFullYear()}-${currentDate.getMonth()}`;
   const [sessions, setSessions] = useState<Session[]>([]);
   const [hoveredDate, setHoveredDate] = useState<number | null>(null);
   const [showSessionSelector, setShowSessionSelector] = useState(false);
@@ -24,7 +31,8 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
 
   useEffect(() => {
     fetchCalendarSessions();
-  }, [currentDate, refreshTrigger]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthKey, refreshTrigger]);
 
   const fetchCalendarSessions = async () => {
     try {
@@ -243,7 +251,10 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
       </div>
 
       {/* Session Selector Modal */}
-      {showSessionSelector && (
+      {/* At page level: inside the card, the card's backdrop blur made
+          "fixed" relative to the card, so this list opened squeezed into
+          the calendar and cut off. */}
+      {showSessionSelector && createPortal((
         <div
           className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 z-50 transition-opacity"
           onClick={() => setShowSessionSelector(false)}
@@ -255,10 +266,10 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
             <div className="px-6 py-5 flex items-center justify-between border-b border-gray-100">
               <div>
                 <h3 className="text-xl font-semibold text-gray-900" style={{ fontFamily: 'Inter, sans-serif' }}>
-                  Select Session
+                  Sessions this day
                 </h3>
                 <p className="text-xs text-gray-500 mt-1">
-                  {selectedDateSessions.length} session{selectedDateSessions.length > 1 ? 's' : ''} available
+                  {selectedDateSessions.length} session{selectedDateSessions.length > 1 ? 's' : ''}
                 </p>
               </div>
               <button
@@ -291,9 +302,11 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
                           : 'border-gray-100 hover:border-gray-200 cursor-pointer'
                         }`}
                     >
-                      <div className={`w-12 h-12 flex flex-col items-center justify-center rounded-lg border ${isJoinable ? 'bg-amber-100/50 border-amber-200 text-amber-700' : 'bg-gray-50 border-gray-100 text-gray-600'} shrink-0`}>
-                        <span className="text-[10px] font-medium tracking-wide">{session.sessionTime.split(':')[0]}</span>
-                        <span className="text-sm font-bold">{session.sessionTime.split(':')[1]}</span>
+                      {/* "2:00" over "PM". It split the text at the colon, so
+                          "02:00 PM" read "02" over "00 PM". */}
+                      <div className={`w-14 h-12 flex flex-col items-center justify-center rounded-lg border ${isJoinable ? 'bg-amber-100/50 border-amber-200 text-amber-700' : 'bg-gray-50 border-gray-100 text-gray-600'} shrink-0`}>
+                        <span className="text-sm font-bold leading-tight">{session.sessionTime.split(' ')[0].replace(/^0/, '')}</span>
+                        <span className="text-[10px] font-medium tracking-wide">{session.sessionTime.split(' ')[1]}</span>
                       </div>
 
                       <div className="flex-1 min-w-0">
@@ -348,7 +361,7 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
             </div>
           </div>
         </div>
-      )}
+      ), document.body)}
 
       {!hideManageButton && userRole === 'doctor' && (
         <div className="mt-6 flex justify-center">

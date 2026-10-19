@@ -139,23 +139,20 @@ const AboutSection: React.FC = () => {
                     color: 'var(--text)',
                   }}
                 >
-                  "I came in feeling lost, and today I feel stronger and more
-                  in control of my life."
+                  "Care that meets you where you are — a verified therapist, at
+                  a time that suits you, from wherever you feel safe."
                 </p>
                 <div className="flex items-center gap-3">
                   <div
                     className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white"
                     style={{ background: 'var(--teal)' }}
                   >
-                    I
+                    V
                   </div>
+                  {/* Our own words, not a patient's: this was an invented
+                      testimonial ("Isha M.", five stars). */}
                   <div>
-                    <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>Isha M.</p>
-                    <div className="flex gap-0.5 mt-0.5">
-                      {[...Array(5)].map((_, i) => (
-                        <span key={i} style={{ color: '#F59E0B', fontSize: '11px' }}>★</span>
-                      ))}
-                    </div>
+                    <p className="text-sm font-semibold" style={{ color: 'var(--text)' }}>The Veraawell team</p>
                   </div>
                 </div>
               </blockquote>

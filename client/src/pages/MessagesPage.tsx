@@ -263,7 +263,7 @@ const MessagesPage: React.FC = () => {
         // The server sends `timestamp` pre-formatted (toLocaleTimeString) and the
         // bubble renders it verbatim, so an ISO string here showed up as a raw
         // "2026-09-07T06:35:12.741Z" under the message. Match the server's format.
-        timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+        timestamp: new Date().toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }),
         senderId: user?.userId || '',
         senderName: user?.firstName || user?.username || 'Me',
         isSentByMe: true
@@ -427,11 +427,7 @@ const MessagesPage: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <button className="w-9 h-9 rounded-full flex items-center justify-center text-gray-400 hover:bg-gray-50 hover:text-gray-800 transition-colors">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 12.75a.75.75 0 110-1.5.75.75 0 010 1.5zM12 18.75a.75.75 0 110-1.5.75.75 0 010 1.5z" />
-                </svg>
-              </button>
+              {/* (A "more" button with no menu behind it was here.) */}
             </div>
 
             {/* Messages Area */}
@@ -447,7 +443,7 @@ const MessagesPage: React.FC = () => {
                     </div>
                     <h4 className="text-gray-900 font-extrabold mb-2 tracking-tight text-lg">Start the Conversation</h4>
                     <p className="text-gray-500 text-[14px] leading-relaxed font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>
-                      Say hello to {selectedConversation.userName}! Everything is end-to-end encrypted and completely private.
+                      Say hello to {selectedConversation.userName}! Only the two of you can read these messages.
                     </p>
                   </div>
                 </div>

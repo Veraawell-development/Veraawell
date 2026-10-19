@@ -488,8 +488,11 @@ const DoctorDashboard: React.FC = () => {
   const visibleTasks = assignedTasks.slice(0, 4);
   const visibleNotes = recentNotes.slice(0, 4);
   const visibleReports = recentReports.slice(0, 3);
-  const monthLabel = new Date().toLocaleDateString('en-US', { month: 'long' });
-  const yearLabel = new Date().getFullYear();
+  // The month the schedule shows; the arrows move it.
+  const [viewMonth, setViewMonth] = useState(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); });
+  const shiftMonth = (by: number) => setViewMonth((m) => new Date(m.getFullYear(), m.getMonth() + by, 1));
+  const monthLabel = viewMonth.toLocaleDateString('en-US', { month: 'long' });
+  const yearLabel = viewMonth.getFullYear();
 
   return (
     <div
@@ -794,6 +797,14 @@ const DoctorDashboard: React.FC = () => {
                 {monthLabel} <span style={{ fontSize: 14, color: T.muted, fontFamily: FONT_SANS }}>{yearLabel}</span>
               </div>
             </div>
+            <div className="flex items-center gap-1 ml-auto mr-2">
+              {[{ by: -1, label: 'Previous month', d: 'M15 18l-6-6 6-6' }, { by: 1, label: 'Next month', d: 'M9 18l6-6-6-6' }].map((b) => (
+                <button key={b.by} onClick={() => shiftMonth(b.by)} aria-label={b.label}
+                  style={{ width: 34, height: 34, borderRadius: 100, border: '1px solid rgba(27,43,46,.15)', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1b2b2e" strokeWidth="2"><path d={b.d} /></svg>
+                </button>
+              ))}
+            </div>
             <button
               onClick={() => navigate('/manage-calendar')}
               className="flex items-center gap-1.5"
@@ -812,6 +823,7 @@ const DoctorDashboard: React.FC = () => {
               refreshTrigger={calendarRefreshTrigger}
               hideTitle={true}
               hideManageButton={true}
+              month={viewMonth}
             />
           </div>
         </div>
@@ -819,7 +831,7 @@ const DoctorDashboard: React.FC = () => {
         {/* Key Metrics */}
         <div className="min-w-0 lg:col-start-2 lg:row-start-1"
             style={{ ...cardStyle, padding: '16px 20px', position: 'relative', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-          <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.teal, textTransform: 'uppercase', marginBottom: 4 }}>— This Month</div>
+          <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.teal, textTransform: 'uppercase', marginBottom: 4 }}>— All Time</div>
           <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 16, lineHeight: 1.2, color: T.text, marginBottom: 10 }}>Key Metrics</div>
           {/*
             One data array, one renderer. These were four hand-written copies
@@ -833,13 +845,14 @@ const DoctorDashboard: React.FC = () => {
           */}
           <div className="grid grid-cols-2 auto-rows-fr gap-2 lg:flex-1" data-testid="doctor-key-metrics">
             {[
-              { label: 'Total Revenue', value: `₹${stats.revenue.toLocaleString()}` },
+              // The doctor's own share, after the platform fee (not revenue).
+              { label: 'Your Earnings', value: `₹${stats.revenue.toLocaleString('en-IN')}` },
               { label: 'Total Sessions', value: String(stats.sessions) },
               { label: 'Total Time', value: formatSessionTime(stats.minutes) },
               // Was a "Self-Assessment: DLA-20" tile — an assessment the
               // platform doesn't offer. Pending payout is a real figure from
               // the same /sessions/stats response.
-              { label: 'Pending Payout', value: `₹${stats.pendingPayout.toLocaleString()}` },
+              { label: 'Pending Payout', value: `₹${stats.pendingPayout.toLocaleString('en-IN')}` },
             ].map((m) => (
               <div key={m.label} style={{ ...subCardStyle, padding: 14, display: 'flex', flexDirection: 'column', gap: 6 }}>
                 <div style={{ fontWeight: 600, fontSize: 9.5, letterSpacing: '.08em', color: T.muted, textTransform: 'uppercase' }}>{m.label}</div>

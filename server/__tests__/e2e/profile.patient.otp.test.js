@@ -86,6 +86,22 @@ describe('profile setup', () => {
     expect(user.phoneNumber).toBe('9812345678');
   });
 
+  test('a patient is "complete" only with name, date of birth, gender and phone', async () => {
+    await User.updateOne({ _id: f.patientA._id }, { $set: { profileCompleted: false }, $unset: { dateOfBirth: 1, gender: 1, phoneNumber: 1 } });
+    // What the call screen sends: just an emergency contact.
+    const partial = await call('post', '/api/profile/setup', patientToken, {
+      emergencyContact: { name: 'Ravi Rao', phone: '9812345679', relationship: 'Sibling' }
+    });
+    expect(partial.body.profileCompleted).toBe(false);
+    expect((await User.findById(f.patientA._id)).profileCompleted).toBe(false);
+
+    const full = await call('post', '/api/profile/setup', patientToken, {
+      fullName: 'Asha Rao', phoneNumber: '9812345678', dateOfBirth: '1995-04-12', gender: 'Female'
+    });
+    expect(full.body.profileCompleted).toBe(true);
+    expect((await User.findById(f.patientA._id)).profileCompleted).toBe(true);
+  });
+
   test('a full name with several parts splits into first and the rest', async () => {
     await call('post', '/api/profile/setup', patientToken, { fullName: 'Maria del Carmen Santos' });
     const user = await User.findById(f.patientA._id);
@@ -443,6 +459,22 @@ describe('the doctor\'s patient roster', () => {
     expect(body).not.toContain(String(f.patientB._id)); // has none
   });
 
+  test('a checkout that was never paid gives the doctor nothing: not on the roster, no emergency contact', async () => {
+    const s = await Session.create({
+      patientId: f.patientB._id, doctorId: f.doctorA._id,
+      startsAt: new Date(Date.now() + 3 * 864e5), duration: 20, price: 800,
+      status: 'cancelled', paymentStatus: 'failed'
+    });
+    try {
+      const roster = await call('get', '/api/patients/doctor-patients', doctorToken);
+      expect(JSON.stringify(roster.body)).not.toContain(String(f.patientB._id));
+      const contact = await call('get', `/api/sessions/patients/${f.patientB._id}/emergency-contact`, doctorToken);
+      expect(contact.status).toBe(403);
+    } finally {
+      await Session.deleteOne({ _id: s._id });
+    }
+  });
+
   test('a patient cannot read the roster', async () => {
     const res = await call('get', '/api/patients/doctor-patients', patientToken);
     expect(res.status).toBe(403);
@@ -469,6 +501,19 @@ describe('availability publishing', () => {
     const slots = await request(server).get(`/api/availability/slots/${f.doctorA._id}/${day}`);
     expect(slots.status).toBe(200);
     expect(JSON.stringify(slots.body)).toMatch(/10:00 AM|10:00/);
+  });
+
+  test('the public availability says which times are taken, never which sessions took them', async () => {
+    await DoctorAvailability.updateOne({ doctorId: f.doctorA._id }, {
+      $push: { bookedSlots: { date: '2029-03-01', time: '10:00 AM', slotKey: '2029-03-01T10:00', sessionId: new mongoose.Types.ObjectId() } }
+    }, { upsert: true });
+    const res = await request(server).get(`/api/availability/doctor/${f.doctorA._id}`);
+    expect(res.status).toBe(200);
+    const taken = res.body.bookedSlots.find((b) => b.slotKey === '2029-03-01T10:00');
+    expect(taken).toEqual({ date: '2029-03-01', time: '10:00 AM', slotKey: '2029-03-01T10:00' });
+    // A doctor with no calendar yet: an empty one, not a 404.
+    const none = await request(server).get(`/api/availability/doctor/${f.patientB._id}`);
+    expect(none.body.defaultSlots).toEqual([]);
   });
 
   test('slot strings are canonicalised, so mixed formats collapse to one slot', async () => {
@@ -507,17 +552,15 @@ describe('availability publishing', () => {
     expect(res.status).toBe(200);
   });
 
-  test('a malformed doctorId on the public availability route returns 500', async () => {
-    // routes/availability.js:7,9 mount these two reads with no
-    // validateObjectIdParam, unlike every comparable route. A junk id reaches
-    // Mongoose, raises a CastError, and surfaces as a 500 — an unauthenticated
-    // caller can generate server-error noise at will, and a client cannot tell
-    // "bad id" from "server broken".
+  test('a malformed doctorId on the public availability route is a 400, not a 500', async () => {
+    // These two reads had no validateObjectIdParam: a junk id reached
+    // Mongoose, raised a CastError and came back a 500 — server-error noise on
+    // demand, and a client couldn't tell "bad id" from "server broken".
     const byDoctor = await request(server).get('/api/availability/doctor/not-an-id');
-    expect(byDoctor.status).toBe(500);
+    expect(byDoctor.status).toBe(400);
 
     const slots = await request(server).get('/api/availability/slots/not-an-id/2029-01-01');
-    expect(slots.status).toBe(500);
+    expect(slots.status).toBe(400);
 
     // For contrast, the equivalent session route DOES validate and answers 400.
     const validated = await request(server).get('/api/sessions/doctors/not-an-id');

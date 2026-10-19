@@ -260,7 +260,7 @@ const ArticleDetailPage: React.FC = () => {
                                     Start Your Healing Journey
                                 </h3>
                                 <p className="text-[var(--text-2)] text-[15px] leading-relaxed">
-                                    Get 15% off your first 3 sessions. Use code <strong className="text-[var(--teal)]">FIRST15</strong>
+                                    Book a video or voice session with a verified therapist, at a time that suits you.
                                 </p>
                             </div>
                             <button
@@ -291,7 +291,7 @@ const ArticleDetailPage: React.FC = () => {
                                 Talk to a Professional
                             </h3>
                             <p className="text-[14px] text-[var(--text-2)] mb-8 leading-relaxed">
-                                Connect with licensed therapists at Veraawell. First session at 15% off.
+                                Connect with licensed therapists at Veraawell.
                             </p>
                             
                             <button
@@ -380,12 +380,17 @@ const ArticleDetailPage: React.FC = () => {
                             <button onClick={handleCopy} className="w-12 h-12 rounded-full bg-[var(--surface)] hover:bg-[var(--teal)] text-[var(--text-2)] hover:text-white flex items-center justify-center transition-all duration-300">
                                 <Link2 size={18} />
                             </button>
-                            <button className="w-12 h-12 rounded-full bg-[var(--surface)] hover:bg-[#1DA1F2] text-[var(--text-2)] hover:text-white flex items-center justify-center transition-all duration-300">
+                            {/* These two did nothing when clicked. */}
+                            <a href={`https://twitter.com/intent/tweet?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(article?.title || '')}`}
+                               target="_blank" rel="noopener noreferrer" aria-label="Share on Twitter"
+                               className="w-12 h-12 rounded-full bg-[var(--surface)] hover:bg-[#1DA1F2] text-[var(--text-2)] hover:text-white flex items-center justify-center transition-all duration-300">
                                 <Twitter size={18} />
-                            </button>
-                            <button className="w-12 h-12 rounded-full bg-[var(--surface)] hover:bg-[#0A66C2] text-[var(--text-2)] hover:text-white flex items-center justify-center transition-all duration-300">
+                            </a>
+                            <a href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(window.location.href)}`}
+                               target="_blank" rel="noopener noreferrer" aria-label="Share on LinkedIn"
+                               className="w-12 h-12 rounded-full bg-[var(--surface)] hover:bg-[#0A66C2] text-[var(--text-2)] hover:text-white flex items-center justify-center transition-all duration-300">
                                 <Linkedin size={18} />
-                            </button>
+                            </a>
                         </div>
                         {copied && <p className="text-center text-[12px] text-[var(--teal)] font-medium mt-4">Link copied!</p>}
                     </div>

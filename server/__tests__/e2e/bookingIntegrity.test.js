@@ -216,6 +216,29 @@ describe('time slots', () => {
     expect(res.body.message).toMatch(/no longer available/);
   });
 
+  test('slots come back in time order, and the busy check covers the earliest one', async () => {
+    // Saved out of order, as on a real doctor's calendar: 12 PM after 3 PM.
+    const day = istSlot(new Date(Date.now() + 3 * 24 * 60 * MIN)).date;
+    await DoctorAvailability.create({
+      doctorId: doctor._id, availabilityType: 'same_slots',
+      defaultSlots: ['01:00 PM', '03:00 PM', '12:00 PM', '04:00 PM'], activeDates: [day]
+    });
+    // A scheduled session holds 12 PM; listed last, it used to fall outside
+    // the range the busy check looked at.
+    await Session.create({
+      patientId: patient2._id, doctorId: doctor._id, startsAt: zoned.zonedToUtc(day, '12:00 PM', 'Asia/Kolkata'),
+      duration: 55, price: 2000, status: 'scheduled', paymentStatus: 'paid', paymentId: 'pay_noon'
+    });
+    const res = await get(`/api/sessions/doctors/${doctor._id}/slots/${day}`);
+    expect(res.body.availableSlots).toEqual(['01:00 PM', '03:00 PM', '04:00 PM']);
+  });
+
+  test('a doctor with no calendar has no slots, and asking does not create one', async () => {
+    const res = await get(`/api/sessions/doctors/${patient._id}/slots/2026-12-01`);
+    expect(res.body.availableSlots).toEqual([]);
+    expect(await DoctorAvailability.countDocuments({ doctorId: patient._id })).toBe(0);
+  });
+
   test('a later free slot is offered and books', async () => {
     const slot = istSlot(new Date(Date.now() + 3 * 24 * 60 * MIN));
     await DoctorAvailability.create({ doctorId: doctor._id, availabilityType: 'same_slots', defaultSlots: [slot.time], activeDates: [slot.date] });
@@ -360,6 +383,22 @@ describe('chat opens with a paid booking', () => {
     });
     await sendMessageAndNotify(null, null, { conversationId: leftover._id, senderId: String(patient._id), text: 'hello' });
     expect(await require('../../models/message').countDocuments({ conversationId: leftover._id, text: 'hello' })).toBe(1);
+  });
+
+  test('the conversation list names the doctor "Dr. …" and gives the last message time in IST', async () => {
+    await Session.create({
+      patientId: patient2._id, doctorId: doctor._id, startsAt: new Date(Date.now() + 3 * 24 * 60 * MIN),
+      duration: 20, price: 800, status: 'scheduled', paymentStatus: 'paid', paymentId: `pay_list_${Date.now()}`
+    });
+    const conv = await Conversation.findOrCreateConversation(patient2._id, doctor._id, null);
+    await Conversation.updateOne({ _id: conv._id }, { $set: { lastMessage: { text: 'hi', senderId: patient2._id, timestamp: new Date('2026-10-19T06:00:00Z') } } });
+    const asPatient = await get('/api/chat/conversations', patient2);
+    const row = (asPatient.body.conversations || asPatient.body).find((c) => String(c._id) === String(conv._id));
+    expect(row.userName).toMatch(/^Dr\. /);
+    expect(row.lastMessageTime.toLowerCase()).toBe('11:30 am');
+    const asDoctor = await get('/api/chat/conversations', doctor);
+    const mirror = (asDoctor.body.conversations || asDoctor.body).find((c) => String(c._id) === String(conv._id));
+    expect(mirror.userName).not.toMatch(/^Dr\. /);
   });
 
   test('over HTTP, sending into such a conversation is a 403 that says why', async () => {

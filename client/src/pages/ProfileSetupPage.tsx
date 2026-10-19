@@ -51,7 +51,9 @@ const ProfileSetupPage: React.FC = () => {
   const languageOptions = ['English', 'Hindi', 'Bengali', 'Tamil', 'Telugu', 'Marathi', 'Gujarati', 'Kannada', 'Malayalam', 'Punjabi'];
   const typeOptions = ['Psychiatrist', 'Psychologist', 'Counselor', 'Therapist'];
   const specializationOptions = ['Anxiety', 'Depression', 'Stress Management', 'Relationship Issues', 'Trauma', 'PTSD', 'OCD', 'Bipolar Disorder', 'Addiction', 'Family Therapy', 'Child Psychology', 'Career Counseling'];
-  const sessionModeOptions = ['Video Call', 'Audio Call', 'In-Person', 'Chat'];
+  // Only what can be booked: video and voice calls (there are no in-person or
+  // chat-only sessions).
+  const sessionModeOptions = ['Video Call', 'Audio Call'];
 
   const handleMultiSelect = (field: 'qualification' | 'languages' | 'specialization' | 'modeOfSession', value: string) => {
     setFormData(prev => {

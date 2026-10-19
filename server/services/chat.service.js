@@ -15,6 +15,7 @@
 const Conversation = require('../models/conversation');
 const Message = require('../models/message');
 const SocketEmitter = require('../utils/socketEmitter');
+const { PLATFORM_TIMEZONE } = require('../config/time');
 
 /**
  * @param {object} io - the main Socket.IO server instance (for the /data namespace broadcast)
@@ -30,6 +31,16 @@ const SocketEmitter = require('../utils/socketEmitter');
 const RELATIONSHIP_PAYMENT_STATES = Object.freeze(['paid', 'not_required', 'refunded', 'refund_pending', 'refund_failed']);
 
 /** Have these two people a paid, free or held session between them? */
+
+/**
+ * A message's time as both people read it: India time, 12-hour. Formatted
+ * here, so it used to come out in the SERVER's zone (UTC on Render) — every
+ * chat time was 5½ hours behind.
+ */
+function formatChatTime(date) {
+  return new Date(date).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: PLATFORM_TIMEZONE });
+}
+
 async function hasBookedRelationship([a, b]) {
   if (!a || !b) return false;
   const Session = require('../models/session');
@@ -94,7 +105,7 @@ async function sendMessageAndNotify(io, chatNamespace, { conversationId, senderI
   const formattedMessage = {
     _id: message._id,
     text: message.text,
-    timestamp: new Date(message.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+    timestamp: formatChatTime(message.createdAt),
     senderId: message.senderId._id,
     senderName: `${message.senderId.firstName} ${message.senderId.lastName}`,
     createdAt: message.createdAt
@@ -154,4 +165,4 @@ async function sendMessageAndNotify(io, chatNamespace, { conversationId, senderI
   return { message, formattedMessage, receiverId };
 }
 
-module.exports = { sendMessageAndNotify, hasBookedRelationship, RELATIONSHIP_PAYMENT_STATES };
+module.exports = { sendMessageAndNotify, hasBookedRelationship, formatChatTime, RELATIONSHIP_PAYMENT_STATES };

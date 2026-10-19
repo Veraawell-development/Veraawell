@@ -11,7 +11,7 @@ const Session = require('../models/session');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { NotFoundError, AuthorizationError, ValidationError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
-const { sendMessageAndNotify } = require('../services/chat.service');
+const { sendMessageAndNotify, formatChatTime } = require('../services/chat.service');
 
 const logger = createLogger('CHAT-CTRL');
 
@@ -51,10 +51,11 @@ const getConversations = asyncHandler(async (req, res) => {
     return {
       _id: conv._id,
       userId: otherParticipant.userId._id,
-      userName: `${otherParticipant.userId.firstName} ${otherParticipant.userId.lastName}`,
+      // Every other screen names a doctor "Dr. …".
+      userName: `${otherParticipant.role === 'doctor' ? 'Dr. ' : ''}${otherParticipant.userId.firstName} ${otherParticipant.userId.lastName}`.trim(),
       userRole: otherParticipant.role,
       lastMessage: conv.lastMessage?.text || '',
-      lastMessageTime: conv.lastMessage?.timestamp ? new Date(conv.lastMessage.timestamp).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }) : '',
+      lastMessageTime: conv.lastMessage?.timestamp ? formatChatTime(conv.lastMessage.timestamp) : '',
       unreadCount: unreadMap[conv._id.toString()] || 0,
       updatedAt: conv.updatedAt
     };
@@ -77,7 +78,7 @@ const getMessages = asyncHandler(async (req, res) => {
   const messages = await Message.getMessagesForConversation(conversationId, limit, skip);
   const formattedMessages = messages.map(msg => ({
     _id: msg._id, text: msg.text,
-    timestamp: new Date(msg.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true }),
+    timestamp: formatChatTime(msg.createdAt),
     senderId: msg.senderId._id, senderName: `${msg.senderId.firstName} ${msg.senderId.lastName}`,
     isSentByMe: msg.senderId._id.toString() === userId, isRead: msg.isRead, createdAt: msg.createdAt
   }));

@@ -208,9 +208,9 @@ const PendingTasksPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="h-screen bg-[#FAFAFA] flex items-center justify-center">
+      <div className="h-screen bg-[var(--bg)] flex items-center justify-center">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-[#00B4D8] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <div className="w-8 h-8 border-2 border-[var(--teal)] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-500 text-[13px] font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>Loading your board...</p>
         </div>
       </div>
@@ -221,19 +221,19 @@ const PendingTasksPage: React.FC = () => {
   const donePersonalTasks = personalTasks.filter(t => t.completed);
 
   return (
-    <div className="h-screen pt-[64px] md:pt-[80px] bg-[#FAFAFA] font-sans selection:bg-[#F0FBFF] overflow-hidden flex flex-col box-border">
+    <div className="h-screen pt-[64px] md:pt-[80px] bg-[var(--bg)] font-sans selection:bg-[#F0FBFF] overflow-hidden flex flex-col box-border">
       <div className="flex-1 max-w-[1500px] mx-auto w-full px-6 py-6 flex flex-col min-h-0">
         
         {/* Header Section */}
         <div className="mb-6 shrink-0 flex items-center gap-4">
             <button 
                 onClick={() => navigate('/patient-dashboard')} 
-                className="flex items-center justify-center w-10 h-10 bg-white border border-gray-200 rounded-full text-gray-500 hover:text-[#00B4D8] hover:border-[#00B4D8] hover:shadow-sm transition-all group"
+                className="flex items-center justify-center w-10 h-10 bg-white border border-gray-200 rounded-full text-gray-500 hover:text-[var(--teal)] hover:border-[var(--teal)] hover:shadow-sm transition-all group"
                 title="Back to Dashboard"
             >
                 <FiArrowLeft className="w-5 h-5 group-hover:-translate-x-0.5 transition-transform" />
             </button>
-            <h1 className="text-[24px] font-extrabold text-gray-800 tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
+            <h1 className="page-title">
                 Tasks Board
             </h1>
         </div>
@@ -243,7 +243,7 @@ const PendingTasksPage: React.FC = () => {
             
             {/* COLUMN 1: CLINICAL TASKS */}
             <div 
-                className={`w-full lg:w-[350px] shrink-0 rounded-[24px] p-5 border flex flex-col h-full transition-all duration-300 ${dragOverCol === 'pending' ? 'bg-[#F0FBFF]/50 border-[#00B4D8]/30 shadow-inner' : 'bg-gray-50/80 border-gray-100'}`}
+                className={`w-full lg:w-[350px] shrink-0 rounded-[24px] p-5 border flex flex-col h-full transition-all duration-300 ${dragOverCol === 'pending' ? 'bg-[#F0FBFF]/50 border-[var(--teal)]/30 shadow-inner' : 'bg-gray-50/80 border-gray-100'}`}
                 onDragOver={(e) => handleDragOver(e, 'pending')}
                 onDragLeave={() => setDragOverCol(null)}
                 onDrop={(e) => handleDrop(e, 'pending')}
@@ -277,7 +277,7 @@ const PendingTasksPage: React.FC = () => {
                                     onDragStart={(e: any) => handleDragStart(e, 'clinical', task._id)}
                                     onDragEnd={(e: any) => handleDragEnd(e, task._id)}
                                     onClick={() => handleView(task)}
-                                    className="bg-white rounded-[16px] p-5 mb-4 shadow-sm border border-gray-200 hover:border-[#00B4D8] hover:shadow-md transition-all cursor-grab active:cursor-grabbing group"
+                                    className="bg-white rounded-[16px] p-5 mb-4 shadow-sm border border-gray-200 hover:border-[var(--teal)] hover:shadow-md transition-all cursor-grab active:cursor-grabbing group"
                                 >
                                     <div className="flex justify-between items-start mb-3 pointer-events-none">
                                         <span className="bg-orange-50 text-orange-600 text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-md border border-orange-100/50">
@@ -285,7 +285,7 @@ const PendingTasksPage: React.FC = () => {
                                         </span>
                                         <button 
                                             onClick={(e) => { e.stopPropagation(); handleUpdateStatus(task._id, 'completed'); }}
-                                            className="w-7 h-7 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-400 hover:bg-[#00B4D8] hover:border-[#00B4D8] hover:text-white transition-all pointer-events-auto"
+                                            className="w-7 h-7 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-400 hover:bg-[var(--teal)] hover:border-[var(--teal)] hover:text-white transition-all pointer-events-auto"
                                         >
                                             <FiCheck className="w-3.5 h-3.5" />
                                         </button>
@@ -309,7 +309,7 @@ const PendingTasksPage: React.FC = () => {
 
             {/* COLUMN 2: MY OWN TASKS */}
             <div 
-                className={`w-full lg:w-[350px] shrink-0 rounded-[24px] p-5 border border-dashed flex flex-col h-full transition-all duration-300 shadow-[0_0_15px_-3px_rgba(0,180,216,0.05)] ${dragOverCol === 'personal' ? 'bg-[#F0FBFF]/70 border-[#00B4D8]' : 'bg-white/60 border-[#00B4D8]/30'}`}
+                className={`w-full lg:w-[350px] shrink-0 rounded-[24px] p-5 border border-dashed flex flex-col h-full transition-all duration-300 shadow-[0_0_15px_-3px_rgba(0,180,216,0.05)] ${dragOverCol === 'personal' ? 'bg-[#F0FBFF]/70 border-[var(--teal)]' : 'bg-white/60 border-[var(--teal)]/30'}`}
                 onDragOver={(e) => handleDragOver(e, 'personal')}
                 onDragLeave={() => setDragOverCol(null)}
                 onDrop={(e) => handleDrop(e, 'personal')}
@@ -317,7 +317,7 @@ const PendingTasksPage: React.FC = () => {
                 <div className="flex items-center justify-between mb-5 px-1 shrink-0">
                     <h2 className="text-[14px] font-bold text-gray-800 uppercase tracking-widest flex items-center gap-2" style={{ fontFamily: 'Inter, sans-serif' }}>
                         My Own Tasks
-                        <span className="bg-[#F0FBFF] text-[#00B4D8] text-[11px] px-2 py-0.5 rounded-full font-bold">
+                        <span className="bg-[#F0FBFF] text-[var(--teal)] text-[11px] px-2 py-0.5 rounded-full font-bold">
                             {pendingPersonalTasks.length}
                         </span>
                     </h2>
@@ -330,12 +330,12 @@ const PendingTasksPage: React.FC = () => {
                             value={newPersonalTask}
                             onChange={(e) => setNewPersonalTask(e.target.value)}
                             placeholder="Add a personal to-do..."
-                            className="w-full bg-white border border-gray-200 rounded-[12px] pl-4 pr-10 py-2.5 text-[13px] text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#00B4D8]/30 focus:border-[#00B4D8] transition-all shadow-sm"
+                            className="w-full bg-white border border-gray-200 rounded-[12px] pl-4 pr-10 py-2.5 text-[13px] text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/30 focus:border-[var(--teal)] transition-all shadow-sm"
                         />
                         <button 
                             type="submit"
                             disabled={!newPersonalTask.trim()}
-                            className="absolute right-2 top-1.5 p-1.5 bg-[#00B4D8] text-white rounded-lg disabled:opacity-50 disabled:bg-gray-300 transition-colors"
+                            className="absolute right-2 top-1.5 p-1.5 bg-[var(--teal)] text-white rounded-lg disabled:opacity-50 disabled:bg-gray-300 transition-colors"
                         >
                             <FiPlus className="w-3.5 h-3.5" />
                         </button>
@@ -364,7 +364,7 @@ const PendingTasksPage: React.FC = () => {
                                 >
                                     <button 
                                         onClick={() => togglePersonalTask(task.id, true)}
-                                        className="shrink-0 w-5 h-5 rounded flex items-center justify-center mt-0.5 transition-colors border-2 border-gray-300 text-transparent hover:border-[#00B4D8]"
+                                        className="shrink-0 w-5 h-5 rounded flex items-center justify-center mt-0.5 transition-colors border-2 border-gray-300 text-transparent hover:border-[var(--teal)]"
                                     >
                                         <FiCheck className="w-3.5 h-3.5" />
                                     </button>

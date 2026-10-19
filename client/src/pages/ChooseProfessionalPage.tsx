@@ -6,6 +6,7 @@ import { useDataSocket } from '../hooks/useDataSocket';
 import LeafDecor from '../components/ui/LeafDecor';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getDoctorAccentColor } from '../utils/doctorColor';
+import { getDoctorImage } from '../utils/doctorImage';
 
 interface Doctor {
   _id: string;
@@ -116,43 +117,6 @@ const ChooseProfessionalPage: React.FC = () => {
 
   const getDoctorBgColor = getDoctorAccentColor;
 
-  // Helper function to get gender-based image
-  const getDoctorImage = (doctor: any) => {
-    // Check if doctor has a valid profile image (not default/placeholder/old SVG)
-    if (doctor.profileImage &&
-      doctor.profileImage !== '/default-doctor.png' &&
-      !doctor.profileImage.includes('doctor-0') &&
-      !doctor.profileImage.includes('doctor-placeholder')) {
-      return doctor.profileImage;
-    }
-
-    // Use name-based detection since backend doesn't have gender field
-    const firstName = (doctor.userId?.firstName || doctor.firstName || '').toLowerCase();
-
-    // Common female names and patterns
-    const femaleNames = [
-      'shreya', 'priya', 'anjali', 'kavya', 'divya', 'neha', 'pooja', 'riya',
-      'sneha', 'swati', 'nikita', 'preeti', 'shweta', 'megha', 'isha', 'tanvi',
-      'aditi', 'aishwarya', 'ananya', 'deepika', 'kriti', 'nisha', 'rachana',
-      'sakshi', 'simran', 'sonali', 'tanya', 'varsha', 'vidya', 'zoya',
-      'sarah', 'emily', 'jessica', 'jennifer', 'michelle', 'amanda', 'lisa',
-      'maria', 'susan', 'karen', 'nancy', 'betty', 'helen', 'sandra', 'donna',
-      'carol', 'ruth', 'sharon', 'laura', 'cynthia', 'anna', 'jean', 'alice'
-    ];
-
-    // Check if name ends with common female suffixes
-    const femaleSuffixes = ['a', 'i', 'ya', 'ka', 'na'];
-    const endsWithFemaleSuffix = femaleSuffixes.some(suffix =>
-      firstName.endsWith(suffix) && firstName.length > 3
-    );
-
-    // Check if name is in female names list or ends with female suffix
-    if (femaleNames.includes(firstName) || endsWithFemaleSuffix) {
-      return '/female.jpg';
-    }
-
-    return '/male.jpg';
-  };
 
   // Get current doctors based on view mode and sort them by service preference
   const currentDoctors = (viewMode === 'online' ? onlineDoctors : doctors).sort((a: any, b: any) => {
@@ -219,7 +183,7 @@ const ChooseProfessionalPage: React.FC = () => {
               Find Your <em style={{ color: 'var(--teal)' }}>Therapist</em>
             </h1>
             <p className="text-[16px] text-gray-500 mb-8 mx-auto max-w-md" style={{ color: 'var(--text-2)' }}>
-              Choose a professional who understands you. Start with a free discovery session to find the right fit.
+              Choose a professional who understands you. Start with a short 20-minute session to find the right fit.
             </p>
 
             {/* Discovery Session Badge */}
@@ -230,7 +194,7 @@ const ChooseProfessionalPage: React.FC = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
               </svg>
               <span className="text-[13px] font-semibold" style={{ color: 'var(--teal-dark)' }}>
-                Free Discovery Session Available
+                20-minute discovery sessions
               </span>
             </div>
           </div>

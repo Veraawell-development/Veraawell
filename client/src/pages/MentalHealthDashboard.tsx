@@ -72,7 +72,7 @@ const MentalHealthDashboard: React.FC = () => {
     const testCards = Object.values(MENTAL_HEALTH_TESTS);
 
     return (
-        <div className="min-h-screen bg-[#FAFAFA] font-sans selection:bg-teal-100 pb-12 pt-32">
+        <div className="min-h-screen bg-[var(--bg)] font-sans selection:bg-teal-100 pb-12 pt-32">
             <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 md:py-10">
                 <div className="mb-8 flex flex-col md:flex-row md:items-start justify-between gap-4">
                     <div className="max-w-2xl relative">
@@ -86,7 +86,7 @@ const MentalHealthDashboard: React.FC = () => {
                             Back to Dashboard
                         </button>
                         
-                        <h1 className="text-[32px] md:text-[36px] font-extrabold text-gray-800 tracking-tight mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        <h1 className="page-title mb-3">
                             Clinical Assessments
                         </h1>
                         <p className="text-[15px] text-gray-500 font-medium leading-relaxed max-w-2xl" style={{ fontFamily: 'Inter, sans-serif' }}>

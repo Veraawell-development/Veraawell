@@ -69,11 +69,24 @@ const GlobalIncomingCallListener: React.FC = () => {
     // A reconnect means there was a window where events could not reach us.
     const handleReconnect = () => fetchPending();
 
+    // The request ended without the doctor — the patient cancelled, or it
+    // timed out and was refunded. The ring used to keep going, and Accept
+    // then failed with an error.
+    const handleCancelled = ({ sessionId }: { sessionId?: string }) => {
+      setIncomingRequest((current: any) => {
+        if (!current || String(current._id) !== String(sessionId)) return current;
+        toast('That request ended before it was answered.', { icon: 'ℹ️', id: 'request-ended' });
+        return null;
+      });
+    };
+
     socket.on('session:booked', handleSessionBooked);
+    socket.on('session:cancelled', handleCancelled);
     socket.on('connect', handleReconnect);
 
     return () => {
       socket.off('session:booked', handleSessionBooked);
+      socket.off('session:cancelled', handleCancelled);
       socket.off('connect', handleReconnect);
     };
   }, [isLoggedIn, socket, user, fetchPending]);
