@@ -28,21 +28,10 @@ const app = require('./app');
 // Create HTTP server
 const httpServer = createServer(app);
 
-// Initialize Socket.IO
-const io = new Server(httpServer, {
-  cors: {
-    origin: CORS_ORIGINS,
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
-  },
-  allowEIO3: true,
-  transports: ['websocket', 'polling'],
-  cookie: {
-    name: 'io',
-    httpOnly: true,
-    sameSite: 'lax'
-  }
-});
+// Initialize Socket.IO — options in config/socket.js (heartbeat, recovery,
+// origin check), shared with the tests.
+const { buildIoOptions } = require('./config/socket');
+const io = new Server(httpServer, buildIoOptions({ allowedOrigins: CORS_ORIGINS }));
 
 // Initialize all Socket.IO handlers via bootstrapper
 const { initializeSockets } = require('./socket');

@@ -1515,32 +1515,36 @@ const getInstantRequests = asyncHandler(async (req, res) => {
 });
 
 /** GET /api/sessions/turn-credentials */
-const getTurnCredentials = asyncHandler(async (req, res) => {
-  const domain = process.env.METERED_DOMAIN;
-  const secretKey = process.env.METERED_SECRET_KEY;
-  
-  const fallbackServers = [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
-  ];
-
-  if (!domain || !secretKey) {
-    logger.warn('Metered TURN credentials not configured in environment variables');
-    return res.json({ success: true, iceServers: fallbackServers });
+/**
+ * GET /api/sessions/:sessionId/ice-servers — STUN + a TURN relay for this
+ * call (services/turnCredentials.js). Bound to the session: only its two
+ * people, only while it can still be held.
+ */
+const getIceServers = asyncHandler(async (req, res) => {
+  const session = req.authz.resource;
+  const { LIVE_STATUSES } = require('../services/sessionState');
+  if (!LIVE_STATUSES.includes(session.status)) {
+    return res.status(409).json({ success: false, code: 'CLOSED', message: 'This session is no longer open.' });
   }
-
-  try {
-    const response = await fetch(`https://${domain}/api/v1/turn/credentials?apiKey=${secretKey}`);
-    if (!response.ok) throw new Error('Failed to fetch from Metered API');
-    const data = await response.json();
-    
-    // Add STUN servers as a fallback just in case
-    const iceServers = [ ...fallbackServers, ...data ];
-    res.json({ success: true, iceServers });
-  } catch (error) {
-    logger.error('Error fetching TURN credentials', { error: error.message });
-    res.json({ success: true, iceServers: fallbackServers });
-  }
+  const { resolveEndsAt } = require('../services/sessionTime');
+  let endsAt = session.effectiveEndsAt || null;
+  try { endsAt = endsAt || resolveEndsAt(session); } catch (e) { endsAt = null; }
+  const turn = require('../services/turnCredentials');
+  const result = await turn.getIceServers({ userId: req.actor.id, sessionId: String(session._id), sessionEndsAt: endsAt });
+  res.set('Cache-Control', 'no-store');
+  res.json({ success: true, ...result });
 });
 
-module.exports = { getStats, getMyDoctors, getPendingFeedback, getCallHistory, getDoctorSlots, bookImmediate, bookSession, getMySessions, getUpcoming, getAllDoctors, getDoctorById, getSessionById, joinSession, completeSession, requestEndSession, respondEndSession, claimAbsentRefund, abandonCheckout, cancelSession, getCalendar, getPatientEmergencyContact, getMyTherapists, acceptSession, delaySession, getTurnCredentials, missedSession, getDelayedSessions, getInstantRequests, sweepStuckUnacceptedSessions };
+/**
+ * GET /api/sessions/turn-credentials — the old, unbound endpoint, kept for
+ * call pages already open on the old build. Same relay service, no session
+ * (so a 2-hour lifetime). Removed with the old call engine.
+ */
+const getTurnCredentials = asyncHandler(async (req, res) => {
+  const turn = require('../services/turnCredentials');
+  const result = await turn.getIceServers({ userId: req.actor ? req.actor.id : String(req.user._id), sessionId: 'legacy', sessionEndsAt: new Date(Date.now() + 90 * 60 * 1000) });
+  res.set('Cache-Control', 'no-store');
+  res.json({ success: true, ...result });
+});
+
+module.exports = { getStats, getMyDoctors, getPendingFeedback, getCallHistory, getDoctorSlots, bookImmediate, bookSession, getMySessions, getUpcoming, getAllDoctors, getDoctorById, getSessionById, joinSession, completeSession, requestEndSession, respondEndSession, claimAbsentRefund, abandonCheckout, cancelSession, getCalendar, getPatientEmergencyContact, getMyTherapists, acceptSession, delaySession, getTurnCredentials, getIceServers, missedSession, getDelayedSessions, getInstantRequests, sweepStuckUnacceptedSessions };

@@ -33,10 +33,16 @@ const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('SOCKET-AUTHZ');
 
-/** Rooms this socket has been authorized into. Server-side only. */
+/**
+ * Rooms this socket has been authorized into. Server-side only. Kept in
+ * `socket.data`, which connection-state recovery restores together with the
+ * socket's rooms — on the socket object itself it was lost, so a recovered
+ * socket would sit in its call room yet be refused every signal.
+ */
 function initRooms(socket) {
-  if (!socket.authzRooms) socket.authzRooms = new Set();
-  return socket.authzRooms;
+  if (!socket.data) socket.data = {};
+  if (!(socket.data.authzRooms instanceof Set)) socket.data.authzRooms = new Set();
+  return socket.data.authzRooms;
 }
 
 function grantRoom(socket, roomId) {

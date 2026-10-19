@@ -20,6 +20,21 @@ const cache = require('../services/cache.service');
 const { tokenPredatesPasswordChange, accountProblem } = require('../middleware/auth.middleware');
 
 /**
+ * A handshake that failed for a reason on OUR side (database down, still
+ * connecting, a thrown error) — not because the credential is bad. It used to
+ * be reported as "Authentication error: Invalid token", and clients treat
+ * that as a dead login: the call page sent people to /login and the /data
+ * socket stopped reconnecting, during a database blip. The message must never
+ * contain "Authentication" or "No token" (see authz/socket.js emitDenial).
+ */
+const BUSY_MESSAGE = 'Server busy, retrying';
+function busyError() {
+  const err = new Error(BUSY_MESSAGE);
+  err.data = { code: 'SERVER_BUSY', retryable: true };
+  return err;
+}
+
+/**
  * Load the user behind a socket handshake, cached for a few seconds.
  *
  * The cache exists because a page with four namespaces open reconnects all of
@@ -75,6 +90,8 @@ function createSocketAuthMiddleware(namespaceTag) {
     // Cached briefly so a burst of reconnects doesn't become a burst of
     // queries, while still bounding the stale-privilege window to seconds
     // rather than weeks.
+    const mongoose = require('mongoose');
+    if (mongoose.connection.readyState !== 1) return { transient: true, reason: 'database not connected' };
     const user = await loadActorUser(decoded.userId);
     if (!user) return { error: 'Authentication error: account not found', reason: 'user no longer exists' };
     // The same two checks verifyToken makes, from the same helpers, so the
@@ -118,6 +135,7 @@ function createSocketAuthMiddleware(namespaceTag) {
     }
 
     let failure = null;
+    let transient = null;
     for (const token of candidates) {
       try {
         // eslint-disable-next-line no-await-in-loop
@@ -139,15 +157,22 @@ function createSocketAuthMiddleware(namespaceTag) {
           });
           return next();
         }
-        failure = failure || result;
+        if (result.transient) transient = transient || result;
+        else failure = failure || result;
       } catch (error) {
-        failure = failure || { error: 'Authentication error: Invalid token', reason: error.message };
+        transient = transient || { transient: true, reason: error.message };
       }
     }
 
+    // Our problem beats a bad credential: one stale token next to a valid
+    // cookie must not turn a database blip into "logged out".
+    if (transient) {
+      logger.warn('Socket auth deferred: server busy', { reason: transient.reason });
+      return next(busyError());
+    }
     logger.warn('Socket auth failed', { reason: failure.reason });
     return next(new Error(failure.error));
   };
 }
 
-module.exports = { createSocketAuthMiddleware };
+module.exports = { createSocketAuthMiddleware, BUSY_MESSAGE };

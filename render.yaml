@@ -17,9 +17,10 @@ services:
     name: veraawell-backend
     runtime: node
     region: oregon
-    plan: free # NOTE: free spins down after ~15 min idle, which also stops all
-               # node-cron jobs (session reminders, refund sweeps, payment
-               # cleanup). Move to 'starter' or higher before real traffic.
+    # Standard (1 CPU, 2 GB): never sleeps. Free spun down after ~15 min idle
+    # — 30–60 s before the first call could start, every live call room lost,
+    # and the node-cron jobs (reminders, refund sweeps) stopped.
+    plan: standard
     # `npm ci` installs exactly what package-lock.json pins. `npm install` can
     # silently resolve different versions than were tested.
     buildCommand: npm ci
@@ -72,11 +73,25 @@ services:
         sync: false
       - key: GOOGLE_CLIENT_SECRET
         sync: false
-      # TURN relay. Without it, video calls fall back to STUN only and will
-      # silently fail behind symmetric NAT / strict corporate firewalls.
-      - key: METERED_DOMAIN
+      # TURN relay for calls (Cloudflare Realtime → TURN key). Without it,
+      # calls on Jio/Airtel data, office Wi-Fi and many routers cannot
+      # connect; the call screen and the error log say so
+      # (services/turnCredentials.js).
+      - key: CLOUDFLARE_TURN_KEY_ID
         sync: false
-      - key: METERED_SECRET_KEY
+      - key: CLOUDFLARE_TURN_API_TOKEN
+        sync: false
+      # Optional static relay used only if Cloudflare is down
+      # (comma-separated turn:/turns: URLs + one username/credential).
+      - key: TURN_FALLBACK_URLS
+        sync: false
+      - key: TURN_FALLBACK_USERNAME
+        sync: false
+      - key: TURN_FALLBACK_CREDENTIAL
+        sync: false
+      # Call engine switch: unset/v2 = new engine (old open tabs still
+      # served); v1 = roll back to the old engine.
+      - key: CALL_ENGINE
         sync: false
       # LiveKit Cloud project (video/voice calls). All three, or none: without
       # them every call stays on the legacy stack. See config/features.js.
@@ -144,3 +159,7 @@ services:
     # instances, video calls break across instances and reminder emails and
     # refund sweeps run twice.
     numInstances: 1
+    # A deploy keeps the old instance running while the new one starts. Give
+    # it time to tell open calls "server restarting" and save who is present
+    # (server.js gracefulShutdown) before it is stopped.
+    maxShutdownDelaySeconds: 60

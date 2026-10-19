@@ -57,6 +57,7 @@ router.get('/calendar/:year/:month', verifyToken, withScope('session:list-own'),
 router.get('/patients/:patientId/emergency-contact', verifyToken, requireRole('doctor'), validateObjectIdParam('patientId'), s.getPatientEmergencyContact);
 
 router.get('/turn-credentials', verifyToken, requireRole('patient', 'doctor'), s.getTurnCredentials);
+router.get('/:sessionId/ice-servers', verifyToken, validateObjectIdParam('sessionId'), authorize('session:join'), s.getIceServers);
 
 // ── Booking ────────────────────────────────────────────────────────────────
 router.post('/book', verifyToken, authorize('session:book'), validateObjectIdBody('doctorId'), s.bookSession);
