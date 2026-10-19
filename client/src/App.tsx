@@ -66,7 +66,6 @@ const SuperAdminDashboard = lazyPage(() => import('./pages/SuperAdminDashboard')
 const ChangePasswordModal = lazy(() => import('./components/admin/ChangePasswordModal'));
 const PartnerPage = lazyPage(() => import('./pages/PartnerPage'));
 const ResourcesPage = lazyPage(() => import('./pages/ResourcesPage'));
-const ReportsPage = lazyPage(() => import('./pages/ReportsPage'));
 const MentalHealthTestPage = lazyPage(() => import('./pages/MentalHealthTestPage'));
 const MentalHealthDashboard = lazyPage(() => import('./pages/MentalHealthDashboard'));
 const TestResultsPage = lazyPage(() => import('./pages/TestResultsPage'));
@@ -394,7 +393,9 @@ function AppRoutes() {
         <Route path="/resources/videos" element={<VideosPage />} />
         <Route path="/faq" element={<FAQPage />} />
         <Route path="/book-session/:doctorId" element={<BookSessionRedirect />} />
-        <Route path="/reports" element={<ProtectedRoute allowedRoles={['patient']}><ReportsPage /></ProtectedRoute>} />
+        {/* One reports page. /reports was an older copy of it (its own header
+            drawn over the site menu, dead sidebar links); old links land here. */}
+        <Route path="/reports" element={<Navigate to="/reports-recommendation" replace />} />
         <Route path="/mental-health" element={<ProtectedRoute allowedRoles={['patient']}><MentalHealthDashboard /></ProtectedRoute>} />
         <Route path="/mental-health/:testType" element={<ProtectedRoute allowedRoles={['patient']}><MentalHealthTestPage /></ProtectedRoute>} />
         <Route path="/test-results/:id" element={<ProtectedRoute allowedRoles={['patient']}><TestResultsPage /></ProtectedRoute>} />

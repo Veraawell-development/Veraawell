@@ -20,7 +20,8 @@ async function as(browser: Browser, who: 'patient' | 'doctor', width = 1440): Pr
 
 test('the Reports page opens, straight from a link, without crashing', async ({ browser }) => {
   const patient = await as(browser, 'patient');
-  await patient.page.goto('/reports');
+  await patient.page.goto('/reports'); // an old link: it lands on the one reports page
+  await expect(patient.page).toHaveURL(/reports-recommendation/);
   await expect(patient.page.getByRole('heading', { name: /Reports & Recommendation/ })).toBeVisible({ timeout: 20_000 });
   await expect(patient.page.getByText('Something went wrong')).toHaveCount(0);
   await patient.context.close();
