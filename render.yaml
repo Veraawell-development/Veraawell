@@ -17,10 +17,11 @@ services:
     name: veraawell-backend
     runtime: node
     region: oregon
-    # Standard (1 CPU, 2 GB): never sleeps. Free spun down after ~15 min idle
-    # — 30–60 s before the first call could start, every live call room lost,
-    # and the node-cron jobs (reminders, refund sweeps) stopped.
-    plan: standard
+    # Free for now (no billing account yet). Free spins down after ~15 min idle:
+    # the first join after a quiet spell waits 30–60 s and the node-cron jobs
+    # pause (the GitHub keepalive pings help). Calls themselves continue — the
+    # media is browser to browser. Move to 'standard' once billing is set up.
+    plan: free
     # `npm ci` installs exactly what package-lock.json pins. `npm install` can
     # silently resolve different versions than were tested.
     buildCommand: npm ci
@@ -81,13 +82,21 @@ services:
         sync: false
       - key: CLOUDFLARE_TURN_API_TOKEN
         sync: false
-      # Optional static relay used only if Cloudflare is down
-      # (comma-separated turn:/turns: URLs + one username/credential).
+      # Static relays (no card needed): the primary in use until Cloudflare is
+      # set up (ExpressTURN free plan), and an optional backup with TLS on 443
+      # for strict networks. Comma-separated turn:/turns: URLs + one
+      # username/credential each.
       - key: TURN_FALLBACK_URLS
         sync: false
       - key: TURN_FALLBACK_USERNAME
         sync: false
       - key: TURN_FALLBACK_CREDENTIAL
+        sync: false
+      - key: TURN_BACKUP_URLS
+        sync: false
+      - key: TURN_BACKUP_USERNAME
+        sync: false
+      - key: TURN_BACKUP_CREDENTIAL
         sync: false
       # Call engine switch: unset/v2 = new engine (old open tabs still
       # served); v1 = roll back to the old engine.

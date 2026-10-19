@@ -63,6 +63,12 @@ test('not configured: the static fallback relay is used if set, else STUN only',
   });
   expect(fb.provider).toBe('fallback');
   expect(fb.relayAvailable).toBe(true);
+  // Two static relays (a free 3478 one + a TLS-443 backup): both offered.
+  const both = await turn.getIceServers({ userId: 'p1', sessionId: 's5b' }, {
+    env: { TURN_FALLBACK_URLS: 'turn:free.example.com:3478', TURN_FALLBACK_USERNAME: 'a', TURN_FALLBACK_CREDENTIAL: 'b',
+      TURN_BACKUP_URLS: 'turns:backup.example.com:443?transport=tcp', TURN_BACKUP_USERNAME: 'c', TURN_BACKUP_CREDENTIAL: 'd' }, fetchImpl
+  });
+  expect(both.iceServers.flatMap((x) => x.urls)).toEqual(expect.arrayContaining(['turn:free.example.com:3478', 'turns:backup.example.com:443?transport=tcp']));
   const none = await turn.getIceServers({ userId: 'p1', sessionId: 's6' }, { env: {}, fetchImpl });
   expect(none.relayAvailable).toBe(false);
   expect(fetchImpl).not.toHaveBeenCalled();

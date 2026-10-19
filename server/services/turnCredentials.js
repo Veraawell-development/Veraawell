@@ -42,9 +42,11 @@ function config(env = process.env) {
   return {
     keyId: env.CLOUDFLARE_TURN_KEY_ID || '',
     token: env.CLOUDFLARE_TURN_API_TOKEN || '',
-    fallbackUrls: (env.TURN_FALLBACK_URLS || '').split(',').map((u) => u.trim()).filter(Boolean),
-    fallbackUsername: env.TURN_FALLBACK_USERNAME || '',
-    fallbackCredential: env.TURN_FALLBACK_CREDENTIAL || ''
+    statics: ['FALLBACK', 'BACKUP'].map((k) => ({
+      urls: (env[`TURN_${k}_URLS`] || '').split(',').map((u) => u.trim()).filter(Boolean),
+      username: env[`TURN_${k}_USERNAME`] || '',
+      credential: env[`TURN_${k}_CREDENTIAL`] || ''
+    })).filter((x) => x.urls.length && x.username && x.credential)
   };
 }
 
@@ -124,13 +126,17 @@ async function getIceServers({ userId, sessionId, sessionEndsAt }, { env = proce
       servers = null;
       alertNoRelay(err.name === 'AbortError' ? 'Cloudflare TURN timed out' : err.message);
     }
-  } else if (!cfg.keyId || !cfg.token) {
-    alertNoRelay('CLOUDFLARE_TURN_KEY_ID / CLOUDFLARE_TURN_API_TOKEN not set');
   }
 
-  if (!servers && cfg.fallbackUrls.length && cfg.fallbackUsername && cfg.fallbackCredential) {
-    servers = cleanIceServers([{ urls: cfg.fallbackUrls, username: cfg.fallbackUsername, credential: cfg.fallbackCredential }]);
+  // Static relays (no card needed): every one configured is offered, so the
+  // browser can use whichever works on its network (e.g. a free 3478 relay
+  // plus a backup with TLS on 443).
+  if (!servers && cfg.statics.length) {
+    servers = cleanIceServers(cfg.statics);
     provider = servers.length ? 'fallback' : 'none';
+  }
+  if (!servers || !hasRelay(servers)) {
+    alertNoRelay(cfg.keyId && cfg.token ? 'Cloudflare failed and no static relay is set' : 'no relay configured (CLOUDFLARE_TURN_* or TURN_FALLBACK_*)');
   }
 
   const relayAvailable = !!servers && hasRelay(servers);
