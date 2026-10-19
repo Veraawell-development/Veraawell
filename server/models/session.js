@@ -172,7 +172,7 @@ const sessionSchema = new mongoose.Schema({
       role: { type: String, enum: ['patient', 'doctor'], required: true },
       joinedAt: { type: Date, required: true },
       leftAt: { type: Date, default: null },
-      source: { type: String, enum: ['socket', 'livekit', 'backfill'], required: true }
+      source: { type: String, enum: ['socket', 'backfill'], required: true }
     }],
     default: undefined
   },
@@ -214,8 +214,16 @@ const sessionSchema = new mongoose.Schema({
   lateCancellation: { type: Boolean, default: false },
   /** A doctor's reason for cancelling, shared with the patient. */
   cancellationReason: { type: String, default: null, maxlength: 300 },
-  /** Which call stack this session's call runs on; set once, so a call never switches mid-way. */
-  videoProvider: { type: String, enum: ['legacy', 'livekit', null], default: null },
+  /**
+   * When each person was last heard from in the call — written only when the
+   * server shuts down mid-call or someone's reconnect grace runs out
+   * (services/call/callService.js), so a stay left open across a restart can
+   * be closed at the right time (attendance.settleStaleStays).
+   */
+  callPresence: {
+    patientLastSeenAt: { type: Date, default: null },
+    doctorLastSeenAt: { type: Date, default: null }
+  },
 
   paymentStatus: {
     type: String,

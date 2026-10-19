@@ -5,7 +5,7 @@
 
 const features = require('../config/features');
 
-const KEYS = ['SESSION_RULES', 'VIDEO_PROVIDER', 'LIVEKIT_URL', 'LIVEKIT_API_KEY', 'LIVEKIT_API_SECRET'];
+const KEYS = ['SESSION_RULES', 'CALL_ENGINE'];
 const saved = {};
 
 beforeEach(() => {
@@ -17,12 +17,6 @@ afterEach(() => {
     else process.env[k] = saved[k];
   }
 });
-
-const configureLiveKit = () => {
-  process.env.LIVEKIT_URL = 'wss://example.livekit.cloud';
-  process.env.LIVEKIT_API_KEY = 'key';
-  process.env.LIVEKIT_API_SECRET = 'secret';
-};
 
 describe('sessionRulesVersion', () => {
   test('defaults to the session rules (v2); v1 is the rollback', () => {
@@ -42,35 +36,12 @@ describe('sessionRulesVersion', () => {
   });
 });
 
-describe('livekitConfig', () => {
-  test('is disabled until all three credentials are present', () => {
-    expect(features.livekitConfig().enabled).toBe(false);
-    process.env.LIVEKIT_URL = 'wss://example.livekit.cloud';
-    process.env.LIVEKIT_API_KEY = 'key';
-    expect(features.livekitConfig().enabled).toBe(false);
-    process.env.LIVEKIT_API_SECRET = 'secret';
-    expect(features.livekitConfig()).toEqual({
-      enabled: true, url: 'wss://example.livekit.cloud', apiKey: 'key', apiSecret: 'secret'
-    });
-  });
-});
-
-describe('videoProvider', () => {
-  test('defaults to the legacy call stack', () => {
-    expect(features.videoProvider()).toBe('legacy');
-  });
-
-  test('LiveKit only when asked for and configured', () => {
-    process.env.VIDEO_PROVIDER = 'livekit';
-    expect(features.videoProvider()).toBe('legacy');
-    configureLiveKit();
-    expect(features.videoProvider()).toBe('livekit');
-  });
-
-  test('configured LiveKit is not used unless the switch says so', () => {
-    configureLiveKit();
-    expect(features.videoProvider()).toBe('legacy');
-    process.env.VIDEO_PROVIDER = 'nonsense';
-    expect(features.videoProvider()).toBe('legacy');
+describe('callEngine', () => {
+  test('defaults to the new call engine (v2); v1 is the rollback', () => {
+    expect(features.callEngine()).toBe('v2');
+    process.env.CALL_ENGINE = 'V1';
+    expect(features.callEngine()).toBe('v1');
+    process.env.CALL_ENGINE = 'livekit';
+    expect(features.callEngine()).toBe('v2');
   });
 });

@@ -117,6 +117,19 @@ async function applyTransition(sessionOrId, {
         }
       }
 
+      // The session stopped being live (cancelled, refunded, completed,
+      // no-show): anyone still in its call is shown out, and its relay
+      // credentials are revoked. Hooked on the post-state here for the same
+      // reason as the clawback above. Never rethrows.
+      const { LIVE_STATUSES } = require('./sessionState');
+      if (LIVE_STATUSES.includes(plan.from.status) && !LIVE_STATUSES.includes(updated.status)) {
+        try {
+          require('./call/callService').evict(String(id), { reason: updated.status });
+        } catch (err) {
+          logger.error('call eviction failed', { sessionId: String(id).substring(0, 8), error: err.message });
+        }
+      }
+
       return {
         session: updated,
         changed: true,

@@ -76,8 +76,20 @@ const authenticateSocket = createSocketAuthMiddleware('VIDEO-AUTH');
 // Use existing logger
 const log = logger;
 
-module.exports = (io) => {
-  io.use(authenticateSocket);
+/** v1 sockets currently in a call room (call v2 tells them to refresh). */
+function v1SocketsInRoom(sessionId) {
+  const room = activeRooms.get(String(sessionId));
+  return room ? Array.from(room.users.keys()) : [];
+}
+
+/** Is someone of this role in a v1 call room (boot settle must not close their stay). */
+function v1IsPresent(sessionId, role) {
+  const room = activeRooms.get(String(sessionId));
+  return !!room && Array.from(room.users.values()).some((u) => (u.role === 'doctor' ? 'doctor' : 'patient') === role);
+}
+
+module.exports = (io, { authAlready = false } = {}) => {
+  if (!authAlready) io.use(authenticateSocket);
 
   /**
    * Re-read when this call ends. The stored effectiveEndsAt (the booked end,
@@ -226,6 +238,12 @@ module.exports = (io) => {
         // self-session bypass for immediate sessions — is gone; `ctx.resource`
         // is the authorized Session.
         const session = ctx.resource;
+        // The other person is on the new call engine: this old page can't
+        // talk to it.
+        if (require('../services/call/callService').hasRoom(sessionId)) {
+          socket.emit('error', { message: 'Veraawell has been updated. Please refresh this page to join your session.' });
+          return;
+        }
         const isPatient = String(session.patientId) === userId;
         const isDoctor = String(session.doctorId) === userId;
 
@@ -552,3 +570,6 @@ module.exports = (io) => {
     }
   }, 30000);
 };
+
+module.exports.v1SocketsInRoom = v1SocketsInRoom;
+module.exports.v1IsPresent = v1IsPresent;

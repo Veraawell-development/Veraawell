@@ -45,12 +45,49 @@ function initRooms(socket) {
   return socket.data.authzRooms;
 }
 
-function grantRoom(socket, roomId) {
+/** The party role a socket was granted a room as (patient-only events check it). */
+function roomRoles(socket) {
+  if (!socket.data) socket.data = {};
+  if (!(socket.data.roomRoles instanceof Map)) socket.data.roomRoles = new Map();
+  return socket.data.roomRoles;
+}
+
+function grantRoom(socket, roomId, { role } = {}) {
   initRooms(socket).add(String(roomId));
+  if (role) roomRoles(socket).set(String(roomId), role);
 }
 
 function revokeRoom(socket, roomId) {
   initRooms(socket).delete(String(roomId));
+  roomRoles(socket).delete(String(roomId));
+}
+
+const { createBucket } = require('../utils/tokenBucket');
+
+/** Per-socket, per-event token buckets (spec.rate). */
+function bucketFor(socket, event, rate) {
+  if (!socket.data) socket.data = {};
+  if (!socket.data.buckets) socket.data.buckets = new Map();
+  let bucket = socket.data.buckets.get(event);
+  if (!bucket) {
+    bucket = createBucket(rate);
+    socket.data.buckets.set(event, bucket);
+  }
+  return bucket;
+}
+
+/** Too many over-limit events in a minute: the socket is cut off. */
+const MAX_VIOLATIONS_PER_MINUTE = 20;
+function noteViolation(socket) {
+  const now = Date.now();
+  const v = socket.data.violations || { since: now, count: 0 };
+  if (now - v.since > 60 * 1000) { v.since = now; v.count = 0; }
+  v.count += 1;
+  socket.data.violations = v;
+  if (v.count > MAX_VIOLATIONS_PER_MINUTE) {
+    logger.warn('Socket disconnected for flooding', { userId: socket.userId ? String(socket.userId).substring(0, 8) : null });
+    socket.disconnect(true);
+  }
 }
 
 function assertJoined(socket, roomId) {
@@ -76,7 +113,7 @@ function assertJoined(socket, roomId) {
  */
 function emitDenial(socket, event, err, ack) {
   const code = err.code || (err.statusCode === 404 ? 'NOT_FOUND' : 'INTERNAL');
-  const message = err.statusCode === 403 || err.statusCode === 404
+  const message = [400, 403, 404].includes(err.statusCode)
     ? err.message
     : 'Request failed';
 
@@ -106,7 +143,12 @@ function createGuardedRegistrar(socket, opts = {}) {
 
   /**
    * @param {string} event
-   * @param {{mode:'policy'|'joined'|'open', action?:string, key?:string}} spec
+   * @param {{mode:'policy'|'joined'|'open', action?:string, key?:string,
+   *   validate?:(payload)=>string|null, rate?:{perSec:number, burst:number},
+   *   partyRole?:'patient'|'doctor'}} spec
+   *   validate  — shape check run first; a non-null message refuses the event.
+   *   rate      — token bucket per socket and event; over it is refused.
+   *   partyRole — 'joined' events only: the role the room was granted as.
    * @param {Function} handler (payload, ctx) => void, ctx = {socket, actor, resource, ack}
    */
   function on(event, spec, handler) {
@@ -118,6 +160,14 @@ function createGuardedRegistrar(socket, opts = {}) {
 
     socket.on(event, async (payload = {}, ack) => {
       try {
+        if (spec.rate && !bucketFor(socket, event, spec.rate).take()) {
+          noteViolation(socket);
+          throw new ForbiddenError(CODE.RATE_LIMITED, 'Too many messages — slow down');
+        }
+        if (spec.validate) {
+          const problem = spec.validate(payload);
+          if (problem) throw Object.assign(new ForbiddenError(CODE.INVALID_PAYLOAD, problem), { statusCode: 400 });
+        }
         const key = spec.key || 'sessionId';
         // Some events are emitted with a bare id rather than an object —
         // SessionChat.tsx and MessagesPage.tsx both do
@@ -130,7 +180,15 @@ function createGuardedRegistrar(socket, opts = {}) {
           if (!subjectId) throw new ForbiddenError(CODE.MISSING_SUBJECT, 'Missing the id of the record to act on');
           resource = await assertCan(socket.actor, spec.action, String(subjectId));
         } else if (spec.mode === 'joined') {
+          // A join still in flight on this socket: wait for it (bounded), so
+          // a signal sent right behind call:join is not refused.
+          if (socket.data && socket.data.joining && !initRooms(socket).has(String(subjectId))) {
+            await Promise.race([socket.data.joining, new Promise((r) => setTimeout(r, 5000))]);
+          }
           assertJoined(socket, subjectId);
+          if (spec.partyRole && roomRoles(socket).get(String(subjectId)) !== spec.partyRole) {
+            throw new ForbiddenError(CODE.WRONG_ROLE, `Only the ${spec.partyRole} can send this`);
+          }
         }
         // 'open' — lifecycle events (disconnect, ping) that carry no subject.
 
@@ -144,4 +202,4 @@ function createGuardedRegistrar(socket, opts = {}) {
   return { on, declared };
 }
 
-module.exports = { createGuardedRegistrar, grantRoom, revokeRoom, assertJoined, emitDenial };
+module.exports = { createGuardedRegistrar, grantRoom, revokeRoom, assertJoined, emitDenial, roomRoles };

@@ -93,19 +93,9 @@ services:
       # served); v1 = roll back to the old engine.
       - key: CALL_ENGINE
         sync: false
-      # LiveKit Cloud project (video/voice calls). All three, or none: without
-      # them every call stays on the legacy stack. See config/features.js.
-      - key: LIVEKIT_URL
-        sync: false
-      - key: LIVEKIT_API_KEY
-        sync: false
-      - key: LIVEKIT_API_SECRET
-        sync: false
-      # Rollback switches (config/features.js). Leave unset for the defaults;
-      # set SESSION_RULES=v1 or VIDEO_PROVIDER=legacy to undo a rollout.
+      # Rollback switch (config/features.js). Leave unset for the default;
+      # set SESSION_RULES=v1 to undo the session rules.
       - key: SESSION_RULES
-        sync: false
-      - key: VIDEO_PROVIDER
         sync: false
       # Super-admin master login. Both halves are credentials — neither may be
       # a literal in this file.
