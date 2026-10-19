@@ -9,6 +9,7 @@ import SessionChat from '../components/SessionChat';
 import { API_BASE_URL, SOCKET_URL } from '../config/api';
 import { useQuery } from '@tanstack/react-query';
 import type { SessionRulesView } from '../utils/sessionRules';
+import { outcomeLabel } from '../utils/sessionRules';
 
 /** Fallback when a session predates server-stamped acceptanceDeadline (server: INSTANT_ACCEPT_WINDOW_MINUTES). */
 const INSTANT_ACCEPT_WINDOW_MS = 2 * 60 * 1000;
@@ -19,6 +20,18 @@ const TIME_WARNINGS: Array<[number, string]> = [[300, '5 minutes remaining'], [1
 
 /** A time of day in IST, e.g. "10:40 am" — sessions are booked and shown in IST. */
 const istTime = (d: Date) => d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: 'numeric', minute: '2-digit' });
+
+/**
+ * What a cancelled session says on the call screen. It used to read "Doctor
+ * is unavailable. Session cancelled and refunded." for every cancellation —
+ * the patient's own, a late one with no refund, a closed checkout — and to
+ * the doctor too. Now it says what actually happened, when the payload
+ * carries enough to tell (a socket status update may not).
+ */
+function cancelledText(session: any, role: 'patient' | 'doctor'): string {
+  const label = session && session.paymentStatus ? outcomeLabel(session, role)?.label : null;
+  return label ? `This session was cancelled — ${label.replace(/^Cancelled — /, '').toLowerCase()}.` : 'This session was cancelled.';
+}
 
 const VideoCallRoom: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -66,6 +79,10 @@ const VideoCallRoom: React.FC = () => {
   // timer-sync. null until the first sync arrives, so the header doesn't
   // flash a red 00:00 on entry.
   const [duration, setDuration] = useState<number | null>(null);
+  // Seconds until the scheduled start, while the two are in early. The clock
+  // counts to the END, so joining at 11:58 for a 12:00–12:20 session showed
+  // 21:59 — more than the session's length, which read as a random number.
+  const [startsIn, setStartsIn] = useState<number>(0);
   const [endsAt, setEndsAt] = useState<Date | null>(null);
   const [connectionState, setConnectionState] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [remoteUserJoined, setRemoteUserJoined] = useState(false);
@@ -119,8 +136,8 @@ const VideoCallRoom: React.FC = () => {
         if (data.acceptanceStatus) setAcceptanceStatus(data.acceptanceStatus);
         if (data.delayMinutes) setDelayMinutes(data.delayMinutes);
         if (data.delayedUntil) setDelayedUntil(new Date(data.delayedUntil));
-        if (data.status === 'missed' || data.status === 'cancelled') {
-          setError('Doctor is unavailable. Session cancelled and refunded.');
+        if (data.status === 'cancelled') {
+          setError(cancelledText(data, user?.role === 'doctor' ? 'doctor' : 'patient'));
           setTimeout(() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard'), 3000);
         }
         if (data.doctorNote) setDoctorNote(data.doctorNote);
@@ -197,8 +214,8 @@ const VideoCallRoom: React.FC = () => {
       if (data.acceptanceStatus) setAcceptanceStatus(data.acceptanceStatus);
       if (data.delayMinutes) setDelayMinutes(data.delayMinutes);
       if (data.delayedUntil) setDelayedUntil(new Date(data.delayedUntil));
-      if (data.status === 'missed' || data.status === 'cancelled') {
-        setError('Doctor is unavailable. Session cancelled and refunded.');
+      if (data.status === 'cancelled') {
+        setError(cancelledText(data, user?.role === 'doctor' ? 'doctor' : 'patient'));
         setTimeout(() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard'), 3000);
       }
       if (data.doctorNote) setDoctorNote(data.doctorNote);
@@ -394,8 +411,11 @@ const VideoCallRoom: React.FC = () => {
   useEffect(() => {
     if (!endsAt) return;
     const tick = () => {
-      const left = Math.max(0, Math.round((endsAt.getTime() - (Date.now() + clockOffsetRef.current)) / 1000));
+      const serverNow = Date.now() + clockOffsetRef.current;
+      const left = Math.max(0, Math.round((endsAt.getTime() - serverNow) / 1000));
       setDuration(left);
+      const start = sessionDataRef.current?.startsAt ? new Date(sessionDataRef.current.startsAt).getTime() : NaN;
+      setStartsIn(Number.isFinite(start) ? Math.max(0, Math.round((start - serverNow) / 1000)) : 0);
       for (const [at, message] of TIME_WARNINGS) {
         if (left <= at && left > at - 30 && !warnedRef.current.has(at)) {
           warnedRef.current.add(at);
@@ -706,8 +726,8 @@ const VideoCallRoom: React.FC = () => {
         if (data.acceptanceStatus) setAcceptanceStatus(data.acceptanceStatus);
         if (data.delayMinutes) setDelayMinutes(data.delayMinutes);
         if (data.delayedUntil) setDelayedUntil(new Date(data.delayedUntil));
-        if (data.status === 'missed' || data.status === 'cancelled') {
-          setError('Doctor is unavailable. Session cancelled and refunded.');
+        if (data.status === 'cancelled') {
+          setError(cancelledText(data, user?.role === 'doctor' ? 'doctor' : 'patient'));
           setTimeout(() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard'), 3000);
         }
         if (data.doctorNote) setDoctorNote(data.doctorNote);
@@ -1382,7 +1402,7 @@ const VideoCallRoom: React.FC = () => {
             duration < 300 ? 'text-amber-400' :
               'text-white/90'
             }`}>
-            {duration === null ? '--:--' : formatDuration(duration)}
+            {duration === null ? '--:--' : startsIn > 0 ? `Starts in ${formatDuration(startsIn)}` : formatDuration(duration)}
           </span>
         </div>
       </div>
@@ -1547,7 +1567,11 @@ const VideoCallRoom: React.FC = () => {
                         
                         <div className="space-y-3 text-center">
                           <h2 className="text-2xl font-bold tracking-tight text-white">
-                            {acceptanceStatus === 'pending' ? 'Calling Doctor...' : 
+                            {/* A booked session has nobody to "call": the
+                                therapist just joins at the time. "Calling
+                                Doctor..." is for an instant request. */}
+                            {acceptanceStatus === 'pending' && sessionData?.sessionType !== 'immediate' ? 'Waiting for your therapist' :
+                             acceptanceStatus === 'pending' ? 'Calling Doctor...' : 
                              acceptanceStatus === 'accepted'
                                ? (remoteUserJoined ? 'Doctor has joined' : 'Your therapist accepted')
                                : 'Doctor Delayed'}
@@ -1555,7 +1579,9 @@ const VideoCallRoom: React.FC = () => {
                           
                           {acceptanceStatus === 'pending' && (
                             <p className="text-white/70 text-sm max-w-[280px] mx-auto leading-relaxed">
-                              We're connecting you with {sessionData?.doctorId ? `Dr. ${sessionData.doctorId.lastName}` : 'your therapist'}. Try the "Breathe" tab while you wait!
+                              {sessionData?.sessionType !== 'immediate' && sessionData?.startsAt
+                                ? <>{sessionData?.doctorId ? `Dr. ${sessionData.doctorId.lastName}` : 'Your therapist'} will join here — your session starts at {istTime(new Date(sessionData.startsAt))}. Try the "Breathe" tab while you wait!</>
+                                : <>We're connecting you with {sessionData?.doctorId ? `Dr. ${sessionData.doctorId.lastName}` : 'your therapist'}. Try the "Breathe" tab while you wait!</>}
                             </p>
                           )}
                           

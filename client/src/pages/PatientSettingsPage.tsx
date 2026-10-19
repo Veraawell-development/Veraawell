@@ -21,7 +21,7 @@ const ComingSoonBadge = () => {
         px-3 py-1.5 text-[11px] font-semibold tracking-wide uppercase rounded-full cursor-pointer shrink-0 select-none
         transition-all duration-300 transform
         ${isAnimating 
-          ? 'bg-teal-50 text-teal-600 scale-95' 
+          ? 'bg-teal-50 text-[var(--teal)] scale-95' 
           : 'bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700'
         }
       `}
@@ -115,7 +115,7 @@ const PatientSettingsPage: React.FC = () => {
   const isDeleting = deleteAccountMutation.isPending;
 
   return (
-    <div className="bg-[#f8fafc] min-h-screen pt-32">
+    <div className="bg-[var(--bg)] min-h-screen pt-32">
       <div className="max-w-4xl mx-auto px-4 py-12">
         <div className="flex items-center gap-4 mb-8">
           <button 
@@ -126,7 +126,7 @@ const PatientSettingsPage: React.FC = () => {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
             </svg>
           </button>
-          <h1 className="text-3xl font-bold text-gray-900 tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>Settings</h1>
+          <h1 className="page-title">Settings</h1>
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -139,9 +139,10 @@ const PatientSettingsPage: React.FC = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h3 className="text-gray-800 font-medium">Email Notifications</h3>
-                <p className="text-gray-500 text-sm mt-0.5">Receive updates about your appointments and sessions.</p>
+                <p className="text-gray-500 text-sm mt-0.5">Booking confirmations, session reminders and refund updates go to your email.</p>
               </div>
-              <ComingSoonBadge />
+              {/* These emails are sent today — "Coming soon" said otherwise. */}
+              <span className="text-[11px] font-semibold uppercase tracking-wider px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100">On</span>
             </div>
             
             <hr className="border-gray-100" />
@@ -205,7 +206,7 @@ const PatientSettingsPage: React.FC = () => {
                     <button
                       type="submit"
                       disabled={isUpdatingPassword}
-                      className="px-3 py-1.5 text-sm text-white bg-teal-600 hover:bg-teal-700 rounded-lg transition-colors disabled:opacity-50"
+                      className="px-3 py-1.5 text-sm text-white bg-[var(--teal)] hover:bg-[var(--teal-dark)] rounded-lg transition-colors disabled:opacity-50"
                     >
                       {isUpdatingPassword ? 'Saving...' : 'Save'}
                     </button>

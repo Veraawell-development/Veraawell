@@ -44,7 +44,11 @@ const getDoctorPatients = asyncHandler(async (req, res) => {
   if (req.user.role !== 'doctor') throw new AuthorizationError('Only doctors can view patient details');
   const doctorId = req.user._id.toString();
 
-  const sessions = await Session.find({ doctorId }).populate('patientId', 'firstName lastName email').lean();
+  // Only real bookings: a checkout row exists before payment, so everyone who
+  // ever opened and closed Razorpay used to be listed here, email included.
+  const { RELATIONSHIP_PAYMENT_STATES } = require('../services/chat.service');
+  const sessions = await Session.find({ doctorId, paymentStatus: { $in: RELATIONSHIP_PAYMENT_STATES } })
+    .populate('patientId', 'firstName lastName email').lean();
 
   const patientMap = new Map();
   sessions.forEach(session => {

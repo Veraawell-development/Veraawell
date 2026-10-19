@@ -42,7 +42,7 @@ export default function RefundPolicyPage() {
           
           <div className="px-4 py-2 rounded-full border bg-white/50" style={{ borderColor: 'var(--border)' }}>
             <span className="text-[10px] font-bold tracking-wider uppercase font-sans" style={{ color: 'var(--teal-dark)' }}>
-              Updated: July 2026
+              Updated: October 2026
             </span>
           </div>
         </motion.div>

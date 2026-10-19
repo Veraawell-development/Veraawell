@@ -28,6 +28,17 @@ describe('no page promises rescheduling', () => {
   });
 });
 
+describe('no page promises a discount or free session that does not exist', () => {
+  const root = join(__dirname, '..');
+  const files = ['pages', 'components'].flatMap((dir) =>
+    readdirSync(join(root, dir)).filter((f) => f.endsWith('.tsx')).map((f) => join(root, dir, f)));
+
+  it('says nothing about free discovery sessions, FIRST15 or 15% off', () => {
+    const offenders = files.filter((file) => /free discovery|FIRST15|15% off/i.test(readFileSync(file, 'utf8')));
+    expect(offenders).toEqual([]);
+  });
+});
+
 describe('attention helpers', () => {
   afterEach(() => { vi.unstubAllGlobals(); vi.useRealTimers(); });
 

@@ -22,7 +22,10 @@ const ReportsPage: React.FC = () => {
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      return response.json();
+      // The server answers { reports: [...] }; returning the whole body made
+      // reports.map throw and the page crash for every patient.
+      const data = await response.json();
+      return data.reports || [];
     },
     enabled: !!user?.userId
   });
@@ -42,9 +45,9 @@ const ReportsPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <div className="min-h-screen flex items-center justify-center bg-[var(--bg)]">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-teal-600 mx-auto"></div>
+          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-[var(--teal)] mx-auto"></div>
           <p className="mt-4 text-gray-600 font-serif">Loading reports...</p>
         </div>
       </div>
@@ -52,7 +55,7 @@ const ReportsPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 font-bree-serif">
+    <div className="min-h-screen bg-[var(--bg)]">
       {/* Sidebar */}
       {sidebarOpen && <div className="fixed inset-0 z-40" onClick={() => setSidebarOpen(false)} />}
       <div className={`fixed left-0 top-0 h-full w-64 shadow-lg transform transition-transform duration-300 ease-in-out z-50 ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}`} style={{ backgroundColor: '#7DA9A8' }}>
@@ -73,11 +76,11 @@ const ReportsPage: React.FC = () => {
       {/* Main Content */}
       <div className={`transition-all duration-300 ease-in-out ${sidebarOpen ? 'ml-64' : 'ml-0'}`}>
         {/* Header */}
-        <div className="bg-[#38ABAE] text-white py-4 px-6 flex items-center shadow-md">
+        <div className="bg-[var(--teal)] text-white py-4 px-6 flex items-center shadow-md">
           <button onClick={() => setSidebarOpen(!sidebarOpen)} className="mr-6 p-2 rounded-full hover:bg-white/20 transition-colors">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
           </button>
-          <h1 className="text-3xl font-bold">Reports & Recommendation</h1>
+          <h1 className="page-title">Reports & Recommendation</h1>
         </div>
 
         {/* Content Area */}

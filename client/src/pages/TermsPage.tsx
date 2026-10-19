@@ -42,7 +42,7 @@ export default function TermsPage() {
           
           <div className="px-4 py-2 rounded-full border bg-white/50" style={{ borderColor: 'var(--border)' }}>
             <span className="text-[10px] font-bold tracking-wider uppercase font-sans" style={{ color: 'var(--teal-dark)' }}>
-              Updated: May 2026
+              Updated: October 2026
             </span>
           </div>
         </motion.div>
@@ -146,10 +146,6 @@ export default function TermsPage() {
             <div className="space-y-4 text-base leading-relaxed font-sans" style={{ color: 'var(--text-2)' }}>
               <p>Session bookings are managed by the patient and are subject to therapist availability.</p>
               <ul className="list-none space-y-3 pl-2">
-                <li className="flex items-start gap-3">
-                  <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--teal)] flex-shrink-0" />
-                  <span><strong>Free Discovery Sessions:</strong> Eligible users can schedule one free discovery session. Repeated sign-ups for multiple free discovery sessions represent a violation of platform guidelines.</span>
-                </li>
                 <li className="flex items-start gap-3">
                   <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--warm)] flex-shrink-0" />
                   <span><strong>Cancellation Window:</strong> A booked session may be cancelled up to 4 hours before its start for a full refund. Cancellations inside 4 hours are non-refundable (the therapist is still paid for the reserved time). Sessions are not moved; to change the time, cancel and book again.</span>

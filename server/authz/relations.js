@@ -14,17 +14,21 @@
 const Session = require('../models/session');
 
 /**
- * True when a Session exists linking this doctor to this patient — i.e. the
- * patient has at some point booked with this doctor.
+ * True when this patient has actually booked this doctor: a session that was
+ * paid for (or owed nothing), whatever happened to it after.
  *
- * Deliberately counts sessions in any state. A cancelled or abandoned booking
- * still means the two were clinically paired, and reports/notes attached to it
- * legitimately belong to that pair. Narrowing this to completed sessions would
- * hide a doctor's own notes from them the moment a follow-up was cancelled.
+ * Cancelled and refunded bookings still count — the two were clinically
+ * paired, and notes or reports attached to them belong to that pair; narrowing
+ * this to completed sessions would hide a doctor's own notes the moment a
+ * follow-up was cancelled. A checkout that was never paid does NOT count: a
+ * Session row exists from the moment checkout opens, so opening and closing
+ * Razorpay used to hand that doctor the patient's emergency contact and
+ * records. The same rule decides whether chat opens.
  */
 async function hasTreatedRelationship(doctorId, patientId) {
   if (!doctorId || !patientId) return false;
-  return !!(await Session.exists({ doctorId, patientId }));
+  const { RELATIONSHIP_PAYMENT_STATES } = require('../services/chat.service');
+  return !!(await Session.exists({ doctorId, patientId, paymentStatus: { $in: RELATIONSHIP_PAYMENT_STATES } }));
 }
 
 module.exports = { hasTreatedRelationship };

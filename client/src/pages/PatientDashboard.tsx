@@ -137,8 +137,17 @@ const PatientDashboard: React.FC = () => {
   const queryClient = useQueryClient();
 
   const today = new Date();
-  const year = today.getFullYear();
-  const month = today.getMonth() + 1;
+  // The month the schedule shows; the arrows move it (it was fixed to the
+  // current month, so next month's sessions couldn't be seen here).
+  const [viewMonth, setViewMonth] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
+  const year = viewMonth.getFullYear();
+  const month = viewMonth.getMonth() + 1;
+  const shiftMonth = (by: number) => {
+    const next = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + by, 1);
+    setViewMonth(next);
+    // Today in the current month, the 1st in any other.
+    setSelectedDay(next.getFullYear() === today.getFullYear() && next.getMonth() === today.getMonth() ? today.getDate() : 1);
+  };
 
   // Show welcome modal only once
   useEffect(() => {
@@ -150,16 +159,20 @@ const PatientDashboard: React.FC = () => {
     }
   }, [user]);
 
-  const { data: recentReports = [] } = useQuery<Report[]>({
+  // Same key — and so the same shape, the FULL list — as the two reports
+  // pages: this used to cache only the first four under it, so the reports
+  // page then showed four.
+  const { data: allReports = [], isLoading: reportsLoading } = useQuery<Report[]>({
     queryKey: ['patient', 'reports', user?.userId],
     queryFn: async () => {
       const res = await fetch(`${API_CONFIG.BASE_URL}/session-tools/reports/patient/${user?.userId}`, { credentials: 'include' });
       if (!res.ok) throw new Error('Failed to fetch reports');
       const data = await res.json();
-      return (data.reports || []).slice(0, 4);
+      return data.reports || [];
     },
     enabled: !!user?.userId,
   });
+  const recentReports = allReports.slice(0, 4);
 
   const { data: pendingTasks = [] } = useQuery<Task[]>({
     queryKey: ['patient', 'tasks', user?.userId, 'pending'],
@@ -328,7 +341,7 @@ const PatientDashboard: React.FC = () => {
   };
 
   // Sessions for the mini month calendar
-  const { data: monthSessions = [] } = useQuery<Session[]>({
+  const { data: monthSessions = [], isLoading: monthLoading } = useQuery<Session[]>({
     queryKey: ['patient', 'calendarSessions', year, month],
     queryFn: async () => {
       const res = await fetch(`${API_CONFIG.BASE_URL}/sessions/calendar/${year}/${month}`, { credentials: 'include' });
@@ -339,7 +352,7 @@ const PatientDashboard: React.FC = () => {
   });
 
   // All upcoming sessions, soonest first
-  const { data: upcomingSessionsList = [] } = useQuery<UpcomingSession[]>({
+  const { data: upcomingSessionsList = [], isLoading: upcomingLoading } = useQuery<UpcomingSession[]>({
     queryKey: ['patient', 'upcomingSessions', user?.userId],
     queryFn: async () => {
       const res = await fetch(`${API_CONFIG.BASE_URL}/sessions/my-sessions`, { credentials: 'include' });
@@ -499,7 +512,9 @@ const PatientDashboard: React.FC = () => {
   // exist in MENTAL_HEALTH_TESTS, and the client defines neither 'disability'
   // nor the server's spelling 'dla20'. Every patient who tapped it was bounced
   // silently back to the list. Removed until the assessment itself exists.
-  const defaultTestIds = ['depression', 'anxiety', 'adhd'];
+  // Four tiles, a full 2×2 grid. The fourth was DLA-20 until the client
+  // stopped offering it, which left a gap; PTSD is a test the app runs.
+  const defaultTestIds = ['depression', 'anxiety', 'adhd', 'ptsd'];
   // Only tests this client can actually run: history can hold types it
   // doesn't define (a 'dla20' record from before the server stopped accepting
   // it), and a tile for one would just bounce off /mental-health/:testType.
@@ -829,7 +844,7 @@ const PatientDashboard: React.FC = () => {
             </div>
             <div className="flex flex-col flex-1 min-h-0 overflow-y-auto">
               {recentReports.length === 0 ? (
-                <div className="text-center py-6" style={{ fontSize: 12.5, color: T.muted }}>No reports yet</div>
+                <div className="text-center py-6" style={{ fontSize: 12.5, color: T.muted }}>{reportsLoading ? 'Loading…' : 'No reports yet'}</div>
               ) : (
                 recentReports.map((r) => {
                   const known = !!r.doctorId?.firstName;
@@ -866,9 +881,17 @@ const PatientDashboard: React.FC = () => {
               <div>
                 <div style={{ fontWeight: 600, fontSize: 10, letterSpacing: '.1em', color: T.muted, textTransform: 'uppercase', marginBottom: 6 }}>— Schedule</div>
                 <div style={{ fontFamily: FONT_SERIF, fontSize: 22, lineHeight: 1.1, color: T.text }}>
-                  {today.toLocaleDateString('en-US', { month: 'long' })}{' '}
+                  {viewMonth.toLocaleDateString('en-US', { month: 'long' })}{' '}
                   <span style={{ fontSize: 14, color: T.muted, fontFamily: FONT_SANS }}>{year}</span>
                 </div>
+              </div>
+              <div className="flex items-center gap-1 ml-auto mr-2">
+                {[{ by: -1, label: 'Previous month', d: 'M15 18l-6-6 6-6' }, { by: 1, label: 'Next month', d: 'M9 18l6-6-6-6' }].map((b) => (
+                  <button key={b.by} onClick={() => shiftMonth(b.by)} aria-label={b.label}
+                    style={{ width: 34, height: 34, borderRadius: 100, border: '1px solid rgba(27,43,46,.15)', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1b2b2e" strokeWidth="2"><path d={b.d} /></svg>
+                  </button>
+                ))}
               </div>
               <button
                 onClick={() => setIsCalendarModalOpen(true)}
@@ -930,7 +953,7 @@ const PatientDashboard: React.FC = () => {
                   phone nor pushes the dashboard around. */}
               <div className="min-h-0 overflow-y-auto pr-0.5" style={{ maxHeight: 290 }}>
                 {selectedDaySessions.length === 0 ? (
-                  <p style={{ fontSize: 12.5, color: T.muted }}>No sessions on this day.</p>
+                  <p style={{ fontSize: 12.5, color: T.muted }}>{monthLoading ? 'Loading…' : 'No sessions on this day.'}</p>
                 ) : (
                   <div className="flex flex-col gap-2">
                     {selectedDaySessions.map((s) => {
@@ -1157,7 +1180,7 @@ const PatientDashboard: React.FC = () => {
               </>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center">
-                <p style={{ fontSize: 13, color: T.muted }}>No upcoming sessions scheduled.</p>
+                <p style={{ fontSize: 13, color: T.muted }}>{upcomingLoading ? 'Loading…' : 'No upcoming sessions scheduled.'}</p>
                 <button
                   onClick={() => setIsBookingModalOpen(true)}
                   style={{ background: T.teal, color: '#fff', border: 'none', borderRadius: 100, padding: '10px 20px', fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}

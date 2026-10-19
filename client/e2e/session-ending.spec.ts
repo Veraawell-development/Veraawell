@@ -110,6 +110,9 @@ test.describe('ending a session', () => {
   });
 
   test('the countdown is to the session’s end, and time up completes it for both', async ({ browser }) => {
+    // It waits out a real ~25-second clock after two sign-ins — past the
+    // default 30 s on a busy machine.
+    test.setTimeout(90_000);
     const { users } = fixtures();
     // A 20-minute session ending in ~25 seconds, both having been in from the
     // start (a doctor joining only now would be late and move the end).

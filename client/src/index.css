@@ -453,3 +453,16 @@ body {
 
 /* ---------- Selection Color ---------- */
 ::selection { background: var(--teal-muted); color: var(--teal-dark); }
+/*
+ * The title of an inner page (My Journal, My Tests, Call History, Settings…).
+ * These were each a different heavy sans heading on a grey page, while the
+ * dashboards use the display serif on the warm background; one style now.
+ */
+.page-title {
+  font-family: var(--font-display);
+  font-weight: 400;
+  color: var(--text);
+  font-size: clamp(30px, 3.4vw, 40px);
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}

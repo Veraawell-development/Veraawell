@@ -124,14 +124,23 @@ articleSchema.pre('save', function (next) {
 });
 
 // Method to calculate read time from content
-articleSchema.methods.calculateReadTime = function () {
+function readTimeOf(content) {
     const wordsPerMinute = 200;
-    // Strip HTML tags to get plain text
-    const textContent = this.content.replace(/<[^>]*>/g, '');
+    // Plain text: tags out, and non-breaking spaces counted as spaces — an
+    // article pasted from a rich editor has "&nbsp;" between every word, so
+    // it used to count as one word and read "1 min read".
+    const textContent = String(content || '')
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/&nbsp;|&#160;|\u00a0/gi, ' ');
     const wordCount = textContent.split(/\s+/).filter(word => word.length > 0).length;
-    const minutes = Math.ceil(wordCount / wordsPerMinute);
+    const minutes = Math.max(1, Math.ceil(wordCount / wordsPerMinute));
     return `${minutes} min${minutes > 1 ? 's' : ''} read`;
+}
+
+articleSchema.methods.calculateReadTime = function () {
+    return readTimeOf(this.content);
 };
+articleSchema.statics.readTimeOf = readTimeOf;
 
 // Static method to find published articles
 articleSchema.statics.findPublished = function (filter = {}) {

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { API_CONFIG } from '../config/api';
 import ReportCard from './ReportCard';
 import logger from '../utils/logger';
+import { generateReportPdf } from '../utils/reportPdf';
 
 interface Report {
     _id: string;
@@ -140,7 +141,15 @@ const SessionReportsModal: React.FC<SessionReportsModalProps> = ({
                 {/* Footer actions */}
                 {reports.length > 0 && (
                     <div className="p-4 border-t border-gray-100 bg-white">
-                        <button className="w-full flex items-center justify-center gap-2 bg-gray-900 text-white font-medium py-3 rounded-xl hover:bg-gray-800 transition-colors shadow-lg shadow-gray-200">
+                        {/* Did nothing when clicked: now saves each report as a PDF. */}
+                        <button
+                            onClick={() => {
+                                reports.reduce(
+                                    (chain, r) => chain.then(() => generateReportPdf(r as any)),
+                                    Promise.resolve()
+                                ).catch((err) => logger.error('Could not save the reports', err));
+                            }}
+                            className="w-full flex items-center justify-center gap-2 bg-gray-900 text-white font-medium py-3 rounded-xl hover:bg-gray-800 transition-colors shadow-lg shadow-gray-200">
                             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                             </svg>

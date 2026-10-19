@@ -283,6 +283,18 @@ describe('the public read path', () => {
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
 
+  test('read time counts words joined by &nbsp; — pasted articles said "1 min read"', async () => {
+    const words = Array.from({ length: 450 }, (_, i) => `word${i}`).join('&nbsp;');
+    const a = await published({ title: 'Pasted From An Editor', content: `<p>${words}</p>` });
+    const one = await request(server).get(`/api/articles/${a.slug}`);
+    expect(one.body.readTime).toBe('3 mins read');
+    const list = await request(server).get('/api/articles');
+    const row = list.body.articles.find((x) => x.slug === a.slug);
+    expect(row.readTime).toBe('3 mins read');
+    expect(row.content).toBeUndefined(); // the list still doesn't send bodies
+    expect(Article.readTimeOf('')).toBe('1 min read');
+  });
+
   test('an unknown slug is a 404, not a 500', async () => {
     const res = await request(server).get('/api/articles/no-such-article-anywhere');
     expect(res.status).toBe(404);

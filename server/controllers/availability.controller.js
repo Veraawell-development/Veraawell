@@ -33,7 +33,11 @@ const getDoctorAvailabilityById = asyncHandler(async (req, res) => {
   if (!availability) {
     return res.json({ availabilityType: 'same_slots', defaultSlots: [], activeDates: [], customAvailability: [] });
   }
-  res.json(availability);
+  // Public: which times are taken, never which sessions took them (the ids
+  // of the doctor's booked sessions were in this response).
+  const pub = availability.toObject();
+  pub.bookedSlots = (pub.bookedSlots || []).map(({ date, time, slotKey }) => ({ date, time, slotKey }));
+  res.json(pub);
 });
 
 /** POST /api/availability/save — Save doctor's availability settings */
@@ -117,7 +121,10 @@ const getUpcomingSessions = asyncHandler(async (req, res) => {
     utcToZoned(new Date(), PLATFORM_TIMEZONE).localDate, '00:00', PLATFORM_TIMEZONE
   );
 
-  const upcomingSessions = await Session.find({ doctorId: userId, startsAt: { $gte: startOfTodayLocal } })
+  // Booked sessions only. Checkouts still open or never paid showed on the
+  // doctor's calendar as sessions, and their freed slots as "Booked".
+  const { RELATIONSHIP_PAYMENT_STATES } = require('../services/chat.service');
+  const upcomingSessions = await Session.find({ doctorId: userId, startsAt: { $gte: startOfTodayLocal }, paymentStatus: { $in: RELATIONSHIP_PAYMENT_STATES } })
     .populate('patientId', 'firstName lastName email')
     .sort({ startsAt: 1 })
     .limit(50);

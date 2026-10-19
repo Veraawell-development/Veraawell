@@ -231,16 +231,21 @@ const setupProfile = asyncHandler(async (req, res) => {
     );
   }
 
-  // Mark profile as completed
-  user.profileCompleted = true;
+  // A patient's profile is complete only with the fields the form marks
+  // required. Any save used to set it — and the call screen saves just an
+  // emergency contact here — so patients with no date of birth, gender or
+  // phone were "complete" and never asked again.
+  user.profileCompleted = user.role === 'patient'
+    ? !!(user.firstName && user.dateOfBirth && user.gender && user.phoneNumber)
+    : true;
   await user.save();
 
-  logger.info('Profile setup completed', { userId: user._id.toString().substring(0, 8) });
+  logger.info('Profile saved', { userId: user._id.toString().substring(0, 8), complete: user.profileCompleted });
 
   res.json({
     success: true,
-    message: 'Profile setup completed successfully',
-    profileCompleted: true
+    message: user.profileCompleted ? 'Profile setup completed successfully' : 'Profile saved',
+    profileCompleted: user.profileCompleted
   });
 });
 

@@ -8,6 +8,7 @@ import { API_BASE_URL } from '../config/api';
 import { getAuthToken } from '../utils/authToken';
 import { resolveSessionStart, sessionLocalDateKey, formatSessionDay } from '../utils/dateUtils';
 import SessionModal from '../components/SessionModal';
+import { outcomeLabel } from '../utils/sessionRules';
 
 interface TimeSlot { time: string; isBooked: boolean; sessionId?: string; }
 interface DayAvailability { date: string; slots: TimeSlot[]; }
@@ -28,6 +29,12 @@ interface UpcomingSession {
 const AM_SLOTS = ['09:00 AM', '10:00 AM', '11:00 AM', '12:00 PM'];
 const PM_SLOTS = ['01:00 PM', '02:00 PM', '03:00 PM', '04:00 PM', '05:00 PM', '06:00 PM', '07:00 PM', '08:00 PM'];
 const ALL_SLOTS = [...AM_SLOTS, ...PM_SLOTS];
+
+/** Payment state in words (it printed "refund_pending"). */
+const PAYMENT_WORDS: Record<string, string> = {
+  paid: 'Paid', not_required: 'No charge', pending: 'Awaiting payment', failed: 'Not paid',
+  refund_pending: 'Refund in progress', refunded: 'Refunded', refund_failed: 'Refund being retried'
+};
 
 const ManageCalendar: React.FC = () => {
   const navigate = useNavigate();
@@ -198,8 +205,12 @@ const ManageCalendar: React.FC = () => {
   };
 
   const getSlotInfo = (slot: string) => {
+    // Only a session that still holds the slot. A cancelled one has freed it
+    // (anyone can book it again), but showed "Booked" with the patient's name
+    // and couldn't be switched off.
     const booked = upcomingSessions.find(s => {
-      return sessionLocalDateKey(s) === currentViewDate && s.sessionTime === slot;
+      return sessionLocalDateKey(s) === currentViewDate && s.sessionTime === slot
+        && (s.status === 'scheduled' || s.status === 'active');
     });
     return { booked, past: isSlotInPast(currentViewDate, slot), sel: isSlotSelected(slot) };
   };
@@ -550,15 +561,17 @@ const ManageCalendar: React.FC = () => {
                 </div>
                 <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
                   <p className="text-xs text-gray-500 font-semibold mb-1 uppercase tracking-wider">Session Type</p>
-                  <p className="text-sm font-bold text-gray-800 capitalize">{selectedSession.sessionType}</p>
+                  <p className="text-sm font-bold text-gray-800">{selectedSession.sessionType === 'immediate' ? 'Instant' : 'Booked slot'}</p>
                 </div>
                 <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
                   <p className="text-xs text-gray-500 font-semibold mb-1 uppercase tracking-wider">Status</p>
-                  <span className={`inline-block px-2 py-1 rounded text-xs font-bold capitalize ${
-                    selectedSession.status === 'cancelled' || selectedSession.status === 'missed' ? 'bg-red-100 text-red-700' : 
+                  {/* The same words as every other screen, not the raw
+                      database value ("scheduled", "no-show"). */}
+                  <span className={`inline-block px-2 py-1 rounded text-xs font-bold ${
+                    selectedSession.status === 'cancelled' || selectedSession.status === 'no-show' ? 'bg-red-100 text-red-700' :
                     selectedSession.status === 'completed' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'
                   }`}>
-                    {selectedSession.status}
+                    {outcomeLabel(selectedSession as any, 'doctor')?.label || (selectedSession.status === 'active' ? 'In progress' : 'Upcoming')}
                   </span>
                 </div>
                 <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
@@ -567,7 +580,7 @@ const ManageCalendar: React.FC = () => {
                     selectedSession.paymentStatus === 'refunded' ? 'bg-orange-100 text-orange-700' :
                     selectedSession.paymentStatus === 'paid' ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-700'
                   }`}>
-                    {selectedSession.paymentStatus}
+                    {PAYMENT_WORDS[selectedSession.paymentStatus] || selectedSession.paymentStatus}
                   </span>
                 </div>
               </div>

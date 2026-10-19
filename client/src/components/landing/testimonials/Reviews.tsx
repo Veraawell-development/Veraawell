@@ -10,14 +10,6 @@ interface Review {
   createdAt: string;
 }
 
-const fallbackReviews: Review[] = [
-  { _id: '1', patientId: { firstName: 'Isha', lastName: 'M.' }, rating: 5, feedback: 'I came in feeling lost, and today I feel stronger and more in control of my life. Thank you, Veraawell, for your guidance and patience.', createdAt: new Date().toISOString() },
-  { _id: '2', patientId: { firstName: 'Rahul', lastName: 'V.' }, rating: 5, feedback: 'Veraawell has been a game-changer for my mental health journey. The therapists are compassionate and truly understanding.', createdAt: new Date().toISOString() },
-  { _id: '3', patientId: { firstName: 'Priya', lastName: 'S.' }, rating: 4, feedback: 'The platform is user-friendly and the sessions have helped me develop better coping strategies for stress and anxiety.', createdAt: new Date().toISOString() },
-  { _id: '4', patientId: { firstName: 'Arjun', lastName: 'K.' }, rating: 5, feedback: 'Finding a therapist felt daunting but Veraawell made it seamless. I feel genuinely heard every session.', createdAt: new Date().toISOString() },
-  { _id: '5', patientId: { firstName: 'Sneha', lastName: 'R.' }, rating: 5, feedback: "The progress tracking feature is incredible. Being able to see how far I've come keeps me motivated to continue.", createdAt: new Date().toISOString() },
-  { _id: '6', patientId: { firstName: 'Vikram', lastName: 'T.' }, rating: 4, feedback: 'Professional, private, and genuinely helpful. My therapist remembered every detail across sessions.', createdAt: new Date().toISOString() },
-];
 
 const avatarColors = ['#7C3AED', '#0D9488', '#C4A882', '#EA580C', '#059669', '#7B5EA7'];
 
@@ -114,7 +106,7 @@ const Reviews: React.FC = () => {
         if (!res.ok) throw new Error('Failed');
         const data = await res.json();
         if (data.reviews?.length) setReviews(data.reviews.slice(0, 6));
-      } catch { /* use fallback */ }
+      } catch { /* no reviews shown */ }
     };
     fetchReviews();
   }, []);
@@ -128,9 +120,13 @@ const Reviews: React.FC = () => {
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+    // Re-run once reviews arrive: before that the section isn't rendered.
+  }, [reviews.length]);
 
-  const displayReviews = reviews.length > 0 ? reviews : fallbackReviews;
+  // Real reviews only. With none yet, the section used to fill itself with
+  // invented testimonials ("Isha M.", "Rahul V.") — now it waits for real ones.
+  const displayReviews = reviews;
+  if (displayReviews.length === 0) return null;
 
   return (
     <section className="section-tinted relative overflow-hidden" style={{ padding: 'clamp(64px, 8vw, 112px) 1rem' }}>
@@ -193,8 +189,12 @@ const Reviews: React.FC = () => {
             {[...Array(5)].map((_, i) => <span key={i} style={{ color: '#F59E0B', fontSize: '16px' }}>★</span>)}
           </div>
           <div className="w-px h-6 hidden sm:block" style={{ background: 'var(--border-strong)' }} />
+          {/* Counted from the real reviews; it used to state a fixed
+              "4.8 average rating · 1,000+ verified reviews". */}
           <p className="text-sm text-center" style={{ color: 'var(--text-2)', fontFamily: 'var(--font-mono)' }}>
-            4.8 average rating · 1,000+ verified reviews
+            {reviews.length > 0
+              ? `${(reviews.reduce((sum, r: any) => sum + (Number(r.rating) || 0), 0) / reviews.length).toFixed(1)} average rating from our patients`
+              : 'Reviews from patients after their sessions'}
           </p>
         </div>
 

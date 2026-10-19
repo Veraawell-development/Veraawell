@@ -81,6 +81,15 @@ export function hasEnded(session: SessionLike, now: Date = new Date()): boolean 
   return LIVE.includes(session.status || '') && session.sessionType !== 'immediate' && now > joinWindow(session).closesAt;
 }
 
+/**
+ * A real booking — paid, or owing nothing — whatever happened to it after.
+ * A checkout that is still open or was never paid isn't a session, and lists
+ * showed it as one. The server's RELATIONSHIP_PAYMENT_STATES, client side.
+ */
+export function isBooked(session: SessionLike): boolean {
+  return ['paid', 'not_required', 'refunded', 'refund_pending', 'refund_failed'].includes(session.paymentStatus || '');
+}
+
 export type OutcomeTone = 'good' | 'neutral' | 'warn' | 'bad';
 
 const outcomeCode = (session: SessionLike): string | null => {
@@ -138,6 +147,12 @@ export function outcomeLabel(session: SessionLike, viewer: 'patient' | 'doctor')
   }
 
   if (status === 'cancelled') {
+    // Never paid (checkout closed, payment failed or timed out): nothing was
+    // charged, so nothing is "not refunded". Rows from before the outcome was
+    // recorded have no code, hence the payment check.
+    if (session.paymentStatus === 'failed' || code === 'checkout_abandoned') {
+      return { label: 'Payment not completed', tone: 'neutral' };
+    }
     switch (code) {
       case 'late_cancellation':
         return patient

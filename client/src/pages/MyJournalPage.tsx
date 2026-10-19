@@ -126,9 +126,9 @@ const MyJournalPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#FAFAFA] flex items-center justify-center">
+      <div className="min-h-screen bg-[var(--bg)] flex items-center justify-center">
         <div className="text-center">
-          <div className="w-8 h-8 border-2 border-[#00B4D8] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <div className="w-8 h-8 border-2 border-[var(--teal)] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-500 text-[13px] font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>Loading entries...</p>
         </div>
       </div>
@@ -136,7 +136,7 @@ const MyJournalPage: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen pt-[64px] md:pt-[80px] bg-[#FAFAFA] font-sans selection:bg-[#F0FBFF] pb-12 box-border">
+    <div className="min-h-screen pt-[64px] md:pt-[80px] bg-[var(--bg)] font-sans selection:bg-[#F0FBFF] pb-12 box-border">
       <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 md:py-10">
         
         {/* Header Section */}
@@ -144,7 +144,7 @@ const MyJournalPage: React.FC = () => {
             <div className="max-w-2xl relative">
                 <button 
                     onClick={() => navigate('/patient-dashboard')} 
-                    className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 hover:text-[#00B4D8] transition-colors mb-5 group"
+                    className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 hover:text-[var(--teal)] transition-colors mb-5 group"
                     aria-label="Back to Dashboard"
                     style={{ fontFamily: 'Inter, sans-serif' }}
                 >
@@ -152,7 +152,7 @@ const MyJournalPage: React.FC = () => {
                     Back to Dashboard
                 </button>
                 
-                <h1 className="text-[32px] md:text-[36px] font-extrabold text-gray-800 tracking-tight mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
+                <h1 className="page-title mb-3">
                     My Journal
                 </h1>
                 <p className="text-[15px] text-gray-500 font-medium leading-relaxed max-w-2xl" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -163,7 +163,7 @@ const MyJournalPage: React.FC = () => {
             <div className="shrink-0 pt-2 md:pt-10 md:mt-2">
                 <button
                     onClick={() => setShowAddModal(true)}
-                    className="flex items-center gap-2 text-[13px] font-semibold text-white bg-[#00B4D8] hover:bg-[#0096B4] px-5 py-2.5 rounded-full transition-all shadow-sm"
+                    className="flex items-center gap-2 text-[13px] font-semibold text-white bg-[var(--teal)] hover:bg-[var(--teal-dark)] px-5 py-2.5 rounded-full transition-all shadow-sm"
                     style={{ fontFamily: 'Inter, sans-serif' }}
                 >
                     <FiPlus className="w-4 h-4" />
@@ -186,7 +186,7 @@ const MyJournalPage: React.FC = () => {
                 </p>
                 <button
                     onClick={() => setShowAddModal(true)}
-                    className="px-6 py-2.5 rounded-full text-[13px] font-semibold text-white bg-[#00B4D8] hover:bg-[#0096B4] transition-colors shadow-sm"
+                    className="px-6 py-2.5 rounded-full text-[13px] font-semibold text-white bg-[var(--teal)] hover:bg-[var(--teal-dark)] transition-colors shadow-sm"
                     style={{ fontFamily: 'Inter, sans-serif' }}
                 >
                     Write First Entry
@@ -200,7 +200,7 @@ const MyJournalPage: React.FC = () => {
                 {entries.map((entry: JournalEntry) => (
                     <div
                         key={entry._id}
-                        className="bg-white rounded-[16px] border border-gray-200 shadow-sm hover:border-[#00B4D8] hover:shadow-md transition-all duration-200 flex flex-col group cursor-pointer"
+                        className="bg-white rounded-[16px] border border-gray-200 shadow-sm hover:border-[var(--teal)] hover:shadow-md transition-all duration-200 flex flex-col group cursor-pointer"
                         onClick={() => setViewingEntry(entry)}
                     >
                         <div className="p-6 flex-1 flex flex-col">
@@ -230,7 +230,7 @@ const MyJournalPage: React.FC = () => {
                                     <FiClock className="w-3.5 h-3.5" />
                                     {formatDate(entry.createdAt)}
                                 </div>
-                                <div className="flex items-center gap-1.5 text-gray-800 text-[13px] font-semibold group-hover:text-[#00B4D8] transition-colors" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                <div className="flex items-center gap-1.5 text-gray-800 text-[13px] font-semibold group-hover:text-[var(--teal)] transition-colors" style={{ fontFamily: 'Inter, sans-serif' }}>
                                     Read <FiArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
                                 </div>
                             </div>
@@ -298,7 +298,7 @@ const MyJournalPage: React.FC = () => {
                 </button>
                 <button
                     onClick={(e) => openEditModal(viewingEntry, e)}
-                    className="flex items-center gap-2 px-5 py-2 rounded-lg text-[13px] font-semibold text-white bg-[#00B4D8] hover:bg-[#0096B4] transition-all shadow-sm"
+                    className="flex items-center gap-2 px-5 py-2 rounded-lg text-[13px] font-semibold text-white bg-[var(--teal)] hover:bg-[var(--teal-dark)] transition-all shadow-sm"
                     style={{ fontFamily: 'Inter, sans-serif' }}
                 >
                     <FiEdit2 className="w-4 h-4" />
@@ -344,7 +344,7 @@ const MyJournalPage: React.FC = () => {
                     type="text"
                     value={formData.title}
                     onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#00B4D8]/20 focus:border-[#00B4D8] transition-all text-[14px] text-gray-800"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--teal)]/20 focus:border-[var(--teal)] transition-all text-[14px] text-gray-800"
                     placeholder="E.g., Morning Reflections"
                     style={{ fontFamily: 'Inter, sans-serif' }}
                   />
@@ -358,7 +358,7 @@ const MyJournalPage: React.FC = () => {
                     type="text"
                     value={formData.mood}
                     onChange={(e) => setFormData({ ...formData, mood: e.target.value })}
-                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#00B4D8]/20 focus:border-[#00B4D8] transition-all text-[14px] text-gray-800"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--teal)]/20 focus:border-[var(--teal)] transition-all text-[14px] text-gray-800"
                     placeholder="E.g., Happy, Anxious, Calm"
                     style={{ fontFamily: 'Inter, sans-serif' }}
                   />
@@ -372,7 +372,7 @@ const MyJournalPage: React.FC = () => {
                     value={formData.content}
                     onChange={(e) => setFormData({ ...formData, content: e.target.value })}
                     rows={8}
-                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[#00B4D8]/20 focus:border-[#00B4D8] transition-all text-[14px] text-gray-800 resize-none leading-relaxed"
+                    className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-[var(--teal)]/20 focus:border-[var(--teal)] transition-all text-[14px] text-gray-800 resize-none leading-relaxed"
                     placeholder="Write your thoughts..."
                     style={{ fontFamily: 'Inter, sans-serif' }}
                   />
@@ -394,7 +394,7 @@ const MyJournalPage: React.FC = () => {
                 <button
                   onClick={editingEntry ? handleUpdateEntry : handleAddEntry}
                   disabled={!formData.title || !formData.content}
-                  className="px-6 py-2.5 rounded-lg text-[13px] font-semibold text-white bg-[#00B4D8] shadow-sm hover:bg-[#0096B4] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-6 py-2.5 rounded-lg text-[13px] font-semibold text-white bg-[var(--teal)] shadow-sm hover:bg-[var(--teal-dark)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ fontFamily: 'Inter, sans-serif' }}
                 >
                   {editingEntry ? 'Save Changes' : 'Save Entry'}

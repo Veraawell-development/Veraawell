@@ -523,7 +523,7 @@ const DoctorSettingsPage: React.FC = () => {
               <p className="leading-relaxed" style={{ fontSize: 12, color: T.text2 }}>
                 {feeIsKnown
                   ? <>Earnings shown are after your <strong className="font-semibold">{platformFeePercent}%</strong> platform fee. Each session's exact split is fixed when it's booked.</>
-                  : <>Earnings shown are <strong className="font-semibold">estimates</strong> at the standard {platformFeePercent}% platform fee — your agreed fee may differ, and each session's exact split appears in your earnings once it's booked.</>} Earnings are transferred to your bank account within 3 business days after each completed session. Leave a price at 0 to not offer that session length.
+                  : <>Earnings shown are <strong className="font-semibold">estimates</strong> at the standard {platformFeePercent}% platform fee — your agreed fee may differ, and each session's exact split appears in your earnings once it's booked.</>} Earnings are paid to your bank account weekly, once your bank details are approved. Leave a price at 0 to not offer that session length.
               </p>
             </div>
 
@@ -750,7 +750,7 @@ const DoctorSettingsPage: React.FC = () => {
             <div className="p-6 grid grid-cols-2 auto-rows-fr gap-3">
               {[
                 { label: 'Total Earned', value: `₹${earnings.totalDoctorEarnings.toLocaleString('en-IN')}`, note: 'after platform fee', span: false },
-                { label: 'Pending Payout', value: `₹${earnings.pendingPayout.toLocaleString('en-IN')}`, note: 'processing within 3 days', span: false },
+                { label: 'Pending Payout', value: `₹${earnings.pendingPayout.toLocaleString('en-IN')}`, note: 'paid in the weekly payout', span: false },
                 { label: 'Sessions Completed', value: `${earnings.totalSessions}`, note: `Gross collected: ₹${earnings.totalGross.toLocaleString('en-IN')}`, span: true },
               ].map((m) => (
                 <div

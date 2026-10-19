@@ -34,6 +34,15 @@ interface Therapist {
     nextSession: string | null;
 }
 
+/** "₹800 – ₹2,000", or one price when there's only one ("₹1 - ₹1" before). */
+function feeText(pricing?: { min?: number; max?: number }): string {
+    const min = pricing?.min || 0;
+    const max = pricing?.max || 0;
+    if (!min && !max) return '—';
+    if (!max || min === max) return `₹${(min || max).toLocaleString('en-IN')}`;
+    return `₹${min.toLocaleString('en-IN')} – ₹${max.toLocaleString('en-IN')}`;
+}
+
 const MyTherapistPage: React.FC = () => {
     const navigate = useNavigate();
     const { user } = useAuth();
@@ -68,7 +77,7 @@ const MyTherapistPage: React.FC = () => {
 
     if (loading) {
         return (
-            <div className="h-[calc(100vh-80px)] flex items-center justify-center bg-[#FAFAFA] font-sans">
+            <div className="h-[calc(100vh-80px)] flex items-center justify-center bg-[var(--bg)] font-sans">
                 <div className="text-center">
                     <div className="w-8 h-8 border-2 border-[#38ABAE] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
                     <p className="text-gray-500 text-[13px] font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>Loading therapists...</p>
@@ -78,7 +87,7 @@ const MyTherapistPage: React.FC = () => {
     }
 
     return (
-        <div className="h-screen pt-[64px] md:pt-[80px] bg-[#FAFAFA] font-sans flex flex-col overflow-hidden box-border">
+        <div className="h-screen pt-[64px] md:pt-[80px] bg-[var(--bg)] font-sans flex flex-col overflow-hidden box-border">
             <div className="flex-1 max-w-[1200px] mx-auto w-full px-6 py-8 flex flex-col min-h-0">
                 
                 {/* Minimal Header */}
@@ -86,12 +95,12 @@ const MyTherapistPage: React.FC = () => {
                     <div className="flex items-center gap-4">
                         <button 
                             onClick={() => navigate('/patient-dashboard')} 
-                            className="flex items-center justify-center w-10 h-10 bg-white border border-gray-200 rounded-full text-gray-500 hover:text-[#38ABAE] hover:border-[#38ABAE] hover:shadow-sm transition-all group"
+                            className="flex items-center justify-center w-10 h-10 bg-white border border-gray-200 rounded-full text-gray-500 hover:text-[var(--teal)] hover:border-[#38ABAE] hover:shadow-sm transition-all group"
                             title="Back to Dashboard"
                         >
                             <FiArrowLeft className="w-5 h-5 group-hover:-translate-x-0.5 transition-transform" />
                         </button>
-                        <h1 className="text-[24px] font-extrabold text-gray-900 tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        <h1 className="page-title">
                             My Therapists
                         </h1>
                     </div>
@@ -103,8 +112,8 @@ const MyTherapistPage: React.FC = () => {
                                 key={f}
                                 onClick={() => setFilter(f as any)}
                                 className={`px-4 py-2 rounded-full font-bold text-[11px] uppercase tracking-wider transition-all ${filter === f
-                                    ? 'bg-[#38ABAE] text-white shadow-sm'
-                                    : 'bg-white border border-gray-200 text-gray-500 hover:border-[#38ABAE] hover:text-[#38ABAE]'
+                                    ? 'bg-[var(--teal)] text-white shadow-sm'
+                                    : 'bg-white border border-gray-200 text-gray-500 hover:border-[#38ABAE] hover:text-[var(--teal)]'
                                     }`}
                                 style={{ fontFamily: 'Inter, sans-serif' }}
                             >
@@ -128,7 +137,7 @@ const MyTherapistPage: React.FC = () => {
                         </p>
                         <button
                             onClick={() => navigate('/choose-professional')}
-                            className="inline-flex items-center justify-center px-6 py-2.5 bg-[#38ABAE] text-white font-medium rounded-lg hover:bg-[#2A8285] transition-colors text-[14px]"
+                            className="inline-flex items-center justify-center px-6 py-2.5 bg-[var(--teal)] text-white font-medium rounded-lg hover:bg-[var(--teal-dark)] transition-colors text-[14px]"
                             style={{ fontFamily: 'Inter, sans-serif' }}
                         >
                             Find a Therapist
@@ -159,18 +168,25 @@ const MyTherapistPage: React.FC = () => {
                                         />
                                         <div className="flex-1 min-w-0">
                                             <div className="flex justify-between items-start gap-2">
-                                                <h3 className="text-[16px] font-bold text-gray-900 truncate" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                                <h3 className="text-[16px] font-bold text-gray-900 leading-snug" style={{ fontFamily: 'Inter, sans-serif' }}>
                                                     Dr. {therapist.doctor.firstName} {therapist.doctor.lastName}
                                                 </h3>
-                                                <span className="bg-[#E8F6F6] text-[#38ABAE] text-[9px] font-bold uppercase px-2 py-1 rounded shrink-0">
+                                                <span className="bg-[#E8F6F6] text-[var(--teal)] text-[9px] font-bold uppercase px-2 py-1 rounded shrink-0">
                                                     {therapist.upcomingSessions > 0 ? 'Your Therapist' : 'Past Therapist'}
                                                 </span>
                                             </div>
-                                            <p className="text-[13px] text-gray-600 mt-0.5 truncate" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                                {therapist.profile?.qualification?.join(', ') || 'MA Psychology'}
-                                            </p>
+                                            {/* Only what the therapist's profile says. These used to fall
+                                                back to invented values — "4.9 (19)" for a doctor with no
+                                                reviews, "MA Psychology", "₹500 - ₹2000", "5 years". */}
+                                            {!!therapist.profile?.qualification?.length && (
+                                                <p className="text-[13px] text-gray-600 mt-0.5 truncate" style={{ fontFamily: 'Inter, sans-serif' }}>
+                                                    {therapist.profile.qualification.join(', ')}
+                                                </p>
+                                            )}
                                             <p className="text-[13px] font-bold text-gray-900 mt-1 flex items-center gap-1" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                                 {therapist.profile?.rating?.average || '4.9'} <span className="text-gray-400 font-medium">({therapist.profile?.rating?.totalReviews || '19'})</span>
+                                                {therapist.profile?.rating?.totalReviews
+                                                    ? <>{therapist.profile.rating.average} <span className="text-gray-400 font-medium">({therapist.profile.rating.totalReviews})</span></>
+                                                    : <span className="text-gray-400 font-medium">No reviews yet</span>}
                                             </p>
                                         </div>
                                     </div>
@@ -179,16 +195,16 @@ const MyTherapistPage: React.FC = () => {
                                     <div className="space-y-2.5 mb-5 border-t border-gray-100 pt-4" style={{ fontFamily: 'Inter, sans-serif' }}>
                                         <div className="flex justify-between text-[13px]">
                                             <span className="text-gray-500">Experience</span>
-                                            <span className="font-medium text-gray-900">{therapist.profile?.experience || 5} years</span>
+                                            <span className="font-medium text-gray-900">{therapist.profile?.experience ? `${therapist.profile.experience} years` : '—'}</span>
                                         </div>
                                         <div className="flex justify-between text-[13px]">
                                             <span className="text-gray-500">Session Fee</span>
-                                            <span className="font-medium text-gray-900">₹{therapist.profile?.pricing?.min || 500} - ₹{therapist.profile?.pricing?.max || 2000}</span>
+                                            <span className="font-medium text-gray-900">{feeText(therapist.profile?.pricing)}</span>
                                         </div>
                                         <div className="flex justify-between text-[13px]">
                                             <span className="text-gray-500">Language</span>
                                             <span className="font-medium text-gray-900 truncate max-w-[150px] text-right">
-                                                {therapist.profile?.languages?.length ? therapist.profile.languages.join(', ') : 'English, Hindi'}
+                                                {therapist.profile?.languages?.length ? therapist.profile.languages.join(', ') : '—'}
                                             </span>
                                         </div>
                                     </div>
@@ -197,14 +213,14 @@ const MyTherapistPage: React.FC = () => {
                                     <div className="mb-6">
                                         <span className="text-[13px] text-gray-500 block mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>Expertise</span>
                                         <span className="text-[13px] font-medium text-gray-900 leading-snug line-clamp-2" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                            {therapist.profile?.specialization?.length ? therapist.profile.specialization.join(', ') : 'Depression, Anxiety, Stress Management'}
+                                            {therapist.profile?.specialization?.length ? therapist.profile.specialization.join(', ') : '—'}
                                         </span>
                                     </div>
 
                                     {/* Action */}
                                     <button
                                         onClick={() => navigate('/choose-professional')}
-                                        className="w-full py-2.5 rounded-[8px] text-[14px] font-medium bg-[#38ABAE] text-white hover:bg-[#2A8285] transition-colors mt-auto"
+                                        className="w-full py-2.5 rounded-[8px] text-[14px] font-medium bg-[var(--teal)] text-white hover:bg-[var(--teal-dark)] transition-colors mt-auto"
                                         style={{ fontFamily: 'Inter, sans-serif' }}
                                     >
                                         Book Again
