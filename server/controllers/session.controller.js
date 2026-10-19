@@ -810,6 +810,8 @@ const getSessionById = asyncHandler(async (req, res) => {
   // The session rules as this caller's screen needs them — the call screen
   // refetches this whenever someone joins or leaves (session:attendance).
   session.rules = sessionPolicy.view(session, req.actor.id === idOf(session.doctorId) ? 'doctor' : 'patient', new Date());
+  // Which call engine this page should run (config/features.js CALL_ENGINE).
+  session.callEngine = require('../config/features').callEngine();
   res.json(session);
 });
 
@@ -1222,6 +1224,11 @@ const acceptSession = asyncHandler(async (req, res) => {
   _emitToUsers(req, 'session:status-update', updateData, [accepted.patientId._id.toString(), userId]);
   const io = req.app.get('io');
   if (io) io.to(sessionId).emit('session:status-update', updateData);
+  // A patient already waiting in the call: its clock starts now.
+  try {
+    const { resolveEndsAt } = require('../services/sessionTime');
+    require('../services/call/callService').setTiming(sessionId, { endsAt: accepted.effectiveEndsAt || resolveEndsAt(accepted), pendingAccept: false });
+  } catch (e) { logger.warn('Could not update the call clock after accept', { error: e.message }); }
   res.json({ success: true, message: 'Session accepted successfully', session: accepted });
 });
 

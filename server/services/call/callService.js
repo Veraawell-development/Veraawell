@@ -243,6 +243,13 @@ function attach(socket, session, { userId, role, instanceId, client }) {
     rooms.set(sessionId, room);
   }
 
+  // A fresher read than the room's (e.g. the doctor's join just accepted an
+  // instant request the patient was waiting on): its clock starts now.
+  if (room.pendingAccept && !(session.sessionType === 'immediate' && session.acceptanceStatus !== 'accepted')) {
+    room.pendingAccept = false;
+    room.endsAt = endOf(session);
+  }
+
   let party = room.parties.get(userId);
   let epochChanged = false;
   if (party) {
