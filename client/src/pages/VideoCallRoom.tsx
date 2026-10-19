@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { io, Socket } from 'socket.io-client';
@@ -40,6 +40,11 @@ const VideoCallRoom: React.FC = () => {
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  // Voice sessions play the other person through this. Voice mode has no
+  // <video>, and nothing else played the remote stream — so a voice call
+  // connected and showed "Speaking…" but neither side heard anything.
+  const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  const remoteStreamRef = useRef<MediaStream | null>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const iceCandidateQueue = useRef<RTCIceCandidateInit[]>([]);
@@ -69,6 +74,17 @@ const VideoCallRoom: React.FC = () => {
   const [isAudioEnabled, setIsAudioEnabled] = useState(true);
   const [remoteVideoEnabled, setRemoteVideoEnabled] = useState(true);
   const [remoteAudioEnabled, setRemoteAudioEnabled] = useState(true);
+  // The browser refused to start the remote audio without a tap (autoplay).
+  const [audioBlocked, setAudioBlocked] = useState(false);
+
+  /** Point the audio element at the remote stream and start it. */
+  const attachRemoteAudio = useCallback((el: HTMLAudioElement | null) => {
+    remoteAudioRef.current = el;
+    const stream = remoteStreamRef.current;
+    if (!el || !stream) return;
+    if (el.srcObject !== stream) el.srcObject = stream;
+    el.play().then(() => setAudioBlocked(false)).catch(() => setAudioBlocked(true));
+  }, []);
   const [error, setError] = useState<string | null>(null);
   // The signalling socket dropped and is being re-established. Not an error:
   // the media connection usually survives, and the room is rejoined on
@@ -657,6 +673,8 @@ const VideoCallRoom: React.FC = () => {
         if (remoteVideoRef.current) {
           remoteVideoRef.current.srcObject = null;
         }
+        remoteStreamRef.current = null;
+        if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
         const who = data.role === 'patient' ? 'Your patient' : 'Your therapist';
         const until = endsAtRef.current ? ` They can rejoin until ${istTime(endsAtRef.current)}.` : '';
         toast(`${who} left the call.${until}`, { id: 'user-left-session', duration: 5000 });
@@ -768,6 +786,8 @@ const VideoCallRoom: React.FC = () => {
     pc.ontrack = (event) => {
       console.log('[VIDEO-CALL]  Received remote track:', event.track.kind);
       const [remoteStream] = event.streams;
+      remoteStreamRef.current = remoteStream;
+      if (remoteAudioRef.current) attachRemoteAudio(remoteAudioRef.current);
       if (remoteVideoRef.current) {
         remoteVideoRef.current.srcObject = remoteStream;
         //  Safari Compatibility Fix: Explicitly call play() as Safari sometimes ignores autoPlay
@@ -1353,6 +1373,8 @@ const VideoCallRoom: React.FC = () => {
     if (remoteVideoRef.current) {
       remoteVideoRef.current.srcObject = null;
     }
+    remoteStreamRef.current = null;
+    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
 
     // Close peer connection and clear stats interval
     if (peerConnectionRef.current) {
@@ -1470,6 +1492,19 @@ const VideoCallRoom: React.FC = () => {
         <div role="status" className="absolute top-20 right-4 md:right-6 z-20 bg-white/5 border border-white/10 rounded-full px-3 py-1 text-white/70 text-xs">
           Your full {sessionData?.duration || ''} minutes are kept — ends at {istTime(endsAt)}
         </div>
+      )}
+
+      {/* The other person's voice in a voice session. Here, outside the voice
+          screen component (which is re-created on every render), so the
+          stream stays attached. In video mode the <video> plays the audio. */}
+      {isVoiceMode && <audio ref={attachRemoteAudio} autoPlay playsInline data-testid="remote-audio" />}
+      {isVoiceMode && audioBlocked && remoteUserJoined && (
+        <button
+          onClick={() => attachRemoteAudio(remoteAudioRef.current)}
+          className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-[var(--teal)] text-white text-sm font-semibold px-5 py-2.5 rounded-full shadow-lg"
+        >
+          Tap to turn on sound
+        </button>
       )}
 
       {/* Main Content Area */}
