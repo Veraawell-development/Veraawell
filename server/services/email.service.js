@@ -399,28 +399,33 @@ async function sendBookingConfirmationEmail(email, sessionDetails) {
 
 /**
  * Send session reminder email
- * @param {string} email - Patient email
- * @param {object} session - Session object populated with doctor info
- * @param {string} reminderType - '15min', 'start', or 'late'
+ * @param {string} email - the recipient
+ * @param {object} session - Session populated with patient and doctor names
+ * @param {string} reminderType - '15min', 'start', or 'late' (patients only)
+ * @param {{ recipient?: 'patient'|'doctor' }} [options]
  */
-async function sendSessionReminderEmail(email, session, reminderType) {
+async function sendSessionReminderEmail(email, session, reminderType, { recipient = 'patient' } = {}) {
   const doctor = session.doctorId || {};
+  const patient = session.patientId || {};
   const named = fullName(doctor.firstName, doctor.lastName);
   const doctorName = named ? `Dr. ${named}` : 'your therapist';
+  const patientName = fullName(patient.firstName, patient.lastName) || 'your patient';
+  // Who the session is "with", from the reader's side.
+  const other = recipient === 'doctor' ? patientName : doctorName;
   let subject = '';
 
   if (reminderType === '15min') {
-    subject = `Reminder: Your session with ${doctorName} starts in 15 minutes`;
+    subject = `Reminder: Your session with ${other} starts in 15 minutes`;
   } else if (reminderType === 'start') {
-    subject = `Your session with ${doctorName} is starting now!`;
+    subject = `Your session with ${other} is starting now!`;
   } else if (reminderType === 'late') {
-    subject = `Action Required: Your session with ${doctorName} has already started`;
+    subject = `Your session with ${other} has started — please join`;
   }
 
-  return sendBestEffort(`session reminder (${reminderType})`, {
+  return sendBestEffort(`session reminder (${recipient}, ${reminderType})`, {
     to: email,
     subject,
-    html: generateSessionReminderHTML(session, reminderType, doctorName)
+    html: generateSessionReminderHTML(session, reminderType, other, recipient)
   });
 }
 
@@ -664,13 +669,14 @@ function generateDoctorStatusHTML(name, status, loginUrl, options = {}) {
 /**
  * Generate Session Reminder HTML
  */
-function generateSessionReminderHTML(session, reminderType, doctorName) {
+function generateSessionReminderHTML(session, reminderType, doctorName, recipient = 'patient') {
   const isLate = reminderType === 'late';
   const color = isLate ? '#f43f5e' : '#0097b2';
   const headerText = reminderType === '15min' ? 'Session Starting Soon' : 
                      reminderType === 'start' ? 'Session Starting Now' : 'Session Started';
   
-  const hi = greeting((session.patientId || {}).firstName);
+  const reader = recipient === 'doctor' ? (session.doctorId || {}) : (session.patientId || {});
+  const hi = greeting(reader.firstName, recipient === 'doctor' ? 'Dr. ' : '');
   const doctor = e(doctorName);
   const at = present(session.sessionTime) ? ` at ${e(session.sessionTime)}` : '';
   let messageHTML = '';
@@ -682,10 +688,13 @@ function generateSessionReminderHTML(session, reminderType, doctorName) {
                    <p class="message">Your session with <strong>${doctor}</strong> is starting in 2 minutes! Please join the call now.</p>`;
   } else if (reminderType === 'late') {
     messageHTML = `<p class="message">${hi}</p>
-                   <p class="message">Your session with <strong>${doctor}</strong> has already started. Please join immediately to avoid having your session cancelled.</p>`;
+                   <p class="message">Your session with <strong>${doctor}</strong> has already started. Please join now — if you haven't joined within 10 minutes of the start, the session counts as missed.</p>`;
   }
 
-  const joinUrl = session.meetingLink || `${getFrontendUrl()}/patient-dashboard`;
+  // The session's own call page, as a full address. This used to be
+  // meetingLink — a relative path, which doesn't open from a mail client,
+  // and for booked sessions a random one that was never a page at all.
+  const joinUrl = session._id ? `${getFrontendUrl()}/video-call/${session._id}` : `${getFrontendUrl()}/${recipient === 'doctor' ? 'doctor' : 'patient'}-dashboard`;
 
   return `
     <!DOCTYPE html>

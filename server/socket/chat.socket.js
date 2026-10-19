@@ -107,7 +107,9 @@ const initializeChatSocket = (io) => {
         // The raw error text used to ride along to the client — Mongoose
         // validation and cast messages included. It stays in the log.
         socket.emit('error', {
-          message: error.code === 'INVALID_MESSAGE' ? 'Invalid message data' : 'Failed to send message'
+          message: error.code === 'INVALID_MESSAGE' ? 'Invalid message data'
+            : error.code === 'CHAT_NOT_OPEN' ? error.message
+              : 'Failed to send message'
         });
       }
     });

@@ -113,6 +113,27 @@ const DoctorDashboard: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+
+  // Does the doctor have any open dates from today? With none, patients can't
+  // find or book them (the directory hides a calendar that has run out) —
+  // and nothing used to tell the doctor. Same query as ManageCalendar, so the
+  // two screens share the cached answer.
+  const { data: ownAvailability } = useQuery({
+    queryKey: ['doctor', 'availability', user?.userId],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/availability/doctor/current`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to load availability');
+      return res.json();
+    },
+    enabled: !!user?.userId,
+  });
+  const todayIst = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+  const hasOpenDates = !ownAvailability || (
+    (ownAvailability.availabilityType !== 'different_slots'
+      && (ownAvailability.defaultSlots || []).length > 0
+      && (ownAvailability.activeDates || []).some((d: string) => d >= todayIst))
+    || (ownAvailability.customAvailability || []).some((d: { date: string; slots?: unknown[] }) => d.date >= todayIst && (d.slots || []).length > 0)
+  );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
@@ -641,6 +662,17 @@ const DoctorDashboard: React.FC = () => {
                 </button>
               </div>
             </div>
+            {!hasOpenDates && (
+              <div role="status" className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5" style={{ background: '#fdf6ec', border: '1px solid rgba(201,154,91,.35)', borderRadius: 12, padding: '9px 14px', fontSize: 12.5, color: T.text, maxWidth: 560 }}>
+                <span><strong>Patients can't book you</strong> — your calendar has no open dates from today.</span>
+                <button
+                  onClick={() => navigate('/manage-calendar')}
+                  style={{ border: 'none', background: 'none', padding: 0, color: T.teal, fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}
+                >
+                  Add dates →
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-col items-start sm:items-end gap-1.5 flex-none w-full sm:w-auto sm:ml-auto mt-1 sm:mt-0">

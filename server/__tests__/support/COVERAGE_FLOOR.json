@@ -2,8 +2,8 @@
   "_comment": "A RATCHET, not a target. Regenerate with: node scripts/check-coverage.js --update. Values may only rise; a drop fails npm run test:coverage.",
   "_recorded": "2026-10-18",
   "_total": {
-    "statements": 85.46,
-    "branches": 75.53
+    "statements": 85.93,
+    "branches": 76.11
   },
   "files": {
     "authz/actor.js": {
@@ -47,8 +47,8 @@
       "branches": 100
     },
     "authz/policies/session.policy.js": {
-      "statements": 90.9,
-      "branches": 77.77
+      "statements": 91.17,
+      "branches": 78.94
     },
     "config/auth.js": {
       "statements": 82.05,
@@ -103,11 +103,11 @@
       "branches": 51.35
     },
     "controllers/chat.controller.js": {
-      "statements": 65,
-      "branches": 44.11
+      "statements": 68.29,
+      "branches": 50
     },
     "controllers/doctorStatus.controller.js": {
-      "statements": 55,
+      "statements": 60.86,
       "branches": 0
     },
     "controllers/enquiry.controller.js": {
@@ -151,8 +151,8 @@
       "branches": 74.03
     },
     "controllers/session.controller.js": {
-      "statements": 85.41,
-      "branches": 71.62
+      "statements": 85.91,
+      "branches": 72.63
     },
     "controllers/sessionReport.controller.js": {
       "statements": 95.45,
@@ -311,32 +311,40 @@
       "branches": 75.67
     },
     "services/auth.service.js": {
-      "statements": 90.76,
-      "branches": 82.25
+      "statements": 90.81,
+      "branches": 82.03
+    },
+    "services/availability.js": {
+      "statements": 96.87,
+      "branches": 95.45
+    },
+    "services/bookability.js": {
+      "statements": 91.66,
+      "branches": 82.35
     },
     "services/cache.service.js": {
       "statements": 100,
       "branches": 100
     },
     "services/chat.service.js": {
-      "statements": 72.72,
-      "branches": 81.25
+      "statements": 76.74,
+      "branches": 81.81
     },
     "services/doctorCounters.js": {
       "statements": 100,
       "branches": 100
     },
     "services/doctorStatus.service.js": {
-      "statements": 21.73,
-      "branches": 0
+      "statements": 69.56,
+      "branches": 62.5
     },
     "services/earnings.js": {
       "statements": 100,
       "branches": 100
     },
     "services/email.service.js": {
-      "statements": 85.92,
-      "branches": 73.71
+      "statements": 89.92,
+      "branches": 78.61
     },
     "services/oauth.service.js": {
       "statements": 90.9,
@@ -350,6 +358,10 @@
       "statements": 100,
       "branches": 92.3
     },
+    "services/presence.js": {
+      "statements": 86.66,
+      "branches": 60
+    },
     "services/razorpay.client.js": {
       "statements": 83.33,
       "branches": 73.68
@@ -359,12 +371,12 @@
       "branches": 100
     },
     "services/scheduler.js": {
-      "statements": 90.62,
-      "branches": 89.58
+      "statements": 91.04,
+      "branches": 90
     },
     "services/session.service.js": {
-      "statements": 86.11,
-      "branches": 76.47
+      "statements": 91.66,
+      "branches": 91.17
     },
     "services/sessionEnding.js": {
       "statements": 92.7,
@@ -372,14 +384,14 @@
     },
     "services/sessionOutcomes.js": {
       "statements": 88.97,
-      "branches": 76.53
+      "branches": 76
     },
     "services/sessionPayment.js": {
-      "statements": 81.06,
+      "statements": 81.02,
       "branches": 67.56
     },
     "services/sessionPolicy.js": {
-      "statements": 99.25,
+      "statements": 99.26,
       "branches": 98.34
     },
     "services/sessionRefund.js": {

@@ -450,24 +450,32 @@ describe('reminder notifications (every minute)', () => {
     });
   }
 
-  test('a session 15 minutes out gets exactly one reminder, then never again', async () => {
+  /** Reminder calls by recipient: [email, session, type, options]. */
+  const sentTo = (email) => mockReminder.mock.calls.filter((c) => c[0] === email);
+
+  test('a session 15 minutes out: one reminder each to patient and doctor, then never again', async () => {
     const s = await upcoming(15);
 
     await runJob(CRON.notifications);
-    expect(mockReminder).toHaveBeenCalledTimes(1);
-    expect(mockReminder.mock.calls[0][2]).toBe('15min');
-    expect((await Session.findById(s._id)).notificationStatus.reminderSent).toBe(true);
+    expect(sentTo(f.patientA.email).map((c) => c[2])).toEqual(['15min']);
+    // The doctor gets the same reminder (D12) — named as the doctor's copy.
+    const doctorMail = sentTo(f.doctorA.email);
+    expect(doctorMail.map((c) => c[2])).toEqual(['15min']);
+    expect(doctorMail[0][3]).toEqual({ recipient: 'doctor' });
+    const ns = (await Session.findById(s._id)).notificationStatus;
+    expect(ns.reminderSent).toBe(true);
+    expect(ns.doctorReminderSent).toBe(true);
 
     mockReminder.mockClear();
     await runJob(CRON.notifications);
     expect(mockReminder).not.toHaveBeenCalled();
   });
 
-  test('a session 2 minutes out gets the starting-soon mail', async () => {
+  test('a session 2 minutes out gets the starting-soon mail, to both', async () => {
     await upcoming(2);
     await runJob(CRON.notifications);
-    expect(mockReminder).toHaveBeenCalledTimes(1);
-    expect(mockReminder.mock.calls[0][2]).toBe('start');
+    expect(sentTo(f.patientA.email).map((c) => c[2])).toEqual(['start']);
+    expect(sentTo(f.doctorA.email).map((c) => c[2])).toEqual(['start']);
   });
 
   test('a session 7 minutes late alerts only when the patient has not joined', async () => {
@@ -478,7 +486,9 @@ describe('reminder notifications (every minute)', () => {
     await Session.deleteMany({});
     await upcoming(-7, { patientJoined: false });
     await runJob(CRON.notifications);
+    // Patients only: the doctor's screen tells them about an absent patient.
     expect(mockReminder).toHaveBeenCalledTimes(1);
+    expect(mockReminder.mock.calls[0][0]).toBe(f.patientA.email);
     expect(mockReminder.mock.calls[0][2]).toBe('late');
   });
 
@@ -504,7 +514,8 @@ describe('reminder notifications (every minute)', () => {
     });
 
     await expect(runJob(CRON.notifications)).resolves.not.toThrow();
-    expect(mockReminder).not.toHaveBeenCalled();
+    // The doctor still gets theirs; nothing goes to the missing patient.
+    expect(mockReminder.mock.calls.map((c) => c[0])).toEqual([f.doctorA.email]);
   });
 
   test('an email failure does not abort the sweep or kill the job', async () => {

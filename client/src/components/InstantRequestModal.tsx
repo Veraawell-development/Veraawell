@@ -1,3 +1,4 @@
+import { sharedAudioContext, beep } from '../utils/attention';
 import React, { useState, useEffect, useRef } from 'react';
 import { FiVideo, FiClock, FiArrowRight } from 'react-icons/fi';
 import type { Session } from '../types';
@@ -64,38 +65,18 @@ const InstantRequestModal: React.FC<InstantRequestModalProps> = ({ session, isOp
             // CDN on the critical path of a doctor being told someone is waiting,
             // which fails silently on a blocked request, an offline moment, or the
             // day that URL changes. Two oscillators cost nothing and cannot 404.
+            // Through the shared context the doctor's first click already
+            // unlocked (utils/attention.ts) — a context created here, at the
+            // moment the request arrives, was usually blocked by autoplay.
             try {
-                const Ctx = window.AudioContext || (window as any).webkitAudioContext;
-                const ctx: AudioContext = new Ctx();
-                let stopped = false;
-                const beep = () => {
-                    if (stopped || ctx.state === 'closed') return;
-                    const osc = ctx.createOscillator();
-                    const gain = ctx.createGain();
-                    osc.type = 'sine';
-                    osc.frequency.setValueAtTime(880, ctx.currentTime);
-                    osc.frequency.setValueAtTime(660, ctx.currentTime + 0.2);
-                    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-                    gain.gain.exponentialRampToValueAtTime(0.25, ctx.currentTime + 0.05);
-                    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
-                    osc.connect(gain);
-                    gain.connect(ctx.destination);
-                    osc.start();
-                    osc.stop(ctx.currentTime + 0.45);
-                };
-                // Autoplay policy blocks this until the doctor has interacted with
-                // the page. resume() is attempted, and the title flash below is
-                // what gets their attention when it stays blocked.
-                ctx.resume().catch(() => { /* stays silent; the title still flashes */ });
-                beep();
-                const ring = setInterval(beep, 1500);
-                audioRef.current = {
-                    stop: () => {
-                        stopped = true;
-                        clearInterval(ring);
-                        ctx.close().catch(() => { /* already closed */ });
-                    }
-                };
+                const ctx = sharedAudioContext();
+                if (ctx) {
+                    let stopped = false;
+                    ctx.resume().catch(() => { /* stays silent; the title still flashes */ });
+                    const ring = setInterval(() => { if (!stopped) beep(ctx); }, 1500);
+                    beep(ctx);
+                    audioRef.current = { stop: () => { stopped = true; clearInterval(ring); } };
+                }
             } catch (err) {
                 console.log('Ringtone unavailable:', err);
             }

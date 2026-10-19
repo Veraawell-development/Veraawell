@@ -75,7 +75,8 @@ async function makeUser(role, email, extra = {}) {
   const User = require('../../models/user');
   if (!PASSWORDS[role]) throw new Error(`seed: no password defined for role "${role}"`);
   return User.create({
-    firstName: role === 'patient' ? 'E2E' : 'Dr',
+    // Not 'Dr': screens add the title, so a first name of 'Dr' read "Dr. Dr …".
+    firstName: role === 'patient' ? 'E2E' : 'Meera',
     lastName: role.charAt(0).toUpperCase() + role.slice(1),
     email: email.toLowerCase(),
     username: email.toLowerCase(),

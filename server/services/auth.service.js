@@ -157,8 +157,11 @@ async function registerUser(userData) {
   }
 
   // Create user with explicit approvalStatus
+  // Every screen adds "Dr." for a doctor, so a doctor who typed it into their
+  // own first name was shown as "Dr. Dr. Asha".
+  const cleanFirst = role === 'doctor' ? firstName.trim().replace(/^dr\.?\s+/i, '') || firstName.trim() : firstName.trim();
   const newUserData = {
-    firstName: firstName.trim(),
+    firstName: cleanFirst,
     lastName: (lastName || '').trim(),
     email: email.toLowerCase().trim(),
     username: normalizedUsername,

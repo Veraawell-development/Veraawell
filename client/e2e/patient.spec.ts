@@ -93,8 +93,15 @@ test.describe('the mood check-in', () => {
     await page.goto('/patient-dashboard');
     await expect(page.getByText('YOUR DASHBOARD')).toBeVisible({ timeout: 20_000 });
 
+    // One first-visit prompt per visit: put the welcome off, and the mood
+    // check-in comes up on the next visit.
     const later = page.getByRole('button', { name: /I'll do this later/i }).first();
-    if (await later.count()) await later.click();
+    if (await later.isVisible().catch(() => false)) {
+      await later.click();
+      await expect(later).toBeHidden();
+      await page.reload();
+      await expect(page.getByText('YOUR DASHBOARD')).toBeVisible({ timeout: 20_000 });
+    }
 
     const good = page.locator('[aria-label="Good"]').first();
     await expect(good).toBeVisible({ timeout: 10_000 });
@@ -201,6 +208,7 @@ test.describe('a mental health screening end to end', () => {
 
     // One question at a time; answer whatever option is offered until the
     // questionnaire ends.
+    await expect(page.getByRole('button', { name: /Not at all/i }).first()).toBeVisible({ timeout: 20_000 });
     for (let i = 0; i < 30; i += 1) {
       const options = page.locator('button', { hasText: /Not at all|Several days|More than half|Nearly every day|Never|Sometimes|Often|Always/i });
       if (!(await options.count())) break;

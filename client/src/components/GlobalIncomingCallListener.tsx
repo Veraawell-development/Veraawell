@@ -1,3 +1,4 @@
+import { installAudioUnlock } from '../utils/attention';
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useDataSocket } from '../hooks/useDataSocket';
@@ -42,6 +43,9 @@ const GlobalIncomingCallListener: React.FC = () => {
       console.error('[GLOBAL] Could not fetch pending instant requests:', err);
     }
   }, []);
+
+  // Unlock sound on the doctor's first interaction, so a later ring is heard.
+  useEffect(() => { installAudioUnlock(); }, []);
 
   useEffect(() => {
     if (!isLoggedIn || user?.role !== 'doctor') return;

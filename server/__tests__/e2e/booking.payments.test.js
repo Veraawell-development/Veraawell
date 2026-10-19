@@ -844,8 +844,11 @@ describe('the price is the server\'s', () => {
     try {
       const res = await book({ ...baseBooking(), mode: 'voice', duration: 20 });
       // It used to resolve to ₹0, which books as `not_required` — a free
-      // session the therapist never offered.
-      expect(res.status).toBe(400);
+      // session the therapist never offered. (Any length falls back to
+      // pricing.min, so an unpriced length means no price at all — and a
+      // therapist with no price is refused as not bookable, up front.)
+      expect(res.status).toBe(409);
+      expect(res.body.message).toMatch(/isn't taking bookings/);
       expect(await Session.countDocuments({})).toBe(0);
     } finally {
       await DoctorProfile.updateOne({ userId: f.doctorA._id }, { $set: { 'pricing.audio.session20': 600, 'pricing.session20': 800, 'pricing.min': 800 } });

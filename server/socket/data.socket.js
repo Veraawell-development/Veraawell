@@ -6,15 +6,12 @@
 
 const { createLogger } = require('../utils/logger');
 const { createSocketAuthMiddleware } = require('./authMiddleware');
+const presence = require('../services/presence');
 
 const logger = createLogger('DATA-SOCKET');
 
 // Authenticate socket connections — see socket/authMiddleware.js
 const authenticateSocket = createSocketAuthMiddleware('DATA-AUTH');
-
-// Track active doctor connections to prevent accidental offline status
-// userId -> Set of socket IDs
-const doctorConnections = new Map();
 
 /**
  * Initialize Data Socket Namespace
@@ -38,13 +35,9 @@ const initializeDataSocket = (io) => {
             username
         });
 
-        // Track doctor connections
+        // A doctor's connections are their presence (services/presence.js).
         if (userRole === 'doctor') {
-            if (!doctorConnections.has(userId)) {
-                doctorConnections.set(userId, new Set());
-            }
-            doctorConnections.get(userId).add(socket.id);
-            logger.debug(`Doctor ${userId.substring(0, 8)} connection tracked. Total: ${doctorConnections.get(userId).size}`);
+            presence.connected(userId, socket.id);
         }
 
         // Join user to their personal room for targeted events
@@ -62,19 +55,10 @@ const initializeDataSocket = (io) => {
                 role: userRole
             });
 
+            // The last connection gone starts a 2-minute grace; a refresh or a
+            // blip reconnects well inside it, closing the app does not.
             if (userRole === 'doctor') {
-                const connections = doctorConnections.get(userId);
-                if (connections) {
-                    connections.delete(socket.id);
-                    logger.debug(`Doctor ${userId.substring(0, 8)} disconnected. Remaining: ${connections.size}`);
-
-                    // Removed auto-offline on disconnect as per user request.
-                    // Doctors stay online until they manually toggle off or log out.
-                    if (connections.size === 0) {
-                        doctorConnections.delete(userId);
-                        logger.debug(`Doctor ${userId.substring(0, 8)} has no active connections, but staying online.`);
-                    }
-                }
+                presence.disconnected(userId, socket.id, { io });
             }
         });
 

@@ -338,6 +338,29 @@ const CASES = [
     expect: 401
   },
 
+  // ── abandoning a checkout: the session's patient only ────────────────────
+  {
+    name: 'another patient cannot release someone else\'s checkout',
+    as: 'patientB', method: 'post',
+    url: () => `/api/sessions/${fixtures.sessionA._id}/abandon-checkout`,
+    expect: 403,
+    after: async () => {
+      expect((await Session.findById(fixtures.sessionA._id)).status).toBe('scheduled');
+    }
+  },
+  {
+    name: 'the doctor cannot release the patient\'s checkout',
+    as: 'doctorA', method: 'post',
+    url: () => `/api/sessions/${fixtures.sessionA._id}/abandon-checkout`,
+    expect: 403
+  },
+  {
+    name: 'an unauthenticated caller cannot release a checkout',
+    as: 'anonymous', method: 'post',
+    url: () => `/api/sessions/${fixtures.sessionA._id}/abandon-checkout`,
+    expect: 401
+  },
+
   // ── session read: parties only ───────────────────────────────────────────
   {
     name: 'a stranger cannot read a session',

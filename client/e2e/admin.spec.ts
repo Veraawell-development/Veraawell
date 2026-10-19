@@ -248,7 +248,7 @@ test.describe('the enquiries queue', () => {
     await page.getByRole('button', { name: 'Closed' }).click();
     const closed = page.locator('[data-enquiry-card]').filter({ hasText: `E2E Close Me ${stamp}` });
     await expect(closed).toBeVisible({ timeout: 15_000 });
-    await expect(closed).toContainText(/last updated .* by Dr Super_admin/);
+    await expect(closed).toContainText(/last updated .* by Meera Super_admin/);
   });
 
   test('the sidebar badge counts new enquiries before the tab is opened', async ({ page }) => {

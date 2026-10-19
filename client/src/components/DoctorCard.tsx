@@ -15,9 +15,24 @@ type DoctorCardProps = {
   onBookSession?: () => void;
   onViewProfile?: () => void;
   isPrevious?: boolean;
+  /** Shorthand for status 'online' / 'offline'. */
   isOnline?: boolean;
+  /**
+   * What the card says about right now: online and free, in a session, or
+   * not online (book a time). Every card in the "All" tab used to say "Busy",
+   * whatever the doctor was doing.
+   */
+  status?: 'online' | 'busy' | 'offline';
+  /** Overrides the button text (e.g. "Book a time →" for a busy doctor). */
+  ctaLabel?: string;
   bgColor?: string;
 };
+
+const STATUS_LOOK = {
+  online: { dot: '#10B981', text: 'Online now', pulse: true },
+  busy: { dot: '#F59E0B', text: 'In a session', pulse: false },
+  offline: { dot: '#A3ADB0', text: 'Book a time', pulse: false },
+} as const;
 
 const DoctorCard: React.FC<DoctorCardProps> = ({
   name,
@@ -32,8 +47,11 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
   onViewProfile,
   isPrevious = false,
   isOnline = false,
+  status,
+  ctaLabel,
   bgColor = '#0097B2',
 }) => {
+  const look = STATUS_LOOK[status || (isOnline ? 'online' : 'offline')];
   const [tagsExpanded, setTagsExpanded] = useState(false);
 
   const startingPriceMatch = pricing?.match(/₹\s*(\d+)/);
@@ -199,8 +217,8 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
             </div>
             <div className="flex items-center gap-1.5">
               <span className="relative inline-flex" style={{ width: 6, height: 6 }}>
-                <span className="absolute inset-0 rounded-full" style={{ background: isOnline ? '#10B981' : '#F59E0B' }} />
-                {isOnline && (
+                <span className="absolute inset-0 rounded-full" style={{ background: look.dot }} />
+                {look.pulse && (
                   <span
                     className="absolute inset-0 rounded-full"
                     style={{ background: '#10B981', animation: 'pulse-ring 2s ease-out infinite' }}
@@ -208,7 +226,7 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
                 )}
               </span>
               <span className="text-xs font-medium" style={{ color: 'var(--text)' }}>
-                {isOnline ? 'Available' : 'Busy'}
+                {look.text}
               </span>
             </div>
           </div>
@@ -239,7 +257,7 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
               (e.currentTarget as HTMLButtonElement).style.boxShadow = 'none';
             }}
           >
-            {isPrevious ? 'Book Again →' : (onBookSession ? 'Book Session →' : 'View Profile →')}
+            {ctaLabel || (isPrevious ? 'Book Again →' : (onBookSession ? 'Book Session →' : 'View Profile →'))}
           </button>
         </div>
       </div>

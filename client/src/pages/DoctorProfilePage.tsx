@@ -6,7 +6,7 @@ import { API_BASE_URL } from '../config/api';
 import { getAuthToken } from '../utils/authToken';
 import { useAuth } from '../context/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { resolveSessionStart } from '../utils/dateUtils';
+import { resolveSessionStart, PLATFORM_TIMEZONE } from '../utils/dateUtils';
 import { resolveSessionPrice, offeredDurations } from '../utils/sessionPricing';
 import type { SessionMode } from '../utils/sessionPricing';
 import { FiVideo, FiPhone, FiRadio, FiCheck } from 'react-icons/fi';
@@ -56,6 +56,9 @@ interface DoctorProfile {
   };
   quote?: string;
   quoteAuthor?: string;
+  /** From the server: can a time slot / an instant session be booked at all. */
+  bookable?: boolean;
+  instantBookable?: boolean;
 }
 
 const DoctorProfilePage: React.FC = () => {
@@ -128,12 +131,11 @@ const DoctorProfilePage: React.FC = () => {
       const response = await fetch(`${API_BASE_URL}/sessions/doctors/${doctorId}/slots/${booking.date}`);
       if (!response.ok) throw new Error('Failed to fetch slots');
       const data = await response.json();
-      const now = Date.now();
-
-      // Slots are IST wall-clock times; hide the ones whose real instant has
-      // passed (not setHours on the viewer's own clock).
+      // The server already leaves out passed and too-soon slots; this only
+      // hides any that passed while the page sat open (IST wall-clock times).
+      const earliest = Date.now() + 15 * 60 * 1000;
       return (data.availableSlots as string[]).filter((slot: string) =>
-        resolveSessionStart({ sessionDate: booking.date, sessionTime: slot }).getTime() > now
+        resolveSessionStart({ sessionDate: booking.date, sessionTime: slot }).getTime() >= earliest
       );
     },
     enabled: !!doctorId && !!booking.date
@@ -162,23 +164,26 @@ const DoctorProfilePage: React.FC = () => {
   }, [fetchedAvailableSlots, booking.timeSlot]);
 
   const loading = profileLoading;
+  // Older API responses carry no flags: treat that as bookable, as before.
+  const canBookHere = !doctorProfile
+    || (isImmediate ? doctorProfile.instantBookable !== false : doctorProfile.bookable !== false);
   const error = profileError ? 'Failed to load doctor profile' : null;
 
 
 
   const generateAvailableDates = () => {
     const dates: Array<{ date: string; weekday: string; dayNum: number; monthName: string }> = [];
-    const today = new Date();
+    // Days are IST days — the doctor's calendar is published in IST. The
+    // viewer's own date used to be used, so a patient abroad (or anyone in
+    // the hours around midnight) got a strip shifted by a day.
+    const [y, m, d] = new Intl.DateTimeFormat('en-CA', { timeZone: PLATFORM_TIMEZONE }).format(new Date()).split('-').map(Number);
 
     for (let i = 0; i < 14; i++) {
-      const date = new Date(today);
-      date.setDate(today.getDate() + i);
-
-      // Use local date parts to avoid UTC timezone shift
-      const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-      const weekday = date.toLocaleDateString('en-US', { weekday: 'short' });
-      const dayNum = date.getDate();
-      const monthName = date.toLocaleDateString('en-US', { month: 'short' });
+      const date = new Date(Date.UTC(y, m - 1, d + i));
+      const dateStr = date.toISOString().slice(0, 10);
+      const weekday = date.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'UTC' });
+      const dayNum = date.getUTCDate();
+      const monthName = date.toLocaleDateString('en-US', { month: 'short', timeZone: 'UTC' });
 
       // The chip used to read the weekday back out of a "Oct 18 Sat" string
       // with split(' ')[1] — which is "18" — so it showed the day number twice.
@@ -309,11 +314,22 @@ const DoctorProfilePage: React.FC = () => {
             color: '#0d9488'
           },
           modal: {
+            // Closing the window gives the slot back straight away (it used
+            // to stay held for 20 minutes). The server asks Razorpay first, so
+            // a payment that did go through still books the session.
             ondismiss: function() {
-              toast.error('Payment cancelled. Session will be automatically removed if unpaid.');
-              if (!isImmediate) {
-                setTimeout(() => navigate('/patient-dashboard'), 1500);
-              }
+              void fetch(`${API_BASE_URL}/sessions/${sessionData._id}/abandon-checkout`, { method: 'POST', credentials: 'include' })
+                .then((res) => (res.ok ? res.json() : null))
+                .then((result) => {
+                  if (result && typeof result.outcome === 'string' && result.outcome.startsWith('captured')) {
+                    toast.success('Your payment went through — the session is booked.');
+                    navigate(isImmediate ? `/video-call/${sessionData._id}` : '/patient-dashboard');
+                    return;
+                  }
+                  toast(isImmediate ? 'Payment cancelled — nothing was charged.' : 'Payment cancelled — the slot is free again.');
+                  queryClient.invalidateQueries({ queryKey: ['doctor', 'slots', doctorId] });
+                })
+                .catch(() => toast('Payment cancelled.'));
             }
           }
         };
@@ -513,7 +529,7 @@ const DoctorProfilePage: React.FC = () => {
                     "name": "What is the cancellation policy?",
                     "acceptedAnswer": {
                       "@type": "Answer",
-                      "text": "We understand that plans change. You can reschedule or cancel your session more than 4 hours in advance without any penalty, directly from your bookings dashboard. Cancellations inside 4 hours, and missed appointments, are not refundable."
+                      "text": "Cancel more than 4 hours before the start, from your dashboard, and you get a full refund. Cancellations inside 4 hours, and missed sessions, are not refunded — your therapist's time was reserved for you. To change the time, cancel and book a new slot."
                     }
                   }
                 ]
@@ -689,6 +705,24 @@ const DoctorProfilePage: React.FC = () => {
       {/* Booking Section */}
       <div id="booking-section" className="py-12 md:py-16 px-4 relative">
         <div className="max-w-6xl mx-auto">
+          {/* A therapist who can't be booked this way (no approved payout,
+              no price, or — for a time slot — no open dates) gets a notice
+              instead of a booking form that would only fail at checkout. */}
+          {!canBookHere ? (
+            <div role="status" className="max-w-xl mx-auto text-center rounded-[20px] p-8" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+              <h3 className="text-xl font-semibold mb-2" style={{ color: 'var(--text)' }}>This therapist isn't taking bookings right now</h3>
+              <p className="text-sm mb-5" style={{ color: 'var(--text-2)' }}>
+                {isImmediate ? 'They can\'t take an instant session at the moment.' : 'They have no open dates at the moment.'} You can choose another therapist.
+              </p>
+              <button
+                onClick={() => navigate('/choose-professional', { state: { bookingType: 'later' } })}
+                className="px-6 py-2.5 rounded-full text-sm font-semibold text-white"
+                style={{ background: 'var(--teal)' }}
+              >
+                See other therapists
+              </button>
+            </div>
+          ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             {/* Left Card */}
             <div
@@ -846,7 +880,11 @@ const DoctorProfilePage: React.FC = () => {
                           </button>
                         )) : (
                           <p className="italic text-sm p-4 rounded-xl" style={{ color: 'var(--text-2)', background: `${doctorColor}0d` }}>
-                            {booking.date ? 'No available slots for this date' : 'Select a date to see slots'}
+                            {!booking.date
+                              ? 'Select a date to see slots'
+                              : booking.date === availableDates[0]?.date
+                                ? 'No more slots today — try another date'
+                                : 'No available slots for this date'}
                           </p>
                         )}
                       </div>
@@ -901,6 +939,7 @@ const DoctorProfilePage: React.FC = () => {
               </div>
             </div>
           </div>
+          )}
         </div>
       </div>
 
@@ -986,7 +1025,7 @@ const DoctorProfilePage: React.FC = () => {
             },
             {
               q: "What is the cancellation policy?",
-              a: "We understand that plans change. You can reschedule or cancel your session more than 4 hours in advance without any penalty, directly from your bookings dashboard. Cancellations inside 4 hours, and missed appointments, are not refundable."
+              a: "Cancel more than 4 hours before the start, from your dashboard, and you get a full refund. Cancellations inside 4 hours, and missed sessions, are not refunded — your therapist's time was reserved for you. To change the time, cancel and book a new slot."
             }
           ].map((faq, idx) => (
             <div 

@@ -26,7 +26,7 @@ const { asyncHandler } = require('../middleware/error.middleware');
 const { applyTransition } = require('../services/sessionTransition');
 const { EVENT, ACTOR } = require('../services/sessionState');
 const { refundSession } = require('../services/sessionRefund');
-const { releaseSessionSlot } = require('../services/sessionPayment');
+const { releaseSessionSlot, openConversation } = require('../services/sessionPayment');
 const { sealedFilter } = require('../authz');
 const { idOf } = require('../authz/actor');
 const { NotFoundError, AuthorizationError, ValidationError } = require('../utils/errors');
@@ -34,6 +34,9 @@ const sessionEnding = require('../services/sessionEnding');
 const sessionOutcomes = require('../services/sessionOutcomes');
 const sessionPolicy = require('../services/sessionPolicy');
 const doctorCounters = require('../services/doctorCounters');
+const bookability = require('../services/bookability');
+const availabilityService = require('../services/availability');
+const { JOIN_LEAD_MINUTES } = require('../config/time');
 const { getRazorpay } = require('../services/razorpay.client');
 const { isStubMode } = require('../config/payments');
 const { createLogger } = require('../utils/logger');
@@ -324,10 +327,30 @@ const getDoctorSlots = asyncHandler(async (req, res) => {
   // non-atomic copy of that cleanup on every public request — rewriting the
   // doctor's whole bookedSlots array from a stale read, which could erase a
   // booking made at the same moment.
+  //
+  // Only times that can still be booked: not taken, not starting within the
+  // next JOIN_LEAD_MINUTES (a booking must be possible to remind and join),
+  // and not overlapping anything the doctor is already doing — an instant
+  // call can run into the next hour.
   const { doctorId, date } = req.params;
   const availability = await getOrCreateAvailability(doctorId);
-  const slots = availability.getAvailableSlotsForDate(date).filter(s => !s.isBooked).map(s => s.time);
-  res.json({ availableSlots: slots });
+  const earliest = new Date(Date.now() + JOIN_LEAD_MINUTES * 60 * 1000);
+  const open = [];
+  for (const slot of availability.getAvailableSlotsForDate(date).filter(s => !s.isBooked)) {
+    let startsAt;
+    try { startsAt = zonedToUtc(date, slot.time, PLATFORM_TIMEZONE); } catch (e) { continue; }
+    if (startsAt < earliest) continue;
+    open.push({ time: slot.time, startsAt });
+  }
+  let availableSlots = open.map((o) => o.time);
+  if (open.length) {
+    const spans = await availabilityService.busySpans(doctorId, open[0].startsAt,
+      new Date(open[open.length - 1].startsAt.getTime() + 60 * 60 * 1000));
+    availableSlots = open
+      .filter((o) => !spans.some((b) => b.from < new Date(o.startsAt.getTime() + availabilityService.SHORTEST_SESSION_MINUTES * 60 * 1000) && b.to > o.startsAt))
+      .map((o) => o.time);
+  }
+  res.json({ availableSlots });
 });
 
 /**
@@ -337,15 +360,25 @@ const getDoctorSlots = asyncHandler(async (req, res) => {
  * profile existed, and bookImmediate accepted a 'test-doctor-id' sentinel
  * that booked a free session with yourself.
  */
+/**
+ * The doctor, if they can be booked (services/bookability.js): an approved
+ * account with an approved way to be paid and a price. Refused here, up
+ * front, with words a patient understands — not at the payment step. (For a
+ * time slot, the slot itself being in the calendar is checked next; that is
+ * the precise form of "has dates ahead".)
+ */
 async function _loadBookableDoctor(doctorId) {
   if (!doctorId || !mongoose.Types.ObjectId.isValid(String(doctorId))) {
     return { error: { status: 400, message: 'A valid therapist is required' } };
   }
-  const doctor = await User.findOne({ _id: doctorId, role: 'doctor', approvalStatus: 'approved', status: 'active' })
+  const doctor = await User.findOne({ _id: doctorId, ...bookability.BOOKABLE_USER_FILTER })
     .select('firstName lastName isOnline');
   const doctorProfile = doctor ? await DoctorProfile.findOne({ userId: doctorId }) : null;
   if (!doctor || !doctorProfile) {
     return { error: { status: 404, message: 'This therapist is not available for booking' } };
+  }
+  if (!bookability.bookabilityOf(doctorProfile).instant) {
+    return { error: { status: 409, message: bookability.NOT_BOOKABLE_MESSAGE } };
   }
   return { doctor, doctorProfile };
 }
@@ -365,6 +398,8 @@ async function _notifyUnpaidBooking(req, session) {
     .populate('doctorId', 'firstName lastName email');
   const patientId = String(populated.patientId._id);
   const doctorId = String(populated.doctorId._id);
+  // Nothing was owed, so the booking is confirmed now: chat opens with it.
+  await openConversation(patientId, doctorId, session._id);
   _emitToUsers(req, 'session:booked', {
     session: populated, patientId, doctorId, sessionId: String(session._id),
     acceptanceDeadline: populated.acceptanceDeadline || null, timestamp: new Date()
@@ -405,11 +440,19 @@ const bookImmediate = asyncHandler(async (req, res) => {
   const { doctor, doctorProfile, error } = await _loadBookableDoctor(doctorId);
   if (error) return res.status(error.status).json({ success: false, message: error.message });
 
-  // An instant session is a promise that someone is there to answer it.
-  // Nothing checked that, so a patient could pay to ring a doctor who had
-  // logged off hours ago and wait out the window for a refund.
-  if (!doctor.isOnline) {
-    return res.status(409).json({ success: false, message: 'This therapist has just gone offline. Please choose another therapist or book a time.' });
+  // An instant session is a promise that someone is there to answer it, and
+  // free to: online by their own switch, actually connected (services/
+  // presence.js — the switch alone stayed on after the laptop closed), and
+  // not in or about to start another session.
+  const free = await availabilityService.instantAvailability(doctor, Number(duration) || availabilityService.SHORTEST_SESSION_MINUTES);
+  if (!free.ok) {
+    return res.status(409).json({
+      success: false,
+      reason: free.reason,
+      message: free.reason === 'busy'
+        ? 'This therapist has a session right now or starting soon. Please book a time instead.'
+        : 'This therapist has just gone offline. Please choose another therapist or book a time.'
+    });
   }
 
   const finalPrice = await calculateSessionPrice(doctorId, mode, duration);
@@ -454,7 +497,6 @@ const bookImmediate = asyncHandler(async (req, res) => {
   session.meetingLink = `/video-call/${session._id}`;
   await session.save();
 
-  try { await Conversation.findOrCreateConversation(patientId, doctorId, session._id); } catch (e) { logger.warn('Conversation creation failed', { error: e.message }); }
 
   const populated = paymentState.razorpayOrderId
     ? await Session.findById(session._id).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email')
@@ -488,9 +530,20 @@ const bookSession = asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Invalid session date or time' });
   }
   if (requestedStartsAt < new Date()) return res.status(400).json({ success: false, message: 'Cannot book a time slot in the past' });
+  // The same notice the slot list applies: a session has to be joinable and
+  // remindable, so nothing starting within JOIN_LEAD_MINUTES.
+  if (requestedStartsAt < new Date(Date.now() + JOIN_LEAD_MINUTES * 60 * 1000)) {
+    return res.status(400).json({ success: false, message: 'That time is too soon to book — please pick a later slot.' });
+  }
 
   const { doctorProfile, error } = await _loadBookableDoctor(doctorId);
   if (error) return res.status(error.status).json({ success: false, message: error.message });
+
+  // An instant call running into this time (slots only stop slots from
+  // overlapping each other).
+  if (await availabilityService.isBusy(doctorId, requestedStartsAt, Number(duration) || 60)) {
+    return res.status(400).json({ success: false, message: 'This time slot is no longer available' });
+  }
 
   // The price is the server's, never the client's. The client used to send
   // one, and calculateSessionPrice fell back to it.
@@ -557,7 +610,6 @@ const bookSession = asyncHandler(async (req, res) => {
     throw err;
   }
 
-  try { await Conversation.findOrCreateConversation(patientId, doctorId, session._id); } catch (e) { logger.warn('Conversation creation failed', { error: e.message }); }
 
   const populated = paymentState.razorpayOrderId
     ? await Session.findById(session._id).populate('patientId', 'firstName lastName email phoneNumber').populate('doctorId', 'firstName lastName email')
@@ -635,11 +687,7 @@ const getAllDoctors = asyncHandler(async (req, res) => {
   //     page offers no times at all.
   // All four were live: both doctors on the platform had expired calendars and
   // no usable payout route while being listed as bookable.
-  const profiles = await DoctorProfile.find({
-    payoutApproved: true,
-    'pricing.min': { $gt: 0 },
-    bookableUntil: { $gte: new Date() }
-  }).select(PUBLIC_DOCTOR_FIELDS)
+  const profiles = await DoctorProfile.find(bookability.bookableProfileFilter({ scheduled: true })).select(PUBLIC_DOCTOR_FIELDS)
     .populate({
       path: 'userId',
       // No email: this is a public, unauthenticated listing, and the
@@ -686,9 +734,9 @@ const getDoctorById = asyncHandler(async (req, res) => {
   // Public and unauthenticated, so held to the directory's bar: an applicant
   // who was never approved — or was rejected — is not a therapist this site
   // presents, and their email is nobody's business.
-  const doctor = await User.findOne({ _id: doctorId, role: 'doctor', approvalStatus: 'approved', status: 'active' }).select('firstName lastName');
+  const doctor = await User.findOne({ _id: doctorId, ...bookability.BOOKABLE_USER_FILTER }).select('firstName lastName');
   if (!doctor) throw new NotFoundError('Doctor');
-  const profile = await DoctorProfile.findOne({ userId: doctorId }).select(PUBLIC_DOCTOR_FIELDS)
+  const profile = await DoctorProfile.findOne({ userId: doctorId }).select(`${PUBLIC_DOCTOR_FIELDS} payoutApproved bookableUntil`)
     .populate('userId', 'firstName lastName');
   if (!profile) throw new NotFoundError('Doctor');
   const ratingStats = await Review.aggregate([
@@ -701,6 +749,14 @@ const getDoctorById = asyncHandler(async (req, res) => {
   }
   const obj = profile.toObject();
   obj.rating = liveRating;
+  // Whether this page can sell a session at all — so it can say so, instead
+  // of letting the patient through to a checkout that then fails. The two
+  // inputs themselves stay private.
+  const can = bookability.bookabilityOf(obj);
+  obj.bookable = can.scheduled;
+  obj.instantBookable = can.instant;
+  delete obj.payoutApproved;
+  delete obj.bookableUntil;
   res.json(obj);
 });
 
@@ -806,6 +862,27 @@ const claimAbsentRefund = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * POST /api/sessions/:sessionId/abandon-checkout — the patient closed the
+ * payment window.
+ *
+ * The slot used to stay held for the full CHECKOUT_TTL_MINUTES (20), so
+ * nobody else could book it while the patient who walked away was long gone.
+ * expireCheckout asks Razorpay first: a payment that was in fact captured is
+ * confirmed instead (the booking stands), and one still authorising is left
+ * for the minute sweep. A payment that lands after the release is refunded
+ * automatically (LATE_CAPTURE).
+ */
+const abandonCheckout = asyncHandler(async (req, res) => {
+  const session = req.authz.resource;
+  if (session.status !== 'payment_pending') {
+    return res.json({ success: true, outcome: 'not-pending', status: session.status });
+  }
+  const { expireCheckout } = require('../services/sessionPayment');
+  const result = await expireCheckout(session, { io: req.app.get('io') });
+  res.json({ success: true, outcome: result.outcome });
+});
+
 /** POST /api/sessions/:sessionId/cancel */
 const cancelSession = asyncHandler(async (req, res) => {
   const { sessionId } = req.params;
@@ -850,6 +927,10 @@ const cancelSession = asyncHandler(async (req, res) => {
   }
 
   const cancellerRole = req.actor.role; // 'patient' or 'doctor'
+  // A doctor may say why; the patient is told. Plain text, kept short.
+  const reason = cancellerRole === 'doctor' && typeof (req.body && req.body.reason) === 'string'
+    ? req.body.reason.trim().slice(0, 300) || null
+    : null;
 
   // ── REFUND POLICY ─────────────────────────────────────────────────────────
   // The refund TIER depends on this number, so the old server-local
@@ -893,7 +974,8 @@ const cancelSession = asyncHandler(async (req, res) => {
     payload: { cancelledBy: cancellerRole },
     extraSet: {
       outcome: { code: outcomeCode, decidedAt: now, by: cancellerRole, note: null },
-      ...(lateCancellation ? { lateCancellation: true } : {})
+      ...(lateCancellation ? { lateCancellation: true } : {}),
+      ...(reason ? { cancellationReason: reason } : {})
     }
   });
 
@@ -963,7 +1045,7 @@ const cancelSession = asyncHandler(async (req, res) => {
         cancelledBy: cancellerLabel,
         refundAmount,
         message: cancellerRole === 'doctor'
-          ? `We're sorry, your session has been cancelled by the doctor. A full refund will be processed.`
+          ? `We're sorry — your therapist cancelled this session${reason ? `: "${reason}"` : '.'} A full refund is on its way.`
           : lateCancellation
             ? 'Your session has been cancelled. Cancellations within 4 hours of the start are not refunded, because your therapist\'s time was reserved for you — they are still paid for it.'
             : 'Your session has been cancelled.'
@@ -1424,4 +1506,4 @@ const getTurnCredentials = asyncHandler(async (req, res) => {
   }
 });
 
-module.exports = { getStats, getMyDoctors, getPendingFeedback, getCallHistory, getDoctorSlots, bookImmediate, bookSession, getMySessions, getUpcoming, getAllDoctors, getDoctorById, getSessionById, joinSession, completeSession, requestEndSession, respondEndSession, claimAbsentRefund, cancelSession, getCalendar, getPatientEmergencyContact, getMyTherapists, acceptSession, delaySession, getTurnCredentials, missedSession, getDelayedSessions, getInstantRequests, sweepStuckUnacceptedSessions };
+module.exports = { getStats, getMyDoctors, getPendingFeedback, getCallHistory, getDoctorSlots, bookImmediate, bookSession, getMySessions, getUpcoming, getAllDoctors, getDoctorById, getSessionById, joinSession, completeSession, requestEndSession, respondEndSession, claimAbsentRefund, abandonCheckout, cancelSession, getCalendar, getPatientEmergencyContact, getMyTherapists, acceptSession, delaySession, getTurnCredentials, missedSession, getDelayedSessions, getInstantRequests, sweepStuckUnacceptedSessions };

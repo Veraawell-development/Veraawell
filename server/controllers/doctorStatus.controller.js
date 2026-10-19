@@ -50,21 +50,29 @@ const getStatus = asyncHandler(async (req, res) => {
  * can be rendered from this response alone.
  */
 const getOnlineDoctors = asyncHandler(async (req, res) => {
-  const online = await User.find({ role: 'doctor', isOnline: true, approvalStatus: 'approved', status: 'active' })
+  // Online means the doctor's switch is on AND they are actually connected
+  // (services/presence.js); the switch alone stayed on after the laptop was
+  // closed. `busy` marks a doctor in, or about to start, a session — shown as
+  // "In a session", and not ringable.
+  const presence = require('../services/presence');
+  const { bookableProfileFilter, BOOKABLE_USER_FILTER } = require('../services/bookability');
+  const { busyNow } = require('../services/availability');
+
+  const online = (await User.find({ ...BOOKABLE_USER_FILTER, isOnline: true })
     .select('firstName lastName isOnline lastActiveAt profileCompleted')
     .sort({ lastActiveAt: -1 })
-    .lean();
+    .lean()).filter((d) => presence.isConnected(d._id));
 
   const profiles = await DoctorProfile.find({
     userId: { $in: online.map((d) => d._id) },
-    payoutApproved: true,
-    'pricing.min': { $gt: 0 }
+    ...bookableProfileFilter({ scheduled: false })
   }).select(PUBLIC_DOCTOR_FIELDS).lean();
   const profileByUser = new Map(profiles.map((p) => [String(p.userId), p]));
+  const busy = await busyNow(online.map((d) => d._id));
 
   const doctors = online
     .filter((d) => profileByUser.has(String(d._id)))
-    .map((d) => ({ ...d, profile: profileByUser.get(String(d._id)) }));
+    .map((d) => ({ ...d, busy: busy.has(String(d._id)), profile: profileByUser.get(String(d._id)) }));
 
   res.json({ success: true, count: doctors.length, doctors });
 });
