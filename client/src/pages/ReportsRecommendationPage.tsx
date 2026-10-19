@@ -79,7 +79,7 @@ const ReportsRecommendationPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="h-[calc(100vh-80px)] flex items-center justify-center bg-[#FAFAFA]">
+      <div className="h-[calc(100vh-80px)] flex items-center justify-center bg-[var(--bg)]">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-500 text-[13px] font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>Loading reports...</p>
@@ -89,14 +89,14 @@ const ReportsRecommendationPage: React.FC = () => {
   }
 
   return (
-    <div className="h-screen pt-[64px] md:pt-[80px] bg-[#FAFAFA] font-sans flex flex-col overflow-hidden box-border">
+    <div className="h-screen pt-[64px] md:pt-[80px] bg-[var(--bg)] font-sans flex flex-col overflow-hidden box-border">
       {/* Main Content Area */}
       <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 md:py-10 flex flex-col min-h-0">
         
         <div className="mb-8 max-w-2xl relative shrink-0">
           <button 
             onClick={() => navigate('/patient-dashboard')} 
-            className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 hover:text-teal-600 transition-colors mb-5 group"
+            className="flex items-center gap-2 text-[13px] font-semibold text-gray-500 hover:text-[var(--teal)] transition-colors mb-5 group"
             aria-label="Back to Dashboard"
             style={{ fontFamily: 'Inter, sans-serif' }}
           >
@@ -106,7 +106,7 @@ const ReportsRecommendationPage: React.FC = () => {
             Back to Dashboard
           </button>
 
-          <h1 className="text-[32px] md:text-[36px] font-extrabold text-gray-800 tracking-tight mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
+          <h1 className="page-title mb-3">
             Reports & Recommendation
           </h1>
           <p className="text-[15px] text-gray-500 font-medium leading-relaxed max-w-2xl" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -139,7 +139,7 @@ const ReportsRecommendationPage: React.FC = () => {
                   <div className="flex justify-between items-start mb-4">
                     <div className="flex items-center gap-3">
                       <div className="w-10 h-10 rounded-full bg-teal-50 border border-teal-100 flex items-center justify-center shrink-0">
-                        <span className="text-[12px] font-bold text-teal-700 tracking-wider">
+                        <span className="text-[12px] font-bold text-[var(--teal-dark)] tracking-wider">
                           {getInitials(report.doctorId?.firstName || '', report.doctorId?.lastName || '')}
                         </span>
                       </div>
@@ -155,7 +155,7 @@ const ReportsRecommendationPage: React.FC = () => {
                   </div>
                   
                   <div className="mb-6">
-                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide uppercase bg-teal-50 text-teal-600" style={{ fontFamily: 'Inter, sans-serif' }}>
+                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide uppercase bg-teal-50 text-[var(--teal)]" style={{ fontFamily: 'Inter, sans-serif' }}>
                       {report.reportType || 'Consultation Report'}
                     </span>
                   </div>
@@ -163,14 +163,14 @@ const ReportsRecommendationPage: React.FC = () => {
                   <div className="mt-auto pt-4 border-t border-gray-50 flex items-center justify-between gap-2">
                     <button
                       onClick={() => handleView(report)}
-                      className="flex-1 inline-flex items-center justify-center gap-1.5 font-bold text-gray-500 hover:text-teal-600 hover:bg-teal-50 transition-colors text-[11px] uppercase tracking-wider px-3 py-2 rounded-lg border border-gray-100 group-hover:border-teal-100"
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 font-bold text-gray-500 hover:text-[var(--teal)] hover:bg-teal-50 transition-colors text-[11px] uppercase tracking-wider px-3 py-2 rounded-lg border border-gray-100 group-hover:border-teal-100"
                     >
                       <FiEye className="w-3.5 h-3.5" />
                       View
                     </button>
                     <button
                       onClick={() => handleDownload(report)}
-                      className="flex-1 inline-flex items-center justify-center gap-1.5 font-bold text-gray-500 hover:text-teal-600 hover:bg-teal-50 transition-colors text-[11px] uppercase tracking-wider px-3 py-2 rounded-lg border border-gray-100 group-hover:border-teal-100"
+                      className="flex-1 inline-flex items-center justify-center gap-1.5 font-bold text-gray-500 hover:text-[var(--teal)] hover:bg-teal-50 transition-colors text-[11px] uppercase tracking-wider px-3 py-2 rounded-lg border border-gray-100 group-hover:border-teal-100"
                     >
                       <FiDownload className="w-3.5 h-3.5" />
                       Save
