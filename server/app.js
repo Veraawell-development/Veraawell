@@ -359,6 +359,7 @@ if (oauthConfig.enabled) {
 app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/admin/approvals', adminApprovalRoutes);
 app.use('/api/admin/payments', require('./routes/adminPayments.routes'));
+app.use('/api/admin/calls', require('./routes/adminCalls.routes'));
 
 // Payouts. Two mount points on purpose: the doctor-facing half sits behind
 // verifyToken, the admin half behind verifyAdminToken. Sharing one router

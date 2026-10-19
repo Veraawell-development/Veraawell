@@ -168,7 +168,24 @@ const signupOtpResendLimiter = rateLimit({
   }
 });
 
+/**
+ * Call statistics from the browser (POST /sessions/:id/call-events): per
+ * person and session. A call reports every minute or so; 30 a minute leaves
+ * room for bursts (reconnects) and stops a broken client from flooding.
+ */
+const callEventsLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 30,
+  keyGenerator: (req) => `${req.user ? req.user._id : ipKeyGenerator(req.ip)}|${req.params.sessionId}`,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: () => {
+    throw new RateLimitError('Too many call reports — slow down.');
+  }
+});
+
 module.exports = {
+  callEventsLimiter,
   generalLimiter,
   loginLimiters,
   verifySignupLimiters,
