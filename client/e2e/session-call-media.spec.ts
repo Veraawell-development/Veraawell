@@ -244,7 +244,7 @@ test.describe('a video call', () => {
     await closeAll(patient, doctor);
   });
 
-  test('an ICE restart mid-call renegotiates cleanly and the media keeps going', async ({ browser }) => {
+  test('both sides repairing at once (as when both see the link fail) renegotiates cleanly and the media keeps going', async ({ browser }) => {
     test.setTimeout(90_000);
     const { id, patient, doctor } = await newCall(browser);
     await enterCall(patient.page, id);
@@ -254,10 +254,13 @@ test.describe('a video call', () => {
     await markPc(patient.page);
 
     for (const p of [patient.page, doctor.page]) {
-      await p.evaluate(() => (window as any).__vwCall.debug.pc.restartIce());
+      await p.evaluate(() => (window as any).__vwCall.debug.repair());
     }
     await expect.poll(() => patient.page.evaluate(() => (window as any).__vwCall.debug.pc.signalingState), { timeout: 15_000 }).toBe('stable');
     await expect.poll(() => doctor.page.evaluate(() => (window as any).__vwCall.debug.pc.signalingState), { timeout: 15_000 }).toBe('stable');
+    // The doctor restarted; the patient left it to them.
+    await expect.poll(() => doctor.page.evaluate(() => (window as any).__vwCall.debug.pc.localDescription?.type), { timeout: 10_000 }).toBe('offer');
+    await patient.page.waitForTimeout(3000); // past the patient's own repair delay
     await seesTheOtherSide(patient.page);
     await hearsTheOtherSide(doctor.page);
     expect(await samePc(patient.page)).toBe(true);

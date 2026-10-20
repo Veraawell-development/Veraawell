@@ -118,6 +118,8 @@ export class CallEngine {
   private ladder = new QualityLadder();
   private events: { type: string; at: string; data?: Record<string, unknown> }[] = [];
   private joinStartedAt = 0;
+  /** When this pairing's connection was created (both people in). */
+  private pairedAt = 0;
   private joined = false;
   private joining = false;
   private disposed = false;
@@ -162,7 +164,9 @@ export class CallEngine {
 
   /** For tests and the debug hook. */
   get debug() {
-    return { epoch: this.epoch, instanceId: this.instanceId, joined: this.joined, pc: this.negotiator?.pc ?? null, relayOnly: this.negotiator?.relayOnly ?? false, counts: { ...this.counts } };
+    return { epoch: this.epoch, instanceId: this.instanceId, joined: this.joined, pc: this.negotiator?.pc ?? null, relayOnly: this.negotiator?.relayOnly ?? false, counts: { ...this.counts },
+      /** What a failed connection triggers (tests). */
+      repair: () => this.negotiator?.repair() };
   }
 
   /* ───────────── media ───────────── */
@@ -175,7 +179,11 @@ export class CallEngine {
     const previous = this.snap.local;
     const result = await acquireMedia({ voice: this.opts.voice, wantVideo });
     if (this.disposed) { stopStream(result.stream); return; }
-    if (result.error) this.note('media-error', { kind: result.error });
+    // A problem only if something asked for is missing; a step down the
+    // ladder that still got camera and mic (Safari refusing 540p) is not.
+    const wantedVideo = !this.opts.voice && wantVideo;
+    if (result.error && (!result.hasAudio || (wantedVideo && !result.hasVideo))) this.note('media-error', { detail: result.error });
+    else if (result.error) this.note('media-fallback', { detail: result.error });
     // Mid-call retry with nothing better: keep what we had.
     if (inCall && !result.stream && previous) { this.set({ mediaError: result.error }); return; }
     if (previous && previous !== result.stream) stopStream(previous);
@@ -440,6 +448,7 @@ export class CallEngine {
   private ensurePeer() {
     if (this.negotiator || this.epoch === null || !this.snap.role || this.disposed) return;
     const epoch = this.epoch;
+    this.pairedAt = Date.now();
     // Tests (dev builds only) can force the relay to prove it works end to end.
     const forceRelay = (import.meta.env.DEV || import.meta.env.VITE_E2E) && typeof window !== 'undefined' && !!(window as any).__vwForceRelay;
     const pc = new RTCPeerConnection({ iceServers: this.iceServers, ...(forceRelay ? { iceTransportPolicy: 'relay' as const } : {}) });
@@ -622,7 +631,9 @@ export class CallEngine {
       const mediaIn = stats.audioFlowing || stats.videoFlowing;
       if ((this.snap.phase === 'connecting' || this.snap.phase === 'reconnecting') && (ice === 'connected' || ice === 'completed') && mediaIn) {
         if (this.snap.phase === 'connecting') {
-          this.note('connected', { timeToConnectMs: Date.now() - this.joinStartedAt, candidateType: stats.candidateType });
+          // Measured from when both were in — not from Join, which counted
+          // the time spent waiting for the other person.
+          this.note('connected', { timeToConnectMs: Date.now() - (this.pairedAt || this.joinStartedAt), sinceJoinMs: Date.now() - this.joinStartedAt, candidateType: stats.candidateType });
           void this.flushTelemetry();
         }
         patch.phase = 'connected';

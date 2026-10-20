@@ -47,6 +47,20 @@ const REASON_LABEL: Record<string, string> = {
   AUTH: 'Signed out',
   PROTOCOL_OUTDATED: 'Old page version',
   'media-error': 'Camera / mic problem',
+  'ice-stuck': 'Connection stuck (rebuilt)',
+  'ice-gave-up': 'Connection repair ran out',
+};
+
+/** Why a camera or mic didn't start (client/src/call/media.ts). */
+const DETAIL_LABEL: Record<string, string> = {
+  'permission-denied': 'permission denied',
+  'permission-denied-system': 'blocked by the device settings',
+  'no-device': 'no camera / mic found',
+  'device-in-use': 'in use by another app',
+  constraints: 'unsupported camera setting',
+  insecure: 'not a secure page',
+  unsupported: 'browser not supported',
+  aborted: 'interrupted',
 };
 
 const name = (p?: Person | null) => (p ? [p.firstName, p.lastName].filter(Boolean).join(' ') || '—' : '—');
@@ -97,7 +111,7 @@ const CallsTab: React.FC = () => {
         <>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <Stat label="Calls connected" value={s.successRate === null ? '—' : `${s.successRate}%`} hint={`${s.connected} of ${s.calls} calls`} />
-            <Stat label="Time to connect" value={seconds(s.medianTimeToConnectMs)} hint="median, from Join" />
+            <Stat label="Time to connect" value={seconds(s.medianTimeToConnectMs)} hint="median, once both are in" />
             <Stat label="Through the relay" value={s.relayShare === null ? '—' : `${s.relayShare}%`} hint="of connected calls" />
             <Stat label="Recoveries" value={String(s.reconnects)} hint="drops that reconnected by themselves" />
           </div>
@@ -157,7 +171,10 @@ const CallsTab: React.FC = () => {
                           : <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-red-700 border border-red-200">Never connected</span>}
                         {(c.reconnects || 0) > 0 && <span className="block text-xs text-neutral-500 mt-1">{c.reconnects} recovered drop{c.reconnects === 1 ? '' : 's'}</span>}
                         {problems.slice(-2).map((f, i) => (
-                          <span key={i} className="block text-xs text-red-600 mt-1">{f.party ? `${f.party}: ` : ''}{REASON_LABEL[f.reason || ''] || f.reason}</span>
+                          <span key={i} className="block text-xs text-red-600 mt-1">
+                            {f.party ? `${f.party}: ` : ''}{REASON_LABEL[f.reason || ''] || f.reason}
+                            {f.detail ? ` — ${DETAIL_LABEL[f.detail] || f.detail}` : ''}
+                          </span>
                         ))}
                       </td>
                       <td className="px-4 py-3 text-neutral-600">
@@ -170,7 +187,7 @@ const CallsTab: React.FC = () => {
                       </td>
                       <td className="px-4 py-3 text-xs text-neutral-600 whitespace-nowrap">
                         {typeof c.quality?.rttAvgMs === 'number' ? `${Math.round(c.quality.rttAvgMs)} ms` : '—'}
-                        {typeof c.quality?.lossPct === 'number' && <span className="block">{c.quality.lossPct}% loss</span>}
+                        {typeof c.quality?.lossPct === 'number' && <span className="block">{c.quality.lossPct}% loss at worst</span>}
                       </td>
                     </tr>
                   );
