@@ -802,11 +802,13 @@ describe('reviews', () => {
     return review;
   }
 
-  test('a public review names the patient by first name and last initial only', async () => {
+  test('a public therapist review names nobody: it is "Verified patient"', async () => {
     // Both public endpoints populated `firstName lastName` and returned the
     // whole document, so an anonymous caller could read the full name of a
     // person in therapy, their account id, the moderator's notes and the
-    // private "improvements" feedback meant for the doctor.
+    // private "improvements" feedback meant for the doctor. Then it was first
+    // name + last initial; next to a named therapist even that can out a
+    // patient, so a therapist review is now anonymous (Phase 5 decision).
     const review = await approvedReview({ improvements: 'private-improvement-marker' });
     await Models.Review.updateOne({ _id: review._id }, { adminNotes: 'admin-notes-marker' });
 
@@ -815,8 +817,9 @@ describe('reviews', () => {
     expect(res.body.reviews).toHaveLength(1);
     const [shown] = res.body.reviews;
 
-    expect(shown.patientId).toEqual({ firstName: f.patientA.firstName, lastName: f.patientA.lastName.charAt(0) });
+    expect(shown.patientId).toEqual({ firstName: 'Verified patient', lastName: '' });
     const raw = JSON.stringify(res.body);
+    expect(raw).not.toContain(f.patientA.firstName);
     expect(raw).not.toContain(f.patientA.lastName);
     expect(raw).not.toContain(String(f.patientA._id));
     expect(raw).not.toMatch(/private-improvement-marker|admin-notes-marker/);
@@ -824,12 +827,37 @@ describe('reviews', () => {
     expect(shown).toMatchObject({ rating: 5, feedback: 'Helpful' });
   });
 
-  test('a review whose author account is gone is shown as Anonymous rather than crashing the page', async () => {
+  test('a review whose author account is gone is still shown, without crashing the page', async () => {
     const review = await approvedReview();
     await Models.Review.updateOne({ _id: review._id }, { patientId: new mongoose.Types.ObjectId() });
 
     const res = await request(server).get(`/api/reviews/doctor/${f.doctorA._id}`);
-    expect(res.body.reviews[0].patientId).toEqual({ firstName: 'Anonymous', lastName: '' });
+    expect(res.body.reviews[0].patientId).toEqual({ firstName: 'Verified patient', lastName: '' });
+  });
+
+  test('a star-only rating is stored with no comment, and is never shown as a filler quote', async () => {
+    const s = await completedSession();
+    const res = await call('post', '/api/reviews/submit', tokens.patientA, { sessionId: String(s._id), reviewType: 'doctor', rating: 4 });
+    expect(res.status).toBe(201);
+    expect((await Models.Review.findOne({ sessionId: s._id })).feedback).toBe('');
+
+    // A row from before: the form sent "No additional comments provided.".
+    const old = await completedSession();
+    await Models.Review.create({
+      sessionId: old._id, patientId: f.patientA._id, doctorId: f.doctorA._id, reviewType: 'doctor', rating: 5,
+      feedback: 'No additional comments provided.', approvedForDisplay: true, isPublic: true
+    });
+    const list = await request(server).get(`/api/reviews/doctor/${f.doctorA._id}`);
+    expect(list.body.reviews.map((r) => r.feedback)).toEqual(['', '']);
+  });
+
+  test('a comment that is not text, or is very long, is refused', async () => {
+    const s = await completedSession();
+    const notText = await call('post', '/api/reviews/submit', tokens.patientA, { sessionId: String(s._id), reviewType: 'doctor', rating: 4, feedback: { a: 1 } });
+    expect(notText.status).toBe(400);
+    const tooLong = await call('post', '/api/reviews/submit', tokens.patientA, { sessionId: String(s._id), reviewType: 'doctor', rating: 4, feedback: 'x'.repeat(2001) });
+    expect(tooLong.status).toBe(400);
+    expect(await Models.Review.countDocuments({ sessionId: s._id })).toBe(0);
   });
 
   test('a platform review is not on the landing page until an admin approves it', async () => {

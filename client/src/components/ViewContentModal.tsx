@@ -1,6 +1,7 @@
 import React from 'react';
 import { FiX, FiDownload, FiCalendar, FiUser } from 'react-icons/fi';
 import { formatDate } from '../utils/dateUtils';
+import { useDialog } from '../hooks/useDialog';
 
 interface ViewContentModalProps {
     isOpen: boolean;
@@ -11,6 +12,10 @@ interface ViewContentModalProps {
     doctorName: string;
     type: string;
     onDownload?: () => void;
+    /** What `date` is, e.g. "Due" for a task (shown bare, it read as a created date). */
+    dateLabel?: string;
+    /** "Session: 21 October 2026", when the item belongs to a session. */
+    sessionText?: string;
 }
 
 const ViewContentModal: React.FC<ViewContentModalProps> = ({
@@ -21,8 +26,11 @@ const ViewContentModal: React.FC<ViewContentModalProps> = ({
     date,
     doctorName,
     type,
-    onDownload
+    onDownload,
+    dateLabel,
+    sessionText
 }) => {
+    const dialog = useDialog(isOpen, onClose);
     if (!isOpen) return null;
 
     let parsedContent: any = null;
@@ -35,45 +43,57 @@ const ViewContentModal: React.FC<ViewContentModalProps> = ({
     }
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-gray-900/60 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-gray-900/60 backdrop-blur-sm" onClick={onClose}>
             <div
-                className="bg-white rounded-3xl w-full max-w-2xl max-h-[90vh] overflow-hidden shadow-2xl flex flex-col font-sans relative ring-1 ring-gray-900/5"
+                ref={dialog.ref}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="view-content-title"
+                tabIndex={-1}
+                className="bg-white rounded-3xl w-full max-w-2xl max-h-[90dvh] overflow-hidden shadow-2xl flex flex-col font-sans relative ring-1 ring-gray-900/5 outline-none"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
-                <div className="p-6 md:p-8 border-b border-gray-100 flex justify-between items-start bg-white sticky top-0 z-10">
-                    <div>
+                <div className="p-5 md:p-8 border-b border-gray-100 flex justify-between items-start gap-3 bg-white sticky top-0 z-10">
+                    <div className="min-w-0">
                         <div className="flex items-center gap-2 mb-3">
                             <span className="px-3 py-1 rounded-full text-[10px] font-bold bg-teal-50 text-teal-700 uppercase tracking-widest" style={{ fontFamily: 'Inter, sans-serif' }}>
                                 {type}
                             </span>
                         </div>
-                        <h2 className="text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        <h2 id="view-content-title" className="text-xl md:text-3xl font-extrabold text-gray-900 tracking-tight break-words" style={{ fontFamily: 'Inter, sans-serif' }}>
                             {title}
                         </h2>
                         
                         <div className="flex flex-wrap items-center gap-4 mt-4 text-sm text-gray-500 font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>
                             <div className="flex items-center gap-1.5">
-                                <FiCalendar className="w-4 h-4 text-gray-400" />
-                                <span>{formatDate(date)}</span>
+                                <FiCalendar aria-hidden="true" className="w-4 h-4 text-gray-400" />
+                                <span>{dateLabel ? `${dateLabel} ` : ''}{date ? formatDate(date) : '—'}</span>
                             </div>
+                            {sessionText && (
+                                <>
+                                    <span className="w-1 h-1 rounded-full bg-gray-300"></span>
+                                    <span>{sessionText}</span>
+                                </>
+                            )}
                             <span className="w-1 h-1 rounded-full bg-gray-300"></span>
                             <div className="flex items-center gap-1.5">
-                                <FiUser className="w-4 h-4 text-gray-400" />
+                                <FiUser aria-hidden="true" className="w-4 h-4 text-gray-400" />
                                 <span>{doctorName}</span>
                             </div>
                         </div>
                     </div>
                     <button
                         onClick={onClose}
-                        className="p-2.5 bg-gray-50 hover:bg-gray-100 rounded-full transition-colors text-gray-500 hover:text-gray-700 -mr-2 -mt-2"
+                        aria-label="Close"
+                        className="p-2.5 bg-gray-50 hover:bg-gray-100 rounded-full transition-colors text-gray-500 hover:text-gray-700 -mr-2 -mt-2 shrink-0"
                     >
-                        <FiX className="w-5 h-5" />
+                        <FiX aria-hidden="true" className="w-5 h-5" />
                     </button>
                 </div>
 
                 {/* Content */}
-                <div className="flex-1 overflow-y-auto p-6 md:p-8 bg-gray-50/50">
+                <div className="flex-1 overflow-y-auto p-5 md:p-8 bg-gray-50/50 break-words">
                     <div className="max-w-none">
                         {parsedContent ? (
                             <div className="space-y-8" style={{ fontFamily: 'Inter, sans-serif' }}>

@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import toast from 'react-hot-toast';
 import { formatReportText } from '../utils/reportContent';
-import { generateReportPdf } from '../utils/reportPdf';
-import { FiDownload, FiMenu, FiEye } from 'react-icons/fi';
+import { generateReportPdf, reportTypeLabel, reportSessionDate } from '../utils/reportPdf';
+import { getAuthToken } from '../utils/authToken';
+import { FiDownload, FiEye } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import ViewContentModal from '../components/ViewContentModal';
 import { useAuth } from '../context/AuthContext';
@@ -10,23 +11,33 @@ import { API_CONFIG } from '../config/api';
 import { formatDate } from '../utils/dateUtils';
 import logger from '../utils/logger';
 import type { Report } from '../types';
-import BackToDashboard from '../components/BackToDashboard';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
+const authHeaders = (): Record<string, string> => {
+  const token = getAuthToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+
+/** "Dr. Asha Rao" — without doubling a "Dr" the name already carries. */
+const drName = (d?: { firstName?: string; lastName?: string } | null) => {
+  const name = `${d?.firstName || ''} ${d?.lastName || ''}`.trim().replace(/^dr\.?\s+/i, '');
+  return name ? `Dr. ${name}` : 'Your therapist';
+};
+
 const ReportsRecommendationPage: React.FC = () => {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [viewModalOpen, setViewModalOpen] = useState(false);
   const [selectedReport, setSelectedReport] = useState<Report | null>(null);
   const navigate = useNavigate();
   const { user } = useAuth();
   const queryClient = useQueryClient();
 
-  const { data: reports = [], isLoading: loading } = useQuery({
+  const { data: reports = [], isLoading: loading, error, refetch, isFetching } = useQuery({
     queryKey: ['patient', 'reports', user?.userId],
     queryFn: async () => {
       if (!user) return [];
       const response = await fetch(`${API_CONFIG.BASE_URL}/session-tools/reports/patient/${user.userId}`, {
-        credentials: 'include'
+        credentials: 'include',
+        headers: authHeaders()
       });
       if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
       const data = await response.json();
@@ -39,7 +50,8 @@ const ReportsRecommendationPage: React.FC = () => {
     mutationFn: async (reportId: string) => {
       const response = await fetch(`${API_CONFIG.BASE_URL}/session-tools/reports/${reportId}/view`, {
         method: 'PUT',
-        credentials: 'include'
+        credentials: 'include',
+        headers: authHeaders()
       });
       if (!response.ok) throw new Error('Failed to mark as viewed');
       return response.json();
@@ -59,7 +71,7 @@ const ReportsRecommendationPage: React.FC = () => {
     // One generator for every report download — see utils/reportPdf.ts for
     // why the four that existed before were a problem.
     generateReportPdf(report as any).catch((err) => {
-      console.error('Failed to generate PDF', err);
+      logger.error('Failed to generate PDF', err);
       toast.error('Could not generate the PDF. Please try again.');
     });
   };
@@ -89,7 +101,7 @@ const ReportsRecommendationPage: React.FC = () => {
   }
 
   return (
-    <div className="h-screen pt-[64px] md:pt-[80px] bg-[var(--bg)] font-sans flex flex-col overflow-hidden box-border">
+    <div className="h-[100dvh] pt-[64px] md:pt-[80px] bg-[var(--bg)] font-sans flex flex-col overflow-hidden box-border">
       {/* Main Content Area */}
       <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 md:py-10 flex flex-col min-h-0">
         
@@ -114,7 +126,21 @@ const ReportsRecommendationPage: React.FC = () => {
           </p>
         </div>
 
-        {reports.length === 0 ? (
+        {error ? (
+          // A failed load, said as such — it used to read "Your doctor hasn't
+          // uploaded any reports for you yet".
+          <div role="alert" className="bg-white rounded-[24px] border border-red-100 shadow-sm p-10 text-center max-w-3xl mx-auto mt-4 shrink-0">
+            <h3 className="text-[17px] font-bold text-gray-800 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>We couldn't load your reports</h3>
+            <p className="text-gray-500 text-[14px] mb-6" style={{ fontFamily: 'Inter, sans-serif' }}>Check your connection and try again.</p>
+            <button
+              onClick={() => void refetch()}
+              disabled={isFetching}
+              className="px-6 py-2.5 rounded-full text-[13px] font-semibold text-white bg-[var(--teal)] disabled:opacity-60"
+            >
+              {isFetching ? 'Trying…' : 'Try again'}
+            </button>
+          </div>
+        ) : reports.length === 0 ? (
           <div className="bg-white rounded-[24px] border border-gray-100 shadow-sm p-16 text-center max-w-3xl mx-auto mt-4 shrink-0">
             <div className="w-16 h-16 bg-gray-50 border border-gray-100 rounded-full flex items-center justify-center mx-auto mb-5">
               <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -145,10 +171,12 @@ const ReportsRecommendationPage: React.FC = () => {
                       </div>
                       <div className="flex flex-col gap-0.5">
                         <h3 className="text-[15px] font-bold text-gray-800 tracking-tight line-clamp-1" style={{ fontFamily: 'Inter, sans-serif' }}>
-                          Dr. {report.doctorId?.firstName || 'Unknown'} {report.doctorId?.lastName || ''}
+                          {drName(report.doctorId)}
                         </h3>
                         <p className="text-[12px] font-medium text-gray-400" style={{ fontFamily: 'Inter, sans-serif' }}>
-                          {formatDate(report.createdAt)}
+                          {reportSessionDate(report)
+                            ? <>Session {reportSessionDate(report)}</>
+                            : formatDate(report.createdAt)}
                         </p>
                       </div>
                     </div>
@@ -156,7 +184,7 @@ const ReportsRecommendationPage: React.FC = () => {
                   
                   <div className="mb-6">
                     <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide uppercase bg-teal-50 text-[var(--teal)]" style={{ fontFamily: 'Inter, sans-serif' }}>
-                      {report.reportType || 'Consultation Report'}
+                      {reportTypeLabel(report.reportType)}
                     </span>
                   </div>
 
@@ -165,14 +193,14 @@ const ReportsRecommendationPage: React.FC = () => {
                       onClick={() => handleView(report)}
                       className="flex-1 inline-flex items-center justify-center gap-1.5 font-bold text-gray-500 hover:text-[var(--teal)] hover:bg-teal-50 transition-colors text-[11px] uppercase tracking-wider px-3 py-2 rounded-lg border border-gray-100 group-hover:border-teal-100"
                     >
-                      <FiEye className="w-3.5 h-3.5" />
+                      <FiEye aria-hidden="true" className="w-3.5 h-3.5" />
                       View
                     </button>
                     <button
                       onClick={() => handleDownload(report)}
                       className="flex-1 inline-flex items-center justify-center gap-1.5 font-bold text-gray-500 hover:text-[var(--teal)] hover:bg-teal-50 transition-colors text-[11px] uppercase tracking-wider px-3 py-2 rounded-lg border border-gray-100 group-hover:border-teal-100"
                     >
-                      <FiDownload className="w-3.5 h-3.5" />
+                      <FiDownload aria-hidden="true" className="w-3.5 h-3.5" />
                       Save
                     </button>
                   </div>
@@ -189,8 +217,10 @@ const ReportsRecommendationPage: React.FC = () => {
         title={selectedReport?.title || 'Report Details'}
         content={formatReportText(selectedReport?.content) || 'No content available.'}
         date={selectedReport?.createdAt || ''}
-        doctorName={selectedReport ? `Dr. ${selectedReport.doctorId?.firstName || 'Unknown'} ${selectedReport.doctorId?.lastName || ''}` : ''}
-        type={selectedReport?.reportType || 'Report'}
+        doctorName={selectedReport ? drName(selectedReport.doctorId) : ''}
+        type={reportTypeLabel(selectedReport?.reportType)}
+        dateLabel="Written"
+        sessionText={selectedReport && reportSessionDate(selectedReport) ? `Session ${reportSessionDate(selectedReport)}` : undefined}
         onDownload={() => selectedReport && handleDownload(selectedReport)}
       />
     </div>

@@ -85,6 +85,8 @@ export interface ReportPdfInput {
   patientId?: { firstName?: string; lastName?: string } | null;
   /** Snapshot taken when the report was filed. */
   doctorSignature?: string | null;
+  /** The session it is about (populated as { sessionDate, sessionTime }). */
+  sessionId?: { sessionDate?: string | Date; startsAt?: string | Date } | string | null;
 }
 
 /* ───────────────────────────────── helpers ──────────────────────────────── */
@@ -145,8 +147,17 @@ async function downscale(dataUri: string, size: number): Promise<string> {
 const fullName = (p?: { firstName?: string; lastName?: string } | null, prefix = '') =>
   (p?.firstName ? `${prefix}${p.firstName} ${p.lastName || ''}`.trim() : '');
 
+// In IST, like every date on the platform: the viewer's own zone could print
+// the day before (or after) the one the session and the signature belong to.
 const longDate = (d?: string | Date) =>
-  d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+  d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Kolkata' }) : '';
+
+/** The date of the session a report is about, when it is known. */
+export const reportSessionDate = (report: Pick<ReportPdfInput, 'sessionId'>): string => {
+  const s = report.sessionId;
+  if (!s || typeof s !== 'object') return '';
+  return longDate(s.startsAt || s.sessionDate);
+};
 
 /**
  * Stored titles are built as "<Type> - <Patient> - <date>", so printed as-is
@@ -234,7 +245,9 @@ export async function buildReportPdf(report: ReportPdfInput): Promise<any> {
     ['PREPARED BY', doctor || 'Your practitioner'],
     ['PATIENT', patient || '—'],
     ['REPORT TYPE', reportTypeLabel(report.reportType)],
-    ['DATE', dateText || '—']
+    // The session the report is about, when known; when it was filed is
+    // in the signature line.
+    reportSessionDate(report) ? ['SESSION DATE', reportSessionDate(report)] : ['DATE', dateText || '—']
   ];
 
   const colW = CONTENT_W / 2;

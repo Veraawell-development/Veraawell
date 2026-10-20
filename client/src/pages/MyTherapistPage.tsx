@@ -4,6 +4,7 @@ import { API_CONFIG } from '../config/api';
 import { useAuth } from '../context/AuthContext';
 import { FiPhone, FiArrowLeft } from 'react-icons/fi';
 import { useQuery } from '@tanstack/react-query';
+import { getAuthToken } from '../utils/authToken';
 
 interface Therapist {
     doctor: {
@@ -34,6 +35,10 @@ interface Therapist {
     nextSession: string | null;
 }
 
+/** "Dr. Asha Rao" — without doubling a "Dr" the name already carries. */
+const drName = (d: { firstName?: string; lastName?: string }) =>
+    `Dr. ${`${d.firstName || ''} ${d.lastName || ''}`.trim().replace(/^dr\.?\s+/i, '')}`;
+
 /** "₹800 – ₹2,000", or one price when there's only one ("₹1 - ₹1" before). */
 function feeText(pricing?: { min?: number; max?: number }): string {
     const min = pricing?.min || 0;
@@ -48,11 +53,15 @@ const MyTherapistPage: React.FC = () => {
     const { user } = useAuth();
     const [filter, setFilter] = useState<'all' | 'active' | 'past'>('all');
 
-    const { data: therapists = [], isLoading: loading, error } = useQuery<Therapist[]>({
+    const { data: therapists = [], isLoading: loading, error, refetch, isFetching } = useQuery<Therapist[]>({
         queryKey: ['patient', 'my-therapists'],
         queryFn: async () => {
+            const headers: Record<string, string> = {};
+            const token = getAuthToken();
+            if (token) headers['Authorization'] = `Bearer ${token}`;
             const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/my-therapists`, {
-                credentials: 'include'
+                credentials: 'include',
+                headers
             });
             if (!response.ok) throw new Error('Failed to fetch therapists');
             return response.json();
@@ -87,7 +96,7 @@ const MyTherapistPage: React.FC = () => {
     }
 
     return (
-        <div className="h-screen pt-[64px] md:pt-[80px] bg-[var(--bg)] font-sans flex flex-col overflow-hidden box-border">
+        <div className="h-[100dvh] pt-[64px] md:pt-[80px] bg-[var(--bg)] font-sans flex flex-col overflow-hidden box-border">
             <div className="flex-1 max-w-[1200px] mx-auto w-full px-6 py-8 flex flex-col min-h-0">
                 
                 {/* Minimal Header */}
@@ -97,6 +106,7 @@ const MyTherapistPage: React.FC = () => {
                             onClick={() => navigate('/patient-dashboard')} 
                             className="flex items-center justify-center w-10 h-10 bg-white border border-gray-200 rounded-full text-gray-500 hover:text-[var(--teal)] hover:border-[#38ABAE] hover:shadow-sm transition-all group"
                             title="Back to Dashboard"
+                            aria-label="Back to dashboard"
                         >
                             <FiArrowLeft className="w-5 h-5 group-hover:-translate-x-0.5 transition-transform" />
                         </button>
@@ -123,8 +133,20 @@ const MyTherapistPage: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Empty State */}
-                {filteredTherapists.length === 0 ? (
+                {/* A failed load, said as such — it used to read "No therapists found". */}
+                {error ? (
+                    <div role="alert" className="bg-white rounded-[16px] border border-red-100 shadow-sm p-10 text-center max-w-2xl mx-auto mt-4 shrink-0">
+                        <h3 className="text-[17px] font-bold text-gray-800 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>We couldn't load your therapists</h3>
+                        <p className="text-gray-500 text-[14px] mb-6" style={{ fontFamily: 'Inter, sans-serif' }}>Check your connection and try again.</p>
+                        <button
+                            onClick={() => void refetch()}
+                            disabled={isFetching}
+                            className="px-6 py-2.5 rounded-full text-[13px] font-semibold text-white bg-[var(--teal)] disabled:opacity-60"
+                        >
+                            {isFetching ? 'Trying…' : 'Try again'}
+                        </button>
+                    </div>
+                ) : filteredTherapists.length === 0 ? (
                     <div className="bg-white rounded-[16px] border border-gray-200 shadow-sm p-16 text-center max-w-2xl mx-auto mt-4 shrink-0">
                         <div className="w-16 h-16 bg-gray-50 border border-gray-100 rounded-full flex items-center justify-center mx-auto mb-5">
                             <FiPhone className="w-6 h-6 text-gray-400" />
@@ -146,7 +168,7 @@ const MyTherapistPage: React.FC = () => {
                 ) : null}
 
                 {/* Therapist Cards Layout */}
-                {!loading && filteredTherapists.length > 0 && (
+                {!loading && !error && filteredTherapists.length > 0 && (
                     <div className="flex-1 overflow-y-auto pr-2 pb-10 custom-scrollbar min-h-0">
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {filteredTherapists.map((therapist) => (
@@ -163,13 +185,13 @@ const MyTherapistPage: React.FC = () => {
                                                 ? therapist.profile.profileImage
                                                 : (therapist.doctor.firstName.toLowerCase().endsWith('a') || therapist.doctor.firstName.toLowerCase().endsWith('i') ? '/female.jpg' : '/male.jpg')
                                             }
-                                            alt={`Dr. ${therapist.doctor.firstName} ${therapist.doctor.lastName}`}
+                                            alt={drName(therapist.doctor)}
                                             className="w-16 h-16 rounded-full object-cover border border-gray-100 shrink-0"
                                         />
                                         <div className="flex-1 min-w-0">
                                             <div className="flex justify-between items-start gap-2">
                                                 <h3 className="text-[16px] font-bold text-gray-900 leading-snug" style={{ fontFamily: 'Inter, sans-serif' }}>
-                                                    Dr. {therapist.doctor.firstName} {therapist.doctor.lastName}
+                                                    {drName(therapist.doctor)}
                                                 </h3>
                                                 <span className="bg-[#E8F6F6] text-[var(--teal)] text-[9px] font-bold uppercase px-2 py-1 rounded shrink-0">
                                                     {therapist.upcomingSessions > 0 ? 'Your Therapist' : 'Past Therapist'}
@@ -217,9 +239,11 @@ const MyTherapistPage: React.FC = () => {
                                         </span>
                                     </div>
 
-                                    {/* Action */}
+                                    {/* Action: this therapist's page, where their times are. It
+                                        went to the directory, which opens on "Available now" and
+                                        is empty when nobody is online. */}
                                     <button
-                                        onClick={() => navigate('/choose-professional')}
+                                        onClick={() => navigate(`/doctor/${therapist.doctor._id}`)}
                                         className="w-full py-2.5 rounded-[8px] text-[14px] font-medium bg-[var(--teal)] text-white hover:bg-[var(--teal-dark)] transition-colors mt-auto"
                                         style={{ fontFamily: 'Inter, sans-serif' }}
                                     >

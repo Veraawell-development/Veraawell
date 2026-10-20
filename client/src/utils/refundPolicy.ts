@@ -21,8 +21,8 @@ export interface RefundPreview {
   color: string;
 }
 
-export function calculateRefundPreview(price: number, sessionDateTime: Date): RefundPreview {
-  const hoursUntil = (sessionDateTime.getTime() - Date.now()) / (1000 * 60 * 60);
+export function calculateRefundPreview(price: number, sessionDateTime: Date, now: Date = new Date()): RefundPreview {
+  const hoursUntil = (sessionDateTime.getTime() - now.getTime()) / (1000 * 60 * 60);
   if (hoursUntil > 4) {
     return { amount: price, label: '100% refund — full amount returned', color: '#10b981' };
   }

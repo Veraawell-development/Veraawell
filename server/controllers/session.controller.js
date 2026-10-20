@@ -316,7 +316,8 @@ const getCallHistory = asyncHandler(async (req, res) => {
     .populate('patientId', 'firstName lastName').populate('doctorId', 'firstName lastName').select('+rating').sort({ startsAt: -1, sessionDate: -1 }).skip(skip).limit(limit).lean();
   const formatted = callHistory.map(s => ({
     _id: s._id,
-    name: userRole === 'patient' ? (s.doctorId ? `Dr. ${s.doctorId.firstName} ${s.doctorId.lastName}` : 'Deleted account') : (s.patientId ? `${s.patientId.firstName} ${s.patientId.lastName}` : 'Deleted account'),
+    // "Dr." once, even when the stored name already starts with it.
+    name: userRole === 'patient' ? (s.doctorId ? `Dr. ${`${s.doctorId.firstName} ${s.doctorId.lastName || ''}`.trim().replace(/^dr\.?\s+/i, '')}` : 'Deleted account') : (s.patientId ? `${s.patientId.firstName} ${s.patientId.lastName}` : 'Deleted account'),
     // `mode` is the call mode. It used to read "Cancelled & Refunded" for
     // every cancellation, refunded or not; what became of the session is now
     // its outcome, labelled by the app (client/src/utils/outcomeLabels.ts).
@@ -324,7 +325,7 @@ const getCallHistory = asyncHandler(async (req, res) => {
     // show its full booked length ("20 mins") as if it had happened.
     date: s.sessionDate, startsAt: s.startsAt, duration: s.actualDuration || (s.status === 'completed' ? s.duration : 0), plannedDuration: s.duration, mode: s.callMode || 'Video Calling',
     paymentAmount: s.price, paymentStatus: s.paymentStatus, refundAmount: s.refundAmount || 0,
-    sessionType: s.sessionType, status: s.status, callStatus: s.callStatus, rating: s.rating,
+    sessionType: s.sessionType, status: s.status, callStatus: s.callStatus, rating: s.rating, rated: !!(s.rating && s.rating.score),
     outcome: s.outcome && s.outcome.code ? s.outcome.code : null,
     cancelledBy: s.cancelledBy || null, lateCancellation: !!s.lateCancellation
   }));
@@ -648,6 +649,16 @@ const getMySessions = asyncHandler(async (req, res) => {
 
   const sessions = await Session.find(req.authz.scope).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ startsAt: -1, sessionDate: -1 }).skip(skip).limit(limit);
   const enrichedSessions = await attachDoctorProfiles(sessions, req.actor.role);
+  // For the patient: whether each completed session already has their rating
+  // of the therapist, so "Rate Session" isn't offered twice (submitting again
+  // was refused as a duplicate). One query for the page.
+  if (req.actor.role === 'patient') {
+    const completed = enrichedSessions.filter((s) => s.status === 'completed').map((s) => s._id);
+    const rated = completed.length
+      ? new Set((await Review.find({ sessionId: { $in: completed }, patientId: new mongoose.Types.ObjectId(req.actor.id), reviewType: 'doctor' }).select('sessionId').lean()).map((r) => String(r.sessionId)))
+      : new Set();
+    for (const s of enrichedSessions) if (s.status === 'completed') s.rated = rated.has(String(s._id));
+  }
   res.json(enrichedSessions);
 });
 
@@ -889,6 +900,16 @@ const abandonCheckout = asyncHandler(async (req, res) => {
   res.json({ success: true, outcome: result.outcome });
 });
 
+/** For a repeat cancel: where the money of an already-cancelled session is. */
+function _cancelledRefundState(session) {
+  switch (session.paymentStatus) {
+    case 'refunded': case 'refund_pending': return 'issued';
+    case 'refund_failed': return 'failed';
+    case 'paid': return 'none';
+    default: return 'unpaid';
+  }
+}
+
 /** POST /api/sessions/:sessionId/cancel */
 const cancelSession = asyncHandler(async (req, res) => {
   const { sessionId } = req.params;
@@ -919,6 +940,7 @@ const cancelSession = asyncHandler(async (req, res) => {
       success: true,
       message: 'Session already cancelled',
       refundAmount: session.refundAmount || 0,
+      refundState: _cancelledRefundState(session),
       refundPolicy: describeRefundPolicy(session.refundAmount || 0, session.price)
     });
   }
@@ -991,6 +1013,7 @@ const cancelSession = asyncHandler(async (req, res) => {
       success: true,
       message: 'Session already cancelled',
       refundAmount: current.refundAmount || 0,
+      refundState: _cancelledRefundState(current),
       refundPolicy: describeRefundPolicy(current.refundAmount || 0, current.price)
     });
   }
@@ -1085,6 +1108,10 @@ const cancelSession = asyncHandler(async (req, res) => {
     success: true,
     message: 'Session cancelled successfully',
     refundAmount,
+    // What happened to the money ('issued' | 'failed' | 'none' | 'unpaid'),
+    // so the screen can say "Full refund of ₹X" or "Nothing was charged"
+    // rather than "a refund if applicable".
+    refundState,
     lateCancellation,
     refundPolicy: describeRefundPolicy(refundAmount, session.price)
   });

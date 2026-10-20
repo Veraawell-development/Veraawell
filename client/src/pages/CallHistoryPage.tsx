@@ -3,7 +3,8 @@ import { FiPhone } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/api';
 import { useQuery } from '@tanstack/react-query';
-import { outcomeLabel } from '../utils/sessionRules';
+import { outcomeLabel, refundStatusText } from '../utils/sessionRules';
+import { getAuthToken } from '../utils/authToken';
 import { formatPlatformDate } from '../utils/dateUtils';
 import { useAuth } from '../context/AuthContext';
 
@@ -44,13 +45,16 @@ const CallHistoryPage: React.FC = () => {
   // their dashboard to go back to.
   const { user } = useAuth();
   const viewer: 'patient' | 'doctor' = user?.role === 'doctor' ? 'doctor' : 'patient';
-  const { data: callHistory = [], isLoading: loading, error: queryError } = useQuery({
+  const { data: callHistory = [], isLoading: loading, error: queryError, refetch, isFetching } = useQuery({
     queryKey: ['patient', 'call-history'],
     queryFn: async () => {
+      const headers: Record<string, string> = {};
+      const token = getAuthToken();
+      if (token) headers['Authorization'] = `Bearer ${token}`;
       const response = await fetch(`${API_BASE_URL}/sessions/call-history`, {
         method: 'GET',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' }
+        headers
       });
 
       if (!response.ok) {
@@ -79,7 +83,7 @@ const CallHistoryPage: React.FC = () => {
   };
 
   const getInitials = (name: string) => {
-    const parts = name.replace('Dr. ', '').split(' ');
+    const parts = name.replace(/^dr\.?\s+/i, '').split(' ').filter(Boolean);
     if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
     return name.substring(0, 2).toUpperCase();
   };
@@ -96,7 +100,7 @@ const CallHistoryPage: React.FC = () => {
   }
 
   return (
-    <div className="h-screen pt-[64px] md:pt-[80px] bg-[var(--bg)] font-sans flex flex-col overflow-hidden box-border">
+    <div className="h-[100dvh] pt-[64px] md:pt-[80px] bg-[var(--bg)] font-sans flex flex-col overflow-hidden box-border">
       {/* Main Content Area */}
       <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 md:py-10 flex flex-col min-h-0">
         
@@ -121,13 +125,21 @@ const CallHistoryPage: React.FC = () => {
           </p>
         </div>
         
-        {error && (
-          <div className="bg-red-50 border border-red-100 text-red-600 px-4 py-3 rounded-xl text-[13px] mb-8 flex items-center font-medium shrink-0">
-            {error}
+        {error ? (
+          // A failed load is said as such, with a way to retry — it used to
+          // sit above "No call history yet", as if there were none.
+          <div role="alert" className="bg-white rounded-[24px] border border-red-100 shadow-sm p-10 text-center max-w-3xl mx-auto mt-4 shrink-0">
+            <h3 className="text-[17px] font-bold text-gray-800 mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>We couldn't load your call history</h3>
+            <p className="text-gray-500 text-[14px] mb-6" style={{ fontFamily: 'Inter, sans-serif' }}>{error}</p>
+            <button
+              onClick={() => void refetch()}
+              disabled={isFetching}
+              className="px-6 py-2.5 rounded-full text-[13px] font-semibold text-white bg-[var(--teal)] disabled:opacity-60"
+            >
+              {isFetching ? 'Trying…' : 'Try again'}
+            </button>
           </div>
-        )}
-
-        {callHistory.length === 0 ? (
+        ) : callHistory.length === 0 ? (
           <div className="bg-white rounded-[24px] border border-gray-100 shadow-sm p-16 text-center max-w-3xl mx-auto mt-4 shrink-0">
             <div className="w-16 h-16 bg-gray-50 border border-gray-100 rounded-full flex items-center justify-center mx-auto mb-5">
               <FiPhone className="w-6 h-6 text-gray-400" />
@@ -194,8 +206,12 @@ const CallHistoryPage: React.FC = () => {
                       <span className="text-[16px] font-bold text-[var(--teal)] tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
                         ₹{call.paymentAmount}
                       </span>
-                      {call.paymentStatus === 'refunded' && (
-                        <p className="text-[11px] font-semibold text-gray-400">refunded</p>
+                      {/* Where the refund is: started, delayed or done ("refunded"
+                          used to show only once it was done, nothing before). */}
+                      {refundStatusText(call) && (
+                        <p className="text-[11px] font-semibold text-gray-400">
+                          {viewer === 'doctor' ? (call.paymentStatus === 'refunded' ? 'patient refunded' : call.paymentStatus === 'refund_failed' ? 'refund delayed' : 'refund started') : refundStatusText(call)}
+                        </p>
                       )}
                     </div>
                   </div>
