@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   FiMenu, FiLogOut, FiUsers, FiFileText, FiActivity, FiChevronLeft, FiChevronRight,
-  FiInbox, FiCreditCard, FiDollarSign, FiTrendingUp, FiMessageSquare, FiKey, FiX,
+  FiInbox, FiPhoneCall, FiCreditCard, FiDollarSign, FiTrendingUp, FiMessageSquare, FiKey, FiX,
 } from 'react-icons/fi';
 import { LuStethoscope } from 'react-icons/lu';
 import { Plus } from 'lucide-react';
@@ -20,10 +20,12 @@ import BankDetailsTab from '../components/admin/BankDetailsTab';
 import WeeklyPayoutsTab from '../components/admin/WeeklyPayoutsTab';
 import RevenueTab from '../components/admin/RevenueTab';
 import EnquiriesTab from '../components/admin/EnquiriesTab';
+import CallsTab from '../components/admin/CallsTab';
 import ArticlesTab from '../components/admin/ArticlesTab';
 
 const TAB_META: Record<AdminTab, { label: string; title: string; icon: React.ReactNode }> = {
   analytics: { label: 'Analytics', title: 'Dashboard Overview', icon: <FiActivity size={16} /> },
+  calls: { label: 'Calls', title: 'Call Reliability', icon: <FiPhoneCall size={16} /> },
   doctors: { label: 'Pending Doctors', title: 'Doctor Approvals', icon: <LuStethoscope size={16} /> },
   admins: { label: 'Pending Admins', title: 'Admin Approvals', icon: <FiUsers size={16} /> },
   reviews: { label: 'Reviews', title: 'Review Moderation', icon: <FiMessageSquare size={16} /> },
@@ -245,6 +247,7 @@ const SuperAdminDashboard: React.FC = () => {
               transition={{ duration: 0.15 }}
             >
               {activeTab === 'analytics' && <AnalyticsTab />}
+              {activeTab === 'calls' && <CallsTab />}
               {activeTab === 'doctors' && <DoctorsTab isSuperAdmin={isSuperAdmin} />}
               {activeTab === 'reviews' && <ReviewsTab />}
               {isSuperAdmin && activeTab === 'admins' && <AdminsTab currentAdminId={admin?.id ?? ''} />}

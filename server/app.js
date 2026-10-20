@@ -268,6 +268,14 @@ app.get('/', (req, res) => {
 app.get('/api/health', (req, res) => {
   const { isConnected } = require('./config/database');
 
+  // Not ready until the database has connected at least once: Render's
+  // zero-downtime deploy switches traffic to the new instance when this says
+  // OK, and one that can't yet read a session can't let anyone into a call.
+  // After that a database blip doesn't fail the check (no restart loop).
+  if (require('mongoose').connection.readyState === 1) app.locals.dbEverConnected = true;
+  if (!app.locals.dbEverConnected) {
+    return res.status(503).json({ success: false, timestamp: new Date().toISOString(), mongoConnected: false });
+  }
   res.json({
     success: true,
     timestamp: new Date().toISOString(),
@@ -351,6 +359,7 @@ if (oauthConfig.enabled) {
 app.use('/api/admin/auth', adminAuthRoutes);
 app.use('/api/admin/approvals', adminApprovalRoutes);
 app.use('/api/admin/payments', require('./routes/adminPayments.routes'));
+app.use('/api/admin/calls', require('./routes/adminCalls.routes'));
 
 // Payouts. Two mount points on purpose: the doctor-facing half sits behind
 // verifyToken, the admin half behind verifyAdminToken. Sharing one router

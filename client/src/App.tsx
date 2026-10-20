@@ -69,7 +69,7 @@ const ResourcesPage = lazyPage(() => import('./pages/ResourcesPage'));
 const MentalHealthTestPage = lazyPage(() => import('./pages/MentalHealthTestPage'));
 const MentalHealthDashboard = lazyPage(() => import('./pages/MentalHealthDashboard'));
 const TestResultsPage = lazyPage(() => import('./pages/TestResultsPage'));
-const VideoCallRoom = lazyPage(() => import('./pages/VideoCallRoom'));
+const VideoCallRoute = lazyPage(() => import('./pages/VideoCallRoute'));
 const CallHistoryPage = lazyPage(() => import('./pages/CallHistoryPage'));
 const PendingTasksPage = lazyPage(() => import('./pages/PendingTasksPage'));
 const MyJournalPage = lazyPage(() => import('./pages/MyJournalPage'));
@@ -401,7 +401,7 @@ function AppRoutes() {
         <Route path="/test-results/:id" element={<ProtectedRoute allowedRoles={['patient']}><TestResultsPage /></ProtectedRoute>} />
         <Route path="/my-tests" element={<ProtectedRoute allowedRoles={['patient']}><MyTestsPage /></ProtectedRoute>} />
         <Route path="/my-therapists" element={<ProtectedRoute allowedRoles={['patient']}><MyTherapistPage /></ProtectedRoute>} />
-        <Route path="/video-call/:sessionId" element={<ProtectedRoute><VideoCallRoom /></ProtectedRoute>} />
+        <Route path="/video-call/:sessionId" element={<ProtectedRoute><VideoCallRoute /></ProtectedRoute>} />
         <Route path="/call-history" element={<ProtectedRoute allowedRoles={['patient', 'doctor']}><CallHistoryPage /></ProtectedRoute>} />
         <Route path="/pending-tasks" element={<ProtectedRoute allowedRoles={['patient']}><PendingTasksPage /></ProtectedRoute>} />
         <Route path="/my-journal" element={<ProtectedRoute allowedRoles={['patient']}><MyJournalPage /></ProtectedRoute>} />

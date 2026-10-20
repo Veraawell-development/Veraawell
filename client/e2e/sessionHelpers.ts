@@ -8,7 +8,7 @@
  * and without waiting real minutes. Time-driven jobs are then run on demand
  * through the stack's job trigger, with the clock the test chooses.
  */
-import { BrowserContext, APIRequestContext, expect } from '@playwright/test';
+import { BrowserContext, APIRequestContext, Page, expect } from '@playwright/test';
 import { fixtures, API_URL } from './fixtures';
 import { db, ObjectId, apiSend } from './adminHelpers';
 
@@ -115,3 +115,16 @@ export async function signIn(context: BrowserContext, email: string, password: s
 }
 
 export { API_URL };
+
+/**
+ * Opens the call screen and passes the pre-join check (camera/mic preview,
+ * then "Join"), as a person would.
+ */
+export async function enterCall(page: Page, sessionId: string) {
+  await page.goto(`/video-call/${sessionId}`);
+  const prejoin = page.getByTestId('prejoin');
+  const join = prejoin.getByRole('button', { name: /^Join/ });
+  await expect(join).toBeEnabled({ timeout: 30_000 });
+  await join.click();
+  await expect(prejoin).toBeHidden({ timeout: 10_000 });
+}

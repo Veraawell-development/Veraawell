@@ -321,4 +321,10 @@ async function claimAbsentRefund(session, { now = new Date(), io = null } = {}) 
   return { refundAmount: current.price, paymentStatus: current.paymentStatus };
 }
 
-module.exports = { runOutcomeSweep, claimAbsentRefund, sendOutcomeEmails, outcomeMessage };
+/**
+ * Decide one session now (used when a call's time is up and the two were in
+ * it together — the same outcome, counters and emails as the sweep).
+ */
+const decideSession = (session, opts) => decide(session, opts);
+
+module.exports = { runOutcomeSweep, claimAbsentRefund, sendOutcomeEmails, outcomeMessage, decideSession };

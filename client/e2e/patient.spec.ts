@@ -83,8 +83,11 @@ test.describe('the dashboard', () => {
   });
 
   test('offers the emergency helplines without leaving the page', async ({ page }) => {
-    await page.locator('[aria-label="Emergency helplines"]').first().click();
-    await expect(page.getByText(/helpline|Emergency|Kiran|Tele/i).first()).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('button', { name: /Need help now/ }).first().click();
+    await expect(page.getByRole('heading', { name: 'Emergency Helplines' })).toBeVisible({ timeout: 10_000 });
+    // India first: Tele-MANAS, callable from a phone.
+    await expect(page.locator('a[href="tel:14416"]')).toBeVisible();
+    await expect(page.locator('a[href="tel:112"]')).toBeVisible();
   });
 });
 

@@ -390,23 +390,31 @@ describe('instant sessions', () => {
   });
 });
 
-describe('TURN credentials', () => {
-  test('both parties may fetch them', async () => {
+describe('relay (ICE servers) for a call', () => {
+  test('the old endpoint answers both parties, never an anonymous caller', async () => {
     expect((await call('get', '/api/sessions/turn-credentials', patientA)).status).toBe(200);
     expect((await call('get', '/api/sessions/turn-credentials', doctorA)).status).toBe(200);
-  });
-
-  test('they are refused to an anonymous caller', async () => {
     expect((await call('get', '/api/sessions/turn-credentials', null)).status).toBe(401);
   });
 
-  test('with no Metered credentials configured it still returns 200 with STUN fallback', async () => {
-    // session.controller.js:1117-1133 falls back to public STUN and answers
-    // 200 either way, so a missing TURN relay is invisible to the client and
-    // shows up only as calls that fail behind symmetric NAT.
-    const res = await call('get', '/api/sessions/turn-credentials', patientA);
-    expect(res.status).toBe(200);
-    expect(JSON.stringify(res.body)).toMatch(/stun:|turn:/);
+  test('a session-bound answer: its two people only, and it says when there is no relay', async () => {
+    const s = await makeSession({ paymentId: `pay_ice_${Date.now()}` });
+    const mine = await call('get', `/api/sessions/${s._id}/ice-servers`, patientA);
+    expect(mine.status).toBe(200);
+    expect(mine.headers['cache-control']).toBe('no-store');
+    // No relay configured in tests: STUN only, and the answer says so —
+    // it used to report success with nothing to show the relay was missing.
+    expect(mine.body.relayAvailable).toBe(false);
+    expect(JSON.stringify(mine.body.iceServers)).toMatch(/stun:/);
+    expect((await call('get', `/api/sessions/${s._id}/ice-servers`, doctorA)).status).toBe(200);
+    expect((await call('get', `/api/sessions/${s._id}/ice-servers`, patientB)).status).toBe(403);
+    expect((await call('get', `/api/sessions/${s._id}/ice-servers`, null)).status).toBe(401);
+  });
+
+  test('a closed session gets no relay', async () => {
+    const s = await makeSession({ status: 'cancelled', paymentStatus: 'refunded', paymentId: `pay_ice_c_${Date.now()}` });
+    const res = await call('get', `/api/sessions/${s._id}/ice-servers`, patientA);
+    expect(res.status).toBe(409);
   });
 });
 

@@ -52,8 +52,8 @@ const requiredEnvVars = {
 const optionalEnvVars = [
   'GOOGLE_CLIENT_ID',
   'GOOGLE_CLIENT_SECRET',
-  'METERED_DOMAIN',
-  'METERED_SECRET_KEY',
+  'CLOUDFLARE_TURN_KEY_ID',
+  'CLOUDFLARE_TURN_API_TOKEN',
   'PORT',
   'NODE_ENV',
   'LOG_LEVEL',

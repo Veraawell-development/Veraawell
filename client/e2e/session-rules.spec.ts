@@ -1,7 +1,7 @@
 import { test, expect, Browser, BrowserContext, Page } from '@playwright/test';
 import { fixtures } from './fixtures';
 import { closeDb, db, ObjectId } from './adminHelpers';
-import { createSession, readSession, runJob, signIn } from './sessionHelpers';
+import { createSession, readSession, runJob, signIn, enterCall } from './sessionHelpers';
 
 /**
  * The session rules on the real call screen (docs/SESSION_RULES.md): the
@@ -63,7 +63,7 @@ test.describe('the session rules on the call screen', () => {
   test('a therapist who never came: after 10 minutes the patient can leave with a full refund', async ({ browser }) => {
     const id = await session(11);
     const patient = await party(browser, 'patient');
-    await patient.page.goto(`/video-call/${id}`);
+    await enterCall(patient.page, id);
 
     const dialog = patient.page.getByRole('dialog', { name: "Your therapist hasn't joined yet" });
     await expect(dialog).toBeVisible({ timeout: 30_000 });
@@ -80,7 +80,7 @@ test.describe('the session rules on the call screen', () => {
   test('keep waiting: the choice stays available, and nothing changes', async ({ browser }) => {
     const id = await session(11);
     const patient = await party(browser, 'patient');
-    await patient.page.goto(`/video-call/${id}`);
+    await enterCall(patient.page, id);
     const dialog = patient.page.getByRole('dialog', { name: "Your therapist hasn't joined yet" });
     await expect(dialog).toBeVisible({ timeout: 30_000 });
     await dialog.getByRole('button', { name: 'Keep waiting' }).click();
@@ -94,7 +94,7 @@ test.describe('the session rules on the call screen', () => {
   test('before the grace is over, the patient is told when the refund becomes available', async ({ browser }) => {
     const id = await session(2);
     const patient = await party(browser, 'patient');
-    await patient.page.goto(`/video-call/${id}`);
+    await enterCall(patient.page, id);
     await expect(patient.page.getByText(/If your therapist hasn't joined by .+, you can leave with a full refund\./))
       .toBeVisible({ timeout: 30_000 });
     await expect(patient.page.getByRole('dialog', { name: "Your therapist hasn't joined yet" })).toHaveCount(0);
@@ -104,7 +104,7 @@ test.describe('the session rules on the call screen', () => {
   test('a patient who never came: the doctor may leave, and the session stands', async ({ browser }) => {
     const id = await session(11);
     const doctor = await party(browser, 'doctor');
-    await doctor.page.goto(`/video-call/${id}`);
+    await enterCall(doctor.page, id);
     await expect(doctor.page.getByText("Your patient hasn't joined")).toBeVisible({ timeout: 30_000 });
     await expect(doctor.page.getByText(/you'll still be paid for this session/)).toBeVisible();
     await doctor.page.getByRole('status').getByRole('button', { name: 'Leave' }).click();
@@ -116,7 +116,7 @@ test.describe('the session rules on the call screen', () => {
   test('the therapist waited the grace out and left: the patient arriving now is told it counts as missed', async ({ browser }) => {
     const id = await session(15, [['doctor', 1, 11]]);
     const patient = await party(browser, 'patient');
-    await patient.page.goto(`/video-call/${id}`);
+    await enterCall(patient.page, id);
     await expect(patient.page.getByText('This session counts as missed')).toBeVisible({ timeout: 30_000 });
     // …and is not offered a refund for waiting now.
     await expect(patient.page.getByRole('dialog', { name: "Your therapist hasn't joined yet" })).toHaveCount(0);
@@ -127,8 +127,8 @@ test.describe('the session rules on the call screen', () => {
     const id = await session(5, [['patient', 0, null]]);
     const patient = await party(browser, 'patient');
     const doctor = await party(browser, 'doctor');
-    await patient.page.goto(`/video-call/${id}`);
-    await doctor.page.goto(`/video-call/${id}`);
+    await enterCall(patient.page, id);
+    await enterCall(doctor.page, id);
     await expect(patient.page.getByText(/Your full 20 minutes are kept — ends at/)).toBeVisible({ timeout: 30_000 });
     // About 20 minutes on the clock, not 15.
     await expect(patient.page.getByText(/^(19|20):\d\d$/)).toBeVisible();

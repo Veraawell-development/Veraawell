@@ -164,8 +164,8 @@ describe('recordLeave', () => {
 
   test('a leave stamped before the open stay began (out of order) is ignored', async () => {
     const s = await liveSession();
-    await attendance.recordJoin(s._id, 'patient', { at: at(s, 5), source: 'livekit' });
-    const res = await attendance.recordLeave(s._id, 'patient', { at: at(s, 4), source: 'livekit' });
+    await attendance.recordJoin(s._id, 'patient', { at: at(s, 5), source: 'backfill' });
+    const res = await attendance.recordLeave(s._id, 'patient', { at: at(s, 4), source: 'backfill' });
     expect(res.closed).toBe(false);
     const doc = await reload(s._id);
     expect(doc.attendance[0].leftAt).toBeNull();
@@ -270,7 +270,7 @@ describe('closeAll and the restart cleanup', () => {
     const other = await liveSession();
     const bootAt = at(s, 10);
     await attendance.recordJoin(s._id, 'patient', { at: at(s, 0), source: 'socket' });
-    await attendance.recordJoin(s._id, 'doctor', { at: at(s, 0), source: 'livekit' });
+    await attendance.recordJoin(s._id, 'doctor', { at: at(s, 0), source: 'backfill' });
     await attendance.recordJoin(other._id, 'patient', { at: at(s, 11), source: 'socket' });
 
     const closed = await attendance.closeStaleSocketStays({ bootAt });

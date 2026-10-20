@@ -116,6 +116,7 @@ function waitForHealth(port, timeoutMs = 30000) {
  * against anything but an in-memory database (assertLoopback).
  *
  *   POST http://127.0.0.1:<CONTROL_PORT>/jobs/<name>   body: { "now": "<ISO>" }
+ *   POST http://127.0.0.1:<CONTROL_PORT>/signalling/disconnect-all
  */
 const CONTROL_PORT = Number(process.env.E2E_CONTROL_PORT || 5099);
 
@@ -135,6 +136,15 @@ function jobRegistry(io) {
 function startControlServer(io) {
   const jobs = jobRegistry(io);
   const server = http.createServer((req, res) => {
+    // The call tests drop every socket at once, as a network blip on our side
+    // (or a restart) would: the media must keep flowing and the call rejoin.
+    if (req.method === 'POST' && req.url === '/signalling/disconnect-all') {
+      const before = io.of('/').sockets.size;
+      io.of('/').disconnectSockets(true);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ disconnected: before }));
+      return;
+    }
     const match = req.method === 'POST' && /^\/jobs\/([a-z-]+)$/.exec(req.url || '');
     const job = match && jobs[match[1]];
     if (!job) {

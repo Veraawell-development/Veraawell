@@ -361,6 +361,20 @@ const CASES = [
     expect: 401
   },
 
+  // ── a call's relay credentials: its two people only ──────────────────────
+  {
+    name: 'a stranger cannot get the relay credentials for someone else\'s call',
+    as: 'patientB', method: 'get',
+    url: () => `/api/sessions/${fixtures.sessionA._id}/ice-servers`,
+    expect: 403
+  },
+  {
+    name: 'an unauthenticated caller cannot get relay credentials',
+    as: 'anonymous', method: 'get',
+    url: () => `/api/sessions/${fixtures.sessionA._id}/ice-servers`,
+    expect: 401
+  },
+
   // ── session read: parties only ───────────────────────────────────────────
   {
     name: 'a stranger cannot read a session',

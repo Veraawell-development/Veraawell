@@ -1,7 +1,7 @@
 import { test, expect, Browser, BrowserContext, Page } from '@playwright/test';
 import { fixtures } from './fixtures';
 import { closeDb, db, ObjectId } from './adminHelpers';
-import { createSession, signIn } from './sessionHelpers';
+import { createSession, signIn, enterCall } from './sessionHelpers';
 
 /**
  * A voice session must carry sound both ways. Voice mode has no <video>, and
@@ -57,8 +57,8 @@ test('a voice session plays each person to the other, and never asks for the cam
       };
     });
   }
-  await patient.page.goto(`/video-call/${id}`);
-  await doctor.page.goto(`/video-call/${id}`);
+  await enterCall(patient.page, id);
+  await enterCall(doctor.page, id);
 
   await hearsTheOtherSide(patient.page);
   await hearsTheOtherSide(doctor.page);

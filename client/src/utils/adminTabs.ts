@@ -13,6 +13,7 @@ export type AdminRole = 'admin' | 'super_admin';
 
 export type AdminTab =
   | 'analytics'
+  | 'calls'
   | 'doctors'
   | 'admins'
   | 'reviews'
@@ -24,7 +25,7 @@ export type AdminTab =
 
 /** Sidebar order. */
 export const ADMIN_TABS: readonly AdminTab[] = [
-  'analytics', 'doctors', 'admins', 'reviews', 'bankDetails', 'weeklyPayouts', 'revenue', 'enquiries', 'articles',
+  'analytics', 'calls', 'doctors', 'admins', 'reviews', 'bankDetails', 'weeklyPayouts', 'revenue', 'enquiries', 'articles',
 ];
 
 const SUPER_ADMIN_ONLY: ReadonlySet<AdminTab> = new Set<AdminTab>([

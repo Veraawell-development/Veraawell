@@ -11,6 +11,10 @@ const { isProduction, getEnv, validateEnvironment } = require('./config/environm
 // Create logger first for error reporting
 const logger = createLogger('SERVER');
 
+// When this process started: call attendance left open before it is settled
+// against this (services/attendance.settleStaleStays).
+const BOOT_AT = new Date();
+
 // Validate environment variables BEFORE importing app
 // This ensures env vars are validated before any modules try to use them
 try {
@@ -28,21 +32,10 @@ const app = require('./app');
 // Create HTTP server
 const httpServer = createServer(app);
 
-// Initialize Socket.IO
-const io = new Server(httpServer, {
-  cors: {
-    origin: CORS_ORIGINS,
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
-  },
-  allowEIO3: true,
-  transports: ['websocket', 'polling'],
-  cookie: {
-    name: 'io',
-    httpOnly: true,
-    sameSite: 'lax'
-  }
-});
+// Initialize Socket.IO — options in config/socket.js (heartbeat, recovery,
+// origin check), shared with the tests.
+const { buildIoOptions } = require('./config/socket');
+const io = new Server(httpServer, buildIoOptions({ allowedOrigins: CORS_ORIGINS }));
 
 // Initialize all Socket.IO handlers via bootstrapper
 const { initializeSockets } = require('./socket');
@@ -100,13 +93,26 @@ async function startServer() {
         // switched offline, so the directory doesn't show absent doctors.
         require('./services/presence').startBootGrace({ io });
 
-        // Calls held in this process's memory died with the previous one:
-        // close the attendance stays it left open, so nobody is counted as
-        // "in the call" until they actually reconnect.
-        try {
-          await require('./services/attendance').closeStaleSocketStays({ bootAt: new Date() });
-        } catch (err) {
-          logger.error('Could not close stale attendance stays', { error: err.message });
+        // Calls the previous process was carrying: the browsers keep talking
+        // (the media never goes through us) and rejoin within seconds. A
+        // while after boot, close the attendance stays of anyone who did NOT
+        // come back. (CALL_ENGINE=v1: the old rule, closing every stay now.)
+        const attendance = require('./services/attendance');
+        if (require('./config/features').callEngine() === 'v2') {
+          const callService = require('./services/call/callService');
+          const { v1IsPresent } = require('./socket/video.socket');
+          setTimeout(() => {
+            attendance.settleStaleStays({
+              bootAt: BOOT_AT,
+              isPresent: (id, role) => callService.isPresent(id, role) || v1IsPresent(id, role)
+            }).catch((err) => logger.error('Could not settle attendance after boot', { error: err.message }));
+          }, Number(process.env.BOOT_REJOIN_GRACE_MS) || 90 * 1000).unref();
+        } else {
+          try {
+            await attendance.closeStaleSocketStays({ bootAt: new Date() });
+          } catch (err) {
+            logger.error('Could not close stale attendance stays', { error: err.message });
+          }
         }
 
         // Start scheduler (session reminders, status updates)
@@ -125,10 +131,10 @@ async function startServer() {
   }
 }
 
-// Render sends SIGTERM and waits 30 seconds before SIGKILL. Finishing inside
-// that window with our own non-zero exit is better than being killed mid-write
-// with no log line saying why.
-const SHUTDOWN_TIMEOUT_MS = 10000;
+// Render sends SIGTERM and waits (render.yaml maxShutdownDelaySeconds, 60 s)
+// before SIGKILL. Finishing inside that window with our own non-zero exit is
+// better than being killed mid-write with no log line saying why.
+const SHUTDOWN_TIMEOUT_MS = 25000;
 let shuttingDown = false;
 
 /**
@@ -161,6 +167,15 @@ async function gracefulShutdown(signal) {
       }
     } catch (error) {
       logger.error('Could not stop the scheduler', { error: error.message });
+    }
+
+    // Calls: stop taking joins, tell everyone "restarting" (they keep
+    // talking and reconnect to the next process), save who was in.
+    try {
+      await require('./services/call/callService').prepareShutdown();
+      await new Promise((r) => setTimeout(r, 500));
+    } catch (error) {
+      logger.error('Could not prepare calls for shutdown', { error: error.message });
     }
 
     // io.close() disconnects every socket and then closes the HTTP server it
@@ -216,4 +231,4 @@ if (require.main === module) {
   startServer();
 }
 
-module.exports = { httpServer, io, startServer, gracefulShutdown };
+module.exports = { httpServer, io, startServer, gracefulShutdown, BOOT_AT };

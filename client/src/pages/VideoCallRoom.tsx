@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { io, Socket } from 'socket.io-client';
+import { useCall } from '../call/useCall';
+import { getAuthToken } from '../utils/authToken';
+import PreJoin from '../components/call/PreJoin';
 import { useDataSocket } from '../hooks/useDataSocket';
 import { toast } from 'react-hot-toast';
 import SessionToolsModal from '../components/SessionToolsModal';
@@ -33,47 +35,40 @@ function cancelledText(session: any, role: 'patient' | 'doctor'): string {
   return label ? `This session was cancelled — ${label.replace(/^Cancelled — /, '').toLowerCase()}.` : 'This session was cancelled.';
 }
 
+/**
+ * The call screen (engine v2, src/call/). The engine owns the socket, the
+ * camera/mic and the peer connection; this page shows the session around it:
+ * the waiting room and its rules, the timer, ending by agreement, chat and the
+ * therapist's tools. CALL_ENGINE=v1 on the server routes to the old page
+ * (VideoCallRoomLegacy) until it is deleted.
+ */
 const VideoCallRoom: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const { user, token, checkAuth } = useAuth();
+  const { user, checkAuth } = useAuth();
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
-  // Voice sessions play the other person through this. Voice mode has no
-  // <video>, and nothing else played the remote stream — so a voice call
-  // connected and showed "Speaking…" but neither side heard anything.
+  // The other person's sound, in voice AND video sessions. The <video> stays
+  // muted, so a browser that blocks sound without a tap still shows the
+  // picture (it used to stay black), and voice mode — which has no <video> —
+  // has something to play through at all.
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   const remoteStreamRef = useRef<MediaStream | null>(null);
-  const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
-  const socketRef = useRef<Socket | null>(null);
-  const iceCandidateQueue = useRef<RTCIceCandidateInit[]>([]);
-  // Refs, not state, for everything teardown touches: cleanup runs from the
-  // unmount effect and from socket handlers registered once in
-  // initializeCall, and a closure over `localStream` state there sees the
-  // null from the first render — which is how the camera stayed on after the
-  // other side ended the call or the user left with Back.
-  const localStreamRef = useRef<MediaStream | null>(null);
-  const unmountedRef = useRef(false);
   const sessionDataRef = useRef<any>(null);
-  /** The other participant was in the room at least once — the call happened. */
+  // The other person was here at some point (for the report / rating prompt).
   const metRemoteRef = useRef(false);
-  /** Latest finishCall, for handlers registered once at socket creation. */
+  // finishCall from handlers registered once.
   const finishCallRef = useRef<(reason?: string) => void>(() => {});
-  /** The session is over (time up / both agreed) and we are on our way out. */
+  // Set once the session is over, so a second "ended" signal is ignored.
   const finishingRef = useRef(false);
-  /** When the session ends, from the server, and how far our clock is from the server's. */
+  // The end time and this device's clock offset, from the server.
   const endsAtRef = useRef<Date | null>(null);
   const clockOffsetRef = useRef(0);
   const warnedRef = useRef<Set<number>>(new Set());
-  /** "Your therapist" / "Your patient", for messages from socket handlers. */
+  // "Your therapist" / "Your patient", for messages.
   const otherPartyRef = useRef('The other person');
 
-  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
-  const [isVideoEnabled, setIsVideoEnabled] = useState(true);
-  const [isAudioEnabled, setIsAudioEnabled] = useState(true);
-  const [remoteVideoEnabled, setRemoteVideoEnabled] = useState(true);
-  const [remoteAudioEnabled, setRemoteAudioEnabled] = useState(true);
   // The browser refused to start the remote audio without a tap (autoplay).
   const [audioBlocked, setAudioBlocked] = useState(false);
 
@@ -81,16 +76,12 @@ const VideoCallRoom: React.FC = () => {
   const attachRemoteAudio = useCallback((el: HTMLAudioElement | null) => {
     remoteAudioRef.current = el;
     const stream = remoteStreamRef.current;
-    if (!el || !stream) return;
+    if (!el) return;
+    if (!stream) { el.srcObject = null; return; }
     if (el.srcObject !== stream) el.srcObject = stream;
     el.play().then(() => setAudioBlocked(false)).catch(() => setAudioBlocked(true));
   }, []);
   const [error, setError] = useState<string | null>(null);
-  // The signalling socket dropped and is being re-established. Not an error:
-  // the media connection usually survives, and the room is rejoined on
-  // reconnect. (A transient "xhr post error" used to be shown as a fatal
-  // "Failed to connect to video call server".)
-  const [isReconnecting, setIsReconnecting] = useState(false);
   // Seconds left, counted locally towards the end time the server sends in
   // timer-sync. null until the first sync arrives, so the header doesn't
   // flash a red 00:00 on entry.
@@ -100,9 +91,6 @@ const VideoCallRoom: React.FC = () => {
   // 21:59 — more than the session's length, which read as a random number.
   const [startsIn, setStartsIn] = useState<number>(0);
   const [endsAt, setEndsAt] = useState<Date | null>(null);
-  const [connectionState, setConnectionState] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
-  const [remoteUserJoined, setRemoteUserJoined] = useState(false);
-  const [connectionQuality, setConnectionQuality] = useState<'excellent' | 'good' | 'poor' | 'disconnected'>('excellent');
   const [qualityMessage, setQualityMessage] = useState<string | null>(null);
   const [showDoctorPanel, setShowDoctorPanel] = useState(false);
   const [showChat, setShowChat] = useState(false);
@@ -128,11 +116,11 @@ const VideoCallRoom: React.FC = () => {
 
   // Interactive Waiting Lounge State
   const [waitingTab, setWaitingTab] = useState<'status' | 'prep' | 'breathe'>('status');
-  const [prepStatus, setPrepStatus] = useState<'not_started' | 'in_progress' | 'completed'>('not_started');
-  const prepStatusRef = useRef(prepStatus);
-  useEffect(() => { prepStatusRef.current = prepStatus; }, [prepStatus]);
+  // The check-in is optional and never holds the call back (it used to keep
+  // the patient in the waiting room while the therapist sat in the call).
+  const [prepSent, setPrepSent] = useState(false);
   const [selectedPrepTags, setSelectedPrepTags] = useState<string[]>([]);
-  const [patientPrepData, setPatientPrepData] = useState<string[]>([]);
+  const [, setPatientPrepData] = useState<string[]>([]);
 
   useEffect(() => {
     if (showChat || showDoctorPanel) {
@@ -193,55 +181,208 @@ const VideoCallRoom: React.FC = () => {
     };
   }, [dataSocket, sessionId]);
 
-  const { data: fetchResult, isLoading: loadingSession, isError, refetch: refetchSession } = useQuery({
-    queryKey: ['video-call', sessionId],
+  // Same key and shape as CallRoomSwitch's query, so it is already cached.
+  const { data: fetchedSession, isError, refetch: refetchSession } = useQuery({
+    queryKey: ['session-call', sessionId],
     queryFn: async () => {
-      console.log(' Fetching session data for:', sessionId);
-      const [sessionResponse, turnResponse] = await Promise.all([
-        fetch(`${API_BASE_URL}/sessions/${sessionId}`, { credentials: 'include' }),
-        fetch(`${API_BASE_URL}/sessions/turn-credentials`, { credentials: 'include' }).catch(() => null)
-      ]);
-
-      if (!sessionResponse.ok) {
-        throw new Error('Failed to fetch session data');
-      }
-
-      const sessionData = await sessionResponse.json();
-      console.log(' Session data received:', sessionData);
-
-      let iceServers = null;
-      if (turnResponse && turnResponse.ok) {
-        const turnData = await turnResponse.json();
-        if (turnData.success && turnData.iceServers) {
-          iceServers = turnData.iceServers;
-        }
-      }
-
-      return { sessionData, iceServers };
+      const res = await fetch(`${API_BASE_URL}/sessions/${sessionId}`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to fetch session data');
+      return res.json();
     },
     enabled: !!sessionId && !!user
   });
 
   useEffect(() => {
-    if (fetchResult?.sessionData) {
-      const data = fetchResult.sessionData;
-      sessionDataRef.current = data;
-      setSessionData(data);
-      if (data.acceptanceStatus) setAcceptanceStatus(data.acceptanceStatus);
-      if (data.delayMinutes) setDelayMinutes(data.delayMinutes);
-      if (data.delayedUntil) setDelayedUntil(new Date(data.delayedUntil));
-      if (data.status === 'cancelled') {
-        setError(cancelledText(data, user?.role === 'doctor' ? 'doctor' : 'patient'));
+    if (!fetchedSession) return;
+    const data = fetchedSession;
+    sessionDataRef.current = data;
+    setSessionData(data);
+    if (data.acceptanceStatus) setAcceptanceStatus(data.acceptanceStatus);
+    if (data.delayMinutes) setDelayMinutes(data.delayMinutes);
+    if (data.delayedUntil) setDelayedUntil(new Date(data.delayedUntil));
+    if (data.status === 'cancelled') {
+      setError(cancelledText(data, user?.role === 'doctor' ? 'doctor' : 'patient'));
+      setTimeout(() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard'), 3000);
+    }
+    if (data.doctorNote) setDoctorNote(data.doctorNote);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fetchedSession]);
+
+  // ── The call ───────────────────────────────────────────────────────────
+  const isVoiceMode = sessionData?.callMode === 'Voice Calling';
+  const { engine, call } = useCall({
+    sessionId,
+    voice: isVoiceMode,
+    enabled: !!sessionData && !!user && sessionData.status !== 'cancelled',
+    socketUrl: SOCKET_URL,
+    apiBase: API_BASE_URL,
+    getToken: getAuthToken,
+  });
+  const remoteUserJoined = !!call.peer?.present;
+  const isAudioEnabled = !!call.localAudio;
+  const isVideoEnabled = !!call.localVideo;
+  const remoteAudioEnabled = call.peer ? call.peer.media.audio : true;
+  const remoteVideoEnabled = call.peer ? call.peer.media.video : true;
+  const connectionState: 'connecting' | 'connected' | 'disconnected' =
+    call.phase === 'connected' ? 'connected' : call.phase === 'reconnecting' ? 'disconnected' : 'connecting';
+  // A drop of the signalling socket alone is not shown while the media still
+  // flows (the call carries on browser to browser).
+  const isReconnecting = call.phase === 'reconnecting'
+    || (call.signalling === 'offline' && (call.phase === 'waiting' || call.phase === 'connecting'));
+  const connectionQuality: 'excellent' | 'good' | 'poor' | 'disconnected' =
+    call.phase === 'reconnecting' || call.phase === 'failed' ? 'disconnected'
+      : call.phase !== 'connected' ? 'good'
+        : call.quality === 0 ? 'excellent' : call.quality === 1 ? 'good' : 'poor';
+  const inPreJoin = call.phase === 'idle' || call.phase === 'preparing' || call.phase === 'prejoin';
+
+  // Camera and mic as soon as the engine exists (the pre-join screen shows them).
+  useEffect(() => {
+    if (engine) void engine.prepare();
+  }, [engine]);
+
+  // Local preview.
+  useEffect(() => {
+    const el = localVideoRef.current;
+    if (!el) return;
+    if (el.srcObject !== call.local) el.srcObject = call.local || null;
+    if (call.local) el.play().catch(() => {});
+  }, [call.local, inPreJoin, remoteUserJoined]);
+
+  // The other person: picture on the (muted) video, sound on the audio element.
+  useEffect(() => {
+    remoteStreamRef.current = call.remote || null;
+    const v = remoteVideoRef.current;
+    if (v) {
+      if (v.srcObject !== (call.remote || null)) v.srcObject = call.remote || null;
+      if (call.remote) v.play().catch(() => {});
+    }
+    attachRemoteAudio(remoteAudioRef.current);
+  }, [call.remote, attachRemoteAudio, remoteUserJoined]);
+
+  // The server's end time and clock.
+  useEffect(() => {
+    if (!call.endsAt) return;
+    clockOffsetRef.current = call.serverOffsetMs;
+    if (!endsAtRef.current || endsAtRef.current.getTime() !== call.endsAt.getTime()) {
+      endsAtRef.current = call.endsAt;
+      setEndsAt(call.endsAt);
+    }
+  }, [call.endsAt, call.serverOffsetMs]);
+
+  // The other person arriving and leaving.
+  const prevJoinedRef = useRef(false);
+  useEffect(() => {
+    if (!engine) return;
+    if (remoteUserJoined && !prevJoinedRef.current) {
+      toast.success(`${user?.role === 'patient' ? 'Your therapist' : 'Your patient'} has joined the call`, { id: 'peer-joined' });
+    } else if (!remoteUserJoined && prevJoinedRef.current && !finishingRef.current) {
+      const until = endsAtRef.current ? ` They can rejoin until ${istTime(endsAtRef.current)}.` : '';
+      toast(`${otherPartyRef.current} left the call.${until}`, { id: 'user-left-session', duration: 5000 });
+      setShowConsentModal(false);
+    }
+    prevJoinedRef.current = remoteUserJoined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remoteUserJoined, engine]);
+
+  // Their camera / mic switched.
+  const prevMediaRef = useRef<{ audio: boolean; video: boolean } | null>(null);
+  useEffect(() => {
+    const now = { audio: remoteAudioEnabled, video: remoteVideoEnabled };
+    const before = prevMediaRef.current;
+    prevMediaRef.current = remoteUserJoined ? now : null;
+    if (!before || !remoteUserJoined) return;
+    if (before.audio !== now.audio) toast(now.audio ? 'Mic is on' : 'Mic is off', { icon: null, id: 'peer-mic' });
+    if (!isVoiceMode && before.video !== now.video) toast(now.video ? 'Camera is on' : 'Camera is off', { icon: null, id: 'peer-cam' });
+  }, [remoteAudioEnabled, remoteVideoEnabled, remoteUserJoined, isVoiceMode]);
+
+  // The check-in reaches the therapist only while they're in the room: send
+  // it again when they arrive.
+  const sentTagsRef = useRef<string[]>([]);
+  useEffect(() => {
+    if (remoteUserJoined && call.phase !== 'joining' && sentTagsRef.current.length) engine?.sendPrepData(sentTagsRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remoteUserJoined]);
+
+  // Video quality steps (weak network).
+  const prevQualityRef = useRef(0);
+  useEffect(() => {
+    if (isVoiceMode || call.phase !== 'connected') return;
+    const q = call.quality || 0;
+    if (q > prevQualityRef.current) showQualityMessage(q >= 3 ? 'Video paused to keep the sound clear' : 'Lowering video quality for your connection');
+    else if (q < prevQualityRef.current) showQualityMessage(q === 0 ? 'Video quality restored' : 'Improving video quality');
+    prevQualityRef.current = q;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [call.quality, call.phase, isVoiceMode]);
+
+  // Failures the engine can't fix by itself.
+  useEffect(() => {
+    if (call.failure?.code === 'AUTH') {
+      setError('Your session has expired. Please log in again.');
+      const t = setTimeout(() => navigate('/login'), 2000);
+      return () => clearTimeout(t);
+    }
+  }, [call.failure?.code, navigate]);
+
+  // What the room says (the same events the first engine handled).
+  useEffect(() => {
+    if (!engine) return;
+    const offs = [
+      engine.onRoomEvent('session-time-up', () => {
+        setQualityMessage('Time\'s up — thank you.');
+        setTimeout(() => finishCallRef.current('time_up'), 2000);
+      }),
+      // Ending early takes both people: the server asks the other side and
+      // ends the session only on their yes (POST /end-request, /end-response).
+      engine.onRoomEvent('request-end-session', (data: { requestedByRole?: string }) => {
+        if (data?.requestedByRole === user?.role) return; // our own request, echoed
+        setConsentRequester(data?.requestedByRole || null);
+        setShowConsentModal(true);
+      }),
+      engine.onRoomEvent('confirm-end-session', (data: { agree?: boolean; confirmedByRole?: string }) => {
+        if (data?.confirmedByRole === user?.role) return; // our own answer, echoed
+        setShowConsentModal(false);
+        if (data?.agree) finishCallRef.current('consent');
+        else showQualityMessage(`${otherPartyRef.current} would like to continue.`);
+      }),
+      engine.onRoomEvent('session-ended', () => {
+        setShowConsentModal(false);
+        finishCallRef.current('consent');
+      }),
+      engine.onRoomEvent('end-session-error', (data: { message?: string }) => {
+        setShowConsentModal(false);
+        toast.error(data?.message || 'Could not end the session.');
+      }),
+      engine.onRoomEvent('call:prep-data', (data: { tags?: string[] }) => {
+        const tags = Array.isArray(data?.tags) ? data.tags : [];
+        setPatientPrepData(tags);
+        if (user?.role === 'doctor' && tags.length) toast(`Patient wants to discuss: ${tags.join(', ')}`, { duration: 6000, icon: '📝' });
+      }),
+      engine.onRoomEvent('call:peer-outdated', () => {
+        toast(`${otherPartyRef.current} is on an older version of the page — ask them to refresh it.`, { id: 'peer-outdated', duration: 8000 });
+      }),
+      engine.onRoomEvent('error', (data: { message?: string }) => {
+        if (data?.message) toast.error(data.message, { id: 'call-error' });
+      }),
+      engine.onRoomEvent('session:status-update', (data: any) => {
+        if (data?.sessionId && data.sessionId !== sessionId) return;
+        if (data.acceptanceStatus) setAcceptanceStatus(data.acceptanceStatus);
+        if (data.delayMinutes) setDelayMinutes(data.delayMinutes);
+        if (data.delayedUntil) setDelayedUntil(new Date(data.delayedUntil));
+        if (data.status === 'cancelled') {
+          setError(cancelledText(data, user?.role === 'doctor' ? 'doctor' : 'patient'));
+          setTimeout(() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard'), 3000);
+        }
+        if (data.doctorNote) setDoctorNote(data.doctorNote);
+        if (data.acceptanceStatus === 'accepted') showQualityMessage('Doctor has accepted and is joining!');
+      }),
+      engine.onRoomEvent('session:cancelled', (data: { message?: string }) => {
+        setError(data?.message || 'Session was cancelled.');
         setTimeout(() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard'), 3000);
-      }
-      if (data.doctorNote) setDoctorNote(data.doctorNote);
-    }
-    
-    if (fetchResult?.iceServers) {
-      iceServersRef.current = { iceServers: fetchResult.iceServers };
-      console.log('[VIDEO-CALL]  Loaded secure TURN credentials');
-    }
-  }, [fetchResult]);
+      }),
+    ];
+    return () => offs.forEach((off) => off());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [engine]);
 
   useEffect(() => {
     if (isError) {
@@ -383,14 +524,6 @@ const VideoCallRoom: React.FC = () => {
     }
   };
 
-  // ICE servers configuration (Google's public STUN servers by default, updated via API)
-  const iceServersRef = useRef<RTCConfiguration>({
-    iceServers: [
-      { urls: 'stun:stun.l.google.com:19302' },
-      { urls: 'stun:stun1.l.google.com:19302' },
-    ]
-  });
-
   useEffect(() => {
     if (!sessionId || !user) return;
 
@@ -405,19 +538,6 @@ const VideoCallRoom: React.FC = () => {
     // No teardown here: AuthContext hands out a new `user` object on every
     // auth refresh, and tearing the call down on that would drop it.
   }, [sessionId, user]);
-
-  // Teardown on unmount only (route change, browser back). Reads refs, so it
-  // always sees the live stream and sockets.
-  useEffect(() => {
-    unmountedRef.current = false;
-    return () => {
-      unmountedRef.current = true;
-      leaveRoom();
-      cleanup();
-    };
-    // Mount/unmount only: leaveRoom and cleanup read nothing but refs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   useEffect(() => {
     if (remoteUserJoined) metRemoteRef.current = true;
@@ -444,566 +564,12 @@ const VideoCallRoom: React.FC = () => {
     return () => clearInterval(id);
   }, [endsAt]);
 
-  useEffect(() => {
-    if (sessionData && !socketRef.current) {
-      initializeCall();
-    }
-  }, [sessionData]);
-
   //  FIX: Force chat closed on mount and when modals appear
   useEffect(() => {
     setShowChat(false);
   }, []);
 
 
-
-  const initializeCall = async () => {
-    try {
-      // No in-memory token is not fatal: the socket handshake falls back to
-      // the session cookie (withCredentials below). If neither works the
-      // server rejects the connection and connect_error sends us to login.
-      if (!token) {
-        console.warn('[VIDEO-CALL] No in-memory token; relying on the session cookie');
-      }
-
-      // Determine media constraints based on call mode
-      const isVoiceCall = sessionData?.callMode === 'Voice Calling';
-      console.log(`[VIDEO-CALL] Mode: ${sessionData?.callMode}, Video enabled: ${!isVoiceCall}`);
-
-      // Get local media
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: !isVoiceCall,
-        audio: true
-      });
-
-      // The user may have left while the permission prompt was open.
-      if (unmountedRef.current) {
-        stream.getTracks().forEach(track => track.stop());
-        return;
-      }
-
-      localStreamRef.current = stream;
-      setLocalStream(stream);
-
-      // Only set video src if video is enabled
-      if (!isVoiceCall && localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-      }
-
-      // Set initial states
-      setIsVideoEnabled(!isVoiceCall);
-      setIsAudioEnabled(true);
-
-      // Connect to Socket.IO server with authentication
-      console.log('[VIDEO-CALL]  Connecting to:', SOCKET_URL);
-      const socket = io(SOCKET_URL, {
-        auth: token ? { token } : {},
-        withCredentials: true,
-        // WebSocket first: long-polling's XHR POSTs are what failed mid-call
-        // ("xhr post error") on flaky networks. Polling stays as a fallback.
-        transports: ['websocket', 'polling'],
-        reconnection: true,
-        reconnectionAttempts: Infinity,
-        reconnectionDelay: 1000,
-        reconnectionDelayMax: 5000,
-        // Its own connection: otherwise this shares the /data socket's
-        // Manager and silently inherits its options (5 attempts, polling first).
-        forceNew: true
-      });
-      socketRef.current = socket;
-
-      socket.io.on('reconnect_attempt', () => setIsReconnecting(true));
-      socket.io.on('reconnect', () => setIsReconnecting(false));
-
-      // Server-synchronised session clock. Registered here rather than once
-      // the peer connection is up: the server sends the current value the
-      // moment we join a room the other side already opened.
-      // The server owns the end time (it moves later if the doctor joined
-      // late); we only count down to it, corrected for this device's clock.
-      socket.on('timer-sync', (data: { endsAt?: string; serverNow?: string; remainingSeconds?: number }) => {
-        if (data.endsAt && data.serverNow) {
-          clockOffsetRef.current = new Date(data.serverNow).getTime() - Date.now();
-          const next = new Date(data.endsAt);
-          if (!endsAtRef.current || endsAtRef.current.getTime() !== next.getTime()) {
-            endsAtRef.current = next;
-            setEndsAt(next);
-          }
-        } else if (typeof data.remainingSeconds === 'number') {
-          setDuration(data.remainingSeconds);
-        }
-      });
-
-      socket.on('session-time-up', () => {
-        setQualityMessage('Time\'s up — thank you.');
-        setTimeout(() => {
-          finishCallRef.current('time_up');
-        }, 2000);
-      });
-
-      // Handle connection errors
-      socket.on('connect_error', (err) => {
-        console.error('[VIDEO-CALL] Connection error:', err.message);
-
-        // A rejected credential won't fix itself by retrying.
-        if (/Authentication|No token/.test(err.message)) {
-          setIsReconnecting(false);
-          setError('Your session has expired. Please log in again.');
-          setTimeout(() => {
-            navigate('/login');
-          }, 2000);
-          return;
-        }
-
-        // Anything else (network blip, server restarting): keep retrying and
-        // say so, rather than showing a fatal error over a call that may
-        // well still be flowing peer-to-peer.
-        setIsReconnecting(true);
-      });
-
-      socket.on('connect', () => {
-        console.log('[VIDEO-CALL]  Connected to server, Socket ID:', socket.id);
-        setIsReconnecting(false);
-        // (Re)join the room. 'connect' fires again after every reconnect, so
-        // this is also what puts us back in the room after a drop.
-        socket.emit('join-room', { sessionId });
-      });
-
-      socket.on('disconnect', (reason) => {
-        console.warn('[VIDEO-CALL] Signalling socket disconnected:', reason);
-        // Our own disconnect() (leaving the call) — nothing to recover.
-        if (reason === 'io client disconnect') return;
-        setIsReconnecting(true);
-        // The server closed it; socket.io does not retry that by itself.
-        if (reason === 'io server disconnect') socket.connect();
-      });
-
-      // Socket event handlers
-      socket.on('room-joined', (data) => {
-        console.log('[VIDEO-CALL]  Joined room:', data);
-        setError(null); // Clear any previous errors
-
-        //  FIX: Only set remoteUserJoined if there's someone with a DIFFERENT role
-        if (data.otherUsers && data.otherUsers.length > 0) {
-          console.log('[VIDEO-CALL]  Other users detected:', data.otherUsers.map((u: any) => u.role));
-          const hasOppositeRole = data.otherUsers.some((u: any) => u.role !== user?.role);
-
-          if (hasOppositeRole) {
-            console.log('[VIDEO-CALL]  Opposite participant found in room. Syncing...');
-            setRemoteUserJoined(true);
-            
-            //  FIX: Patient sends ready signal if doctor is already there
-            if (user?.role === 'patient') {
-              if (prepStatusRef.current !== 'in_progress') {
-                console.log('[VIDEO-CALL]  Patient joined and ready, notifying doctor');
-                socket.emit('patient-ready', { sessionId });
-              } else {
-                console.log('[VIDEO-CALL]  Patient joined but prep is in progress. Holding ready signal.');
-              }
-            }
-          } else {
-            console.log('[VIDEO-CALL] ℹ️ Only same-role participants found. Staying in Waiting Room.');
-            setRemoteUserJoined(false);
-          }
-        } else {
-          console.log('[VIDEO-CALL] ℹ️ Room is empty. Staying in Waiting Room.');
-          setRemoteUserJoined(false);
-        }
-      });
-
-      socket.on('user-joined', async (data) => {
-        console.log('[VIDEO-CALL]  User joined event:', data.role);
-
-        //  FIX: Only set remoteUserJoined if the joining user has a DIFFERENT role
-        if (data.role !== user?.role) {
-          console.log('[VIDEO-CALL]  Opposite participant joined. Closing Waiting Room.');
-          setRemoteUserJoined(true);
-          toast.success(`${data.role === 'doctor' ? 'Doctor' : 'Patient'} has joined the call`);
-          
-          //  AGGRESSIVE FIX: Reset peer connection for both roles to ensure a clean start!
-          // This fixes the issue where patient reuses old connection and fails to connect!
-          if (peerConnectionRef.current) {
-            console.log('[VIDEO-CALL]  Resetting peer connection on user-joined');
-            peerConnectionRef.current.close();
-            peerConnectionRef.current = null;
-          }
-
-          //  FIX: Doctor does NOT create offer immediately on user-joined.
-          // Doctor waits for 'patient-ready' signal!
-          if (user?.role === 'patient') {
-            if (prepStatusRef.current !== 'in_progress') {
-              console.log('[VIDEO-CALL]  Patient ready, notifying doctor');
-              socket.emit('patient-ready', { sessionId });
-            } else {
-              console.log('[VIDEO-CALL]  Doctor joined, but patient prep in progress. Holding ready signal.');
-            }
-          }
-        } else {
-          console.log('[VIDEO-CALL] Same role user joined (probably a reconnection). Keeping Waiting Room.');
-        }
-      });
-
-      //  FIX: Listen for patient-ready signal
-      socket.on('patient-ready', async () => {
-        console.log('[VIDEO-CALL]  Patient ready signal received');
-        if (user?.role === 'doctor') {
-          console.log('[VIDEO-CALL]  Doctor initiating call after patient ready');
-          await createOffer(stream);
-        }
-      });
-
-      socket.on('offer', async ({ offer, senderId }) => {
-        console.log('[VIDEO-CALL] Received offer from:', senderId);
-        await handleOffer(offer, stream);
-      });
-
-      socket.on('answer', async ({ answer }) => {
-        console.log('[VIDEO-CALL] Received answer');
-        await handleAnswer(answer);
-      });
-
-      socket.on('ice-candidate', async ({ candidate }) => {
-        console.log('[VIDEO-CALL] Received ICE candidate');
-        await handleIceCandidate(candidate);
-      });
-
-      socket.on('user-left', (data) => {
-        console.log('[VIDEO-CALL] Remote user left:', data.role);
-        setRemoteUserJoined(false);
-        setConnectionState('disconnected');
-        if (remoteVideoRef.current) {
-          remoteVideoRef.current.srcObject = null;
-        }
-        remoteStreamRef.current = null;
-        if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
-        const who = data.role === 'patient' ? 'Your patient' : 'Your therapist';
-        const until = endsAtRef.current ? ` They can rejoin until ${istTime(endsAtRef.current)}.` : '';
-        toast(`${who} left the call.${until}`, { id: 'user-left-session', duration: 5000 });
-        setShowConsentModal(false);
-        setTimeout(() => setQualityMessage(null), 5000);
-      });
-
-      // Ending early takes both people: the server asks the other side and
-      // ends the session only on their yes (POST /end-request, /end-response).
-      socket.on('request-end-session', (data: { requestedByRole?: string }) => {
-        if (data.requestedByRole === user?.role) return; // our own request, echoed
-        setConsentRequester(data.requestedByRole || null);
-        setShowConsentModal(true);
-      });
-
-      socket.on('confirm-end-session', (data: { agree?: boolean; confirmedByRole?: string }) => {
-        if (data.confirmedByRole === user?.role) return; // our own answer, echoed
-        setShowConsentModal(false);
-        if (data.agree) {
-          finishCallRef.current('consent');
-        } else {
-          showQualityMessage(`${otherPartyRef.current} would like to continue.`);
-        }
-      });
-
-      socket.on('session-ended', () => {
-        setShowConsentModal(false);
-        finishCallRef.current('consent');
-      });
-
-      socket.on('end-session-error', (data: { message?: string }) => {
-        setShowConsentModal(false);
-        toast.error(data.message || 'Could not end the session.');
-      });
-
-      socket.on('media-state-change', (data) => {
-        console.log('[VIDEO-CALL] Remote media state changed:', data);
-        setRemoteAudioEnabled(prev => {
-          if (prev !== data.audio) {
-            toast(data.audio ? 'Mic is on' : 'Mic is off', { icon: null });
-          }
-          return data.audio;
-        });
-        setRemoteVideoEnabled(prev => {
-          if (prev !== data.video) {
-            toast(data.video ? 'Camera is on' : 'Camera is off', { icon: null });
-          }
-          return data.video;
-        });
-      });
-
-      socket.on('patient-prep-data', (data) => {
-        console.log('[VIDEO-CALL] Patient prep data received:', data);
-        setPatientPrepData(data.tags);
-        if (user?.role === 'doctor') {
-          toast(`Patient wants to discuss: ${data.tags.join(', ')}`, { duration: 6000, icon: '📝' });
-        }
-      });
-
-      socket.on('error', (data) => {
-        console.error('[VIDEO-CALL]  Socket error:', data.message);
-        setError(data.message);
-      });
-
-      socket.on('session:status-update', (data) => {
-        console.log('[VIDEO-CALL] Received session status update:', data);
-        if (data.acceptanceStatus) setAcceptanceStatus(data.acceptanceStatus);
-        if (data.delayMinutes) setDelayMinutes(data.delayMinutes);
-        if (data.delayedUntil) setDelayedUntil(new Date(data.delayedUntil));
-        if (data.status === 'cancelled') {
-          setError(cancelledText(data, user?.role === 'doctor' ? 'doctor' : 'patient'));
-          setTimeout(() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard'), 3000);
-        }
-        if (data.doctorNote) setDoctorNote(data.doctorNote);
-
-        if (data.acceptanceStatus === 'accepted') {
-          showQualityMessage('Doctor has accepted and is joining!');
-        }
-      });
-
-      socket.on('session:cancelled', (data) => {
-        console.log('[VIDEO-CALL] Received session cancelled:', data);
-        setError(data.message || 'Session was cancelled.');
-        setTimeout(() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard'), 3000);
-      });
-
-
-    } catch (err) {
-      console.error('[VIDEO-CALL]  Error initializing call:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      if (errorMessage.includes('Permission denied') || errorMessage.includes('NotAllowedError')) {
-        setError('Camera/microphone access denied. Please allow permissions and refresh.');
-      } else {
-        setError('Failed to initialize video call: ' + errorMessage);
-      }
-    }
-  };
-
-  const createPeerConnection = (stream: MediaStream) => {
-    const pc = new RTCPeerConnection(iceServersRef.current);
-    peerConnectionRef.current = pc;
-
-    // Add local stream tracks to peer connection
-    stream.getTracks().forEach(track => {
-      pc.addTrack(track, stream);
-    });
-
-    // Handle incoming remote stream
-    pc.ontrack = (event) => {
-      console.log('[VIDEO-CALL]  Received remote track:', event.track.kind);
-      const [remoteStream] = event.streams;
-      remoteStreamRef.current = remoteStream;
-      if (remoteAudioRef.current) attachRemoteAudio(remoteAudioRef.current);
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = remoteStream;
-        //  Safari Compatibility Fix: Explicitly call play() as Safari sometimes ignores autoPlay
-        remoteVideoRef.current.play().catch(e => console.warn('[VIDEO-CALL] Safari AutoPlay prevented:', e));
-      }
-      setConnectionState('connected');
-    };
-
-    // Handle ICE candidates
-    pc.onicecandidate = (event) => {
-      if (event.candidate && socketRef.current) {
-        console.log(' Sending ICE candidate');
-        socketRef.current.emit('ice-candidate', {
-          sessionId,
-          candidate: event.candidate
-        });
-      }
-    };
-
-    // Monitor connection state
-    pc.onconnectionstatechange = () => {
-      console.log('[VIDEO-CALL]  Connection state:', pc.connectionState);
-      if (pc.connectionState === 'connected') {
-        setConnectionState('connected');
-        setConnectionQuality('excellent');
-      } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-        setConnectionState('disconnected');
-        setConnectionQuality('disconnected');
-      }
-    };
-
-    // Monitor connection quality via ICE connection state
-    pc.oniceconnectionstatechange = () => {
-      console.log('[VIDEO-CALL]  ICE connection state:', pc.iceConnectionState);
-      if (pc.iceConnectionState === 'checking') {
-        setConnectionQuality('good');
-      } else if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
-        setConnectionQuality('excellent');
-      } else if (pc.iceConnectionState === 'disconnected') {
-        setConnectionQuality('poor');
-        showQualityMessage('Connection quality degraded');
-      } else if (pc.iceConnectionState === 'failed') {
-        setConnectionQuality('disconnected');
-        showQualityMessage('Connection lost. Attempting to reconnect...');
-        
-        //  FIX: Attempt to reconnect if we are the doctor (offerer)
-        if (user?.role === 'doctor') {
-          console.log('[VIDEO-CALL]  ICE failed. Doctor attempting to reconnect');
-          setTimeout(() => {
-            createOffer(stream);
-          }, 3000);
-        }
-      }
-    };
-
-    // Monitor stats for quality
-    const statsInterval = setInterval(async () => {
-      if (pc.connectionState === 'connected') {
-        try {
-          const stats = await pc.getStats();
-          let packetsLost = 0;
-          let packetsReceived = 0;
-
-          stats.forEach((report) => {
-            if (report.type === 'inbound-rtp' && report.kind === 'video') {
-              packetsLost = report.packetsLost || 0;
-              packetsReceived = report.packetsReceived || 0;
-            }
-          });
-
-          if (packetsReceived > 0) {
-            const lossRate = packetsLost / (packetsLost + packetsReceived);
-            if (lossRate > 0.1) {
-              setConnectionQuality('poor');
-              showQualityMessage('Adjusting quality for network conditions');
-            } else if (lossRate > 0.05) {
-              setConnectionQuality('good');
-            } else {
-              setConnectionQuality('excellent');
-            }
-          }
-        } catch (err) {
-          console.error('[VIDEO-CALL] Error getting stats:', err);
-        }
-      }
-    }, 3000);
-
-    // Store interval reference for cleanup
-    (pc as any).statsInterval = statsInterval;
-
-    return pc;
-  };
-
-  const createOffer = async (stream: MediaStream) => {
-    try {
-      console.log('[VIDEO-CALL]  Creating offer, current state:', peerConnectionRef.current?.signalingState || 'no-peer');
-
-      // Close existing peer connection if any
-      if (peerConnectionRef.current) {
-        console.log('[VIDEO-CALL]  Closing existing peer connection');
-        peerConnectionRef.current.close();
-        peerConnectionRef.current = null;
-      }
-
-      // Create fresh peer connection
-      peerConnectionRef.current = createPeerConnection(stream);
-
-      const pc = peerConnectionRef.current;
-      const offer = await pc.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true
-      });
-      await pc.setLocalDescription(offer);
-
-      console.log('[VIDEO-CALL]  Sending offer');
-      socketRef.current?.emit('offer', {
-        sessionId,
-        offer
-      });
-    } catch (err) {
-      console.error('[VIDEO-CALL]  Error creating offer:', err);
-    }
-  };
-
-  const handleOffer = async (offer: RTCSessionDescriptionInit, stream: MediaStream) => {
-    try {
-      console.log('[VIDEO-CALL]  Handling offer, current state:', peerConnectionRef.current?.signalingState || 'no-peer');
-
-      // If we have a peer connection in 'have-local-offer' state, we have a glare condition
-      if (peerConnectionRef.current?.signalingState === 'have-local-offer') {
-        console.log('[VIDEO-CALL]  Glare detected! Resolving based on role...');
-        // Patient always yields to doctor in glare situations
-        if (user?.role === 'patient') {
-          console.log('[VIDEO-CALL]  Patient yielding, restarting as answerer');
-          peerConnectionRef.current.close();
-          peerConnectionRef.current = null;
-        } else {
-          console.log('[VIDEO-CALL]  Doctor ignoring offer, keeping own offer');
-          return; // Doctor ignores incoming offer
-        }
-      }
-
-      // Create peer connection if needed
-      if (!peerConnectionRef.current) {
-        peerConnectionRef.current = createPeerConnection(stream);
-      }
-
-      const pc = peerConnectionRef.current;
-
-      // Only process offer if in stable state
-      if (pc.signalingState === 'stable') {
-        await pc.setRemoteDescription(new RTCSessionDescription(offer));
-
-        // Process any queued ICE candidates
-        while (iceCandidateQueue.current.length > 0) {
-          const candidate = iceCandidateQueue.current.shift();
-          if (candidate) {
-            await pc.addIceCandidate(new RTCIceCandidate(candidate));
-          }
-        }
-
-        const answer = await pc.createAnswer();
-        await pc.setLocalDescription(answer);
-
-        console.log('[VIDEO-CALL]  Sending answer');
-        socketRef.current?.emit('answer', {
-          sessionId,
-          answer
-        });
-      } else {
-        console.log('[VIDEO-CALL]  Ignoring offer, wrong signaling state:', pc.signalingState);
-      }
-    } catch (err) {
-      console.error('[VIDEO-CALL]  Error handling offer:', err);
-    }
-  };
-
-  const handleAnswer = async (answer: RTCSessionDescriptionInit) => {
-    try {
-      if (peerConnectionRef.current) {
-        const pc = peerConnectionRef.current;
-        // Only set remote description if we're waiting for an answer
-        if (pc.signalingState === 'have-local-offer') {
-          await pc.setRemoteDescription(new RTCSessionDescription(answer));
-          console.log('[VIDEO-CALL]  Answer set successfully');
-
-          // Process any queued ICE candidates
-          while (iceCandidateQueue.current.length > 0) {
-            const candidate = iceCandidateQueue.current.shift();
-            if (candidate) {
-              await pc.addIceCandidate(new RTCIceCandidate(candidate));
-            }
-          }
-        } else {
-          console.log('[VIDEO-CALL]  Ignoring answer, wrong signaling state:', pc.signalingState);
-        }
-      }
-    } catch (err) {
-      console.error('[VIDEO-CALL]  Error handling answer:', err);
-    }
-  };
-
-  const handleIceCandidate = async (candidate: RTCIceCandidateInit) => {
-    try {
-      if (peerConnectionRef.current) {
-        if (peerConnectionRef.current.remoteDescription) {
-          await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate));
-        } else {
-          iceCandidateQueue.current.push(candidate);
-          console.log('[VIDEO-CALL] Queued ICE candidate (remoteDescription not set yet)');
-        }
-      }
-    } catch (err) {
-      console.error('Error handling ICE candidate:', err);
-    }
-  };
 
   const formatDuration = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -1055,46 +621,24 @@ const VideoCallRoom: React.FC = () => {
   };
 
   const toggleVideo = () => {
-    if (localStream) {
-      const videoTrack = localStream.getVideoTracks()[0];
-      if (videoTrack) {
-        videoTrack.enabled = !videoTrack.enabled;
-        setIsVideoEnabled(videoTrack.enabled);
-
-        // Ensure video element resumes playing if paused by the browser
-        if (videoTrack.enabled && localVideoRef.current) {
-          localVideoRef.current.play().catch(e => console.warn('Play interrupted:', e));
-        }
-
-        // Notify remote user about video state change
-        socketRef.current?.emit('media-state-change', {
-          sessionId,
-          video: videoTrack.enabled,
-          audio: isAudioEnabled
-        });
-
-        console.log('[VIDEO-CALL]  Video toggled:', videoTrack.enabled);
-      }
-    }
+    if (!engine) return;
+    // No camera yet (denied, or busy in another app): try to get it now.
+    if (!call.local?.getVideoTracks().length) { void engine.prepare({ wantVideo: true }); return; }
+    engine.setCamera(!isVideoEnabled);
   };
 
   const toggleAudio = () => {
-    if (localStream) {
-      const audioTrack = localStream.getAudioTracks()[0];
-      if (audioTrack) {
-        audioTrack.enabled = !audioTrack.enabled;
-        setIsAudioEnabled(audioTrack.enabled);
+    if (!engine) return;
+    if (!call.local?.getAudioTracks().length) { void engine.prepare({ wantVideo: isVideoEnabled }); return; }
+    engine.setMic(!isAudioEnabled);
+  };
 
-        // Notify remote user about audio state change
-        socketRef.current?.emit('media-state-change', {
-          sessionId,
-          video: isVideoEnabled,
-          audio: audioTrack.enabled
-        });
-
-        console.log('[VIDEO-CALL]  Audio toggled:', audioTrack.enabled);
-      }
-    }
+  const joinCall = () => {
+    if (!engine) return;
+    // This tap counts as the user's go-ahead to play sound (iPhones).
+    const el = remoteAudioRef.current;
+    if (el) el.play().catch(() => {});
+    void engine.join();
   };
 
   /** POST to one of the session's ending endpoints; the body of the reply, or a thrown message. */
@@ -1184,8 +728,7 @@ const VideoCallRoom: React.FC = () => {
     if (endsAtRef.current && !finishingRef.current) {
       toast(`You left the call. You can rejoin until ${istTime(endsAtRef.current)}.`, { id: 'left-call', duration: 5000 });
     }
-    leaveRoom();
-    cleanup();
+    engine?.dispose();
     goToDashboard(false);
   };
   const handleBack = leaveCall;
@@ -1197,8 +740,7 @@ const VideoCallRoom: React.FC = () => {
     console.log(`[VIDEO-CALL] Session over (${reason})`);
     setShowChat(false);
     setShowConsentModal(false);
-    leaveRoom();
-    cleanup();
+    engine?.dispose();
     goToDashboard(true);
   };
 
@@ -1222,15 +764,13 @@ const VideoCallRoom: React.FC = () => {
       }
       finishingRef.current = true;
       toast.success(data.message || 'Your full refund is on its way.', { duration: 7000 });
-      leaveRoom();
-      cleanup();
+      engine?.dispose();
       navigate('/patient-dashboard');
     } finally {
       setClaimingRefund(false);
     }
   };
 
-  const isVoiceMode = sessionData?.callMode === 'Voice Calling';
   otherPartyRef.current = user?.role === 'patient' ? 'Your therapist' : 'Your patient';
 
   const remoteUserName = remoteUserJoined 
@@ -1294,7 +834,7 @@ const VideoCallRoom: React.FC = () => {
         {/* Status */}
         <p className={`text-sm tracking-[0.3em] uppercase font-semibold transition-colors duration-500 ${remoteUserJoined && remoteAudioEnabled ? 'text-teal-400 shadow-teal-400/50 drop-shadow-md' : 'text-slate-500'}`}>
           {remoteUserJoined
-            ? (remoteAudioEnabled ? 'Speaking...' : 'Microphone Muted')
+            ? (connectionState !== 'connected' ? 'Connecting…' : remoteAudioEnabled ? 'Connected' : 'Microphone Muted')
             : 'Connecting...'}
         </p>
         {!remoteUserJoined && user?.role === 'patient' && (
@@ -1339,62 +879,6 @@ const VideoCallRoom: React.FC = () => {
     </div>
   );
 
-  // Function declarations (hoisted) so the unmount effect above can name them.
-  function leaveRoom() {
-    // Tell the room we're going, so the other side sees it and the server
-    // pauses the clock.
-    if (socketRef.current && sessionId) {
-      socketRef.current.emit('leave-room', { sessionId });
-    }
-  }
-
-  function cleanup() {
-    console.log('[VIDEO-CALL]  Cleaning up resources...');
-
-    // Stop all local stream tracks (camera and microphone). From the ref:
-    // this runs from closures that never saw the stream in state.
-    const stream = localStreamRef.current;
-    if (stream) {
-      stream.getTracks().forEach(track => {
-        console.log('[VIDEO-CALL] Stopping track:', track.kind);
-        track.stop();
-      });
-      localStreamRef.current = null;
-      if (!unmountedRef.current) setLocalStream(null);
-    }
-
-    // Clear queue
-    iceCandidateQueue.current = [];
-
-    // Clear video elements
-    if (localVideoRef.current) {
-      localVideoRef.current.srcObject = null;
-    }
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = null;
-    }
-    remoteStreamRef.current = null;
-    if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
-
-    // Close peer connection and clear stats interval
-    if (peerConnectionRef.current) {
-      const statsInterval = (peerConnectionRef.current as any).statsInterval;
-      if (statsInterval) {
-        clearInterval(statsInterval);
-      }
-      peerConnectionRef.current.close();
-      peerConnectionRef.current = null;
-    }
-
-    // Disconnect socket
-    if (socketRef.current) {
-      socketRef.current.disconnect();
-      socketRef.current = null;
-    }
-
-    console.log('[VIDEO-CALL]  Cleanup complete');
-  }
-
   return (
     <div className="min-h-screen bg-[#09090B] flex flex-col p-4 md:p-6 gap-4">
       {/* Minimal Header */}
@@ -1429,11 +913,95 @@ const VideoCallRoom: React.FC = () => {
         </div>
       </div>
 
+      {/* Before joining: camera/mic check, permission help, Join */}
+      {inPreJoin && !error && sessionData && (
+        <PreJoin
+          voice={isVoiceMode}
+          local={call.local || null}
+          hasAudio={!!call.local?.getAudioTracks().length}
+          hasVideo={!!call.local?.getVideoTracks().length}
+          mediaError={call.mediaError || null}
+          preparing={call.phase !== 'prejoin'}
+          title={isVoiceMode ? 'Ready for your voice session?' : 'Ready for your video session?'}
+          subtitle={user?.role === 'patient'
+            ? `With ${sessionData?.doctorId ? `Dr. ${sessionData.doctorId.lastName || sessionData.doctorId.firstName || ''}` : 'your therapist'}${sessionData?.startsAt && sessionData?.sessionType !== 'immediate' ? ` · starts ${istTime(new Date(sessionData.startsAt))}` : ''}`
+            : `With ${sessionData?.patientId?.firstName || 'your patient'}${sessionData?.startsAt && sessionData?.sessionType !== 'immediate' ? ` · starts ${istTime(new Date(sessionData.startsAt))}` : ''}`}
+          onRetry={() => { void engine?.prepare(); }}
+          onJoin={joinCall}
+          onBack={leaveCall}
+        />
+      )}
+
+      {/* Opened in another tab or device */}
+      {call.superseded && (
+        <div role="dialog" aria-modal="true" className="fixed inset-0 z-[160] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#18181B] border border-white/10 rounded-3xl p-6 max-w-sm w-full text-center text-white">
+            <p className="font-medium">This call is open somewhere else</p>
+            <p className="text-white/60 text-sm mt-1">You joined from another tab or device, so this one stopped.</p>
+            <div className="mt-5 flex flex-col gap-2">
+              <button onClick={() => { void engine?.rejoin(); }} className="py-2.5 rounded-xl bg-teal-500 hover:bg-teal-600 text-sm font-semibold">Use this tab instead</button>
+              <button onClick={leaveCall} className="py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-sm">Back to dashboard</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Something the engine can't fix by itself */}
+      {call.phase === 'failed' && call.failure && call.failure.code !== 'AUTH' && !error && (
+        <div role="alert" className="fixed inset-0 z-[160] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-[#18181B] border border-white/10 rounded-3xl p-6 max-w-sm w-full text-center text-white">
+            <p className="font-medium">{call.failure.message}</p>
+            <div className="mt-5 flex flex-col gap-2">
+              {call.failure.code === 'PROTOCOL_OUTDATED' ? (
+                <button onClick={() => window.location.reload()} className="py-2.5 rounded-xl bg-teal-500 hover:bg-teal-600 text-sm font-semibold">Refresh</button>
+              ) : !['NOT_PAID', 'CLOSED', 'WITHDRAWN'].includes(call.failure.code) && (
+                <button onClick={() => { void engine?.rejoin(); }} className="py-2.5 rounded-xl bg-teal-500 hover:bg-teal-600 text-sm font-semibold">Try again</button>
+              )}
+              <button onClick={leaveCall} className="py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-sm">Back to dashboard</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Reconnecting (non-fatal) */}
       {isReconnecting && !error && (
-        <div role="status" aria-live="polite" className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-amber-500/90 text-white px-5 py-2 rounded-full shadow-lg z-20 text-sm flex items-center gap-2">
-          <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin" aria-hidden="true"></span>
-          Reconnecting…
+        <div role="status" aria-live="polite" className="absolute top-20 left-1/2 transform -translate-x-1/2 bg-amber-500/90 text-white px-5 py-2 rounded-full shadow-lg z-20 text-sm flex items-center gap-2 max-w-[calc(100%-2rem)]">
+          <span className="w-3 h-3 border-2 border-white/40 border-t-white rounded-full animate-spin shrink-0" aria-hidden="true"></span>
+          <span>{call.stalled ? 'Still reconnecting…' : 'Reconnecting… your call will continue.'}</span>
+          {call.stalled && (
+            <button onClick={() => { void engine?.rejoin(); }} className="ml-1 px-3 py-0.5 rounded-full bg-white/20 hover:bg-white/30 text-xs font-semibold">Rejoin</button>
+          )}
+        </div>
+      )}
+
+      {/* Slow to connect the first time */}
+      {!isReconnecting && call.phase === 'connecting' && call.stalled && !error && (
+        <div role="status" className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-[#18181B] border border-white/10 text-white/80 px-5 py-2 rounded-full shadow-lg text-sm flex items-center gap-2 max-w-[calc(100%-2rem)]">
+          <span>Still connecting — trying another route…</span>
+          <button onClick={() => { void engine?.rejoin(); }} className="px-3 py-0.5 rounded-full bg-white/10 hover:bg-white/20 text-xs font-semibold">Rejoin</button>
+        </div>
+      )}
+
+      {/* The other person dropped for a moment */}
+      {remoteUserJoined && call.peer?.connection === 'reconnecting' && !isReconnecting && !error && (
+        <div role="status" className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-[#18181B] border border-white/10 text-white/80 px-4 py-1.5 rounded-full text-xs">
+          {user?.role === 'patient' ? 'Your therapist' : 'Your patient'} is reconnecting…
+        </div>
+      )}
+
+      {/* Small notes: our server restarting, no relay */}
+      {(call.serverRestarting || call.relayAvailable === false) && !inPreJoin && !error && (
+        <div role="status" className="absolute bottom-28 left-1/2 -translate-x-1/2 z-40 bg-black/70 border border-white/10 text-white/70 px-4 py-1.5 rounded-full text-xs text-center max-w-[calc(100%-2rem)]">
+          {call.serverRestarting
+            ? 'Veraawell is updating — your call carries on.'
+            : 'Limited connection support right now — if the call doesn\'t connect, try another network.'}
+        </div>
+      )}
+
+      {/* Not open yet (or similar): the engine keeps trying */}
+      {call.phase === 'joining' && call.failure && !error && (
+        <div role="status" className="absolute top-20 left-1/2 -translate-x-1/2 z-20 bg-[#18181B] border border-white/10 text-white/80 px-4 py-2 rounded-full text-sm max-w-[calc(100%-2rem)] text-center">
+          {call.failure.message}
         </div>
       )}
 
@@ -1494,11 +1062,11 @@ const VideoCallRoom: React.FC = () => {
         </div>
       )}
 
-      {/* The other person's voice in a voice session. Here, outside the voice
+      {/* The other person's sound (voice and video). Here, outside the voice
           screen component (which is re-created on every render), so the
-          stream stays attached. In video mode the <video> plays the audio. */}
-      {isVoiceMode && <audio ref={attachRemoteAudio} autoPlay playsInline data-testid="remote-audio" />}
-      {isVoiceMode && audioBlocked && remoteUserJoined && (
+          stream stays attached. */}
+      <audio ref={attachRemoteAudio} autoPlay playsInline data-testid="remote-audio" />
+      {audioBlocked && remoteUserJoined && !inPreJoin && (
         <button
           onClick={() => attachRemoteAudio(remoteAudioRef.current)}
           className="absolute top-20 left-1/2 -translate-x-1/2 z-30 bg-[var(--teal)] text-white text-sm font-semibold px-5 py-2.5 rounded-full shadow-lg"
@@ -1520,6 +1088,8 @@ const VideoCallRoom: React.FC = () => {
               ref={remoteVideoRef}
               autoPlay
               playsInline
+              muted
+              data-testid="remote-video"
               className="absolute inset-0 w-full h-full object-cover"
             />
 
@@ -1553,19 +1123,15 @@ const VideoCallRoom: React.FC = () => {
             </div>
 
             {/* Waiting Overlay / Waiting Room (Patient Only) */}
-            {user?.role === 'patient' && (!remoteUserJoined || prepStatus === 'in_progress') && (
+            {user?.role === 'patient' && !remoteUserJoined && !inPreJoin && (
               <div className="absolute inset-0 flex items-center justify-center bg-black z-[100] font-sans overflow-hidden">
                 
-                {/* Pre-fetched YouTube Video Background */}
-                <div className="absolute inset-0 z-0 bg-[#0F1115] overflow-hidden">
-                  <link rel="preconnect" href="https://www.youtube-nocookie.com" />
-                  <iframe
-                    className="absolute top-1/2 left-1/2 w-[100vw] h-[56.25vw] min-h-[100vh] min-w-[177.77vh] -translate-x-1/2 -translate-y-1/2 opacity-40 pointer-events-none mix-blend-screen"
-                    src="https://www.youtube-nocookie.com/embed/Y7dGdrP3p5k?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&loop=1&playlist=Y7dGdrP3p5k&playsinline=1"
-                    frameBorder="0"
-                    allow="autoplay; encrypted-media"
-                    title="Ambient Background"
-                  ></iframe>
+                {/* Calm moving background, drawn locally: no YouTube embed
+                    (a third party loading and tracking inside a therapy
+                    waiting room, and a heavy download on mobile data). */}
+                <div className="absolute inset-0 z-0 bg-[#0F1115] overflow-hidden" aria-hidden="true">
+                  <div className="absolute -top-1/4 -left-1/4 w-[80vw] h-[80vw] rounded-full bg-teal-600/25 blur-[120px] animate-[pulse_9s_ease-in-out_infinite]" />
+                  <div className="absolute -bottom-1/4 -right-1/4 w-[70vw] h-[70vw] rounded-full bg-sky-700/20 blur-[120px] animate-[pulse_12s_ease-in-out_infinite_reverse]" />
                   {/* Subtle vignette/gradient over the video */}
                   <div className="absolute inset-0 bg-gradient-to-t from-[#0F1115] via-transparent to-[#0F1115]/60"></div>
                   <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,#0F1115_100%)] opacity-70"></div>
@@ -1584,7 +1150,7 @@ const VideoCallRoom: React.FC = () => {
                     {/* Tab Navigation */}
                     <div className="flex bg-black/40 rounded-full p-1 mb-8 w-full border border-white/10">
                       <button onClick={() => setWaitingTab('status')} className={`flex-1 py-2 rounded-full text-xs font-semibold transition-all ${waitingTab === 'status' ? 'bg-white/10 text-white shadow-sm' : 'text-white/40 hover:text-white/70'}`}>Status</button>
-                      <button onClick={() => { setWaitingTab('prep'); if(prepStatus === 'not_started') setPrepStatus('in_progress'); }} className={`flex-1 py-2 rounded-full text-xs font-semibold transition-all ${waitingTab === 'prep' ? 'bg-white/10 text-white shadow-sm' : 'text-white/40 hover:text-white/70'}`}>Quick Check-in</button>
+                      <button onClick={() => setWaitingTab('prep')} className={`flex-1 py-2 rounded-full text-xs font-semibold transition-all ${waitingTab === 'prep' ? 'bg-white/10 text-white shadow-sm' : 'text-white/40 hover:text-white/70'}`}>Quick Check-in</button>
                       <button onClick={() => setWaitingTab('breathe')} className={`flex-1 py-2 rounded-full text-xs font-semibold transition-all ${waitingTab === 'breathe' ? 'bg-white/10 text-white shadow-sm' : 'text-white/40 hover:text-white/70'}`}>Breathe</button>
                     </div>
 
@@ -1620,14 +1186,7 @@ const VideoCallRoom: React.FC = () => {
                             </p>
                           )}
                           
-                          {acceptanceStatus === 'accepted' && remoteUserJoined && prepStatus === 'in_progress' && (
-                            <div className="animate-in fade-in duration-300 bg-[var(--teal)]/20 border border-[var(--teal)]/50 p-3 rounded-xl mt-2">
-                              <p className="text-[var(--teal)] font-bold text-sm">Doctor is waiting for you!</p>
-                              <p className="text-white/70 text-xs mt-1">Please finish your Check-in to enter the session.</p>
-                            </div>
-                          )}
-
-                          {acceptanceStatus === 'accepted' && (!remoteUserJoined || prepStatus !== 'in_progress') && (
+                          {acceptanceStatus === 'accepted' && (
                             <div className="animate-in fade-in duration-300">
                               <p className="text-[var(--teal)] font-medium text-sm">{remoteUserJoined ? 'Session starting momentarily...' : 'Waiting for them to join the call…'}</p>
                             </div>
@@ -1685,7 +1244,6 @@ const VideoCallRoom: React.FC = () => {
                                 } else {
                                   setSelectedPrepTags([...selectedPrepTags, tag]);
                                 }
-                                if (prepStatus === 'not_started') setPrepStatus('in_progress');
                               }}
                               className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-all border ${
                                 selectedPrepTags.includes(tag) 
@@ -1711,7 +1269,6 @@ const VideoCallRoom: React.FC = () => {
                                 } else {
                                   setSelectedPrepTags([...selectedPrepTags, tag]);
                                 }
-                                if (prepStatus === 'not_started') setPrepStatus('in_progress');
                               }}
                               className={`px-3 py-1.5 rounded-full text-[13px] font-medium transition-all border ${
                                 selectedPrepTags.includes(tag) 
@@ -1724,42 +1281,24 @@ const VideoCallRoom: React.FC = () => {
                           ))}
                         </div>
 
-                        {remoteUserJoined ? (
-                           <div className="w-full">
-                             <div className="mb-4 text-[var(--teal)] text-sm font-semibold animate-pulse text-center">Doctor is waiting for you!</div>
-                             <button
-                               onClick={() => {
-                                 setPrepStatus('completed');
-                                 if (socketRef.current) {
-                                   socketRef.current.emit('patient-prep-data', { sessionId, tags: selectedPrepTags });
-                                   socketRef.current.emit('patient-ready', { sessionId });
-                                 }
-                               }}
-                               className="w-full py-3 rounded-xl bg-[var(--teal)] text-white text-sm font-bold transition-all shadow-lg hover:shadow-xl hover:-translate-y-0.5"
-                             >
-                               I'm Ready, Join Session
-                             </button>
-                           </div>
-                        ) : (
-                           <button
-                             onClick={() => {
-                               setPrepStatus('completed');
-                               setWaitingTab('status');
-                               if (socketRef.current) {
-                                 socketRef.current.emit('patient-prep-data', { sessionId, tags: selectedPrepTags });
-                                 socketRef.current.emit('patient-ready', { sessionId });
-                               }
-                             }}
-                             disabled={selectedPrepTags.length === 0}
-                             className={`w-full py-3 rounded-xl text-sm font-bold transition-all border ${
-                               selectedPrepTags.length > 0 
-                                 ? 'bg-[var(--teal)] text-white border-[var(--teal)] shadow-[0_0_15px_rgba(0,151,178,0.3)] hover:brightness-110'
-                                 : 'bg-white/5 text-white/30 border-white/5 cursor-not-allowed'
-                             }`}
-                           >
-                             Done
-                           </button>
-                        )}
+                        <button
+                          onClick={() => {
+                            sentTagsRef.current = selectedPrepTags;
+                            engine?.sendPrepData(selectedPrepTags);
+                            setPrepSent(true);
+                            setWaitingTab('status');
+                            toast.success('Shared with your therapist.', { id: 'prep-sent' });
+                          }}
+                          disabled={selectedPrepTags.length === 0}
+                          className={`w-full py-3 rounded-xl text-sm font-bold transition-all border ${
+                            selectedPrepTags.length > 0
+                              ? 'bg-[var(--teal)] text-white border-[var(--teal)] shadow-[0_0_15px_rgba(0,151,178,0.3)] hover:brightness-110'
+                              : 'bg-white/5 text-white/30 border-white/5 cursor-not-allowed'
+                          }`}
+                        >
+                          {prepSent ? 'Update' : 'Share with my therapist'}
+                        </button>
+                        <p className="mt-3 text-white/40 text-xs text-center">Optional — your session starts as soon as your therapist joins.</p>
                       </div>
                     )}
 
@@ -1812,7 +1351,7 @@ const VideoCallRoom: React.FC = () => {
             )}
 
             {/* Waiting Overlay (Doctor Only) */}
-            {!remoteUserJoined && user?.role === 'doctor' && (
+            {!remoteUserJoined && user?.role === 'doctor' && !inPreJoin && (
               <div className="absolute inset-0 flex items-center justify-center bg-[#0F1115] z-[100] font-sans">
                 <div className="text-center text-white relative z-10 p-8 max-w-lg mx-auto flex flex-col items-center justify-center min-h-screen w-full">
                   <div className="flex flex-col items-center gap-6">
@@ -1842,13 +1381,13 @@ const VideoCallRoom: React.FC = () => {
 
             {/* Connection Status */}
             {remoteUserJoined && connectionState !== 'connected' && (
-              <div className="absolute top-4 right-4 bg-yellow-500 text-white px-2 py-1 rounded-md text-xs">
-                Connecting...
+              <div role="status" className="absolute top-6 right-6 bg-amber-500/90 text-white px-3 py-1 rounded-full text-xs z-20">
+                Connecting…
               </div>
             )}
 
             {/* Local Video (Small - Picture in Picture) */}
-            <div className="absolute bottom-6 right-6 w-60 h-40 bg-[#18181B] rounded-2xl overflow-hidden shadow-2xl border border-white/10 z-20 group">
+            <div className="absolute bottom-28 right-4 w-28 h-40 sm:bottom-6 sm:right-6 sm:w-60 sm:h-40 bg-[#18181B] rounded-2xl overflow-hidden shadow-2xl border border-white/10 z-20 group">
               <video
                 ref={localVideoRef}
                 autoPlay
