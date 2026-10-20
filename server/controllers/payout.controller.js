@@ -95,6 +95,10 @@ const submitBankDetails = asyncHandler(async (req, res) => {
   await profile.save();
 
   logger.info('Bank details submitted', { doctorId: String(req.actor.id).substring(0, 8) });
+  // The doctor can't take bookings until an admin approves them.
+  require('../services/email.service').sendAdminAlertEmail('Bank details to review', [
+    'A therapist submitted bank details. They cannot be booked until an admin approves them.'
+  ], { rows: [['Doctor', String(req.actor.id)]] }).catch(() => {});
   res.json({
     success: true,
     message: 'Details submitted. An admin will review them before you can take bookings.',
@@ -143,6 +147,8 @@ const markPayoutPaid = asyncHandler(async (req, res) => {
     transferReference: req.body && req.body.transferReference,
     adminId: req.actor.id
   });
+  require('../services/liveUpdates').payoutUpdated(req.app.get('io'), payout.doctorId, 'paid');
+  await notifyDoctorOfPayment(payout);
   res.json({ success: true, message: 'Payout recorded as paid', payout });
 });
 
@@ -160,6 +166,32 @@ const listPayouts = asyncHandler(async (req, res) => {
 
   res.json({ success: true, count: payouts.length, payouts, currentPeriod: periodFor().periodKey });
 });
+
+/** Tell the doctor their weekly payout was sent. Never throws. */
+async function notifyDoctorOfPayment(payout) {
+  if (!payout || !(payout.netPayable > 0)) return;
+  try {
+    const User = require('../models/user');
+    const doctor = await User.findById(payout.doctorId).select('email firstName lastName');
+    if (!doctor || !doctor.email) return;
+    const { inr } = require('../utils/money');
+    await require('../services/email.service').sendNoticeEmail(doctor.email, {
+      subject: `Your payout of ${inr(payout.netPayable)} has been sent`,
+      title: 'Payout sent',
+      recipientName: `${doctor.firstName} ${doctor.lastName || ''}`.trim(),
+      doctor: true,
+      paragraphs: ['Your weekly earnings have been transferred to your bank account. Bank transfers usually arrive within a working day.'],
+      rows: [
+        ['Period', payout.periodKey],
+        ['Sessions', payout.sessionCount != null ? String(payout.sessionCount) : null],
+        ['Amount', inr(payout.netPayable)],
+        ['Transfer reference (UTR)', payout.transferReference]
+      ]
+    }, 'payout sent');
+  } catch (err) {
+    logger.warn('Payout email failed', { error: err.message });
+  }
+}
 
 /**
  * Tell the doctor what happened to their bank details. They were told
@@ -224,6 +256,7 @@ const approveBankDetails = asyncHandler(async (req, res) => {
 
   logger.info('Bank details approved', { doctorId: String(req.params.doctorId).substring(0, 8) });
   await notifyDoctorOfBankDecision(req.params.doctorId, true);
+  require('../services/liveUpdates').payoutUpdated(req.app.get('io'), req.params.doctorId, 'approved');
   res.json({ success: true, message: 'Approved. This therapist can now take bookings.' });
 });
 
@@ -263,6 +296,7 @@ const rejectBankDetails = asyncHandler(async (req, res) => {
   }
 
   await notifyDoctorOfBankDecision(req.params.doctorId, false, reason);
+  require('../services/liveUpdates').payoutUpdated(req.app.get('io'), req.params.doctorId, 'rejected');
   res.json({ success: true, message: 'Rejected. The therapist has been asked to resubmit.' });
 });
 

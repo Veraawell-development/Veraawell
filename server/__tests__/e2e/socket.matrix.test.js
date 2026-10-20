@@ -246,13 +246,13 @@ describe('the /chat namespace', () => {
     expect(await Message.countDocuments({ text: 'intrusion' })).toBe(0);
   });
 
-  test('typing indicators are guarded by the same participation rule', async () => {
+  test('an intruder cannot join or send even with a well-formed id, and a malformed id is a 400, not a server error', async () => {
     const conv = await conversationBetween(f.patientA, f.doctorA);
     const intruder = await connect(tokenFor(f.patientB), '/chat');
-
-    intruder.emit('typing:start', { conversationId: String(conv._id) });
-    const { payload } = await waitFor(intruder, ['authz:denied', 'error']);
-    expect(payload.code).toBeTruthy();
+    const sent = await intruder.timeout(5000).emitWithAck('message:send', { conversationId: String(conv._id), text: 'hi', clientMsgId: 'x1' });
+    expect(sent.ok).toBe(false);
+    const bad = await intruder.timeout(5000).emitWithAck('conversation:join', 'not-an-id');
+    expect(bad).toMatchObject({ ok: false, code: 'INVALID_PAYLOAD' });
   });
 });
 

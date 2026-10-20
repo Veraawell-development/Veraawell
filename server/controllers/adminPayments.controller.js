@@ -331,7 +331,28 @@ exports.adminRefundSession = async (req, res) => {
         payload: { cancelledBy: 'admin' }
       });
       session = cancelled.session;
-      if (cancelled.changed) await releaseSessionSlot(session);
+      if (cancelled.changed) {
+        await releaseSessionSlot(session);
+        // Both people's screens and the call room: it used to be cancelled
+        // silently, leaving Join buttons and a ringing request behind.
+        require('../services/liveUpdates').sessionCancelled(req.app.get('io'), session, {
+          byRole: 'admin', refundAmount,
+          message: 'This session was cancelled and refunded by Veraawell support.'
+        });
+        // The doctor loses a booked session: tell them (the patient gets the
+        // refund email below).
+        try {
+          const doctor = await User.findById(session.doctorId).select('firstName lastName email');
+          if (doctor && doctor.email) {
+            const { date, time } = require('../services/sessionTime').displayWhen(session);
+            await require('../services/email.service').sendCancellationEmail(doctor.email, {
+              recipientName: `Dr. ${doctor.firstName} ${doctor.lastName}`, date, time,
+              cancelledBy: 'Veraawell support', refundState: 'hide',
+              message: 'This session was cancelled and refunded by Veraawell support.'
+            });
+          }
+        } catch (e) { logger.warn('Admin-cancellation email to doctor failed', { error: e.message }); }
+      }
     }
     if (!isTerminalStatus(session.status)) {
       return res.status(400).json({ message: `Cannot refund a session that is "${session.status}"` });
@@ -361,7 +382,7 @@ exports.adminRefundSession = async (req, res) => {
           patientName: patient.firstName,
           amount: refundAmount,
           refundId: result.refundId,
-          date: new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+          date: require('../services/sessionTime').displayWhen(session).date
         });
       }
     } catch (e) { logger.warn('Refund email failed', { error: e.message }); }
@@ -469,7 +490,7 @@ exports.retryRefund = async (req, res) => {
           patientName: patient.firstName,
           amount,
           refundId: result.refundId,
-          date: new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+          date: require('../services/sessionTime').displayWhen(session).date
         });
       }
     } catch (e) { logger.warn('[Admin] Retry refund email failed:', { error: e.message }); }

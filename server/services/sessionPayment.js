@@ -49,9 +49,6 @@ function shortId(id) {
   return String(id).substring(0, 8);
 }
 
-function formatDate(date) {
-  return new Date(date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-}
 
 /**
  * Release the calendar slot a session holds, if it holds one.
@@ -92,6 +89,60 @@ async function openConversation(patientId, doctorId, sessionId) {
   }
 }
 
+/**
+ * The booking emails, for a confirmed booking (paid, or nothing owed).
+ * Instant requests get their own words: "Booking confirmed — be ready at the
+ * scheduled time" went out while the request could still expire unanswered.
+ * Never throws.
+ */
+async function sendBookingEmails(populated) {
+  const emailService = require('./email.service');
+  const { displayWhen } = require('./sessionTime');
+  const { date, time } = displayWhen(populated);
+  const doctorName = `${populated.doctorId.firstName} ${populated.doctorId.lastName}`;
+  const patientName = `${populated.patientId.firstName} ${populated.patientId.lastName}`;
+  const mode = populated.callMode === 'Voice Calling' ? 'Voice' : 'Video';
+  try {
+    if (populated.sessionType === 'immediate') {
+      if (populated.patientId.email) {
+        await emailService.sendNoticeEmail(populated.patientId.email, {
+          subject: `Your request has been sent to Dr. ${doctorName}`,
+          title: 'Request sent',
+          recipientName: populated.patientId.firstName,
+          paragraphs: [
+            `Dr. ${doctorName} has 2 minutes to accept your ${populated.duration}-minute ${mode.toLowerCase()} session. Keep the Veraawell page open — the call starts as soon as they accept.`,
+            "If they don't answer in time, you're refunded in full automatically."
+          ],
+          rows: [['Amount paid', require('../utils/money').inr(populated.price)]]
+        }, 'instant request (patient)');
+      }
+      if (populated.doctorId.email) {
+        await emailService.sendNoticeEmail(populated.doctorId.email, {
+          subject: `Instant session request from ${patientName}`,
+          title: 'Instant session request',
+          recipientName: doctorName,
+          doctor: true,
+          paragraphs: [`${patientName} would like a ${populated.duration}-minute ${mode.toLowerCase()} session now. Open your dashboard to accept or delay — the request expires in 2 minutes.`],
+          rows: [['Your earnings', require('../utils/money').inr(populated.doctorEarnings)]]
+        }, 'instant request (doctor)');
+      }
+      return;
+    }
+    if (populated.patientId.email) {
+      await emailService.sendBookingConfirmationEmail(populated.patientId.email, {
+        date, time, doctorName: `Dr. ${doctorName}`, duration: populated.duration, mode, price: populated.price
+      });
+    }
+    if (populated.doctorId.email) {
+      await emailService.sendDoctorNewBookingEmail(populated.doctorId.email, {
+        doctorName, patientName, date, time, duration: populated.duration, type: mode, doctorEarnings: populated.doctorEarnings
+      });
+    }
+  } catch (err) {
+    logger.warn('Booking email failed', { sessionId: shortId(populated._id), error: err.message });
+  }
+}
+
 /** Ring the doctor and email both parties. Only for the write that confirmed the booking. */
 async function notifyBooked(session, io) {
   const populated = await Session.findById(session._id)
@@ -103,49 +154,70 @@ async function notifyBooked(session, io) {
   const doctorId = String(populated.doctorId._id || populated.doctorId);
   await openConversation(patientId, doctorId, populated._id);
 
-  if (io) {
-    new SocketEmitter(io).emitToUsers([patientId, doctorId], 'session:booked', {
-      session: populated,
-      patientId,
-      doctorId,
-      sessionId: String(populated._id),
-      // Carried explicitly so the doctor's countdown never has to guess how
-      // long the request has been in flight.
-      acceptanceDeadline: populated.acceptanceDeadline || null,
-      timestamp: new Date()
-    });
-  }
+  require('./liveUpdates').sessionBooked(io, populated);
 
-  const emailService = require('./email.service');
-  const type = populated.sessionType === 'immediate' ? 'Immediate' : 'Regular';
-  const date = formatDate(populated.sessionDate);
-  try {
-    if (populated.patientId && populated.patientId.email) {
-      await emailService.sendBookingConfirmationEmail(populated.patientId.email, {
-        date,
-        time: populated.sessionTime,
-        type,
-        doctorName: `${populated.doctorId.firstName} ${populated.doctorId.lastName}`,
-        duration: populated.duration,
-        price: populated.price
-      });
-    }
-    if (populated.doctorId && populated.doctorId.email) {
-      await emailService.sendDoctorNewBookingEmail(populated.doctorId.email, {
-        doctorName: `${populated.doctorId.firstName} ${populated.doctorId.lastName}`,
-        patientName: `${populated.patientId.firstName} ${populated.patientId.lastName}`,
-        date,
-        time: populated.sessionTime,
-        duration: populated.duration,
-        type,
-        doctorEarnings: populated.doctorEarnings
-      });
-    }
-  } catch (err) {
-    logger.warn('Booking confirmation email failed', { sessionId: shortId(populated._id), error: err.message });
-  }
+  await sendBookingEmails(populated);
 
   return populated;
+}
+
+/** The patient's checkout expired after a failed payment attempt. Never throws. */
+async function sendPaymentFailedNotice(sessionId) {
+  try {
+    const s = await Session.findById(sessionId).populate('patientId', 'firstName email').populate('doctorId', 'firstName lastName').lean();
+    if (!s || !s.patientId || !s.patientId.email) return;
+    await require('./email.service').sendPaymentFailedEmail(s.patientId.email, {
+      patientName: s.patientId.firstName,
+      doctorName: s.doctorId ? `${s.doctorId.firstName} ${s.doctorId.lastName}` : null,
+      amount: s.price
+    });
+  } catch (err) { logger.warn('Payment failed email error', { error: err.message }); }
+}
+
+/** A payment that landed after its checkout had expired, refunded. Never throws. */
+async function sendLateCaptureNotice(session, refunded) {
+  try {
+    const s = await Session.findById(session._id).populate('patientId', 'firstName email').lean();
+    if (!s || !s.patientId || !s.patientId.email) return;
+    const emailService = require('./email.service');
+    await emailService.sendNoticeEmail(s.patientId.email, {
+      subject: 'Your payment arrived after the booking expired — refunded',
+      title: 'Payment refunded',
+      recipientName: s.patientId.firstName,
+      paragraphs: [
+        'Your payment reached us after the booking time had already been released, so we could not confirm that booking.',
+        refunded
+          ? 'We have refunded it in full. It goes back to your original payment method, usually within 5–7 working days.'
+          : 'We are refunding it in full — it is taking a little longer than usual, and our team has been alerted.',
+        'You can book again any time.'
+      ],
+      amountLabel: 'Refund', amount: s.price
+    }, 'late capture refund');
+  } catch (err) { logger.warn('Late capture email error', { error: err.message }); }
+}
+
+/** A live booking cancelled by a refund made outside the app (the Razorpay dashboard). Never throws. */
+async function sendSupportCancellationEmails(sessionId, amount) {
+  try {
+    const s = await Session.findById(sessionId).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').lean();
+    if (!s) return;
+    const emailService = require('./email.service');
+    const { date, time } = require('./sessionTime').displayWhen(s);
+    if (s.patientId && s.patientId.email) {
+      await emailService.sendCancellationEmail(s.patientId.email, {
+        recipientName: s.patientId.firstName, date, time, cancelledBy: 'Veraawell support',
+        refundAmount: amount, refundState: 'issued',
+        message: 'This session was cancelled and refunded by Veraawell support.'
+      });
+    }
+    if (s.doctorId && s.doctorId.email) {
+      await emailService.sendCancellationEmail(s.doctorId.email, {
+        recipientName: `Dr. ${s.doctorId.firstName} ${s.doctorId.lastName}`, date, time, cancelledBy: 'Veraawell support',
+        refundState: 'hide',
+        message: `Your session with ${s.patientId ? `${s.patientId.firstName} ${s.patientId.lastName}` : 'your patient'} was cancelled and refunded by Veraawell support.`
+      });
+    }
+  } catch (err) { logger.warn('Support cancellation email error', { error: err.message }); }
 }
 
 /**
@@ -209,6 +281,7 @@ async function confirmPayment({ session: sessionOrId, paymentId, actor, io = nul
         amount: session.price,
         reason: 'Payment captured after the booking had expired'
       });
+      await sendLateCaptureNotice(claim.session, result.refunded);
       return {
         outcome: result.refunded ? 'late-capture-refunded' : 'late-capture-refund-failed',
         session: result.session
@@ -307,6 +380,9 @@ async function expireCheckout(session, { now = new Date(), io = null } = {}) {
 
   await releaseSessionSlot(expired.session);
   logger.info('Unpaid checkout expired', { sessionId: shortId(session._id) });
+  // A payment attempt had failed and was never retried successfully: tell
+  // the patient (a checkout simply closed needs no email).
+  if (session.lastPaymentFailureAt) await sendPaymentFailedNotice(session._id);
   return { outcome: 'expired' };
 }
 
@@ -365,13 +441,13 @@ async function observeRefund(refund, { io = null } = {}) {
     session = cancelled.session;
     if (cancelled.changed) {
       await releaseSessionSlot(session);
-      if (io) {
-        new SocketEmitter(io).emitToUsers(
-          [String(session.patientId), String(session.doctorId)],
-          'session:cancelled',
-          { sessionId: String(session._id), cancelledBy: 'admin', refundAmount: refund.amount / 100, timestamp: new Date() }
-        );
-      }
+      require('./liveUpdates').sessionCancelled(io, session, {
+        byRole: 'admin', refundAmount: refund.amount / 100,
+        message: 'This session was cancelled and refunded by Veraawell support.'
+      });
+      // Both people by email too: the booking used to vanish with only a
+      // "Refund confirmed" to the patient and nothing to the doctor.
+      await sendSupportCancellationEmails(session._id, refund.amount / 100);
       logger.warn('A refund issued outside the app cancelled a live booking', { sessionId: shortId(session._id) });
     }
   }
@@ -390,6 +466,7 @@ async function observeRefund(refund, { io = null } = {}) {
 }
 
 module.exports = {
+  sendBookingEmails,
   openConversation,
   confirmPayment,
   expireCheckout,

@@ -510,10 +510,10 @@ exports.deleteArticle = asyncHandler(async (req, res) => {
             const SocketEmitter = require('../utils/socketEmitter');
             const emitter = new SocketEmitter(io);
 
-            emitter.emitToRole('patient', 'article:deleted', {
-                articleId: article._id.toString(),
-                timestamp: new Date()
-            });
+            const gone = { articleId: article._id.toString(), timestamp: new Date() };
+            // Doctors read the articles too.
+            emitter.emitToRole('patient', 'article:deleted', gone);
+            emitter.emitToRole('doctor', 'article:deleted', gone);
 
             logger.info('Article deletion broadcasted to patients', {
                 articleId: article._id.toString().substring(0, 8)
@@ -556,7 +556,7 @@ exports.publishArticle = asyncHandler(async (req, res) => {
             const SocketEmitter = require('../utils/socketEmitter');
             const emitter = new SocketEmitter(io);
 
-            emitter.emitToRole('patient', 'article:new', {
+            const published = {
                 article: {
                     _id: article._id,
                     title: article.title,
@@ -567,7 +567,9 @@ exports.publishArticle = asyncHandler(async (req, res) => {
                     publishedDate: article.publishedDate
                 },
                 timestamp: new Date()
-            });
+            };
+            emitter.emitToRole('patient', 'article:new', published);
+            emitter.emitToRole('doctor', 'article:new', published);
 
             logger.info('New article broadcasted to patients', {
                 articleId: article._id.toString().substring(0, 8),

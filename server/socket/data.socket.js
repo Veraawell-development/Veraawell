@@ -36,8 +36,9 @@ const initializeDataSocket = (io) => {
         });
 
         // A doctor's connections are their presence (services/presence.js).
-        if (userRole === 'doctor') {
-            presence.connected(userId, socket.id);
+        // Patients' "Available now" lists only doctors who are connected.
+        if (userRole === 'doctor' && presence.connected(userId, socket.id)) {
+            require('../services/liveUpdates').doctorAvailability(io, userId);
         }
 
         // Join user to their personal room for targeted events
@@ -57,8 +58,8 @@ const initializeDataSocket = (io) => {
 
             // The last connection gone starts a 2-minute grace; a refresh or a
             // blip reconnects well inside it, closing the app does not.
-            if (userRole === 'doctor') {
-                presence.disconnected(userId, socket.id, { io });
+            if (userRole === 'doctor' && presence.disconnected(userId, socket.id, { io })) {
+                require('../services/liveUpdates').doctorAvailability(io, userId);
             }
         });
 

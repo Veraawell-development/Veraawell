@@ -152,10 +152,12 @@ function toClearOptions(config) {
  * Get frontend URL
  */
 function getFrontendUrl() {
-  return getEnv('FRONTEND_URL', isProduction()
+  // Without the trailing slash: every link is built as `${url}/path`, and
+  // FRONTEND_URL=https://veraawell.com/ gave "//path".
+  return String(getEnv('FRONTEND_URL', isProduction()
     ? 'https://veraawell.com'
     : 'http://localhost:5173'
-  );
+  )).replace(/\/+$/, '');
 }
 
 module.exports = {

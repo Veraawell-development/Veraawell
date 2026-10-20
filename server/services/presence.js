@@ -41,7 +41,10 @@ function goOffline(doctorId, io, reason) {
     .catch((err) => logger.warn('Could not switch an absent doctor offline', { doctorId: short(doctorId), error: err.message }));
 }
 
-/** A doctor's /data socket connected. Cancels a pending switch-off. */
+/**
+ * A doctor's /data socket connected. Cancels a pending switch-off.
+ * @returns {boolean} true if this was their first connection (they just came back)
+ */
 function connected(doctorId, socketId) {
   const id = String(doctorId);
   const timer = offlineTimers.get(id);
@@ -49,28 +52,32 @@ function connected(doctorId, socketId) {
     clearTimeout(timer);
     offlineTimers.delete(id);
   }
-  if (!connections.has(id)) connections.set(id, new Set());
+  const first = !connections.has(id);
+  if (first) connections.set(id, new Set());
   connections.get(id).add(socketId);
+  return first;
 }
 
 /**
  * A doctor's /data socket went away. If it was their last one, they go
  * offline after GRACE_MS unless a socket comes back first.
+ * @returns {boolean} true if that was their last connection
  */
 function disconnected(doctorId, socketId, { io = null, graceMs = GRACE_MS } = {}) {
   const id = String(doctorId);
   const set = connections.get(id);
-  if (!set) return;
+  if (!set) return false;
   set.delete(socketId);
-  if (set.size > 0) return;
+  if (set.size > 0) return false;
   connections.delete(id);
-  if (offlineTimers.has(id)) return;
+  if (offlineTimers.has(id)) return true;
   const timer = setTimeout(() => {
     offlineTimers.delete(id);
     if (!connections.has(id)) goOffline(id, io, 'no connection');
   }, graceMs);
   if (typeof timer.unref === 'function') timer.unref();
   offlineTimers.set(id, timer);
+  return true;
 }
 
 /** Does this doctor have a live connection right now? */

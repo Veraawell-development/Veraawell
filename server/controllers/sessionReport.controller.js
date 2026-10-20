@@ -74,6 +74,7 @@ const createReport = asyncHandler(async (req, res) => {
   await report.populate('doctorId', 'firstName lastName');
   await report.populate('sessionId', 'sessionDate sessionTime');
 
+  require('../services/liveUpdates').clinicalUpdated(req.app.get('io'), patientId, 'report');
   logger.info('Session report created', { reportId: shortId(report._id) });
   res.status(201).json({ success: true, report });
 });

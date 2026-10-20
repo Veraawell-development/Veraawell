@@ -98,10 +98,14 @@ router.post('/admins/:adminId/approve', verifyAdminToken, verifySuperAdmin, vali
       return res.status(400).json({ message: 'Admin already approved' });
     }
 
+    const claimed = await User.updateOne(
+      { _id: adminId, approvalStatus: { $ne: 'approved' } },
+      { $set: { approvalStatus: 'approved', approvedBy: superAdminId, approvedAt: new Date() } }
+    );
+    if (claimed.modifiedCount === 0) return res.status(400).json({ message: 'Admin already approved' });
     admin.approvalStatus = 'approved';
     admin.approvedBy = superAdminId;
     admin.approvedAt = new Date();
-    await admin.save();
 
     // Log activity
     await admin.logActivity('approved_by_super_admin', {
@@ -142,9 +146,13 @@ router.post('/admins/:adminId/reject', verifyAdminToken, verifySuperAdmin, valid
       return res.status(400).json({ message: 'User is not an admin' });
     }
 
+    const rejected = await User.updateOne(
+      { _id: adminId, approvalStatus: { $ne: 'rejected' } },
+      { $set: { approvalStatus: 'rejected', rejectionReason: reason || 'No reason provided' } }
+    );
+    if (rejected.modifiedCount === 0) return res.status(400).json({ message: 'Admin already rejected' });
     admin.approvalStatus = 'rejected';
     admin.rejectionReason = reason || 'No reason provided';
-    await admin.save();
 
     // Log activity
     await admin.logActivity('rejected_by_super_admin', {
@@ -248,10 +256,16 @@ router.post('/doctors/:doctorId/approve', verifyAdminToken, validateObjectIdPara
       return res.status(400).json({ message: 'Doctor already approved' });
     }
 
+    // A compare-and-set: a double-clicked Approve used to save twice and send
+    // the welcome email twice.
+    const claimed = await User.updateOne(
+      { _id: doctorId, approvalStatus: { $ne: 'approved' } },
+      { $set: { approvalStatus: 'approved', approvedBy: adminId, approvedAt: new Date() } }
+    );
+    if (claimed.modifiedCount === 0) return res.status(400).json({ message: 'Doctor already approved' });
     doctor.approvalStatus = 'approved';
     doctor.approvedBy = adminId;
     doctor.approvedAt = new Date();
-    await doctor.save();
 
     // Log activity
     await doctor.logActivity('approved_by_admin', {
@@ -259,22 +273,8 @@ router.post('/doctors/:doctorId/approve', verifyAdminToken, validateObjectIdPara
       timestamp: new Date()
     });
 
-    // REAL-TIME UPDATE: Notify doctor of approval
-    const io = req.app.get('io');
-    if (io) {
-      const SocketEmitter = require('../../utils/socketEmitter');
-      const emitter = new SocketEmitter(io);
-
-      emitter.emitToUser(doctor._id.toString(), 'doctor:approval-status', {
-        status: 'approved',
-        approvedAt: doctor.approvedAt,
-        timestamp: new Date()
-      });
-
-      logger.info('Doctor approval broadcasted', {
-        doctorId: doctor._id.toString().substring(0, 8)
-      });
-    }
+    // No live event: a doctor who isn't approved can't hold a socket (the
+    // handshake refuses them), so it could never arrive. The email tells them.
 
     await notify('doctor approval', () => emailService.sendDoctorApprovedEmail(doctor.email, doctor.firstName));
 
@@ -309,32 +309,20 @@ router.post('/doctors/:doctorId/reject', verifyAdminToken, validateObjectIdParam
       return res.status(400).json({ message: 'User is not a doctor' });
     }
 
+    const rejected = await User.updateOne(
+      { _id: doctorId, approvalStatus: { $ne: 'rejected' } },
+      { $set: { approvalStatus: 'rejected', rejectionReason: reason || 'No reason provided' } }
+    );
+    // Already rejected: nothing changes, and no second email.
+    if (rejected.modifiedCount === 0) return res.status(400).json({ message: 'Doctor already rejected' });
     doctor.approvalStatus = 'rejected';
     doctor.rejectionReason = reason || 'No reason provided';
-    await doctor.save();
 
     // Log activity
     await doctor.logActivity('rejected_by_admin', {
       reason: doctor.rejectionReason,
       timestamp: new Date()
     });
-
-    // REAL-TIME UPDATE: Notify doctor of rejection
-    const io = req.app.get('io');
-    if (io) {
-      const SocketEmitter = require('../../utils/socketEmitter');
-      const emitter = new SocketEmitter(io);
-
-      emitter.emitToUser(doctor._id.toString(), 'doctor:approval-status', {
-        status: 'rejected',
-        reason: doctor.rejectionReason,
-        timestamp: new Date()
-      });
-
-      logger.info('Doctor rejection broadcasted', {
-        doctorId: doctor._id.toString().substring(0, 8)
-      });
-    }
 
     await notify('doctor rejection', () => emailService.sendDoctorRejectedEmail(doctor.email, doctor.firstName, reason));
 

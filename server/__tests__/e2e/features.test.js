@@ -573,53 +573,38 @@ describe('chat', () => {
     expect(after.body.unreadCount).toBe(0);
   });
 
-  test('fetching the thread also marks it read', async () => {
-    // getMessages carries the same side effect (chat.controller.js:72). Worth
-    // pinning separately because the client relies on it implicitly, and a
-    // cached GET silently skips it.
+  test('fetching the thread does NOT mark it read; PUT .../read does', async () => {
+    // Fetching history used to mark everything read as a side effect — so the
+    // in-call chat merely mounting, or a prefetch, counted as reading, and a
+    // message arriving later was hidden but "read". Reading is now explicit
+    // (the app calls PUT .../read while the thread is on screen).
     await call('post', '/api/chat/conversation', tokens.patientA, { otherUserId: String(f.doctorA._id) });
     const conversationId = String((await Models.Conversation.findOne({}))._id);
     await call('post', '/api/chat/message', tokens.patientA, { conversationId, text: 'Hello doctor' });
-
     expect((await call('get', '/api/chat/unread-count', tokens.doctorA)).body.unreadCount).toBe(1);
 
     const fetched = await call('get', `/api/chat/messages/${conversationId}`, tokens.doctorA);
     expect(fetched.status).toBe(200);
-    // The response is built BEFORE the mark-read, so it still reports unread.
     expect(fetched.body[0].isRead).toBe(false);
+    expect((await call('get', '/api/chat/unread-count', tokens.doctorA)).body.unreadCount).toBe(1);
 
+    const read = await call('put', `/api/chat/conversation/${conversationId}/read`, tokens.doctorA);
+    expect(read.body).toMatchObject({ success: true, marked: 1 });
     expect((await call('get', '/api/chat/unread-count', tokens.doctorA)).body.unreadCount).toBe(0);
   });
 
-  test('A MESSAGE ARRIVING AFTER THE THREAD IS OPEN STAYS UNREAD FOREVER', async () => {
-    // The reported bug. Read state is written only on ENTERING a conversation
-    // — by GET /chat/messages/:id or by the socket conversation:join. There is
-    // no read signal for a message that arrives while the reader already has
-    // the thread open: MessagesPage handles `message:receive` with
-    // setQueryData, so no GET is issued and nothing is emitted. The comment at
-    // socket/chat.socket.js:142-148 records that a `message:read` handler was
-    // removed precisely because no client emitted one.
-    //
-    // So the recipient watches the message appear on screen and the count
-    // stays at 1 — through a poll, through the 5-minute cache, and through a
-    // full reload.
+  test('a message arriving while the thread is open is cleared by the next read', async () => {
+    // The reported bug: read state was written only on ENTERING a thread, so
+    // a message arriving while it was open stayed unread forever. The app now
+    // calls PUT .../read for a message that arrives into the open thread.
     await call('post', '/api/chat/conversation', tokens.patientA, { otherUserId: String(f.doctorA._id) });
     const conversationId = String((await Models.Conversation.findOne({}))._id);
-
-    // The doctor opens the thread and reads everything in it.
     await call('post', '/api/chat/message', tokens.patientA, { conversationId, text: 'first' });
-    await call('get', `/api/chat/messages/${conversationId}`, tokens.doctorA);
+    await call('put', `/api/chat/conversation/${conversationId}/read`, tokens.doctorA);
     expect((await call('get', '/api/chat/unread-count', tokens.doctorA)).body.unreadCount).toBe(0);
 
-    // A second message arrives while the thread is still open. The client
-    // renders it from the socket payload and issues no request.
     await call('post', '/api/chat/message', tokens.patientA, { conversationId, text: 'second' });
-
-    // It is now unread and nothing in the protocol will ever clear it.
     expect((await call('get', '/api/chat/unread-count', tokens.doctorA)).body.unreadCount).toBe(1);
-
-    // Only re-entering the conversation clears it — which is the workaround
-    // users discover, and the reason the badge looks stuck.
     await call('put', `/api/chat/conversation/${conversationId}/read`, tokens.doctorA);
     expect((await call('get', '/api/chat/unread-count', tokens.doctorA)).body.unreadCount).toBe(0);
   });

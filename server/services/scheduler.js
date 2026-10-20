@@ -262,57 +262,44 @@ const runReminderSweep = async ({ now = new Date() } = {}) => {
             const sessionDateTime = resolveStartsAt(session);
             const diffMs = sessionDateTime.getTime() - now.getTime();
             const diffMinutes = diffMs / (1000 * 60);
-            const ns = session.notificationStatus;
+            const ns = session.notificationStatus || {};
 
-            let changed = false;
+            // Each reminder is claimed before it is sent (a conditional write
+            // on its flag), so two runs — an overlapping deploy — can't both
+            // send it; and released if the send failed, so the next minute
+            // tries again. The flag used to be set after the send even when
+            // the provider refused it, and the reminder was lost.
+            const claimAndSend = async (flag, send) => {
+                const claimed = await Session.updateOne(
+                    { _id: session._id, [`notificationStatus.${flag}`]: { $ne: true } },
+                    { $set: { [`notificationStatus.${flag}`]: true } }
+                );
+                if (claimed.modifiedCount === 0) return;
+                const result = await send();
+                if (result === null) {
+                    await Session.updateOne({ _id: session._id }, { $set: { [`notificationStatus.${flag}`]: false } });
+                }
+            };
 
             // The doctor: the same 15-minute and starting-now reminders. Their
             // own flags, so a patient without an email doesn't cost the doctor
             // theirs (and the other way round).
             if (session.doctorId && session.doctorId.email) {
                 if (diffMinutes >= 14 && diffMinutes <= 16 && !ns.doctorReminderSent) {
-                    await sendSessionReminderEmail(session.doctorId.email, session, '15min', { recipient: 'doctor' });
-                    ns.doctorReminderSent = true;
-                    changed = true;
+                    await claimAndSend('doctorReminderSent', () => sendSessionReminderEmail(session.doctorId.email, session, '15min', { recipient: 'doctor' }));
                 } else if (diffMinutes >= 1 && diffMinutes <= 3 && !ns.doctorStartSent) {
-                    await sendSessionReminderEmail(session.doctorId.email, session, 'start', { recipient: 'doctor' });
-                    ns.doctorStartSent = true;
-                    changed = true;
+                    await claimAndSend('doctorStartSent', () => sendSessionReminderEmail(session.doctorId.email, session, 'start', { recipient: 'doctor' }));
                 }
             }
 
             if (!session.patientId || !session.patientId.email) {
                 logger.debug(`Skipping the patient's reminders for ${session._id}: no email`);
-            }
-            // 1. 15-minute reminder
-            else if (diffMinutes >= 14 && diffMinutes <= 16 && !session.notificationStatus.reminderSent) {
-                await sendSessionReminderEmail(session.patientId.email, session, '15min');
-                session.notificationStatus.reminderSent = true;
-                changed = true;
-            }
-            // 2. Starting-soon (2-min) reminder
-            else if (diffMinutes >= 1 && diffMinutes <= 3 && !session.notificationStatus.startSent) {
-                await sendSessionReminderEmail(session.patientId.email, session, 'start');
-                session.notificationStatus.startSent = true;
-                changed = true;
-            }
-            // 3. Late alert
-            else if (diffMinutes >= -10 && diffMinutes <= -5 && !session.notificationStatus.lateSent) {
-                if (!session.patientJoined) {
-                    await sendSessionReminderEmail(session.patientId.email, session, 'late');
-                    session.notificationStatus.lateSent = true;
-                    changed = true;
-                }
-            }
-
-            // Only the flags, not a save() of a document read up to a
-            // minute ago — that could not revert status today, but it is
-            // the shape every revert bug in this codebase started from.
-            if (changed) {
-                await Session.updateOne(
-                    { _id: session._id },
-                    { $set: { notificationStatus: session.notificationStatus } }
-                );
+            } else if (diffMinutes >= 14 && diffMinutes <= 16 && !ns.reminderSent) {
+                await claimAndSend('reminderSent', () => sendSessionReminderEmail(session.patientId.email, session, '15min'));
+            } else if (diffMinutes >= 1 && diffMinutes <= 3 && !ns.startSent) {
+                await claimAndSend('startSent', () => sendSessionReminderEmail(session.patientId.email, session, 'start'));
+            } else if (diffMinutes >= -10 && diffMinutes <= -5 && !ns.lateSent && !session.patientJoined) {
+                await claimAndSend('lateSent', () => sendSessionReminderEmail(session.patientId.email, session, 'late'));
             }
           } catch (err) {
             logger.error('Reminder failed for one session', { sessionId: String(session._id).substring(0, 8), error: err.message });

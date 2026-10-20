@@ -162,7 +162,7 @@ describe('session outcome emails', () => {
     expect(to).toBe('p@test.local');
     expect(subject).toBe("Your session didn't happen — full refund on its way | Veraawell");
     expect(html).toContain('Hi Asha,');
-    expect(html).toContain('₹1000');
+    expect(html).toContain('₹1,000');
     expect(html).toContain('patient-dashboard');
     expect(html).toContain('2 Nov 2026');
   });
@@ -218,5 +218,88 @@ describe('approval outcomes', () => {
   test('an admin signup code is labelled for an admin, not a patient', async () => {
     await email.sendOTPEmail('a@example.com', '123456', 'admin');
     expect(lastMessage().html).toContain('<strong>Admin</strong>');
+  });
+});
+
+describe('Phase 4: what the emails say', () => {
+  const lastSent = () => mockSend.mock.calls[mockSend.mock.calls.length - 1][0];
+
+  test('every email has a plain-text part and replies go to support', async () => {
+    await email.sendCancellationEmail('p@test.local', { recipientName: 'Asha', date: 'Tue, 21 Oct 2026', refundState: 'issued', refundAmount: 1234.5 });
+    const m = lastSent();
+    expect(m.replyTo).toBe('support@veraawell.com');
+    expect(m.text).toContain('Asha');
+    expect(m.text).not.toMatch(/<[a-z]/i);
+  });
+
+  test('amounts in Indian format', async () => {
+    expect(email.inr(1234.5)).toBe('₹1,234.50');
+    expect(email.inr(800)).toBe('₹800');
+    expect(email.inr('x')).toBe('');
+  });
+
+  test('a cancellation says what happened to the money — never a refund that did not happen', async () => {
+    const states = {
+      issued: (await email.sendCancellationEmail('a@t.l', { refundState: 'issued', refundAmount: 1000 }), lastSent().html),
+      failed: (await email.sendCancellationEmail('a@t.l', { refundState: 'failed', refundAmount: 1000 }), lastSent().html),
+      none: (await email.sendCancellationEmail('a@t.l', { refundState: 'none', refundAmount: 0 }), lastSent().html),
+      unpaid: (await email.sendCancellationEmail('a@t.l', { refundState: 'unpaid', refundAmount: 1000 }), lastSent().html),
+      hide: (await email.sendCancellationEmail('a@t.l', { refundState: 'hide', refundAmount: 1000 }), lastSent().html),
+    };
+    expect(states.issued).toMatch(/₹1,000/);
+    expect(states.issued).toMatch(/5–7 working days/);
+    expect(states.failed).toMatch(/taking longer than usual/);
+    expect(states.none).toMatch(/within 4 hours/);
+    for (const k of ['unpaid', 'hide']) {
+      expect(states[k]).not.toMatch(/Refund/);
+      expect(states[k]).not.toMatch(/₹/);
+    }
+  });
+
+  test('bank details approved: weekly bank transfer, not "Razorpay within 3 days"', async () => {
+    await email.sendPayoutActivatedEmail('d@t.l', 'Rao');
+    const m = lastSent();
+    expect(m.subject).toMatch(/bank details are approved/i);
+    expect(m.html).toMatch(/weekly, by bank transfer/);
+    expect(m.html).not.toMatch(/Razorpay|3 business days/);
+  });
+
+  test('booking confirmation: therapist, time, amount paid and a way to the dashboard', async () => {
+    await email.sendBookingConfirmationEmail('p@t.l', { doctorName: 'Dr. Pal', date: 'Tue, 21 Oct 2026', time: '2:30 pm IST', duration: 40, mode: 'Video', price: 1500 });
+    const { html } = lastSent();
+    for (const s of ['Dr. Pal', '2:30 pm IST', '40 minutes', '₹1,500', '/patient-dashboard', '4 hours']) expect(html).toContain(s);
+  });
+
+  test('payment failed: no "Dr. your doctor", no claim that no money left the account', async () => {
+    await email.sendPaymentFailedEmail('p@t.l', { patientName: 'Asha', doctorName: null, amount: 900 });
+    const { html } = lastSent();
+    expect(html).not.toMatch(/Dr\. your doctor|No money has been deducted/);
+    expect(html).toMatch(/refunded automatically/);
+  });
+
+  test('the doctor summary computes the fee % from the booking itself', async () => {
+    await email.sendDoctorSessionSummaryEmail('d@t.l', { doctorName: 'Rao', price: 1000, platformFee: 250, earnings: 750, feePercent: 20 });
+    const { html } = lastSent();
+    expect(html).toContain('Platform Fee (25%)');
+    expect(html).toContain('₹750');
+  });
+
+  test('notices and admin alerts', async () => {
+    await email.sendNoticeEmail('p@t.l', { subject: 'Request sent', title: 'Request sent', paragraphs: ['A <b>bold</b> claim'], rows: [['Amount paid', '₹900']], path: 'messages', buttonLabel: 'Open' });
+    let m = lastSent();
+    expect(m.subject).toBe('Request sent | Veraawell');
+    expect(m.html).toContain('A &lt;b&gt;bold&lt;/b&gt; claim');
+    expect(m.html).toContain('/messages');
+    process.env.ADMIN_ALERT_EMAIL = 'ops@test.local';
+    await email.sendAdminAlertEmail('A refund failed', ['Razorpay said no.']);
+    m = lastSent();
+    expect(m.to).toBe('ops@test.local');
+    expect(m.subject).toBe('[Admin] A refund failed | Veraawell');
+    delete process.env.ADMIN_ALERT_EMAIL;
+  });
+
+  test('the signup code says how long it works', async () => {
+    await email.sendOTPEmail('a@t.l', '123456', 'patient');
+    expect(lastSent().html).toMatch(/works for 15 minutes/);
   });
 });

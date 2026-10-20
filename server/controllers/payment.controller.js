@@ -321,20 +321,13 @@ exports.razorpayWebhook = async (req, res) => {
     else if (event === 'payment.failed') {
       const payment = payload?.payment?.entity;
       if (payment) {
-        const session = await Session.findOne({ razorpayOrderId: payment.order_id })
-          .populate('patientId', 'firstName lastName email')
-          .populate('doctorId', 'firstName lastName');
+        const session = await Session.findOne({ razorpayOrderId: payment.order_id }).select('status');
         if (session && session.status === 'payment_pending') {
+          // Noted, not emailed: the patient may well retry and succeed in the
+          // same checkout (they used to get "Payment failed" and then "Booking
+          // confirmed"). If the checkout expires unpaid, expireCheckout says so.
+          await Session.updateOne({ _id: session._id }, { $set: { lastPaymentFailureAt: new Date() } }, { timestamps: false });
           logger.info('Payment attempt failed', { sessionId: session._id.toString().substring(0, 8) });
-          if (session.patientId && session.patientId.email) {
-            try {
-              await emailService.sendPaymentFailedEmail(session.patientId.email, {
-                patientName: session.patientId.firstName,
-                doctorName: session.doctorId ? `${session.doctorId.firstName} ${session.doctorId.lastName}` : 'your doctor',
-                amount: session.price
-              });
-            } catch (e) { logger.warn('Payment failed email error', { error: e.message }); }
-          }
         }
       }
     }
@@ -355,7 +348,7 @@ exports.razorpayWebhook = async (req, res) => {
                 patientName: patient.firstName,
                 amount: refund.amount / 100,
                 refundId: refund.id,
-                date: new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+                date: require('../services/sessionTime').displayWhen(session).date
               });
             } catch (e) { logger.warn('Refund confirmed email error', { error: e.message }); }
           }

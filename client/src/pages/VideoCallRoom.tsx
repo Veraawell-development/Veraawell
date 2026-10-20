@@ -346,10 +346,6 @@ const VideoCallRoom: React.FC = () => {
         setShowConsentModal(false);
         finishCallRef.current('consent');
       }),
-      engine.onRoomEvent('end-session-error', (data: { message?: string }) => {
-        setShowConsentModal(false);
-        toast.error(data?.message || 'Could not end the session.');
-      }),
       engine.onRoomEvent('call:prep-data', (data: { tags?: string[] }) => {
         const tags = Array.isArray(data?.tags) ? data.tags : [];
         setPatientPrepData(tags);
@@ -1512,7 +1508,7 @@ const VideoCallRoom: React.FC = () => {
 
             {/* Floating Sidebar */}
             <div
-              className={`absolute top-4 right-4 bottom-4 w-full max-w-sm bg-[#18181B]/95 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_0_40px_rgba(0,0,0,0.8)] transform transition-transform duration-300 ease-in-out pointer-events-auto flex flex-col overflow-hidden ${showChat ? 'translate-x-0' : 'translate-x-[120%]'}`}
+              className={`absolute top-4 left-4 right-4 bottom-4 md:left-auto md:w-full max-w-sm bg-[#18181B]/95 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_0_40px_rgba(0,0,0,0.8)] transform transition-transform duration-300 ease-in-out pointer-events-auto flex flex-col overflow-hidden ${showChat ? 'translate-x-0' : 'translate-x-[120%]'}`}
             >
               {/* Header */}
               <div className="flex items-center justify-between px-6 py-5 border-b border-white/10 bg-white/5">
@@ -1538,6 +1534,7 @@ const VideoCallRoom: React.FC = () => {
               <div className="flex-1 overflow-hidden bg-black/20">
                 {sessionData && (
                   <SessionChat
+                    visible={showChat}
                     targetUserId={sessionData.doctorId?._id || sessionData.doctorId}
                     targetUserName={`Dr. ${sessionData.doctorId?.firstName || ''} ${sessionData.doctorId?.lastName || ''}`}
                     onNewMessage={() => !showChat && setHasUnreadMessages(true)}

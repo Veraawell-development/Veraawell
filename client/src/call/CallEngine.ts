@@ -87,7 +87,7 @@ type Listener = () => void;
 type RoomHandler = (payload: any) => void;
 
 /** Events from the room the page handles itself (rules, ending, tools). */
-const ROOM_EVENTS = ['session-time-up', 'session-ended', 'request-end-session', 'confirm-end-session', 'end-session-error',
+const ROOM_EVENTS = ['session-time-up', 'session-ended', 'request-end-session', 'confirm-end-session',
   'session:status-update', 'session:cancelled', 'call:prep-data', 'error'];
 
 function newInstanceId(): string {

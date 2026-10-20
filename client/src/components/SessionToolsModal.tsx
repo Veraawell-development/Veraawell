@@ -68,12 +68,13 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
     }
   }, [patientId, isOpen]);
 
-  if (!isOpen) return null;
+  // Stays mounted while closed (slid off-screen): the chat keeps receiving —
+  // returning null here unmounted it, so the doctor's unread dot could never
+  // light, and every open re-created the chat and lost the notes typed so far.
 
   const handleSaveNotes = async () => {
     try {
       setSaving(true);
-      console.log(' Saving notes:', { sessionId, patientId });
 
       const response = await fetch(`${API_BASE_URL}/session-tools/notes`, {
         method: 'POST',
@@ -90,8 +91,6 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
         })
       });
 
-      console.log(' Notes response status:', response.status);
-
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
         console.error(' Notes error:', errorData);
@@ -99,7 +98,6 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
       }
 
       const result = await response.json();
-      console.log(' Notes saved:', result);
 
       showNotification('success', 'Session notes saved successfully!');
       // Clear form
@@ -124,7 +122,6 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
       }
 
       setSaving(true);
-      console.log(' Saving task:', { sessionId, patientId, title: taskTitle });
 
       const response = await fetch(`${API_BASE_URL}/session-tools/tasks`, {
         method: 'POST',
@@ -140,8 +137,6 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
         })
       });
 
-      console.log(' Task response status:', response.status);
-
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
         console.error(' Task error:', errorData);
@@ -149,7 +144,6 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
       }
 
       const result = await response.json();
-      console.log(' Task saved:', result);
 
       showNotification('success', 'Task created successfully!');
       // Clear form
@@ -167,7 +161,7 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
 
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden pointer-events-none">
+    <div className="fixed inset-0 z-50 overflow-hidden pointer-events-none" aria-hidden={!isOpen} inert={!isOpen}>
       {/* Backdrop (invisible or subtle to allow seeing video) */}
       <div
         className={`absolute inset-0 bg-black/20 backdrop-blur-[1px] transition-opacity pointer-events-auto ${isOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
@@ -176,7 +170,7 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
 
       {/* Floating Side Panel */}
       <div
-        className={`absolute top-4 right-4 bottom-4 w-full max-w-md bg-[#18181B]/95 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_0_40px_rgba(0,0,0,0.8)] transform transition-transform duration-300 ease-in-out pointer-events-auto flex flex-col overflow-hidden ${isOpen ? 'translate-x-0' : 'translate-x-[120%]'}`}
+        className={`absolute top-4 left-4 right-4 bottom-4 md:left-auto md:w-full max-w-md bg-[#18181B]/95 backdrop-blur-2xl border border-white/10 rounded-3xl shadow-[0_0_40px_rgba(0,0,0,0.8)] transform transition-transform duration-300 ease-in-out pointer-events-auto flex flex-col overflow-hidden ${isOpen ? 'translate-x-0' : 'translate-x-[120%]'}`}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-white/10 bg-white/5">
@@ -373,13 +367,14 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
 
           {/* CHAT TAB - Always mount so it receives messages */}
           <div className={`h-full flex-col ${activeTab === 'chat' ? 'flex animate-fadeIn' : 'hidden'}`}>
-            <SessionChat 
-              targetUserId={patientId} 
-              targetUserName={patientName} 
+            <SessionChat
+              targetUserId={patientId}
+              targetUserName={patientName}
+              visible={isOpen && activeTab === 'chat'}
               onNewMessage={() => {
-                if (activeTab !== 'chat') setHasUnreadTabMessages(true);
+                if (!isOpen || activeTab !== 'chat') setHasUnreadTabMessages(true);
                 if (onNewMessage) onNewMessage();
-              }} 
+              }}
             />
           </div>
         </div>

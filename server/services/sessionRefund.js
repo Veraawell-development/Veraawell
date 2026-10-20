@@ -140,6 +140,12 @@ async function executeClaimedRefund(session, { amount, reason = 'Refund' } = {})
       actor: ACTOR.SYSTEM,
       payload: { reason: message }
     });
+    // Someone must look: the failed-refunds queue used to fill up unseen. The
+    // patient's own email (cancellation / outcome) already says it's delayed.
+    require('./email.service').sendAdminAlertEmail('A refund failed', [
+      `Razorpay refused a refund of ${require('../utils/money').inr(amount)}: ${message}.`,
+      'It is in the failed-refunds queue (admin console → Revenue). Retry it there once the cause is fixed.'
+    ], { rows: [['Session', String(id)]] }).catch(() => {});
     return { refunded: false, failed: true, session: failed.session, error: err };
   }
 

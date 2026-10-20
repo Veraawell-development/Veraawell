@@ -348,10 +348,10 @@ const DoctorDashboard: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['doctor', 'stats', user?.userId] });
     };
 
-    const onSessionCancelled = ({ sessionId }: any) => {
-      console.log('[REAL-TIME] Session cancelled:', sessionId);
+    const onSessionCancelled = ({ byRole, message }: any) => {
       fetchDelayed();
-      toast('A session was cancelled');
+      // Not for a cancellation the doctor just made themselves.
+      if (byRole !== 'doctor') toast(message || 'A session was cancelled', { id: 'doctor-session-cancelled' });
       setCalendarRefreshTrigger(prev => prev + 1);
       queryClient.invalidateQueries({ queryKey: ['doctor', 'stats', user?.userId] });
     };
@@ -364,14 +364,10 @@ const DoctorDashboard: React.FC = () => {
       fetchDelayed();
     };
 
-    const onApprovalStatus = ({ status, reason }: any) => {
-      console.log('[REAL-TIME] Approval status changed:', status);
-      if (status === 'approved') {
-        toast.success('Your account has been approved!');
-      } else if (status === 'rejected') {
-        toast.error(`Account rejected: ${reason || 'No reason provided'}`);
-      }
-      queryClient.invalidateQueries({ queryKey: ['session'] });
+    // An outcome decided (completed, no-show, refunded): the calendar and stats change.
+    const onSessionEnded = () => {
+      setCalendarRefreshTrigger(prev => prev + 1);
+      fetchDelayed();
     };
 
     //  NEW: Listen for real-time online status changes
@@ -382,8 +378,7 @@ const DoctorDashboard: React.FC = () => {
       }
     };
 
-    const onChatMessage = ({ message, senderName }: any) => {
-      console.log('[REAL-TIME] New chat message received:', message);
+    const onChatMessage = ({ senderName }: any) => {
       // Play notification sound
       playNotificationSound();
       
@@ -395,7 +390,7 @@ const DoctorDashboard: React.FC = () => {
     socket.on('session:booked', onSessionBooked);
     socket.on('session:cancelled', onSessionCancelled);
     socket.on('session:status-update', onStatusUpdate);
-    socket.on('doctor:approval-status', onApprovalStatus);
+    socket.on('session:ended', onSessionEnded);
     socket.on('doctor:status-change', onDoctorStatusChange);
     socket.on('chat:new-message', onChatMessage);
 
@@ -405,7 +400,7 @@ const DoctorDashboard: React.FC = () => {
       // Was socket.off('session:status-change') — a name that was never
       // registered, so this handler leaked on every remount.
       socket.off('session:status-update', onStatusUpdate);
-      socket.off('doctor:approval-status', onApprovalStatus);
+      socket.off('session:ended', onSessionEnded);
       socket.off('doctor:status-change', onDoctorStatusChange);
       socket.off('chat:new-message', onChatMessage);
     };

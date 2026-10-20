@@ -39,6 +39,7 @@ const createReport = asyncHandler(async (req, res) => {
     .populate('doctorId', 'firstName lastName')
     .populate('patientId', 'firstName lastName');
 
+  if (report.isSharedWithPatient) require('../services/liveUpdates').clinicalUpdated(req.app.get('io'), patientId, 'report');
   logger.info('Report created', { reportId: shortId(report._id), sessionId: shortId(sessionId) });
   res.status(201).json({ success: true, message: 'Report created successfully', report: populatedReport });
 });

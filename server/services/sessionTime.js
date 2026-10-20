@@ -174,7 +174,27 @@ function serializeTiming(session, zone = PLATFORM_TIMEZONE) {
   };
 }
 
+/**
+ * A session's day and time for an email: "Tue, 21 Oct 2026" and "2:30 pm IST",
+ * in the session's own zone. Emails used to format the stored UTC-midnight
+ * date in the SERVER's zone (a day early on a US host) and print the time
+ * with no zone at all.
+ * @returns {{date: string, time: string}} empty strings when unknown
+ */
+function displayWhen(session) {
+  let start;
+  try { start = resolveStartsAt(session); } catch (e) { return { date: '', time: '' }; }
+  if (!start || Number.isNaN(start.getTime())) return { date: '', time: '' };
+  const zone = session.timezone || PLATFORM_TIMEZONE;
+  const label = zone === 'Asia/Kolkata' ? 'IST' : zone;
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: zone, weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+    .formatToParts(start).map((p) => [p.type, p.value]));
+  const date = `${parts.weekday}, ${parts.day} ${parts.month} ${parts.year}`;
+  return { date, time: `${formatTimeForDisplay(start, zone)} ${label}` };
+}
+
 module.exports = {
+  displayWhen,
   resolveStartsAt,
   resolveEndsAt,
   hoursUntilStart,
