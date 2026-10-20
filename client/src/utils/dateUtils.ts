@@ -127,9 +127,14 @@ export const formatPlatformLocalDate = (
  */
 export const formatDate = (dateString: string): string => {
   const date = new Date(dateString);
-  const day = date.getDate();
-  const month = date.toLocaleString('en-US', { month: 'long' });
-  const year = date.getFullYear();
+  if (Number.isNaN(date.getTime())) return '—';
+  // The IST calendar day, not the viewer's: a note written at 1 am IST is
+  // still "15th" for a patient whose laptop is set to London.
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: PLATFORM_TIMEZONE, day: 'numeric', month: 'long', year: 'numeric' }).formatToParts(date);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value || '';
+  const day = Number(part('day'));
+  const month = part('month');
+  const year = part('year');
   
   const suffix = (day: number): string => {
     if (day > 3 && day < 21) return 'th';
