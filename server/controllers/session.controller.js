@@ -15,7 +15,7 @@ const Review = require('../models/review');
 const PlatformSettings = require('../models/platformSettings');
 const SocketEmitter = require('../utils/socketEmitter');
 
-const { calculateSessionPrice, validateBookingParams, getOrCreateAvailability, getGenderBasedImage } = require('../services/session.service');
+const { calculateSessionPrice, validateBookingParams, getOrCreateAvailability } = require('../services/session.service');
 const { calculateRefund, describeRefundPolicy } = require('../services/refundPolicy');
 const { resolveStartsAt, hoursUntilStart, deriveFields, displayWhen } = require('../services/sessionTime');
 const { payableSessionMatch } = require('../services/earnings');
@@ -652,7 +652,9 @@ const attachDoctorProfiles = async (sessions, role = null) => {
       s.doctorId.profileImage = profileMap[s.doctorId._id.toString()];
     }
     if (s.doctorId && (!s.doctorId.profileImage || s.doctorId.profileImage.includes('doctor-0') || s.doctorId.profileImage === '/doctor-placeholder.svg')) {
-      s.doctorId.profileImage = getGenderBasedImage(s.doctorId);
+      // No photo: the screens show the therapist's initials. A stock photo
+      // picked by guessing gender from the first name was a stranger's face.
+      s.doctorId.profileImage = null;
     }
     if (role) s.rules = sessionPolicy.view(s, role, now);
     return s;

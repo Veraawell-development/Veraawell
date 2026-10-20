@@ -78,17 +78,6 @@ async function getOrCreateAvailability(doctorId) {
   return availability;
 }
 
-/**
- * Heuristic gender-based default profile image for doctors without a profile photo.
- */
-function getGenderBasedImage(user) {
-  const firstName = (user.firstName || '').toLowerCase();
-  const femaleNames = ['shreya', 'priya', 'anjali', 'kavya', 'divya', 'neha', 'pooja', 'riya', 'sneha', 'swati', 'nikita', 'preeti', 'shweta', 'megha', 'isha', 'tanvi', 'aditi', 'aishwarya', 'ananya', 'deepika', 'kriti', 'nisha', 'rachana', 'sakshi', 'simran', 'sonali', 'tanya', 'varsha', 'vidya', 'zoya'];
-  const femaleSuffixes = ['a', 'i', 'ya', 'ka', 'na'];
-  const endsWithFemaleSuffix = femaleSuffixes.some(s => firstName.endsWith(s) && firstName.length > 3);
-  return (femaleNames.includes(firstName) || endsWithFemaleSuffix) ? '/female.jpg' : '/male.jpg';
-}
-
 module.exports = {
   calculateSessionPrice,
   resolvePrice,
@@ -97,6 +86,5 @@ module.exports = {
   validateBookingParams,
   BOOKABLE_DURATIONS,
   BOOKABLE_MODES,
-  getOrCreateAvailability,
-  getGenderBasedImage
+  getOrCreateAvailability
 };
