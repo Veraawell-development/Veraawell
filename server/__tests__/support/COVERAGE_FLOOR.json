@@ -2,8 +2,8 @@
   "_comment": "A RATCHET, not a target. Regenerate with: node scripts/check-coverage.js --update. Values may only rise; a drop fails npm run test:coverage.",
   "_recorded": "2026-10-20",
   "_total": {
-    "statements": 87.07,
-    "branches": 77.82
+    "statements": 87.29,
+    "branches": 78.3
   },
   "files": {
     "authz/actor.js": {
@@ -35,8 +35,8 @@
       "branches": 55.55
     },
     "authz/socket.js": {
-      "statements": 75.9,
-      "branches": 68.75
+      "statements": 90.36,
+      "branches": 78.75
     },
     "authz/policies/clinicalRecords.policy.js": {
       "statements": 72,
@@ -69,10 +69,6 @@
     "config/environment.js": {
       "statements": 75.75,
       "branches": 60
-    },
-    "config/features.js": {
-      "statements": 100,
-      "branches": 100
     },
     "config/payments.js": {
       "statements": 88.88,
@@ -159,8 +155,8 @@
       "branches": 74.03
     },
     "controllers/session.controller.js": {
-      "statements": 87.47,
-      "branches": 74.4
+      "statements": 87.35,
+      "branches": 74.52
     },
     "controllers/sessionReport.controller.js": {
       "statements": 95.45,
@@ -323,8 +319,8 @@
       "branches": 85.84
     },
     "services/attendance.js": {
-      "statements": 97.53,
-      "branches": 75.86
+      "statements": 97.4,
+      "branches": 77.77
     },
     "services/auth.service.js": {
       "statements": 90.81,
@@ -376,7 +372,7 @@
     },
     "services/presence.js": {
       "statements": 86.66,
-      "branches": 60
+      "branches": 63.33
     },
     "services/razorpay.client.js": {
       "statements": 83.33,
@@ -395,12 +391,12 @@
       "branches": 91.17
     },
     "services/sessionEnding.js": {
-      "statements": 92.7,
-      "branches": 84.72
+      "statements": 93.75,
+      "branches": 87.5
     },
     "services/sessionOutcomes.js": {
       "statements": 89.14,
-      "branches": 76
+      "branches": 75
     },
     "services/sessionPayment.js": {
       "statements": 81.02,
@@ -435,12 +431,12 @@
       "branches": 100
     },
     "services/call/callService.js": {
-      "statements": 90.42,
-      "branches": 82.09
+      "statements": 91.8,
+      "branches": 85.51
     },
     "services/call/callTelemetry.js": {
-      "statements": 98.4,
-      "branches": 89.43
+      "statements": 99.2,
+      "branches": 92.68
     },
     "utils/assessmentScoring.js": {
       "statements": 95.71,

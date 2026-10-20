@@ -98,10 +98,6 @@ services:
         sync: false
       - key: TURN_BACKUP_CREDENTIAL
         sync: false
-      # Call engine switch: unset/v2 = new engine (old open tabs still
-      # served); v1 = roll back to the old engine.
-      - key: CALL_ENGINE
-        sync: false
       # Rollback switch (config/features.js). Leave unset for the default;
       # set SESSION_RULES=v1 to undo the session rules.
       - key: SESSION_RULES

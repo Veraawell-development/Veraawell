@@ -147,7 +147,7 @@ function createSocketAuthMiddleware(namespaceTag) {
           socket.userId = socket.actor.id;
           socket.userRole = socket.actor.role;
           socket.username = user.username;
-          // Kept for callers that read socket.user.{id,role,username} (video.socket.js)
+          // Kept for callers that read socket.user.{id,role,username}
           // rather than the flat socket.userId/userRole fields (chat/data sockets).
           socket.user = { id: socket.actor.id, role: socket.actor.role, username: user.username };
 

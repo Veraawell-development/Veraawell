@@ -150,6 +150,14 @@ describe('answering', () => {
     expect(mockSummary).toHaveBeenCalledTimes(1);
   });
 
+  test('a second yes (double click, or both answering at once) is harmless', async () => {
+    const s = await inCall({ startedMinutesAgo: 5 });
+    await ending.requestEnd(s._id, 'patient');
+    expect(await ending.respondToEnd(s._id, 'doctor', true, { io: fakeIo() })).toEqual({ ended: true });
+    expect(await ending.respondToEnd(s._id, 'doctor', true, { io: fakeIo() })).toEqual({ ended: true, alreadyEnded: true });
+    expect((await Session.findById(s._id).lean()).status).toBe('completed');
+  });
+
   test('no clears the request and the call carries on', async () => {
     const s = await inCall();
     await ending.requestEnd(s._id, 'doctor');

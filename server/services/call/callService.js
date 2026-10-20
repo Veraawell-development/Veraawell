@@ -4,7 +4,7 @@
  *
  * The media goes browser to browser; this only introduces the two browsers to
  * each other and keeps track of who is in the call. What it fixes over the
- * first version (socket/video.socket.js, kept for one release as v1):
+ * first version (a hand-built socket handler, removed in the Phase 3 cleanup):
  *
  *  - A network blip was "the other person left": the call was torn down and
  *    attendance closed at once. Now a dropped connection gets a grace period
@@ -149,7 +149,8 @@ async function join(socket, session, { instanceId, protocol, client }) {
   }
 
   // Joining IS accepting an instant request (same compare-and-set as
-  // POST /accept and the v1 join; see video.socket.js for the history).
+  // POST /accept: a doctor who opened the call link directly used to stay
+  // 'pending', and the sweep then cancelled the call they were having).
   if (role === 'doctor' && session.sessionType === 'immediate' && session.acceptanceStatus !== 'accepted') {
     const { PLATFORM_TIMEZONE } = require('../../config/time');
     const now = new Date();
@@ -167,19 +168,6 @@ async function join(socket, session, { instanceId, protocol, client }) {
   if (!socket.connected) return { ok: false, code: 'GONE', message: 'Disconnected', retryable: true };
 
   const { room, party, epochChanged } = attach(socket, session, { userId, role, instanceId, client });
-
-  // The other person's v1 tab (an old build) can't talk to this one.
-  const v1 = require('../../socket/video.socket');
-  if (typeof v1.v1SocketsInRoom === 'function') {
-    const stale = v1.v1SocketsInRoom(sessionId).filter((sid) => sid !== socket.id);
-    if (stale.length) {
-      for (const sid of stale) {
-        const s = socketById(sid);
-        if (s) s.emit('error', { message: 'Veraawell has been updated. Please refresh this page to continue your call.' });
-      }
-      socket.emit('call:peer-outdated', { sessionId });
-    }
-  }
 
   const peer = peerOf(room, userId);
   const ack = {

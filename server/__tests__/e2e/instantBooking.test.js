@@ -55,8 +55,8 @@ let Session, DoctorProfile;
 let sweepStuckUnacceptedSessions;
 let doctorToken, otherDoctorToken, patientToken;
 
-// A second, bare socket.io server for the video-namespace tests: the join-room
-// handler is what marks acceptance, and it can only be driven over a socket.
+// A second, bare socket.io server for the call tests: joining the call
+// (call:join) is what marks acceptance, and it can only be driven over a socket.
 let httpServer, io, port;
 const sockets = [];
 
@@ -93,10 +93,12 @@ async function call(method, path, token, body) {
   return body === undefined ? req.send() : req.send(body);
 }
 
+const joinCall = (socket, id) => socket.timeout(8000).emitWithAck('call:join', { sessionId: String(id), protocol: 2, instanceId: `t-${Math.random()}` });
+
 function connectSocket(token, namespace = '') {
   return new Promise((resolve, reject) => {
     const s = ioClient(`http://localhost:${port}${namespace}`, {
-      auth: { token }, transports: ['websocket'], reconnection: false
+      auth: { token, callProtocol: 2 }, transports: ['websocket'], reconnection: false
     });
     sockets.push(s);
     s.on('connect', () => resolve(s));
@@ -149,6 +151,9 @@ afterEach(async () => {
     const s = sockets.pop();
     try { s.close(); } catch (_) { /* already closed */ }
   }
+  const callService = require('../../services/call/callService');
+  await callService._settled();
+  callService._reset();
   await Session.deleteMany({});
   await DoctorProfile.updateMany({}, { $set: { cancellationCount: 0, cancellationWarningIssued: false } });
   mockRefund.mockClear();
@@ -239,7 +244,7 @@ describe('GET /api/sessions/instant-requests', () => {
 
 /* ──────────────────── joining the call IS accepting ────────────────────── */
 
-describe('the doctor joining the video room', () => {
+describe('the doctor joining the call', () => {
   test('marks the instant session accepted', async () => {
     // Previously only the Accept button did this, so a doctor who opened the
     // call link directly stayed 'pending' — and the sweep then cancelled the
@@ -247,8 +252,8 @@ describe('the doctor joining the video room', () => {
     const s = await instantRequest();
 
     const doctor = await connectSocket(doctorToken);
-    doctor.emit('join-room', { sessionId: String(s._id) });
-    await waitFor(doctor, ['room-joined']);
+    expect((await joinCall(doctor, s._id)).ok).toBe(true);
+    await require('../../services/call/callService')._settled();
 
     const after = await Session.findById(s._id);
     expect(after.acceptanceStatus).toBe('accepted');
@@ -262,8 +267,10 @@ describe('the doctor joining the video room', () => {
     const s = await instantRequest();
 
     const patient = await connectSocket(patientToken);
-    patient.emit('join-room', { sessionId: String(s._id) });
-    await waitFor(patient, ['room-joined']);
+    const ack = await joinCall(patient, s._id);
+    expect(ack.ok).toBe(true);
+    expect(ack.pendingAccept).toBe(true);
+    await require('../../services/call/callService')._settled();
 
     const after = await Session.findById(s._id);
     expect(after.acceptanceStatus).toBe('pending');
@@ -271,19 +278,18 @@ describe('the doctor joining the video room', () => {
   });
 
   test('joining does not resurrect a payment state that changed underneath it', async () => {
-    // join-room used to full-document save() a snapshot read before its
-    // awaits, so a refund landing in between was silently reverted by someone
-    // merely joining.
+    // The first engine's join used to full-document save() a snapshot read
+    // before its awaits, so a refund landing in between was silently reverted
+    // by someone merely joining.
     const s = await instantRequest();
 
     const doctor = await connectSocket(doctorToken);
     await Session.updateOne({ _id: s._id }, {
       $set: { paymentStatus: 'refunded', refundId: 'rfnd_race', refundAmount: 800 }
     });
-    doctor.emit('join-room', { sessionId: String(s._id) });
-    // The room is gated on payment, so this join is refused — the assertion
+    // The call is gated on payment, so this join is refused — the assertion
     // that matters is that the refund is still recorded afterwards.
-    await waitFor(doctor, ['room-joined', 'error']);
+    expect((await joinCall(doctor, s._id)).ok).toBe(false);
 
     expect((await Session.findById(s._id)).paymentStatus).toBe('refunded');
   });
@@ -335,8 +341,8 @@ describe('GET /api/sessions/delayed', () => {
     const s = await delayed();
 
     const doctor = await connectSocket(doctorToken);
-    doctor.emit('join-room', { sessionId: String(s._id) });
-    await waitFor(doctor, ['room-joined']);
+    expect((await joinCall(doctor, s._id)).ok).toBe(true);
+    await require('../../services/call/callService')._settled();
 
     expect((await Session.findById(s._id)).acceptanceStatus).toBe('accepted');
 

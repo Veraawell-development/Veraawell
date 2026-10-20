@@ -810,8 +810,6 @@ const getSessionById = asyncHandler(async (req, res) => {
   // The session rules as this caller's screen needs them — the call screen
   // refetches this whenever someone joins or leaves (session:attendance).
   session.rules = sessionPolicy.view(session, req.actor.id === idOf(session.doctorId) ? 'doctor' : 'patient', new Date());
-  // Which call engine this page should run (config/features.js CALL_ENGINE).
-  session.callEngine = require('../config/features').callEngine();
   res.json(session);
 });
 
@@ -1521,7 +1519,6 @@ const getInstantRequests = asyncHandler(async (req, res) => {
   res.json({ success: true, sessions });
 });
 
-/** GET /api/sessions/turn-credentials */
 /**
  * GET /api/sessions/:sessionId/ice-servers — STUN + a TURN relay for this
  * call (services/turnCredentials.js). Bound to the session: only its two
@@ -1542,16 +1539,4 @@ const getIceServers = asyncHandler(async (req, res) => {
   res.json({ success: true, ...result });
 });
 
-/**
- * GET /api/sessions/turn-credentials — the old, unbound endpoint, kept for
- * call pages already open on the old build. Same relay service, no session
- * (so a 2-hour lifetime). Removed with the old call engine.
- */
-const getTurnCredentials = asyncHandler(async (req, res) => {
-  const turn = require('../services/turnCredentials');
-  const result = await turn.getIceServers({ userId: req.actor ? req.actor.id : String(req.user._id), sessionId: 'legacy', sessionEndsAt: new Date(Date.now() + 90 * 60 * 1000) });
-  res.set('Cache-Control', 'no-store');
-  res.json({ success: true, ...result });
-});
-
-module.exports = { getStats, getMyDoctors, getPendingFeedback, getCallHistory, getDoctorSlots, bookImmediate, bookSession, getMySessions, getUpcoming, getAllDoctors, getDoctorById, getSessionById, joinSession, completeSession, requestEndSession, respondEndSession, claimAbsentRefund, abandonCheckout, cancelSession, getCalendar, getPatientEmergencyContact, getMyTherapists, acceptSession, delaySession, getTurnCredentials, getIceServers, missedSession, getDelayedSessions, getInstantRequests, sweepStuckUnacceptedSessions };
+module.exports = { getStats, getMyDoctors, getPendingFeedback, getCallHistory, getDoctorSlots, bookImmediate, bookSession, getMySessions, getUpcoming, getAllDoctors, getDoctorById, getSessionById, joinSession, completeSession, requestEndSession, respondEndSession, claimAbsentRefund, abandonCheckout, cancelSession, getCalendar, getPatientEmergencyContact, getMyTherapists, acceptSession, delaySession, getIceServers, missedSession, getDelayedSessions, getInstantRequests, sweepStuckUnacceptedSessions };

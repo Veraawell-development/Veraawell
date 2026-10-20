@@ -257,3 +257,59 @@ describe('our server shutting down mid-call', () => {
     expect(r).toMatchObject({ ok: false, code: 'SERVER_RESTARTING', retryable: true });
   });
 });
+
+describe('the clock, from the old engine\'s tests', () => {
+  test('a doctor joining late moves the end for both, at once', async () => {
+    const startsAt = new Date(Date.now() - 5 * 60 * 1000);
+    const s = await paidSession({ startsAt });
+    const patient = await connect(f.patientA);
+    await ask(patient, 'call:join', joinMsg(s, 'p1'));
+    const doctor = await connect(f.doctorA);
+    const moved = waitFor(patient, 'timer-sync', (m) => new Date(m.endsAt) > new Date(startsAt.getTime() + 20 * 60 * 1000), 8000);
+    const joinedAt = Date.now();
+    await ask(doctor, 'call:join', joinMsg(s, 'd1'));
+    const m = await moved;
+    // About the doctor's join + 20 minutes: the patient keeps their full time.
+    expect(Math.abs(new Date(m.endsAt).getTime() - (joinedAt + 20 * 60 * 1000))).toBeLessThan(5000);
+  });
+
+  test('time up with only one person there completes nothing (the sweep decides)', async () => {
+    const startsAt = new Date(Date.now() - 20 * 60 * 1000 + 2000);
+    const s = await paidSession({ startsAt });
+    const patient = await connect(f.patientA);
+    const up = waitFor(patient, 'session-time-up', () => true, 8000);
+    await ask(patient, 'call:join', joinMsg(s, 'p1'));
+    await up;
+    expect((await Session.findById(s._id).lean()).status).toBe('scheduled');
+  });
+
+  test('a refusal never closes the socket (the page keeps its connection)', async () => {
+    const s = await paidSession();
+    const stranger = await connect(f.patientB);
+    const r = await ask(stranger, 'call:join', joinMsg(s, 'x'));
+    expect(r.ok).toBe(false);
+    await sleep(200);
+    expect(stranger.connected).toBe(true);
+  });
+});
+
+describe('abuse', () => {
+  test('a socket flooding the server is refused, then cut off', async () => {
+    const s = await paidSession();
+    const { patient } = await bothIn(s);
+    const gone = new Promise((resolve) => patient.on('disconnect', resolve));
+    const msg = { sessionId: String(s._id), audioFlowing: true, videoFlowing: true };
+    // The heartbeat allows 3 at once, then one every 5 s.
+    for (let i = 0; i < 30; i++) patient.emit('call:media-health', msg);
+    await expect(Promise.race([gone, sleep(5000).then(() => 'still connected')])).resolves.not.toBe('still connected');
+  });
+
+  test('every event must declare how it is authorized (a programming error, caught at startup)', () => {
+    const { createGuardedRegistrar } = require('../../authz/socket');
+    const fake = { data: {}, on() {} };
+    const { on } = createGuardedRegistrar(fake);
+    expect(() => on('x', {}, () => {})).toThrow(/must declare a mode/);
+    expect(() => on('y', { mode: 'policy' }, () => {})).toThrow(/declares no action/);
+  });
+});
+

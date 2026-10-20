@@ -3,8 +3,8 @@
  *
  * Every join opens an interval and every leave closes it, on
  * `session.attendance`. The source is the call socket (services/call/
- * callService.js — joins, leaves, and departures after a reconnect grace;
- * v1: socket/video.socket.js). The rules in services/sessionPolicy.js read
+ * callService.js — joins, leaves, and departures after a reconnect grace).
+ * The rules in services/sessionPolicy.js read
  * it, and only this module writes it.
  *
  * Never touches status or paymentStatus — those change only through
@@ -178,29 +178,11 @@ async function closeAll(sessionId, { at = new Date() } = {}) {
 }
 
 /**
- * After a restart nobody is really in a socket room — rooms live in memory —
- * so open stays recorded by the socket before the restart are closed at the
- * boot instant. The people still in the call reconnect within seconds and
- * open fresh stays. (v1 only; v2 uses settleStaleStays.)
- */
-async function closeStaleSocketStays({ bootAt = new Date() } = {}) {
-  const result = await Session.updateMany(
-    { attendance: { $elemMatch: { source: 'socket', leftAt: null, joinedAt: { $lt: bootAt } } } },
-    { $set: { 'attendance.$[stale].leftAt': bootAt } },
-    { arrayFilters: [{ 'stale.source': 'socket', 'stale.leftAt': null, 'stale.joinedAt': { $lt: bootAt } }] }
-  );
-  if (result.modifiedCount > 0) {
-    logger.info('closed socket stays left open by the previous process', { sessions: result.modifiedCount });
-  }
-  return result.modifiedCount;
-}
-
-/**
  * After a restart, close the stays of people who did NOT come back.
  *
  * The browsers keep talking through a restart (the media never goes through
- * us) and rejoin within seconds; closing every open stay at boot — what
- * closeStaleSocketStays did — marked people who were in the call the whole
+ * us) and rejoin within seconds; closing every open stay at boot — what the
+ * first call engine did — marked people who were in the call the whole
  * time as having left, which broke "End by agreement" and the refund rules.
  * This runs a while after boot (server.js) and closes only the stays of
  * roles nobody has rejoined as, at when they were last heard from (saved at
@@ -252,7 +234,6 @@ module.exports = {
   recordJoin,
   recordLeave,
   closeAll,
-  closeStaleSocketStays,
   snapshot,
   refreshEffectiveEnd
 };

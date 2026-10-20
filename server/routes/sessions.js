@@ -56,7 +56,6 @@ router.get('/calendar/:year/:month', verifyToken, withScope('session:list-own'),
 // actually treat — the controller checks the treating relationship.
 router.get('/patients/:patientId/emergency-contact', verifyToken, requireRole('doctor'), validateObjectIdParam('patientId'), s.getPatientEmergencyContact);
 
-router.get('/turn-credentials', verifyToken, requireRole('patient', 'doctor'), s.getTurnCredentials);
 router.get('/:sessionId/ice-servers', verifyToken, validateObjectIdParam('sessionId'), authorize('session:join'), s.getIceServers);
 router.post('/:sessionId/call-events', verifyToken, validateObjectIdParam('sessionId'), authorize('session:join'), require('../middleware/rateLimit.middleware').callEventsLimiter, require('../controllers/callEvents.controller').postCallEvents);
 

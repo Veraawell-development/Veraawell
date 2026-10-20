@@ -47,7 +47,7 @@ function isFresh(consent, now) {
 }
 
 /**
- * Where events go. The call screen listens on the video socket's room (the
+ * Where events go. The call screen listens on the call socket's room (the
  * session id); dashboards listen on /data. `except` keeps an event from
  * echoing back to the socket that caused it.
  */

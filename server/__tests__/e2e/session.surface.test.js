@@ -391,10 +391,8 @@ describe('instant sessions', () => {
 });
 
 describe('relay (ICE servers) for a call', () => {
-  test('the old endpoint answers both parties, never an anonymous caller', async () => {
-    expect((await call('get', '/api/sessions/turn-credentials', patientA)).status).toBe(200);
-    expect((await call('get', '/api/sessions/turn-credentials', doctorA)).status).toBe(200);
-    expect((await call('get', '/api/sessions/turn-credentials', null)).status).toBe(401);
+  test('the old, unbound endpoint is gone (relay logins are per session now)', async () => {
+    expect((await call('get', '/api/sessions/turn-credentials', patientA)).status).not.toBe(200);
   });
 
   test('a session-bound answer: its two people only, and it says when there is no relay', async () => {

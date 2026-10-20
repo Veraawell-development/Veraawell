@@ -9,7 +9,8 @@
  *
  * The negative cases matter, but so does the positive one. A guard that also
  * breaks real calls is worse than the hole it closes, so this asserts that
- * both parties can still join and relay WebRTC signaling end to end.
+ * both parties can still join and relay WebRTC signalling end to end
+ * (call:* events, socket/call.socket.js).
  */
 
 process.env.RAZORPAY_KEY_ID = process.env.RAZORPAY_KEY_ID || 'rzp_test_dummy';
@@ -58,6 +59,7 @@ afterEach(async () => {
   // The handshake caches the user for a few seconds; clear it so a user
   // deleted between tests is not resurrected from cache.
   require('../services/cache.service').flush();
+  require('../services/call/callService')._reset();
   await clearDb();
 });
 
@@ -92,51 +94,47 @@ async function seed({ hoursFromNow = 1 } = {}) {
   return { patient, doctor, stranger, session };
 }
 
+const ask = (socket, event, payload) => socket.timeout(8000).emitWithAck(event, payload);
+const joinMsg = (sid, instanceId) => ({ sessionId: sid, protocol: 2, instanceId, client: { browser: 'jest' } });
+
 describe('a non-participant cannot act on a call', () => {
-  test('call-ended from a stranger does not complete the session', async () => {
+  test('a stranger cannot join the call, and nothing about the session changes', async () => {
     const { stranger, session } = await seed();
     const socket = await connect(tokenFor(stranger));
 
     const denied = once(socket, 'authz:denied');
-    socket.emit('call-ended', { sessionId: String(session._id), endedBy: 'attacker' });
+    const ack = await ask(socket, 'call:join', joinMsg(String(session._id), 'x1'));
     const d = await denied;
 
-    expect(d).not.toBeNull();
+    expect(ack.ok).toBe(false);
     expect(d.code).toBe('AUTHZ_NOT_PARTICIPANT');
-    // Must not contain the substrings that make the client's data-socket give
-    // up reconnecting permanently, or make VideoCallRoom redirect to /auth.
+    // Must not contain the substrings that make the client's data socket give
+    // up reconnecting, or the call page send the person to sign in.
     expect(d.message).not.toMatch(/Authentication|No token/);
 
     const after = await Session.findById(session._id);
-    expect(after.status).toBe('scheduled');       // was: 'completed'
-    expect(after.callStatus).toBe('in-progress'); // call not torn down
-
+    expect(after.status).toBe('scheduled');
+    expect(after.callStatus).toBe('in-progress');
     socket.close();
   });
 
-  test('signaling is rejected for a socket that never joined the room', async () => {
+  test('signalling is refused for a socket that never joined the call', async () => {
     const { stranger, session } = await seed();
     const socket = await connect(tokenFor(stranger));
-
-    const denied = once(socket, 'authz:denied');
-    socket.emit('ice-candidate', { sessionId: String(session._id), candidate: { candidate: 'malicious' } });
-    const d = await denied;
-
-    expect(d).not.toBeNull();
-    expect(d.code).toBe('AUTHZ_NOT_IN_ROOM');
+    const ack = await ask(socket, 'call:signal', { sessionId: String(session._id), epoch: 1, candidate: { candidate: 'malicious' } });
+    expect(ack).toMatchObject({ ok: false, code: 'AUTHZ_NOT_IN_ROOM' });
     socket.close();
   });
 
-  test('a stranger cannot join the room at all', async () => {
-    const { stranger, session } = await seed();
-    const socket = await connect(tokenFor(stranger));
-
-    const denied = once(socket, 'authz:denied');
+  test("the first engine's events (an old open tab) are told to refresh and change nothing", async () => {
+    const { patient, session } = await seed();
+    const socket = await connect(tokenFor(patient));
+    const told = once(socket, 'error');
     socket.emit('join-room', { sessionId: String(session._id) });
-    const d = await denied;
-
-    expect(d).not.toBeNull();
-    expect(d.code).toBe('AUTHZ_NOT_PARTICIPANT');
+    expect((await told).message).toMatch(/refresh/i);
+    socket.emit('call-ended', { sessionId: String(session._id) });
+    await new Promise((r) => setTimeout(r, 300));
+    expect((await Session.findById(session._id)).status).toBe('scheduled');
     socket.close();
   });
 
@@ -167,84 +165,36 @@ describe('a non-participant cannot act on a call', () => {
   });
 });
 
-/** Both parties join the room and wait for the join to land. */
+/** Both parties in the call. */
 async function joinBoth(patient, doctor, sid) {
   const pSock = await connect(tokenFor(patient));
   const dSock = await connect(tokenFor(doctor));
-
-  const pJoined = once(pSock, 'room-joined');
-  pSock.emit('join-room', { sessionId: sid });
-  expect(await pJoined).not.toBeNull();
-
-  const dJoined = once(dSock, 'room-joined');
-  dSock.emit('join-room', { sessionId: sid });
-  expect(await dJoined).not.toBeNull();
-
-  return { pSock, dSock };
+  expect((await ask(pSock, 'call:join', joinMsg(sid, 'p1'))).ok).toBe(true);
+  const dAck = await ask(dSock, 'call:join', joinMsg(sid, 'd1'));
+  expect(dAck.ok).toBe(true);
+  return { pSock, dSock, epoch: dAck.epoch };
 }
 
-describe('ending a call is bound by the same completion rule as HTTP', () => {
-  test('a participant ending the call BEFORE the scheduled start does not complete it', async () => {
-    // call-ended used to write status 'completed' with no time check, so a
-    // doctor could complete a booking hours or days out just by joining the
-    // room and emitting this — which blocked the patient's refund (a
-    // completed session cannot be cancelled) and made it count toward the
-    // doctor's payout. POST /:id/complete already refused this; the socket
-    // path now goes through the same transition guard.
-    // Ten minutes out: inside the 15-minute join window, before the start.
-    const { patient, doctor, session } = await seed({ hoursFromNow: 10 / 60 });
-    const sid = String(session._id);
-    const { pSock, dSock } = await joinBoth(patient, doctor, sid);
-
-    dSock.emit('call-ended', { sessionId: sid, endedBy: 'doctor', userName: 'Doc' });
-    await new Promise((r) => setTimeout(r, 800));
-
-    const after = await Session.findById(sid);
-    expect(after.status).toBe('scheduled');
-    expect(after.paymentStatus).toBe('paid');
-
-    pSock.close();
-    dSock.close();
-  });
-});
-
 describe('the real call still works', () => {
-  test('both parties join, signaling is relayed, and the doctor leaving does not end the session', async () => {
+  test('both join, signalling is relayed, and the doctor leaving does not end the session', async () => {
     // Started 15 minutes ago: the session is under way.
     const { patient, doctor, session } = await seed({ hoursFromNow: -0.25 });
     const sid = String(session._id);
+    const { pSock, dSock, epoch } = await joinBoth(patient, doctor, sid);
 
-    const pSock = await connect(tokenFor(patient));
-    const dSock = await connect(tokenFor(doctor));
+    const gotOffer = once(pSock, 'call:signal');
+    expect((await ask(dSock, 'call:signal', { sessionId: sid, epoch, description: { type: 'offer', sdp: 'REAL' } })).ok).toBe(true);
+    expect((await gotOffer).description.sdp).toBe('REAL');
 
-    const pJoined = once(pSock, 'room-joined');
-    pSock.emit('join-room', { sessionId: sid });
-    expect(await pJoined).not.toBeNull();
+    const gotIce = once(pSock, 'call:signal');
+    await ask(dSock, 'call:signal', { sessionId: sid, epoch, candidate: { candidate: 'host' } });
+    expect((await gotIce).candidate).toMatchObject({ candidate: 'host' });
 
-    const dJoined = once(dSock, 'room-joined');
-    dSock.emit('join-room', { sessionId: sid });
-    expect(await dJoined).not.toBeNull();
-
-    // mode:'joined' path — the cheap membership check, not a DB read
-    const gotOffer = once(pSock, 'offer');
-    dSock.emit('offer', { sessionId: sid, offer: { type: 'offer', sdp: 'REAL' } });
-    const offer = await gotOffer;
-    expect(offer && offer.offer && offer.offer.sdp).toBe('REAL');
-
-    const gotIce = once(pSock, 'ice-candidate');
-    dSock.emit('ice-candidate', { sessionId: sid, candidate: { candidate: 'host' } });
-    expect(await gotIce).not.toBeNull();
-
-    // call-ended used to complete the session on one person's say-so, and
-    // was relayed so the other side's app completed it too. Now it is only
-    // a departure: the patient hears the doctor left, nothing ends.
-    const patientSeesLeave = once(pSock, 'user-left');
-    const relayed = once(pSock, 'call-ended', 800);
-    dSock.emit('call-ended', { sessionId: sid, endedBy: 'doctor', userName: 'Doc' });
+    // Leaving is only a departure: the patient hears it, nothing ends.
+    const patientSeesLeave = once(pSock, 'call:peer-left');
+    await ask(dSock, 'call:leave', { sessionId: sid });
     expect(await patientSeesLeave).toMatchObject({ role: 'doctor' });
-    expect(await relayed).toBeNull();
-    const after = await Session.findById(sid);
-    expect(after.status).toBe('scheduled');
+    expect((await Session.findById(sid)).status).toBe('scheduled');
 
     pSock.close();
     dSock.close();
@@ -255,39 +205,38 @@ describe('only a live session, inside its window, can be joined', () => {
   test('a cancelled session cannot be opened from its URL', async () => {
     const { patient, session } = await seed({ hoursFromNow: -0.25 });
     await Session.updateOne({ _id: session._id }, { $set: { status: 'cancelled', cancelledBy: 'patient' } });
-
     const sock = await connect(tokenFor(patient));
-    const err = once(sock, 'error');
-    const joined = once(sock, 'room-joined', 1500);
-    sock.emit('join-room', { sessionId: String(session._id) });
-    expect((await err).message).toMatch(/can no longer be joined/i);
-    expect(await joined).toBeNull();
+    const ack = await ask(sock, 'call:join', joinMsg(String(session._id), 'p1'));
+    expect(ack.ok).toBe(false);
+    expect(ack.message).toMatch(/can no longer be joined|cancelled/i);
     sock.close();
   });
 
   test('a session next week cannot be joined yet', async () => {
     const { patient, session } = await seed({ hoursFromNow: 24 * 7 });
     const sock = await connect(tokenFor(patient));
-    const err = once(sock, 'error');
-    sock.emit('join-room', { sessionId: String(session._id) });
-    expect((await err).message).toMatch(/15 minutes before/i);
+    const ack = await ask(sock, 'call:join', joinMsg(String(session._id), 'p1'));
+    expect(ack).toMatchObject({ ok: false, code: 'NOT_YET' });
+    expect(ack.message).toMatch(/15 minutes before/i);
     sock.close();
   });
 
-  test('leaving a short call pauses it without touching what happened to the session meanwhile', async () => {
-    // The disconnect handler used to write status 'scheduled' for any call
-    // shorter than its booking, from a document read before an await — which
-    // revived a session the sweep had just marked no-show.
+  test('leaving a call pauses it without touching what happened to the session meanwhile', async () => {
+    // The first engine wrote status 'scheduled' for any short call, from a
+    // document read before an await — which revived a session the sweep had
+    // just marked no-show.
     const { patient, doctor, session } = await seed({ hoursFromNow: -0.25 });
     const sid = String(session._id);
     const { pSock, dSock } = await joinBoth(patient, doctor, sid);
 
     await Session.updateOne({ _id: session._id }, { $set: { status: 'no-show' } });
+    await ask(pSock, 'call:leave', { sessionId: sid });
+    await ask(dSock, 'call:leave', { sessionId: sid });
+    await require('../services/call/callService')._settled();
+    await new Promise((r) => setTimeout(r, 300));
+
+    expect((await Session.findById(sid)).status).toBe('no-show');
     pSock.close();
     dSock.close();
-    await new Promise((r) => setTimeout(r, 800));
-
-    const after = await Session.findById(sid);
-    expect(after.status).toBe('no-show');
   });
 });
