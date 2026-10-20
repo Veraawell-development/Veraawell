@@ -29,12 +29,6 @@ function originAllowed(origin, allowed = CORS_ORIGINS) {
   return allowed.includes(String(origin).replace(/\/$/, ''));
 }
 
-/** engine.io allowRequest: refuse a cross-site browser before the handshake. */
-function originGuard(req, callback) {
-  const origin = req.headers && req.headers.origin;
-  callback(null, originAllowed(origin));
-}
-
 function buildIoOptions({ allowedOrigins = CORS_ORIGINS } = {}) {
   return {
     cors: {
@@ -51,8 +45,9 @@ function buildIoOptions({ allowedOrigins = CORS_ORIGINS } = {}) {
     maxHttpBufferSize: 100 * 1000,
     serveClient: false,
     connectionStateRecovery: { maxDisconnectionDuration: RECOVERY_WINDOW_MS, skipMiddlewares: false },
+    // Refuse a cross-site browser before the handshake.
     allowRequest: (req, callback) => callback(null, originAllowed(req.headers && req.headers.origin, allowedOrigins))
   };
 }
 
-module.exports = { buildIoOptions, originAllowed, originGuard, HEARTBEAT_MS, RECOVERY_WINDOW_MS };
+module.exports = { buildIoOptions, originAllowed, HEARTBEAT_MS, RECOVERY_WINDOW_MS };

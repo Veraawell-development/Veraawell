@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { API_BASE_URL } from '../config/api';
 import { useMutation } from '@tanstack/react-query';
 
@@ -8,6 +9,8 @@ interface RatingModalProps {
     doctorName: string;
     onClose: () => void;
     onSubmit?: (rating: { score: number; review: string }) => void;
+    /** For "Book a follow-up" in the wrap-up after the feedback is sent. */
+    doctorId?: string;
 }
 
 const RatingModal: React.FC<RatingModalProps> = ({
@@ -15,8 +18,12 @@ const RatingModal: React.FC<RatingModalProps> = ({
     sessionId,
     doctorName,
     onClose,
-    onSubmit
+    onSubmit,
+    doctorId
 }) => {
+    const navigate = useNavigate();
+    // After sending: what happens next, instead of just closing.
+    const [done, setDone] = useState(false);
     // Part 1: Doctor Rating (Mandatory)
     const [doctorScore, setDoctorScore] = useState<number>(0);
     const [doctorHoveredScore, setDoctorHoveredScore] = useState<number>(0);
@@ -92,7 +99,7 @@ const RatingModal: React.FC<RatingModalProps> = ({
                 onSubmit({ score: doctorScore, review: doctorFeedback });
             }
 
-            onClose();
+            setDone(true);
         } catch (err: any) {
             setError(err.message || 'Failed to submit feedback');
         } finally {
@@ -145,11 +152,36 @@ const RatingModal: React.FC<RatingModalProps> = ({
                 {/* Close Button - Top Right */}
                 <button
                     onClick={onClose}
+                    aria-label="Close"
                     className="absolute top-6 right-6 text-gray-400 hover:text-gray-600 text-2xl transition-colors z-10"
                     style={{ lineHeight: 1 }}
                 >
-                    
+                    ×
                 </button>
+
+                {done ? (
+                    <div className="p-8 text-center" role="status">
+                        <h2 className="text-2xl font-light tracking-tight text-gray-900">Thank you</h2>
+                        <p className="text-gray-500 mt-2 text-sm">Here's what happens next.</p>
+                        <ul className="mt-6 space-y-3 text-left text-sm text-gray-700">
+                            <li className="flex gap-3"><span aria-hidden="true" className="text-teal-600">1</span><span>{doctorName} will share your session report and any recommendations — you'll find them under Reports.</span></li>
+                            <li className="flex gap-3"><span aria-hidden="true" className="text-teal-600">2</span><span>Tasks they set for you appear in Pending tasks.</span></li>
+                            <li className="flex gap-3"><span aria-hidden="true" className="text-teal-600">3</span><span>Writing a few lines in your journal while it's fresh can help.</span></li>
+                        </ul>
+                        <div className="mt-8 flex flex-col gap-3">
+                            {doctorId && (
+                                <button onClick={() => { onClose(); navigate(`/doctor/${doctorId}`); }} className="w-full py-3.5 rounded-full text-white text-sm font-medium" style={{ backgroundColor: '#111827' }}>
+                                    Book a follow-up with {doctorName}
+                                </button>
+                            )}
+                            <div className="flex gap-3">
+                                <button onClick={() => { onClose(); navigate('/pending-tasks'); }} className="flex-1 py-3 rounded-full border border-gray-200 text-sm text-gray-700 hover:bg-gray-50">Pending tasks</button>
+                                <button onClick={() => { onClose(); navigate('/my-journal'); }} className="flex-1 py-3 rounded-full border border-gray-200 text-sm text-gray-700 hover:bg-gray-50">Journal</button>
+                            </div>
+                            <button onClick={onClose} className="w-full py-2 text-gray-400 font-medium hover:text-gray-800 text-xs tracking-wide uppercase">Done</button>
+                        </div>
+                    </div>
+                ) : (<>
 
                 {/* Header */}
                 <div className="p-8 pb-4 text-center relative">
@@ -243,6 +275,7 @@ const RatingModal: React.FC<RatingModalProps> = ({
                         )}
                     </div>
                 </div>
+                </>)}
             </div>
         </div>
     );

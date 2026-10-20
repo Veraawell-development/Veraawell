@@ -59,7 +59,7 @@ const listCalls = asyncHandler(async (req, res) => {
   const filter = req.query.failed === '1' ? { $or: [{ connectedAt: null }, { 'failures.0': { $exists: true } }] } : {};
   const calls = await CallLog.find(filter).sort({ createdAt: -1 }).limit(limit)
     .populate('doctorId', 'firstName lastName').populate('patientId', 'firstName lastName').lean();
-  res.json({ success: true, calls });
+  res.json({ success: true, calls: calls.map(withAverages) });
 });
 
 /** GET /api/admin/calls/:sessionId */
@@ -68,7 +68,13 @@ const getCall = asyncHandler(async (req, res) => {
   const call = await CallLog.findOne({ sessionId: req.params.sessionId })
     .populate('doctorId', 'firstName lastName').populate('patientId', 'firstName lastName').lean();
   if (!call) return res.status(404).json({ success: false, message: 'No statistics for this session' });
-  res.json({ success: true, call });
+  res.json({ success: true, call: withAverages(call) });
 });
+
+/** The call's average round trip, from the running totals. */
+function withAverages(call) {
+  if (call && call.quality && call.quality.samples) call.quality.rttAvgMs = Math.round((call.quality.rttSumMs || 0) / call.quality.samples);
+  return call;
+}
 
 module.exports = { postCallEvents, getCallSummary, listCalls, getCall };

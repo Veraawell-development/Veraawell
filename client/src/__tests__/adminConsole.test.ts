@@ -17,7 +17,7 @@ describe('admin tabs', () => {
   });
 
   it('gives a normal admin only analytics, doctors and reviews', () => {
-    expect(tabsForRole('admin')).toEqual(['analytics', 'doctors', 'reviews']);
+    expect(tabsForRole('admin')).toEqual(['analytics', 'calls', 'doctors', 'reviews']);
   });
 
   it('gives an unknown role nothing', () => {

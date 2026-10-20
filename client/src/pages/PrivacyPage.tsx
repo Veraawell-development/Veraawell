@@ -132,7 +132,7 @@ export default function PrivacyPage() {
                 </li>
                 <li className="flex items-start gap-3">
                   <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--teal)] flex-shrink-0" />
-                  <span><strong>Chat & Connection Details:</strong> Real-time messaging history and video session timing metadata. Note that video calls are encrypted peer-to-peer and never recorded.</span>
+                  <span><strong>Chat & Connection Details:</strong> Real-time messaging history, session timing, and call connection statistics (for example whether a call connected and its connection quality — never what was said or shown). Video and voice calls go directly between your device and your therapist's, encrypted; on networks that block direct connections they pass, still encrypted, through a relay server. Calls are never recorded.</span>
                 </li>
               </ul>
             </div>

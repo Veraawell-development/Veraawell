@@ -1,7 +1,7 @@
 import { test, expect, Browser, BrowserContext, Page } from '@playwright/test';
 import { fixtures } from './fixtures';
 import { closeDb, db, ObjectId } from './adminHelpers';
-import { createSession, readSession, signIn } from './sessionHelpers';
+import { createSession, readSession, signIn, enterCall } from './sessionHelpers';
 
 /**
  * How a session ends, in two real browsers (patient and doctor) on the call
@@ -41,8 +41,8 @@ async function party(browser: Browser, who: 'patient' | 'doctor'): Promise<{ con
 async function bothInCall(browser: Browser, sessionId: string) {
   const patient = await party(browser, 'patient');
   const doctor = await party(browser, 'doctor');
-  await patient.page.goto(`/video-call/${sessionId}`);
-  await doctor.page.goto(`/video-call/${sessionId}`);
+  await enterCall(patient.page, sessionId);
+  await enterCall(doctor.page, sessionId);
   for (const p of [patient.page, doctor.page]) {
     await expect(p.getByRole('button', { name: 'End session' })).toBeVisible({ timeout: 30_000 });
   }
@@ -54,7 +54,7 @@ test.describe('ending a session', () => {
     const { users } = fixtures();
     const id = await createSession({ patientId: users.patientB.id, doctorId: users.doctorB.id, startsInMinutes: -2 });
     const patient = await party(browser, 'patient');
-    await patient.page.goto(`/video-call/${id}`);
+    await enterCall(patient.page, id);
 
     const leave = patient.page.getByRole('button', { name: 'Leave' }).last();
     await expect(leave).toBeVisible({ timeout: 30_000 });

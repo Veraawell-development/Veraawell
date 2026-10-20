@@ -12,23 +12,13 @@ const EmergencyHotlineModal: React.FC<EmergencyHotlineModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  const hotlines = [
-    {
-      name: 'National Suicide Prevention Lifeline',
-      number: '1-800-273-8255'
-    },
-    {
-      name: 'Crisis Text Line',
-      number: 'Text HOME to 741741'
-    },
-    {
-      name: 'Vandrevala Foundation (India)',
-      number: '1860-2662-345'
-    },
-    {
-      name: 'iCall (India)',
-      number: '022-25521111'
-    }
+  // India first (the platform's patients). The US numbers and the SMS line
+  // used to come first, and "Text HOME to 741741" became a broken tel: link.
+  const hotlines: { name: string; number: string; tel: string; hours: string }[] = [
+    { name: 'Emergency (police, ambulance)', number: '112', tel: '112', hours: 'Any time' },
+    { name: 'Tele-MANAS — Government of India', number: '14416', tel: '14416', hours: 'Free · 24×7 · 20 languages' },
+    { name: 'Tele-MANAS (alternate number)', number: '1-800-891-4416', tel: '18008914416', hours: 'Free · 24×7' },
+    { name: 'Vandrevala Foundation', number: '+91 99996 66555', tel: '+919999666555', hours: 'Free · 24×7 · call or WhatsApp' },
   ];
 
   return (
@@ -59,7 +49,7 @@ const EmergencyHotlineModal: React.FC<EmergencyHotlineModalProps> = ({
               Emergency Helplines
             </h2>
             <p className="text-sm text-gray-500 mt-1.5" style={{ fontFamily: 'Inter, sans-serif' }}>
-              Help is available 24/7
+              If you are in danger or thinking of harming yourself, call now — you don't have to wait for your session.
             </p>
           </div>
 
@@ -71,13 +61,14 @@ const EmergencyHotlineModal: React.FC<EmergencyHotlineModalProps> = ({
                   <p className="text-[13px] text-gray-500 font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>
                     {hotline.name}
                   </p>
-                  <a 
-                    href={`tel:${hotline.number.replace(/[^0-9]/g, '')}`}
+                  <a
+                    href={`tel:${hotline.tel}`}
                     className="text-lg font-semibold text-[#38ABAE] hover:text-[#2A8285] transition-colors"
                     style={{ fontFamily: 'Inter, sans-serif' }}
                   >
                     {hotline.number}
                   </a>
+                  <p className="text-xs text-gray-400">{hotline.hours}</p>
                 </div>
               ))}
             </div>

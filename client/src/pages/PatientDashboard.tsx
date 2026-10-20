@@ -6,6 +6,7 @@ import WelcomeModal from '../components/WelcomeModal';
 import MoodCheckInModal from '../components/MoodCheckInModal';
 import BookingPreferenceModal from '../components/BookingPreferenceModal';
 import EmergencyHotlineModal from '../components/EmergencyHotlineModal';
+import SessionDayBanner from '../components/SessionDayBanner';
 import PatientCalendarModal from '../components/PatientCalendarModal';
 import { useAuth } from '../context/AuthContext';
 import { API_CONFIG } from '../config/api';
@@ -748,13 +749,14 @@ const PatientDashboard: React.FC = () => {
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
             <button
               onClick={() => setIsHotlineModalOpen(true)}
-              aria-label="Emergency helplines"
-              className="flex items-center justify-center"
-              style={{ width: 40, height: 40, borderRadius: '50%', border: '1px solid rgba(27,43,46,.15)', background: '#fff', cursor: 'pointer' }}
+              aria-label="Need help now? Emergency helplines"
+              className="flex items-center justify-center gap-1.5"
+              style={{ height: 40, padding: '0 14px', borderRadius: 100, border: '1px solid rgba(224,93,76,.35)', background: '#fff', cursor: 'pointer', color: '#c0392b', fontSize: 13, fontWeight: 600 }}
             >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1b2b2e" strokeWidth="2">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#c0392b" strokeWidth="2" aria-hidden="true">
                 <path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"></path>
               </svg>
+              <span>Need help now?</span>
             </button>
             <button
               onClick={() => navigate('/messages')}
@@ -826,6 +828,14 @@ const PatientDashboard: React.FC = () => {
             </button>
           </div>
         </div>
+      )}
+
+      {/* ── The session today (above the fold, also on phones) ── */}
+      {nextSession && (
+        <SessionDayBanner
+          session={nextSession}
+          hasEmergencyContact={!!(user?.emergencyContact?.name && user?.emergencyContact?.phone)}
+        />
       )}
 
       {/* ── Main content ── */}
@@ -1247,6 +1257,7 @@ const PatientDashboard: React.FC = () => {
         <RatingModal
           isOpen={activeDashboardModal === 'rating'}
           sessionId={sessionToRate._id}
+          doctorId={sessionToRate.doctorId?._id}
           doctorName={sessionToRate.doctorId?.lastName ? `Dr. ${sessionToRate.doctorId.firstName || ''} ${sessionToRate.doctorId.lastName}` : 'your therapist'}
           onClose={() => {
             setShowRatingModal(false);

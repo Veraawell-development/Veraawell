@@ -206,12 +206,16 @@ async function join(socket, session, { instanceId, protocol, client }) {
   // rejoin while the stay is still open — a blip, a refresh, our restart —
   // writes nothing.
   const hasOpenStay = (session.attendance || []).some((a) => a.role === role && !a.leftAt);
+  // Stamped now, not when the queued write runs: a leave right after the join
+  // is stamped first, and a join written later than it was refused the leave
+  // (the stay stayed open — "still in the call").
+  const joinedAt = new Date();
   queueWrite(sessionId, async () => {
     if (!session.callStatus || session.callStatus === 'not-started' || session.callStatus === 'paused') {
       await Session.updateOne({ _id: session._id, status: { $in: LIVE_STATUSES } }, { $set: { callStatus: 'in-progress', callStartTime: new Date() } });
     }
     if (!hasOpenStay) {
-      await attendance.recordJoin(session._id, role, { source: 'socket', io });
+      await attendance.recordJoin(session._id, role, { at: joinedAt, source: 'socket', io });
       await refreshTiming(sessionId); // a late doctor's first join moves the end
     }
   });

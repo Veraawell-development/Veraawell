@@ -47,7 +47,6 @@ const DataSocketContext = createContext<DataSocketValue>({
   error: null
 });
 
-const MAX_RECONNECT_ATTEMPTS = 5;
 
 export const DataSocketProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isLoggedIn, user, loading } = useAuth();
@@ -66,13 +65,17 @@ export const DataSocketProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       return;
     }
 
+    let closed = false;
     const next = io(`${SOCKET_URL}/data`, {
-      auth: { token: getAuthToken() },
+      // Read on every (re)connect, so a refreshed token is used.
+      auth: (cb) => cb({ token: getAuthToken() }),
       withCredentials: true, // the httpOnly cookie is still the primary credential
       reconnection: true,
       reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      reconnectionAttempts: MAX_RECONNECT_ATTEMPTS
+      reconnectionDelayMax: 10000,
+      // Never give up: after a long outage (a deploy, a bad network) the
+      // dashboard used to stay silently stale until a reload.
+      reconnectionAttempts: Infinity
     });
 
     next.on('connect', () => {
@@ -96,9 +99,13 @@ export const DataSocketProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       }
 
       attempts.current += 1;
-      if (attempts.current >= MAX_RECONNECT_ATTEMPTS) {
-        setIsReconnecting(false);
-        next.disconnect();
+      // Turned away by the server's middleware while it is busy or starting
+      // ("Server busy, retrying"): socket.io doesn't retry that by itself.
+      const data = (err as Error & { data?: { retryable?: boolean } }).data;
+      if (data?.retryable) {
+        setIsReconnecting(true);
+        const delay = Math.min(10000, 1000 * attempts.current) + Math.random() * 1000;
+        setTimeout(() => { if (!next.connected && !closed) next.connect(); }, delay);
       }
     });
 
@@ -130,6 +137,7 @@ export const DataSocketProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     setSocket(next);
 
     return () => {
+      closed = true;
       manager.off('reconnect_attempt', onReconnectAttempt);
       manager.off('reconnect', onReconnect);
       manager.off('reconnect_failed', onReconnectFailed);

@@ -70,3 +70,54 @@ test('the admin summary: success rate, relay share, median connect time, failure
   // Not for patients or doctors.
   expect((await request(app).get('/api/admin/calls/summary').set('Authorization', `Bearer ${tokenFor(patient)}`)).status).toBeGreaterThanOrEqual(401);
 });
+
+test('heartbeats, recoveries and restarts add up; flushing at the end records why the call ended', async () => {
+  const s = await makeSession({ patient, doctor, paymentId: `pay_t6_${Date.now()}` });
+  const id = String(s._id);
+  telemetry.noteHealth(id, 'doctor', { candidateType: 'relay', rtt: 100, loss: 2 });
+  telemetry.noteHealth(id, 'doctor', { candidateType: 'relay', rtt: 300, loss: 6 });
+  await telemetry.noteEvents(id, 'patient', [
+    { type: 'reconnected' }, { type: 'reconnected' }, { type: 'ice-restart' }, { type: 'server-restart' },
+    { type: 'rejoin' }, { type: 'ice-stuck' }, { type: 'quality', data: { level: 2 } }, { type: 'peer-left' },
+  ], { client: { browser: 'Chrome', os: 'Android' }, mode: 'voice' });
+  await telemetry.flush(id, 'room-closed');
+  const log = await CallLog.findOne({ sessionId: s._id }).lean();
+  expect(log).toMatchObject({ reconnects: 2, iceRestarts: 1, serverRestarts: 1, attempts: 1, relayUsed: true, mode: 'voice', endReason: 'room-closed' });
+  expect(log.quality).toMatchObject({ rttSumMs: 400, lossPct: 6, samples: 2 });
+  expect(log.parties.doctor.candidateType).toBe('relay');
+  expect(log.parties.patient).toMatchObject({ browser: 'Chrome', os: 'Android' });
+  expect(log.failures.map((f) => f.reason)).toContain('ice-stuck');
+  expect(log.endedAt).toBeTruthy();
+});
+
+test('a server restart saves every call in progress, and the earliest join and connection win across saves', async () => {
+  const s = await makeSession({ patient, doctor, paymentId: `pay_t7_${Date.now()}` });
+  const id = String(s._id);
+  const early = new Date(Date.now() - 60_000);
+  await telemetry.noteEvents(id, 'patient', [{ type: 'join-attempt', at: early }]);
+  await telemetry.flushAll('server-restart');
+  await telemetry.noteEvents(id, 'doctor', [{ type: 'join-attempt', at: new Date() }]);
+  await telemetry.flushAll();
+  const log = await CallLog.findOne({ sessionId: s._id }).lean();
+  expect(new Date(log.firstJoinAt).getTime()).toBe(early.getTime());
+  expect(log.attempts).toBe(2);
+});
+
+test('every event type the browser sends is accepted', async () => {
+  const s = await makeSession({ patient, doctor, paymentId: `pay_t8_${Date.now()}` });
+  const events = telemetry.EVENT_TYPES.slice(0, 20).map((type) => ({ type }));
+  expect((await post(s, patient, { events })).status).toBe(204);
+});
+
+test('one call in the admin list, and a call with no statistics', async () => {
+  const s = await makeSession({ patient, doctor, paymentId: `pay_t9_${Date.now()}` });
+  await post(s, doctor, { events: [{ type: 'connected', data: { timeToConnectMs: 900, candidateType: 'srflx' } }] });
+  const one = await request(app).get(`/api/admin/calls/${s._id}`).set('Authorization', `Bearer ${adminTokenFor(admin)}`);
+  expect(one.status).toBe(200);
+  expect(one.body.call.parties.doctor.candidateType).toBe('srflx');
+  const none = await request(app).get('/api/admin/calls/000000000000000000000000').set('Authorization', `Bearer ${adminTokenFor(admin)}`);
+  expect(none.status).toBe(404);
+  const all = await request(app).get('/api/admin/calls?limit=5').set('Authorization', `Bearer ${adminTokenFor(admin)}`);
+  expect(all.status).toBe(200);
+  expect(all.body.calls.length).toBeLessThanOrEqual(5);
+});

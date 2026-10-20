@@ -37,7 +37,8 @@ const callLogSchema = new mongoose.Schema({
     doctor: { type: partySchema, default: () => ({}) }
   },
   quality: {
-    rttAvgMs: { type: Number, default: null },
+    rttAvgMs: { type: Number, default: null }, // derived on read: rttSumMs / samples
+    rttSumMs: { type: Number, default: 0 },
     lossPct: { type: Number, default: null },
     samples: { type: Number, default: 0 }
   },
