@@ -172,7 +172,7 @@ const MentalHealthTestPage: React.FC = () => {
     const options = currentQuestion?.options || test.defaultOptions;
 
     return (
-        <div className="h-screen pt-[64px] md:pt-[80px] overflow-hidden bg-[#FAFAFA] font-sans flex flex-col box-border">
+        <div className="h-screen h-[100dvh] pt-[64px] md:pt-[80px] overflow-hidden bg-[#FAFAFA] font-sans flex flex-col box-border">
             {/* Ultra-Minimal Header */}
             <div className="bg-white border-b border-gray-200 z-30 shrink-0">
                 <div className="max-w-3xl mx-auto px-6 h-16 flex items-center justify-between">

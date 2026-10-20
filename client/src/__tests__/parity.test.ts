@@ -104,6 +104,23 @@ describe('assessment scoring agrees on both sides', () => {
     expect(mismatches).toEqual([]);
   });
 
+  it('the unscored questions, branch maxima and banding mode match on both sides', () => {
+    const mismatches: string[] = [];
+    const SERVER_EXTRAS = serverScoring.SCORING_TABLES as Record<string, {
+      unscored?: number[]; branchMax?: unknown; severityBy?: string;
+    }>;
+    for (const [type, def] of Object.entries(MENTAL_HEALTH_TESTS)) {
+      const server = SERVER_EXTRAS[type];
+      if (!server) continue;
+      for (const key of ['unscored', 'branchMax', 'severityBy'] as const) {
+        const c = JSON.stringify(def.scoring[key] ?? null);
+        const srv = JSON.stringify(server[key] ?? null);
+        if (c !== srv) mismatches.push(`${type}.${key}: client ${c} vs server ${srv}`);
+      }
+    }
+    expect(mismatches).toEqual([]);
+  });
+
   it('every severity threshold matches on both sides', () => {
     const mismatches: string[] = [];
 
@@ -133,7 +150,7 @@ describe('assessment scoring agrees on both sides', () => {
     for (const type of Object.keys(MENTAL_HEALTH_TESTS)) {
       const maxAnswer = 3;
       for (let answer = 0; answer <= maxAnswer; answer += 1) {
-        for (const n of [1, 3, 7]) {
+        for (const n of [1, 3, 7, 10, 24]) {
           const rs = Array.from({ length: n }, (_, i) => ({ questionId: i + 1, answer }));
           const client = calculateTestScore(type, rs);
           const server = serverScoring.computeScore(type, rs);

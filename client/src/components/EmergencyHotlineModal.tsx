@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { IoClose } from 'react-icons/io5';
+import { HELPLINES } from '../data/helplines';
 
 interface EmergencyHotlineModalProps {
   isOpen: boolean;
@@ -10,16 +11,17 @@ const EmergencyHotlineModal: React.FC<EmergencyHotlineModalProps> = ({
   isOpen, 
   onClose 
 }) => {
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
-  // India first (the platform's patients). The US numbers and the SMS line
-  // used to come first, and "Text HOME to 741741" became a broken tel: link.
-  const hotlines: { name: string; number: string; tel: string; hours: string }[] = [
-    { name: 'Emergency (police, ambulance)', number: '112', tel: '112', hours: 'Any time' },
-    { name: 'Tele-MANAS — Government of India', number: '14416', tel: '14416', hours: 'Free · 24×7 · 20 languages' },
-    { name: 'Tele-MANAS (alternate number)', number: '1-800-891-4416', tel: '18008914416', hours: 'Free · 24×7' },
-    { name: 'Vandrevala Foundation', number: '+91 99996 66555', tel: '+919999666555', hours: 'Free · 24×7 · call or WhatsApp' },
-  ];
+  // One list for every screen (data/helplines.ts); India first.
+  const hotlines = HELPLINES;
 
   return (
     <>
@@ -33,6 +35,9 @@ const EmergencyHotlineModal: React.FC<EmergencyHotlineModalProps> = ({
       <div className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none">
         <div 
           className="bg-white rounded-[24px] shadow-[0_8px_40px_rgba(0,0,0,0.06)] w-full max-w-[400px] pointer-events-auto animate-fade-up overflow-hidden"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="hotline-title"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -40,12 +45,13 @@ const EmergencyHotlineModal: React.FC<EmergencyHotlineModalProps> = ({
             <button
               onClick={onClose}
               className="absolute top-6 right-6 text-gray-300 hover:text-gray-600 transition-colors"
-              aria-label="Close modal"
+              aria-label="Close helplines"
+              autoFocus
             >
               <IoClose size={24} />
             </button>
             
-            <h2 className="text-xl font-bold text-gray-900 tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
+            <h2 id="hotline-title" className="text-xl font-bold text-gray-900 tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
               Emergency Helplines
             </h2>
             <p className="text-sm text-gray-500 mt-1.5" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -56,8 +62,8 @@ const EmergencyHotlineModal: React.FC<EmergencyHotlineModalProps> = ({
           {/* Content */}
           <div className="px-8 pb-8">
             <div className="flex flex-col gap-5 mt-2">
-              {hotlines.map((hotline, index) => (
-                <div key={index} className="flex flex-col gap-0.5">
+              {hotlines.map((hotline) => (
+                <div key={hotline.tel} className="flex flex-col gap-0.5">
                   <p className="text-[13px] text-gray-500 font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>
                     {hotline.name}
                   </p>
