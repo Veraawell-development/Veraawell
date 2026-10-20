@@ -1,8 +1,7 @@
 /**
- * Call signalling v2 — `call:*` events on the default namespace, beside the
- * v1 events (video.socket.js) for one release. Thin on purpose: the logic is
- * in services/call/callService.js. Every event has an acknowledgement, a
- * shape check and a rate limit (authz/socket.js registrar).
+ * Call signalling — `call:*` events on the default namespace. Thin on
+ * purpose: the logic is in services/call/callService.js. Every event has an
+ * acknowledgement, a shape check and a rate limit (authz/socket.js registrar).
  */
 
 const { createGuardedRegistrar } = require('../authz/socket');
@@ -19,6 +18,13 @@ module.exports = (io) => {
 
   io.on('connection', (socket) => {
     const { on } = createGuardedRegistrar(socket, { tag: 'CALL' });
+
+    // A call page still open from before the new engine (it joins with the
+    // first protocol's 'join-room'): tell it to refresh instead of leaving it
+    // waiting for nobody.
+    on('join-room', { mode: 'open' }, () => {
+      socket.emit('error', { message: 'Veraawell has been updated. Please refresh this page to continue your call.' });
+    });
 
     on('call:join', { mode: 'policy', action: 'session:join', validate: payloads.join, rate: { perSec: 0.5, burst: 5 } },
       async (payload, ctx) => {

@@ -2,14 +2,14 @@
   "name": "Veraawell API",
   "baseUrl": "https://api.veraawell.com",
   "generatedFrom": "the mounted Express router — regenerate with: npm run docs:api",
-  "generatedAt": "2026-10-17",
+  "generatedAt": "2026-10-20",
   "notes": [
     "Auth: an httpOnly `token` cookie, or `Authorization: Bearer <jwt>`. Admin routes use a separate realm and a separate secret.",
     "Mutating requests (POST/PUT/PATCH/DELETE) require an `X-CSRF-Token` header matching the csrfToken cookie; both come from GET /api/csrf-token, the only place a token is minted. Exempt (pre-session or server-to-server): /api/admin/auth/forgot-password, /api/admin/auth/login, /api/admin/auth/setup, /api/auth/forgot-password, /api/auth/google, /api/auth/google/callback, /api/auth/login, /api/auth/register, /api/auth/resend-signup-otp, /api/auth/reset-password, /api/auth/validate-registration, /api/auth/verify-signup, /api/payments/webhook, /api/upload/doctor-document, /api/upload/doctor-documents, /api/admin/auth/reset-password/:token.",
     "Request and response bodies are not listed: they are not inferable from the router. Read the controller named on the route line.",
     "\"undeclared\" means the route predates the authz convention and is grandfathered in authz/UNDECLARED.js, which may only shrink. It does not mean unauthenticated."
   ],
-  "routeCount": 171,
+  "routeCount": 179,
   "groups": {
     "admin/approvals": [
       {
@@ -115,6 +115,23 @@
         "access": "undeclared — see authz/UNDECLARED.js"
       }
     ],
+    "admin/calls": [
+      {
+        "method": "GET",
+        "path": "/api/admin/calls/",
+        "access": "role: admin or super_admin"
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/calls/:sessionId",
+        "access": "role: admin or super_admin"
+      },
+      {
+        "method": "GET",
+        "path": "/api/admin/calls/summary",
+        "access": "role: admin or super_admin"
+      }
+    ],
     "admin/payments": [
       {
         "method": "PATCH",
@@ -129,12 +146,12 @@
       {
         "method": "POST",
         "path": "/api/admin/payments/onboarding-requests/:doctorId/approve",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: super_admin"
       },
       {
         "method": "POST",
         "path": "/api/admin/payments/onboarding-requests/:doctorId/reject",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "role: super_admin"
       },
       {
         "method": "GET",
@@ -325,7 +342,7 @@
       {
         "method": "POST",
         "path": "/api/auth/logout",
-        "access": "undeclared — see authz/UNDECLARED.js"
+        "access": "public — sign out: clears the session cookie whether or not it is still valid"
       },
       {
         "method": "POST",
@@ -764,13 +781,28 @@
       },
       {
         "method": "POST",
+        "path": "/api/sessions/:sessionId/abandon-checkout",
+        "access": "policy: session:abandon-checkout"
+      },
+      {
+        "method": "POST",
         "path": "/api/sessions/:sessionId/accept",
         "access": "policy: session:accept"
       },
       {
         "method": "POST",
+        "path": "/api/sessions/:sessionId/call-events",
+        "access": "policy: session:join"
+      },
+      {
+        "method": "POST",
         "path": "/api/sessions/:sessionId/cancel",
         "access": "policy: session:cancel"
+      },
+      {
+        "method": "POST",
+        "path": "/api/sessions/:sessionId/claim-absent-refund",
+        "access": "policy: session:claim-absent-refund"
       },
       {
         "method": "POST",
@@ -781,6 +813,21 @@
         "method": "POST",
         "path": "/api/sessions/:sessionId/delay",
         "access": "policy: session:delay"
+      },
+      {
+        "method": "POST",
+        "path": "/api/sessions/:sessionId/end-request",
+        "access": "policy: session:end-call"
+      },
+      {
+        "method": "POST",
+        "path": "/api/sessions/:sessionId/end-response",
+        "access": "policy: session:end-call"
+      },
+      {
+        "method": "GET",
+        "path": "/api/sessions/:sessionId/ice-servers",
+        "access": "policy: session:join"
       },
       {
         "method": "POST",
@@ -871,11 +918,6 @@
         "method": "GET",
         "path": "/api/sessions/stats",
         "access": "role: doctor"
-      },
-      {
-        "method": "GET",
-        "path": "/api/sessions/turn-credentials",
-        "access": "role: patient or doctor"
       },
       {
         "method": "GET",

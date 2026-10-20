@@ -96,24 +96,13 @@ async function startServer() {
         // Calls the previous process was carrying: the browsers keep talking
         // (the media never goes through us) and rejoin within seconds. A
         // while after boot, close the attendance stays of anyone who did NOT
-        // come back. (CALL_ENGINE=v1: the old rule, closing every stay now.)
+        // come back.
         const attendance = require('./services/attendance');
-        if (require('./config/features').callEngine() === 'v2') {
-          const callService = require('./services/call/callService');
-          const { v1IsPresent } = require('./socket/video.socket');
-          setTimeout(() => {
-            attendance.settleStaleStays({
-              bootAt: BOOT_AT,
-              isPresent: (id, role) => callService.isPresent(id, role) || v1IsPresent(id, role)
-            }).catch((err) => logger.error('Could not settle attendance after boot', { error: err.message }));
-          }, Number(process.env.BOOT_REJOIN_GRACE_MS) || 90 * 1000).unref();
-        } else {
-          try {
-            await attendance.closeStaleSocketStays({ bootAt: new Date() });
-          } catch (err) {
-            logger.error('Could not close stale attendance stays', { error: err.message });
-          }
-        }
+        const callService = require('./services/call/callService');
+        setTimeout(() => {
+          attendance.settleStaleStays({ bootAt: BOOT_AT, isPresent: callService.isPresent })
+            .catch((err) => logger.error('Could not settle attendance after boot', { error: err.message }));
+        }, Number(process.env.BOOT_REJOIN_GRACE_MS) || 90 * 1000).unref();
 
         // Start scheduler (session reminders, status updates)
         const { startScheduler } = require('./services/scheduler');

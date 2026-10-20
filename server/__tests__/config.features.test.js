@@ -5,7 +5,7 @@
 
 const features = require('../config/features');
 
-const KEYS = ['SESSION_RULES', 'CALL_ENGINE'];
+const KEYS = ['SESSION_RULES'];
 const saved = {};
 
 beforeEach(() => {
@@ -36,12 +36,6 @@ describe('sessionRulesVersion', () => {
   });
 });
 
-describe('callEngine', () => {
-  test('defaults to the new call engine (v2); v1 is the rollback', () => {
-    expect(features.callEngine()).toBe('v2');
-    process.env.CALL_ENGINE = 'V1';
-    expect(features.callEngine()).toBe('v1');
-    process.env.CALL_ENGINE = 'livekit';
-    expect(features.callEngine()).toBe('v2');
-  });
+test('the call engine switch is gone with the old engine', () => {
+  expect(features.callEngine).toBeUndefined();
 });

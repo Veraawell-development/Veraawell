@@ -88,7 +88,7 @@ type RoomHandler = (payload: any) => void;
 
 /** Events from the room the page handles itself (rules, ending, tools). */
 const ROOM_EVENTS = ['session-time-up', 'session-ended', 'request-end-session', 'confirm-end-session', 'end-session-error',
-  'session:status-update', 'session:cancelled', 'call:prep-data', 'call:peer-outdated', 'error'];
+  'session:status-update', 'session:cancelled', 'call:prep-data', 'error'];
 
 function newInstanceId(): string {
   try { return crypto.randomUUID(); } catch { return `i-${Date.now()}-${Math.random().toString(36).slice(2)}`; }

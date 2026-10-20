@@ -265,27 +265,6 @@ describe('closeAll and the restart cleanup', () => {
     await expect(attendance.closeAll(s._id, { at: at(s, 20) })).resolves.toEqual({ closed: false });
   });
 
-  test('a restart closes socket stays the old process left open, and nothing else', async () => {
-    const s = await liveSession();
-    const other = await liveSession();
-    const bootAt = at(s, 10);
-    await attendance.recordJoin(s._id, 'patient', { at: at(s, 0), source: 'socket' });
-    await attendance.recordJoin(s._id, 'doctor', { at: at(s, 0), source: 'backfill' });
-    await attendance.recordJoin(other._id, 'patient', { at: at(s, 11), source: 'socket' });
-
-    const closed = await attendance.closeStaleSocketStays({ bootAt });
-    expect(closed).toBe(1);
-
-    const doc = await reload(s._id);
-    const byRole = Object.fromEntries(doc.attendance.map((a) => [a.role, a]));
-    expect(byRole.patient.leftAt).toEqual(bootAt);
-    expect(byRole.doctor.leftAt).toBeNull(); // LiveKit rooms don't restart with us
-    const later = await reload(other._id);
-    expect(later.attendance[0].leftAt).toBeNull(); // joined after the boot
-
-    // The person reconnects and gets a fresh stay.
-    expect((await attendance.recordJoin(s._id, 'patient', { at: at(s, 11), source: 'socket' })).opened).toBe(true);
-  });
 });
 
 describe('telling both screens', () => {

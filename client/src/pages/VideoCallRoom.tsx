@@ -36,11 +36,10 @@ function cancelledText(session: any, role: 'patient' | 'doctor'): string {
 }
 
 /**
- * The call screen (engine v2, src/call/). The engine owns the socket, the
- * camera/mic and the peer connection; this page shows the session around it:
- * the waiting room and its rules, the timer, ending by agreement, chat and the
- * therapist's tools. CALL_ENGINE=v1 on the server routes to the old page
- * (VideoCallRoomLegacy) until it is deleted.
+ * The call screen. The engine (src/call/) owns the socket, the camera/mic
+ * and the peer connection; this page shows the session around it: the
+ * waiting room and its rules, the timer, ending by agreement, chat and the
+ * therapist's tools.
  */
 const VideoCallRoom: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
@@ -181,7 +180,6 @@ const VideoCallRoom: React.FC = () => {
     };
   }, [dataSocket, sessionId]);
 
-  // Same key and shape as CallRoomSwitch's query, so it is already cached.
   const { data: fetchedSession, isError, refetch: refetchSession } = useQuery({
     queryKey: ['session-call', sessionId],
     queryFn: async () => {
@@ -356,9 +354,6 @@ const VideoCallRoom: React.FC = () => {
         const tags = Array.isArray(data?.tags) ? data.tags : [];
         setPatientPrepData(tags);
         if (user?.role === 'doctor' && tags.length) toast(`Patient wants to discuss: ${tags.join(', ')}`, { duration: 6000, icon: '📝' });
-      }),
-      engine.onRoomEvent('call:peer-outdated', () => {
-        toast(`${otherPartyRef.current} is on an older version of the page — ask them to refresh it.`, { id: 'peer-outdated', duration: 8000 });
       }),
       engine.onRoomEvent('error', (data: { message?: string }) => {
         if (data?.message) toast.error(data.message, { id: 'call-error' });

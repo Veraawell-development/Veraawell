@@ -9,16 +9,13 @@
  *
  *   SESSION_RULES  'v2' (the new grace / outcome rules) | 'v1' (the sweep as
  *                  it was before them). See docs/SESSION_RULES.md.
- *   CALL_ENGINE    'v2' (calls: signalling v2 + the new call screen, with the
- *                  v1 events still served for pages open on an old build) |
- *                  'v1' (roll back to the first call engine only).
  *
  * (VIDEO_PROVIDER / LIVEKIT_* are gone: calls stay browser-to-browser;
- * LiveKit was dropped on 2026-10-19.)
+ * LiveKit was dropped on 2026-10-19. CALL_ENGINE, the new call engine's
+ * rollback switch, went with the old engine in the Phase 3 cleanup.)
  */
 
 const SESSION_RULE_VERSIONS = Object.freeze(['v1', 'v2']);
-const CALL_ENGINES = Object.freeze(['v1', 'v2']);
 
 /**
  * The session rules in docs/SESSION_RULES.md (lateness, absence, outcomes,
@@ -26,7 +23,6 @@ const CALL_ENGINES = Object.freeze(['v1', 'v2']);
  * end-of-session sweep — a rollback, kept for one release.
  */
 const DEFAULT_SESSION_RULES = 'v2';
-const DEFAULT_CALL_ENGINE = 'v2';
 
 function readChoice(name, allowed, fallback) {
   const raw = String(process.env[name] || '').trim().toLowerCase();
@@ -38,14 +34,7 @@ function sessionRulesVersion() {
   return readChoice('SESSION_RULES', SESSION_RULE_VERSIONS, DEFAULT_SESSION_RULES);
 }
 
-/** Which call engine new call pages use. */
-function callEngine() {
-  return readChoice('CALL_ENGINE', CALL_ENGINES, DEFAULT_CALL_ENGINE);
-}
-
 module.exports = {
   SESSION_RULE_VERSIONS,
-  CALL_ENGINES,
-  sessionRulesVersion,
-  callEngine
+  sessionRulesVersion
 };
