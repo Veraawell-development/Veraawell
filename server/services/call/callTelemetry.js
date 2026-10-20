@@ -16,7 +16,8 @@ const FAILURE_FLUSH_GAP_MS = 10 * 1000;
 // the whole batch).
 const EVENT_TYPES = ['join-attempt', 'connected', 'reconnecting', 'reconnected', 'ice-restart', 'relay-escalation',
   'failed', 'media-error', 'autoplay-blocked', 'device-lost', 'left', 'server-restart',
-  'ice-stuck', 'ice-gave-up', 'rejoin', 'slow-connect', 'signalling-lost', 'peer-left', 'superseded', 'quality'];
+  'ice-stuck', 'ice-gave-up', 'rejoin', 'slow-connect', 'signalling-lost', 'peer-left', 'superseded', 'quality',
+  'media-fallback'];
 
 const pending = new Map(); // sessionId -> accumulator
 
