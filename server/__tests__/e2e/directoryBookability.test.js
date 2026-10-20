@@ -260,3 +260,39 @@ describe('what the directory and profile show', () => {
     expect(one.body.openDates).toContain(tomorrow);
   });
 });
+
+describe('the rule itself, outside a request', () => {
+  const { bookabilityOf, bookableProfileFilter } = require('../../services/bookability');
+  const full = { session20: 800, session40: 1500, session55: 2000, audio: { session20: 600, session40: 1200, session55: 1600 } };
+
+  test('no profile, or a gap in the six prices: not bookable at all', () => {
+    expect(bookabilityOf(null)).toEqual({ scheduled: false, instant: false });
+    expect(bookabilityOf({ payoutApproved: true, pricing: { ...full, audio: { ...full.audio, session55: 0 } }, bookableUntil: new Date(Date.now() + 864e5) }))
+      .toEqual({ scheduled: false, instant: false });
+  });
+
+  test('paid and priced but no dates ahead: instant only', () => {
+    const now = new Date();
+    expect(bookabilityOf({ payoutApproved: true, pricing: full, bookableUntil: new Date(now - 864e5) }, { now }))
+      .toEqual({ scheduled: false, instant: true });
+    expect(bookabilityOf({ payoutApproved: true, pricing: full })).toEqual({ scheduled: false, instant: true });
+  });
+
+  test('the query form asks for all six prices, and dates only when booking a time', () => {
+    const scheduled = bookableProfileFilter();
+    expect(scheduled.payoutApproved).toBe(true);
+    expect(Object.values(scheduled).filter((v) => v && v.$gt === 0)).toHaveLength(6);
+    expect(scheduled.bookableUntil.$gte).toBeInstanceOf(Date);
+    expect(bookableProfileFilter({ scheduled: false }).bookableUntil).toBeUndefined();
+  });
+
+  test('a doctor with no calendar yet gets one with the default times, once', async () => {
+    const { getOrCreateAvailability } = require('../../services/session.service');
+    const { user } = await makeDoctor();
+    const first = await getOrCreateAvailability(user._id);
+    expect(first.defaultSlots).toEqual(['09:00 AM', '11:00 AM', '03:00 PM', '05:00 PM']);
+    const again = await getOrCreateAvailability(user._id);
+    expect(String(again._id)).toBe(String(first._id));
+    expect(await DoctorAvailability.countDocuments({ doctorId: user._id })).toBe(1);
+  });
+});

@@ -386,6 +386,16 @@ describe('journal', () => {
     const moodOnly = await call('put', `/api/session-tools/journal/${id}`, tokens.patientA, { mood: 'Calm' });
     expect(moodOnly.status).toBe(200);
     expect(moodOnly.body.journal).toMatchObject({ title: 'Morning', mood: 'Calm' });
+
+    // Tags and mood: bounded too, trimmed, blanks dropped.
+    expect((await post({ title: 'ok', content: 'ok', tags: 'not-a-list' })).status).toBe(400);
+    expect((await post({ title: 'ok', content: 'ok', tags: Array.from({ length: 21 }, (_, i) => `t${i}`) })).status).toBe(400);
+    expect((await post({ title: 'ok', content: 'ok', tags: ['x'.repeat(41)] })).status).toBe(400);
+    expect((await post({ title: 'ok', content: 'ok', tags: [{ $gt: '' }] })).status).toBe(400);
+    expect((await post({ title: 'ok', content: 'ok', mood: 'x'.repeat(51) })).status).toBe(400);
+    const tagged = await post({ title: 'Tagged', content: 'ok', mood: ' Calm ', tags: [' sleep ', '', 'work'] });
+    expect(tagged.status).toBe(201);
+    expect(tagged.body.journal).toMatchObject({ mood: 'Calm', tags: ['sleep', 'work'] });
   });
 
   test('the list pages through every entry and says when there are older ones', async () => {
