@@ -246,6 +246,27 @@ describe('time slots', () => {
     const res = await post('/api/sessions/book', patient, { doctorId: String(doctor._id), sessionDate: slot.date, sessionTime: slot.time, mode: 'video', duration: 20 });
     expect(res.status).toBe(201);
   });
+
+  test('the service the patient picked is noted for the therapist; no pick, no made-up "General"', async () => {
+    const day = istSlot(new Date(Date.now() + 4 * 24 * 60 * MIN)).date;
+    await DoctorAvailability.create({ doctorId: doctor._id, availabilityType: 'same_slots', defaultSlots: ['10:00 AM', '11:00 AM'], activeDates: [day] });
+    const picked = await post('/api/sessions/book', patient, { doctorId: String(doctor._id), sessionDate: day, sessionTime: '10:00 AM', mode: 'video', duration: 20, serviceType: 'Anxiety Therapy' });
+    expect(picked.status).toBe(201);
+    expect((await Session.findById(picked.body.session._id).lean()).sessionNotes).toBe('Service Type: Anxiety Therapy');
+    const none = await post('/api/sessions/book', patient2, { doctorId: String(doctor._id), sessionDate: day, sessionTime: '11:00 AM', mode: 'video', duration: 20, serviceType: 'General' });
+    expect(none.status).toBe(201);
+    expect((await Session.findById(none.body.session._id).lean()).sessionNotes || '').toBe('');
+  });
+
+  test('a slot the therapist has not priced cannot be booked, even with a price in the request', async () => {
+    const unpriced = await freshDoctor({ pricing: { min: 800, max: 2000, session20: 800, session40: 1500, session55: 2000, audio: { session20: 600, session40: 1200, session55: 0 } } });
+    const slot = istSlot(new Date(Date.now() + 3 * 24 * 60 * MIN));
+    await DoctorAvailability.create({ doctorId: unpriced._id, availabilityType: 'same_slots', defaultSlots: [slot.time], activeDates: [slot.date] });
+    const res = await post('/api/sessions/book', patient, { doctorId: String(unpriced._id), sessionDate: slot.date, sessionTime: slot.time, mode: 'voice', duration: 55, price: 2000 });
+    // Not bookable at all while a price is missing (services/bookability.js).
+    expect(res.status).toBe(409);
+    expect(await Session.countDocuments({ doctorId: unpriced._id })).toBe(0);
+  });
 });
 
 describe('closing the payment window', () => {
@@ -418,12 +439,33 @@ describe('the price a booking is charged', () => {
     expect(await calculateSessionPrice(doctor._id, 'video', 20)).toBeNull();
   });
 
-  test('a length that is not offered, or no positive price anywhere in the chain, has no price', () => {
+  test('a length that is not offered, or a slot without its own price, has no price', () => {
     expect(resolvePrice({ min: 800, session20: 800 }, 'video', 30)).toBeNull();
     expect(resolvePrice({ min: 0, session20: 0 }, 'video', 20)).toBeNull();
     expect(resolvePrice({ max: Infinity }, 'video', 55)).toBeNull();
+    expect(resolvePrice({ session55: Infinity }, 'video', 55)).toBeNull();
     expect(resolvePrice({ min: 800, audio: { session20: 600 } }, 'voice', 20)).toBe(600);
-    expect(resolvePrice({ min: 800 }, 'voice', 20)).toBe(800);
+    expect(resolvePrice({ min: 800, session20: 800 }, 'chat', 20)).toBeNull();
+  });
+
+  test('never a price the therapist did not set — no fallback to min, max, the other mode or a shorter length', () => {
+    // The chain sold sessions nobody had priced: 55-min voice at pricing.max,
+    // 40-min video at the 20-min price, voice at the video price.
+    const partial = { min: 300, max: 900, session20: 300, session40: 0, session55: 0, audio: { session20: 0 } };
+    expect(resolvePrice(partial, 'video', 20)).toBe(300);
+    expect(resolvePrice(partial, 'video', 40)).toBeNull();
+    expect(resolvePrice(partial, 'video', 55)).toBeNull();
+    expect(resolvePrice(partial, 'voice', 20)).toBeNull();
+    expect(resolvePrice({ min: 800 }, 'voice', 20)).toBeNull();
+  });
+
+  test('a booking for a slot the therapist has not priced is refused — and they are not listed', async () => {
+    const { isFullyPriced } = require('../../services/session.service');
+    const full = { session20: 500, session40: 900, session55: 1200, audio: { session20: 400, session40: 800, session55: 1100 } };
+    expect(isFullyPriced(full)).toBe(true);
+    expect(isFullyPriced({ ...full, audio: { ...full.audio, session55: 0 } })).toBe(false);
+    expect(isFullyPriced({ min: 400, max: 1200 })).toBe(false);
+    expect(isFullyPriced(null)).toBe(false);
   });
 });
 

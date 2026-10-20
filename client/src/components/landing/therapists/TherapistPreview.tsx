@@ -6,7 +6,8 @@ import DoctorCard from '../../DoctorCard';
 import { useQuery } from '@tanstack/react-query';
 import { API_BASE_URL } from '../../../config/api';
 import { getDoctorAccentColor } from '../../../utils/doctorColor';
-import { getDoctorImage } from '../../../utils/doctorImage';
+import { startingPrice } from '../../../utils/sessionPricing';
+import { doctorDisplayName, experienceLabel } from '../../../utils/doctorName';
 
 /**
  * The real, bookable therapists (the directory's own list and cache). This
@@ -21,13 +22,6 @@ const useFeaturedTherapists = () => useQuery<any[]>({
     return response.json();
   },
 });
-
-const priceText = (pricing?: { min?: number; max?: number }) => {
-  const min = pricing?.min || 0;
-  const max = pricing?.max || 0;
-  if (!min && !max) return '';
-  return !max || min === max ? `₹${min || max}` : `₹${min} - ₹${max}`;
-};
 
 
 /* ─── Therapist Preview Section ──────────────────────────────── */
@@ -126,13 +120,13 @@ const TherapistPreviewSection: React.FC<{ featured: any[] }> = ({ featured }) =>
           {featured.map((doctor, i) => (
             <div key={doctor._id} data-reveal data-delay={`${i + 1}` as any}>
               <DoctorCard
-                name={`Dr. ${doctor.userId.firstName} ${doctor.userId.lastName}`}
-                experience={doctor.experience ? `${doctor.experience} years` : ''}
+                name={doctorDisplayName(doctor.userId.firstName, doctor.userId.lastName)}
+                experience={experienceLabel(doctor.experience) || '—'}
                 qualification={(doctor.qualification || []).join(', ')}
-                pricing={priceText(doctor.pricing)}
+                startingPrice={startingPrice(doctor.pricing)}
                 language={(doctor.languages || []).join(', ')}
                 treatsFor={(doctor.treatsFor || []).join(', ')}
-                imageSrc={getDoctorImage(doctor)}
+                imageSrc={doctor.profileImage || ''}
                 rating={doctor.rating}
                 bgColor={getDoctorAccentColor(doctor.userId._id)}
                 onViewProfile={() => navigate(`/doctor/${doctor.userId._id}`)}

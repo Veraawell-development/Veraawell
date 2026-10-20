@@ -302,17 +302,20 @@ test.describe('the DLA-20 screening', () => {
 });
 
 test.describe('booking', () => {
-  test('the directory opens on "Available Now" and shows nothing when no one is online', async ({ page }) => {
-    // Arriving without location.state defaults to the online-only view, so a
-    // patient who navigates straight to /choose-professional sees an empty
-    // directory whenever no therapist happens to be toggled online — even
-    // though bookable doctors exist.
+  test('the directory opens on "All", not on an empty "Available Now"', async ({ page }) => {
+    // It used to default to the online-only view, so a patient arriving at
+    // /choose-professional saw "No professionals online" whenever no
+    // therapist happened to be online — even though bookable doctors exist.
     await page.goto('/choose-professional');
     await expect(page.getByText('Find Your Therapist')).toBeVisible({ timeout: 25_000 });
+    await expect(page.getByText('All Professionals')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText('2 available')).toBeVisible();
+    // The online tab is still one click away, and says so when it is empty.
+    await page.getByRole('button', { name: 'Available Now' }).click();
     await expect(page.getByText(/No professionals online/i)).toBeVisible({ timeout: 15_000 });
   });
 
-  test('switching to "All" reveals the bookable doctors', async ({ page }) => {
+  test('the "All" tab lists the bookable doctors', async ({ page }) => {
     await page.goto('/choose-professional');
     await expect(page.getByText('Find Your Therapist')).toBeVisible({ timeout: 25_000 });
 
@@ -336,7 +339,7 @@ test.describe('booking', () => {
     await expect(page.getByText(/EXPERIENCE/i).first()).toBeVisible();
     await expect(page.getByText(/8\+ years/)).toBeVisible();
     // Server-authoritative pricing from the seeded profile.
-    await expect(page.getByText(/Rs\.\s*800/)).toBeVisible();
+    await expect(page.getByText('₹800', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: /Book Appointment/i })).toBeVisible();
   });
 

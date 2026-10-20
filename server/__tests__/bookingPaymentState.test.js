@@ -111,7 +111,7 @@ async function seedDoctor({ payoutApproved = true, ...extraProfile } = {}) {
     userId: doctor._id,
     specialization: ['Anxiety'], experience: 5, qualification: ['MPhil'],
     languages: ['English'], treatsFor: ['Anxiety'], type: 'Clinical Psychologist',
-    pricing: { min: 2000, max: 2000, session20: 2000 },
+    pricing: { min: 2000, max: 2000, session20: 2000, session40: 2000, session55: 2000, audio: { session20: 2000, session40: 2000, session55: 2000 } },
     payoutApproved,
     ...extraProfile
   });
@@ -167,7 +167,7 @@ describe('a booking that owes money is never created as paid', () => {
       userId: doctor._id,
       specialization: ['Anxiety'], experience: 5, qualification: ['MPhil'],
       languages: ['English'], treatsFor: ['Anxiety'], type: 'Clinical Psychologist',
-      pricing: { min: 2000, max: 2000, session20: 2000 }
+      pricing: { min: 2000, max: 2000, session20: 2000, session40: 2000, session55: 2000, audio: { session20: 2000, session40: 2000, session55: 2000 } }
       // payoutApproved deliberately not set
     });
     const dateStr = new Date(Date.now() + 3 * 864e5).toISOString().split('T')[0];

@@ -24,6 +24,7 @@ const PRICE_SLOTS = [
 /**
  * Validate a doctor's 6-slot price grid and normalise it to numbers, with
  * min/max derived for the public profile. Returns `{ error }` or `{ grid }`.
+ * All six slots are required: every length is sold in both modes.
  *
  * Shared by PATCH /api/profile/pricing and POST /api/profile/setup. Setup
  * used to write the grid raw — a negative or ₹10,00,000 price went straight
@@ -36,26 +37,35 @@ function validatePricingGrid(pricing) {
     return { error: '"pricing" object is required in request body' };
   }
 
+  const missing = [];
   for (const { key, label } of PRICE_SLOTS) {
     const val = key.startsWith('audio.')
       ? pricing?.audio?.[key.replace('audio.', '')]
       : pricing?.[key];
 
-    if (val !== undefined && val !== null && val !== '') {
-      const num = Number(val);
-      if (isNaN(num) || num < 0) {
-        return { error: `${label} price must be a non-negative number` };
-      }
-      // ₹1 is the floor because it is Razorpay's minimum order amount (100
-      // paise) — anything smaller cannot be charged at all. It used to be
-      // ₹100, which made a live low-value test booking impossible.
-      if (num > 0 && num < 1) {
-        return { error: `${label} price must be at least ₹1` };
-      }
-      if (num > 10000) {
-        return { error: `${label} price cannot exceed ₹10,000` };
-      }
+    if (val === undefined || val === null || val === '' || Number(val) === 0) {
+      missing.push(label);
+      continue;
     }
+    const num = Number(val);
+    if (isNaN(num) || num < 0) {
+      return { error: `${label} price must be a positive number` };
+    }
+    // ₹1 is the floor because it is Razorpay's minimum order amount (100
+    // paise) — anything smaller cannot be charged at all. It used to be
+    // ₹100, which made a live low-value test booking impossible.
+    if (num < 1) {
+      return { error: `${label} price must be at least ₹1` };
+    }
+    if (num > 10000) {
+      return { error: `${label} price cannot exceed ₹10,000` };
+    }
+  }
+  // Every length is offered in both modes, so every slot needs a price. A
+  // gap used to be filled at booking time with a price the therapist never
+  // chose (the min/max fallback in session.service resolvePrice).
+  if (missing.length > 0) {
+    return { error: `Set a price for every session. Missing: ${missing.join(', ')}.` };
   }
 
   // Logical ordering: longer sessions should cost >= shorter sessions (if both are set)
@@ -109,6 +119,9 @@ function isPublishableImage(value) {
   return value === undefined || value === null || value === ''
     || BUNDLED_IMAGE.test(value) || isOwnCloudinaryUrl(value);
 }
+
+/** A stored price for a form field: '' when unset (0) or missing. */
+const priceField = (value) => (Number(value) > 0 ? String(value) : '');
 
 /** What a brand-new profile carries until the doctor prices anything. */
 const UNPRICED_GRID = Object.freeze({
@@ -310,12 +323,14 @@ const getProfile = asyncHandler(async (req, res) => {
         experience: doctorProfile.experience?.toString() || '',
         specialization: doctorProfile.specialization || [],
         priceDiscovery: '',
-        price20: doctorProfile.pricing?.session20?.toString() || doctorProfile.pricing?.min?.toString() || '',
-        price40: doctorProfile.pricing?.session40?.toString() || doctorProfile.pricing?.min?.toString() || '',
-        price55: doctorProfile.pricing?.session55?.toString() || doctorProfile.pricing?.max?.toString() || '',
-        audioPrice20: doctorProfile.pricing?.audio?.session20?.toString() || '',
-        audioPrice40: doctorProfile.pricing?.audio?.session40?.toString() || '',
-        audioPrice55: doctorProfile.pricing?.audio?.session55?.toString() || '',
+        // The therapist's own prices only — an unset slot is shown empty, not
+        // pre-filled from min/max, so the form shows exactly what is missing.
+        price20: priceField(doctorProfile.pricing?.session20),
+        price40: priceField(doctorProfile.pricing?.session40),
+        price55: priceField(doctorProfile.pricing?.session55),
+        audioPrice20: priceField(doctorProfile.pricing?.audio?.session20),
+        audioPrice40: priceField(doctorProfile.pricing?.audio?.session40),
+        audioPrice55: priceField(doctorProfile.pricing?.audio?.session55),
         modeOfSession: doctorProfile.modeOfSession || [],
         quote: doctorProfile.quote || '',
         quoteAuthor: doctorProfile.quoteAuthor || '',

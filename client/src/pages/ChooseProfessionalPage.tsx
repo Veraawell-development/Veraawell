@@ -6,7 +6,9 @@ import { useDataSocket } from '../hooks/useDataSocket';
 import LeafDecor from '../components/ui/LeafDecor';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getDoctorAccentColor } from '../utils/doctorColor';
-import { getDoctorImage } from '../utils/doctorImage';
+import { doctorDisplayName, experienceLabel } from '../utils/doctorName';
+import { startingPrice } from '../utils/sessionPricing';
+import type { DoctorPricing } from '../utils/sessionPricing';
 
 interface Doctor {
   _id: string;
@@ -22,10 +24,7 @@ interface Doctor {
   qualification: string[];
   languages: string[];
   treatsFor: string[];
-  pricing: {
-    min: number;
-    max: number;
-  };
+  pricing: DoctorPricing;
   profileImage: string;
   bio: string;
   isOnline: boolean;
@@ -41,7 +40,10 @@ const ChooseProfessionalPage: React.FC = () => {
   const location = useLocation();
   const queryClient = useQueryClient();
 
-  const initialViewMode = (location.state as any)?.bookingType === 'later' ? 'all' : 'online';
+  // "All" unless the patient asked to talk to someone now. "Available now"
+  // was the default for every way in — and is empty whenever nobody happens
+  // to be online, which read as "no therapists".
+  const initialViewMode = (location.state as any)?.bookingType === 'now' ? 'online' : 'all';
   const [viewMode, setViewMode] = useState<'online' | 'all'>(initialViewMode);
   const serviceType = (location.state as any)?.serviceType || 'General';
 
@@ -93,8 +95,7 @@ const ChooseProfessionalPage: React.FC = () => {
   useEffect(() => {
     if (!socket) return;
 
-    const onStatusChange = ({ doctorId, isOnline }: { doctorId: string; isOnline: boolean }) => {
-      console.log('[REAL-TIME] Doctor status changed:', { doctorId: doctorId.substring(0, 8), isOnline });
+    const onStatusChange = () => {
       queryClient.invalidateQueries({ queryKey: ['doctors', 'online'] });
     };
     socket.on('doctor:status-change', onStatusChange);
@@ -118,8 +119,9 @@ const ChooseProfessionalPage: React.FC = () => {
   const getDoctorBgColor = getDoctorAccentColor;
 
 
-  // Get current doctors based on view mode and sort them by service preference
-  const currentDoctors = (viewMode === 'online' ? onlineDoctors : doctors).sort((a: any, b: any) => {
+  // Get current doctors based on view mode and sort them by service preference.
+  // A copy: sort() in place reordered the query cache itself.
+  const currentDoctors = [...(viewMode === 'online' ? onlineDoctors : doctors)].sort((a: any, b: any) => {
     if (serviceType === 'General') return 0;
 
     const aTreats = (a.treatsFor || []).map((s: string) => s.toLowerCase());
@@ -137,7 +139,7 @@ const ChooseProfessionalPage: React.FC = () => {
   const currentCount = currentDoctors.length;
 
   return (
-    <div className="h-screen pt-16 md:pt-[80px] bg-[var(--bg-2)] flex flex-col overflow-hidden relative box-border">
+    <div className="h-[100dvh] pt-16 md:pt-[80px] bg-[var(--bg-2)] flex flex-col overflow-hidden relative box-border">
       {/* Background Ornaments */}
       <LeafDecor 
         style={{ 
@@ -282,7 +284,7 @@ const ChooseProfessionalPage: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {viewMode === 'online' ? (
               // Online doctors view
-              onlineDoctors.map((doctor: any) => {
+              currentDoctors.map((doctor: any) => {
                 // The directory only lists doctors with a published calendar;
                 // an instant session doesn't need one, so fall back to the
                 // public profile the online-doctors response now carries.
@@ -296,40 +298,32 @@ const ChooseProfessionalPage: React.FC = () => {
                     : undefined);
 
                 if (fullDoctorData) {
-                  const pricingText = fullDoctorData.pricing.min === 0 && fullDoctorData.pricing.max === 0
-                    ? 'Not Set'
-                    : `₹${fullDoctorData.pricing.min} - ₹${fullDoctorData.pricing.max}`;
-
-                  const experienceText = fullDoctorData.experience === 0
-                    ? 'Unknown'
-                    : `${fullDoctorData.experience} years`;
-
+                  // A therapist in a session can't take an instant call: the
+                  // card AND the profile it opens offer a time instead — the
+                  // profile used to open as an instant booking the server
+                  // then refused.
+                  const bookingType = doctor.busy ? 'scheduled' : 'immediate';
                   return (
                       <DoctorCard
                         key={doctor._id}
-                        name={`Dr. ${fullDoctorData.userId.firstName} ${fullDoctorData.userId.lastName}`}
-                        experience={experienceText}
+                        name={doctorDisplayName(fullDoctorData.userId.firstName, fullDoctorData.userId.lastName)}
+                        experience={experienceLabel(fullDoctorData.experience) || '—'}
                         qualification={fullDoctorData.qualification.join(', ') || 'Not specified'}
-                        pricing={pricingText}
+                        startingPrice={startingPrice(fullDoctorData.pricing)}
                         language={fullDoctorData.languages.join(', ') || 'Not specified'}
                         treatsFor={fullDoctorData.treatsFor.join(', ') || 'General'}
-                        imageSrc={getDoctorImage(fullDoctorData)}
+                        imageSrc={fullDoctorData.profileImage || ''}
                         bgColor={getDoctorBgColor(fullDoctorData.userId._id)}
                         rating={fullDoctorData.rating}
                         isPrevious={previousDoctorIds.has(fullDoctorData._id)}
                         onViewProfile={() => {
-                          navigate(`/doctor/${fullDoctorData.userId._id}`, {
-                            state: {
-                              serviceType: 'General',
-                              bookingType: 'immediate'
-                            }
-                          });
+                          navigate(`/doctor/${fullDoctorData.userId._id}`, { state: { serviceType, bookingType } });
                         }}
-                        onBookSession={doctor.busy
-                          ? () => navigate(`/doctor/${fullDoctorData.userId._id}`, { state: { serviceType: 'General', bookingType: 'scheduled' } })
-                          : () => handleBookSession(doctor._id, true)}
+                        onBookSession={() => {
+                          navigate(`/doctor/${fullDoctorData.userId._id}`, { state: { serviceType, bookingType } });
+                        }}
                         status={doctor.busy ? 'busy' : 'online'}
-                        ctaLabel={doctor.busy ? 'Book a time →' : undefined}
+                        ctaLabel={doctor.busy ? 'Book a time →' : 'Talk now →'}
                       />
                   );
                 }
@@ -339,18 +333,13 @@ const ChooseProfessionalPage: React.FC = () => {
                   <div
                     key={doctor._id}
                     className="group rounded-3xl p-6 transition-all duration-300 flex flex-col h-full relative overflow-hidden"
-                    style={{ 
+                    style={{
                       background: 'rgba(255, 255, 255, 0.7)',
                       border: '1px solid rgba(255, 255, 255, 0.8)',
                       backdropFilter: 'blur(16px)',
                       boxShadow: '0 8px 32px rgba(0,0,0,0.02)'
                     }}
                   >
-                    {/* Hover Glow */}
-                    <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
-                      style={{ background: 'radial-gradient(circle at 50% 0%, rgba(107, 168, 136, 0.05), transparent 70%)' }}
-                    />
-                    
                     {/* Online Badge */}
                     <div className="flex justify-end mb-4 relative z-10">
                       <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full"
@@ -358,7 +347,7 @@ const ChooseProfessionalPage: React.FC = () => {
                       >
                         <div className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: 'var(--sage)' }}></div>
                         <span className="text-[11px] font-bold tracking-wide uppercase" style={{ color: 'var(--sage)' }}>
-                          Online
+                          {doctor.busy ? 'In a session' : 'Online'}
                         </span>
                       </div>
                     </div>
@@ -369,24 +358,22 @@ const ChooseProfessionalPage: React.FC = () => {
                         className="w-24 h-24 mb-5 rounded-full flex items-center justify-center text-white text-3xl font-display shadow-lg"
                         style={{ backgroundColor: getDoctorBgColor(doctor._id) }}
                       >
-                        {doctor.firstName.charAt(0)}{doctor.lastName.charAt(0)}
+                        {(doctor.firstName || '?').charAt(0)}{(doctor.lastName || '').charAt(0)}
                       </div>
                       <h3 className="text-xl font-semibold mb-1 text-center" style={{ color: 'var(--text)' }}>
-                        Dr. {doctor.firstName} {doctor.lastName}
+                        {doctorDisplayName(doctor.firstName, doctor.lastName)}
                       </h3>
-                      {/* Was {doctor.email}: a practitioner's private address on a
-                          public card. */}
                       <p className="text-[14px] mb-8 text-center truncate w-full" style={{ color: 'var(--text-2)' }}>
-                        Available for an instant session
+                        {doctor.busy ? 'In a session right now' : 'Available for an instant session'}
                       </p>
-                      
+
                       <div className="mt-auto w-full">
                         <button
-                          onClick={() => handleBookSession(doctor._id, true)}
+                          onClick={() => handleBookSession(doctor._id, !doctor.busy)}
                           className="w-full px-4 py-3 text-white text-[14px] font-bold rounded-full transition-all duration-300 shadow-md hover:-translate-y-1"
                           style={{ background: 'var(--teal)', boxShadow: '0 8px 20px rgba(0,151,178,0.2)' }}
                         >
-                          Book Now
+                          {doctor.busy ? 'Book a time' : 'Talk now'}
                         </button>
                       </div>
                     </div>
@@ -396,36 +383,30 @@ const ChooseProfessionalPage: React.FC = () => {
             ) : (
               // All doctors view
               currentDoctors.map((doctor: Doctor) => {
+                const status = liveStatus(doctor.userId._id);
+                // Online and free: the card offers an instant session, as the
+                // "Available now" tab does; otherwise a time.
+                const bookingType = status === 'online' ? 'immediate' : 'scheduled';
+                const open = () => navigate(`/doctor/${doctor.userId._id}`, { state: { serviceType, bookingType: 'scheduled' } });
                 return (
                   <DoctorCard
                     key={doctor._id}
-                    name={`Dr. ${doctor.userId.firstName} ${doctor.userId.lastName}`}
-                    experience={`${doctor.experience} years`}
+                    name={doctorDisplayName(doctor.userId.firstName, doctor.userId.lastName)}
+                    experience={experienceLabel(doctor.experience) || '—'}
                     qualification={doctor.qualification.join(', ')}
-                    pricing={`₹${doctor.pricing.min} - ₹${doctor.pricing.max}`}
+                    startingPrice={startingPrice(doctor.pricing)}
                     language={doctor.languages.join(', ')}
                     treatsFor={doctor.treatsFor.join(', ')}
-                    imageSrc={doctor.profileImage || getDoctorImage(doctor)}
+                    imageSrc={doctor.profileImage || ''}
                     bgColor={getDoctorBgColor(doctor.userId._id)}
                     rating={doctor.rating}
                     isPrevious={previousDoctorIds.has(doctor._id)}
-                    status={liveStatus(doctor.userId._id)}
-                    onViewProfile={() => {
-                      navigate(`/doctor/${doctor.userId._id}`, {
-                        state: {
-                          serviceType: 'General',
-                          bookingType: 'scheduled'
-                        }
-                      });
-                    }}
-                    onBookSession={() => {
-                      navigate(`/doctor/${doctor.userId._id}`, {
-                        state: {
-                          serviceType: 'General',
-                          bookingType: 'scheduled'
-                        }
-                      });
-                    }}
+                    status={status}
+                    onViewProfile={open}
+                    onBookSession={bookingType === 'immediate'
+                      ? () => navigate(`/doctor/${doctor.userId._id}`, { state: { serviceType, bookingType } })
+                      : open}
+                    ctaLabel={bookingType === 'immediate' ? 'Talk now →' : undefined}
                   />
                 );
               })

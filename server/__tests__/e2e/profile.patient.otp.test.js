@@ -222,6 +222,18 @@ describe('doctor pricing', () => {
     expect(restore.status).toBeLessThan(300);
   });
 
+  test('a grid with a gap is refused, naming what is missing — every length is sold in both modes', async () => {
+    // A therapist who priced only some slots used to be sold for the rest at
+    // a fallback price they never set (session.service resolvePrice).
+    const res = await call('patch', '/api/profile/pricing', doctorToken, {
+      pricing: { ...validPricing, session55: 0, audio: { ...validPricing.audio, session40: '' } }
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toBe('Set a price for every session. Missing: 55-min video, 40-min audio.');
+    const profile = await DoctorProfile.findOne({ userId: f.doctorA._id }).lean();
+    expect(profile.pricing.session55).toBe(validPricing.session55);
+  });
+
   test('a patient cannot set pricing', async () => {
     const res = await call('patch', '/api/profile/pricing', patientToken, { pricing: validPricing });
     expect(res.status).toBe(403);
@@ -257,7 +269,7 @@ describe('profile setup applies the same pricing rules as PATCH /pricing', () =>
 
   test('saving the profile without pricing leaves an existing grid alone', async () => {
     const priced = await call('patch', '/api/profile/pricing', freshDocToken, {
-      pricing: { session20: 700, session40: 1100, session55: 1400 }
+      pricing: { session20: 700, session40: 1100, session55: 1400, audio: { session20: 700, session40: 1000, session55: 1300 } }
     });
     expect(priced.status).toBeLessThan(300);
 
@@ -283,7 +295,7 @@ describe('profile setup applies the same pricing rules as PATCH /pricing', () =>
   test('a valid grid is stored as numbers with min and max derived', async () => {
     const res = await call('post', '/api/profile/setup', freshDocToken, {
       fullName: 'Fresh Doctor',
-      pricing: { session20: '500', session40: 900, session55: 1200, audio: { session20: 400 } }
+      pricing: { session20: '500', session40: 900, session55: 1200, audio: { session20: 400, session40: 800, session55: 1100 } }
     });
     expect(res.status).toBeLessThan(300);
 
@@ -292,6 +304,17 @@ describe('profile setup applies the same pricing rules as PATCH /pricing', () =>
     expect(pricing.audio.session20).toBe(400);
     expect(pricing.min).toBe(400);
     expect(pricing.max).toBe(1200);
+  });
+
+  test('setup with a partial grid is refused like PATCH /pricing, and writes nothing', async () => {
+    const res = await call('post', '/api/profile/setup', freshDocToken, {
+      fullName: 'Renamed Doctor',
+      pricing: { session20: 500, session40: 900, session55: 1200, audio: { session20: 400 } }
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Missing: 40-min audio, 55-min audio/);
+    expect((await User.findById(freshDoc._id)).firstName).toBe('Fresh');
+    expect((await DoctorProfile.findOne({ userId: freshDoc._id }).lean()).pricing.audio.session40).toBe(800);
   });
 
   test('profile and banner images must be our uploads or bundled defaults', async () => {
