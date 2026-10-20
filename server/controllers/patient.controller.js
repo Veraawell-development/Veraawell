@@ -8,27 +8,35 @@ const User = require('../models/user');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { NotFoundError, AuthorizationError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
+const { readEmergencyContact } = require('../utils/phone');
 
 const logger = createLogger('PATIENT-CTRL');
 
-/** POST /api/patients/emergency-contact — Save patient emergency contact */
+/**
+ * POST /api/patients/emergency-contact — save the patient's emergency
+ * contact, or remove it when all three fields are empty. The phone is checked
+ * and stored as +91 and ten digits; it used to be saved as typed, unchecked.
+ */
 const saveEmergencyContact = asyncHandler(async (req, res) => {
   const userId = req.user._id.toString();
-  const { contactName, contactPhone, contactRelationship } = req.body;
+  const { contactName, contactPhone, contactRelationship } = req.body || {};
 
   if (req.user.role !== 'patient') throw new AuthorizationError('Only patients can set emergency contact');
-  if (!contactName || !contactPhone || !contactRelationship) {
-    return res.status(400).json({ success: false, message: 'Contact name, phone, and relationship are required' });
-  }
+  const read = readEmergencyContact({ name: contactName, phone: contactPhone, relationship: contactRelationship });
+  if (read.error) return res.status(400).json({ success: false, message: read.error });
 
   const user = await User.findById(userId);
   if (!user) throw new NotFoundError('User');
 
-  user.emergencyContact = { name: contactName, phone: contactPhone, relationship: contactRelationship };
+  user.emergencyContact = read.clear ? { name: null, phone: null, relationship: null } : read.contact;
   await user.save();
 
-  logger.info('Emergency contact saved', { userId: userId.substring(0, 8) });
-  res.json({ success: true, message: 'Emergency contact saved successfully', emergencyContact: user.emergencyContact });
+  logger.info(read.clear ? 'Emergency contact removed' : 'Emergency contact saved', { userId: userId.substring(0, 8) });
+  res.json({
+    success: true,
+    message: read.clear ? 'Emergency contact removed' : 'Emergency contact saved',
+    emergencyContact: user.emergencyContact
+  });
 });
 
 /** GET /api/patients/emergency-contact — Get patient emergency contact */

@@ -19,6 +19,9 @@ import { API_URL } from './helpers';
 async function arriveAtDashboard(page: Page) {
   await page.goto('/patient-dashboard');
   await expect(page.getByText('YOUR DASHBOARD')).toBeVisible({ timeout: 20_000 });
+  // The one popup a visit gets is chosen once its three sources have all
+  // answered (utils/dashboardPopups), so let those requests land first.
+  await page.waitForLoadState('networkidle').catch(() => {});
 
   for (const name of [/I'll do this later/i, /^Close$/]) {
     const btn = page.getByRole('button', { name }).first();

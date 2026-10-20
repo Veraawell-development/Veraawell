@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import type { Session } from '../types';
 import { canJoinNow, joinWindow } from '../utils/sessionRules';
 import { formatSessionClock } from '../utils/dateUtils';
+import EmergencyContactModal from './EmergencyContactModal';
 
 /**
  * On the day of a session, at the top of the patient's dashboard (on a phone
@@ -32,6 +33,7 @@ interface Props {
 const SessionDayBanner: React.FC<Props> = ({ session, hasEmergencyContact }) => {
   const navigate = useNavigate();
   const [now, setNow] = useState(() => Date.now());
+  const [askContact, setAskContact] = useState(false);
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 15_000);
     return () => clearInterval(id);
@@ -43,7 +45,7 @@ const SessionDayBanner: React.FC<Props> = ({ session, hasEmergencyContact }) => 
   // Only on the day: from 12 hours before until the session can no longer be joined.
   if (startsAt.getTime() - now > 12 * 60 * MINUTE || new Date(window_.closesAt).getTime() < now) return null;
 
-  const open = canJoinNow(session);
+  const open = canJoinNow(session, new Date(now));
   const doctor = session.doctorId && typeof session.doctorId === 'object'
     ? `Dr. ${[session.doctorId.firstName, session.doctorId.lastName].filter(Boolean).join(' ')}`.trim()
     : 'your therapist';
@@ -73,7 +75,9 @@ const SessionDayBanner: React.FC<Props> = ({ session, hasEmergencyContact }) => 
             <li className="flex items-center gap-1.5">
               <span aria-hidden="true" className={hasEmergencyContact ? 'text-emerald-600' : 'text-amber-600'}>{hasEmergencyContact ? '✓' : '!'}</span>
               {hasEmergencyContact ? 'Emergency contact saved' : (
-                <button type="button" onClick={() => navigate('/patient-profile-setup')} className="underline text-amber-700 hover:text-amber-800">
+                // Asked right here: saving it refreshes the signed-in user, so
+                // this line turns into "saved" and the call room won't ask again.
+                <button type="button" onClick={() => setAskContact(true)} className="underline text-amber-700 hover:text-amber-800">
                   Add an emergency contact (needed to join)
                 </button>
               )}
@@ -102,6 +106,11 @@ const SessionDayBanner: React.FC<Props> = ({ session, hasEmergencyContact }) => 
           </span>
         )}
       </div>
+      <EmergencyContactModal
+        isOpen={askContact}
+        onClose={() => setAskContact(false)}
+        onSaved={() => setAskContact(false)}
+      />
     </section>
   );
 };

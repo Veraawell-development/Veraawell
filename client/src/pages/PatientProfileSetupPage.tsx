@@ -1,27 +1,49 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { API_CONFIG } from '../config/api';
 import { FiArrowLeft, FiEdit2 } from 'react-icons/fi';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import LeafDecor from '../components/ui/LeafDecor';
+import EmergencyContactForm from '../components/EmergencyContactForm';
+import { useRefreshPatient } from '../hooks/useEmergencyContact';
+import { checkEmergencyContact, EMPTY_CONTACT } from '../utils/emergencyContact';
+import type { EmergencyContactErrors, EmergencyContactValue } from '../utils/emergencyContact';
+import { formatIndianPhone, isValidPhone } from '../utils/phone';
+import { PLATFORM_TIMEZONE } from '../utils/dateUtils';
+
+interface ProfileForm {
+    fullName: string;
+    dateOfBirth: string;
+    gender: string;
+    phone: string;
+    contact: EmergencyContactValue;
+}
+
+/** Today's date in IST as 'YYYY-MM-DD' — the latest a date of birth can be. */
+const todayIst = () => new Intl.DateTimeFormat('en-CA', { timeZone: PLATFORM_TIMEZONE }).format(new Date());
 
 const PatientProfileSetupPage: React.FC = () => {
     const navigate = useNavigate();
     const { user } = useAuth();
+    const refreshPatient = useRefreshPatient();
     const [error, setError] = useState<string | null>(null);
+    const [contactErrors, setContactErrors] = useState<EmergencyContactErrors>({});
+    // Editing from the start: a new patient arrives here from the welcome
+    // popup's "Set up my profile", and used to find every field locked with
+    // no Save button — the profile endpoint always returns an object, so the
+    // page always switched to read-only.
     const [isEditing, setIsEditing] = useState(true);
-    const queryClient = useQueryClient();
+    const [completed, setCompleted] = useState(false);
+    const loadedRef = useRef<ProfileForm | null>(null);
 
-    const [formData, setFormData] = useState({
+    const [formData, setFormData] = useState<ProfileForm>({
         fullName: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
         dateOfBirth: '',
         gender: '',
         phone: '',
-        emergencyContactName: '',
-        emergencyContactPhone: '',
-        emergencyContactRelationship: ''
+        contact: EMPTY_CONTACT
     });
 
     const { data: profileData } = useQuery({
@@ -37,43 +59,57 @@ const PatientProfileSetupPage: React.FC = () => {
     });
 
     useEffect(() => {
-        if (profileData?.success && profileData?.profile) {
-            const profile = profileData.profile;
-            setFormData({
-                fullName: profile.name || `${profile.firstName || ''} ${profile.lastName || ''}`.trim(),
-                dateOfBirth: profile.dateOfBirth ? new Date(profile.dateOfBirth).toISOString().split('T')[0] : '',
-                gender: profile.gender || '',
-                phone: profile.phoneNumber || '',
-                emergencyContactName: profile.emergencyContact?.name || '',
-                emergencyContactPhone: profile.emergencyContact?.phone || '',
-                emergencyContactRelationship: profile.emergencyContact?.relationship || ''
-            });
-            setIsEditing(false);
+        if (!profileData?.success || !profileData?.profile) return;
+        const profile = profileData.profile;
+        const loaded: ProfileForm = {
+            fullName: profile.name || `${profile.firstName || ''} ${profile.lastName || ''}`.trim(),
+            dateOfBirth: profile.dateOfBirth ? new Date(profile.dateOfBirth).toISOString().split('T')[0] : '',
+            gender: profile.gender || '',
+            phone: profile.phoneNumber || '',
+            contact: {
+                name: profile.emergencyContact?.name || '',
+                phone: profile.emergencyContact?.phone ? formatIndianPhone(profile.emergencyContact.phone) : '',
+                relationship: profile.emergencyContact?.relationship || ''
+            }
+        };
+        const isFirstLoad = loadedRef.current === null;
+        loadedRef.current = loaded;
+        setCompleted(!!profile.profileCompleted);
+        // Only the first load decides the mode; a refetch while someone is
+        // typing must not lock the form or overwrite what they typed.
+        if (isFirstLoad) {
+            setFormData(loaded);
+            setIsEditing(!profile.profileCompleted);
         }
     }, [profileData]);
 
     const profileMutation = useMutation({
-        mutationFn: async (payload: any) => {
+        mutationFn: async (payload: Record<string, unknown>) => {
             const response = await fetch(`${API_CONFIG.BASE_URL}/auth/patient-profile`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 credentials: 'include',
                 body: JSON.stringify(payload)
             });
-            if (!response.ok) {
-                const data = await response.json();
-                throw new Error(data.message || 'Failed to save profile');
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(data.message || 'Failed to save profile');
+            return data;
+        },
+        onSuccess: async (data: { profileCompleted?: boolean }) => {
+            // The dashboard banner and the call room read the signed-in user,
+            // not this page's query: refresh both, or they keep asking for an
+            // emergency contact that was just given.
+            await refreshPatient();
+            toast.success('Profile saved');
+            if (!completed && data?.profileCompleted) {
+                navigate('/patient-dashboard');
+                return;
             }
-            return response.json();
+            setCompleted(!!data?.profileCompleted);
+            setIsEditing(false);
         },
-        onSuccess: () => {
-            queryClient.invalidateQueries({ queryKey: ['patient', 'profile', user?.userId] });
-            toast.success('Profile saved successfully');
-            navigate('/patient-dashboard');
-        },
-        onError: (err: any) => {
+        onError: (err: Error) => {
             setError(err.message || 'An error occurred. Please try again.');
-            console.error('Error saving profile:', err);
         }
     });
 
@@ -81,22 +117,48 @@ const PatientProfileSetupPage: React.FC = () => {
         e.preventDefault();
         setError(null);
 
-        if (!formData.fullName || !formData.dateOfBirth || !formData.gender || !formData.phone) {
+        if (!formData.fullName.trim() || !formData.dateOfBirth || !formData.gender || !formData.phone.trim()) {
             setError('Please fill in all required fields');
             return;
         }
+        if (formData.dateOfBirth > todayIst()) {
+            setError('Your date of birth can’t be in the future.');
+            return;
+        }
+        if (!isValidPhone(formData.phone)) {
+            setError('Enter your phone number with 10 to 15 digits.');
+            return;
+        }
+        const contact = checkEmergencyContact(formData.contact);
+        if (!contact.ok) {
+            setContactErrors(contact.errors);
+            setError('Please finish the emergency contact, or clear all three of its fields.');
+            return;
+        }
+        setContactErrors({});
 
         profileMutation.mutate({
-            fullName: formData.fullName,
+            fullName: formData.fullName.trim(),
             dateOfBirth: formData.dateOfBirth,
             gender: formData.gender,
-            phoneNumber: formData.phone,
-            emergencyContact: formData.emergencyContactName ? {
-                name: formData.emergencyContactName,
-                phone: formData.emergencyContactPhone,
-                relationship: formData.emergencyContactRelationship
-            } : undefined
+            phoneNumber: formData.phone.trim(),
+            // Always sent: all three empty removes a saved contact. A blank
+            // name used to send nothing, and the server kept the old contact.
+            emergencyContact: contact.clear ? { name: '', phone: '', relationship: '' } : contact.contact
         });
+    };
+
+    const handleCancel = () => {
+        // Cancel undoes the edit on a finished profile; on an unfinished one
+        // there is nothing to go back to, so it leaves.
+        if (completed && loadedRef.current) {
+            setFormData(loadedRef.current);
+            setError(null);
+            setContactErrors({});
+            setIsEditing(false);
+            return;
+        }
+        navigate('/patient-dashboard');
     };
 
     const isSaving = profileMutation.isPending;
@@ -163,26 +225,27 @@ const PatientProfileSetupPage: React.FC = () => {
                                 Dashboard
                             </button>
                             <h1 className="text-[28px] font-normal text-[var(--text)] tracking-tight mb-1" style={{ fontFamily: 'var(--font-display)' }}>
-                                Complete Profile
+                                {!completed ? 'Complete your profile' : isEditing ? 'Edit profile' : 'Your profile'}
                             </h1>
                             <p className="text-[14px] text-[var(--text-2)]" style={{ fontFamily: 'var(--font-body)' }}>
-                                Please provide your basic information.
+                                {!completed ? 'A few details so your therapist knows who they’re talking to.' : 'Your details and emergency contact.'}
                             </p>
                         </div>
-                        <button
-                            type="button"
-                            onClick={() => setIsEditing(true)}
-                            disabled={isEditing}
-                            className={`flex items-center gap-1.5 transition-all text-[11px] font-bold uppercase tracking-wider px-5 py-2.5 rounded-full ${isEditing ? 'text-[var(--text-3)] bg-[var(--border)] opacity-50 cursor-not-allowed' : 'text-[var(--teal)] bg-[var(--teal-muted)] hover:bg-[var(--teal)] hover:text-white shadow-sm'}`}
-                            style={{ fontFamily: 'var(--font-mono)' }}
-                        >
-                            <FiEdit2 className="w-3.5 h-3.5" />
-                            Edit
-                        </button>
+                        {!isEditing && (
+                            <button
+                                type="button"
+                                onClick={() => setIsEditing(true)}
+                                className="flex items-center gap-1.5 transition-all text-[11px] font-bold uppercase tracking-wider px-5 py-2.5 rounded-full text-[var(--teal)] bg-[var(--teal-muted)] hover:bg-[var(--teal)] hover:text-white shadow-sm"
+                                style={{ fontFamily: 'var(--font-mono)' }}
+                            >
+                                <FiEdit2 className="w-3.5 h-3.5" />
+                                Edit
+                            </button>
+                        )}
                     </div>
 
                     {/* Main Form */}
-                    <form onSubmit={handleSubmit} className="flex-1 pr-2">
+                    <form onSubmit={handleSubmit} noValidate className="flex-1 pr-2">
                         {error && (
                             <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-2xl flex items-start gap-2 shrink-0">
                                 <p className="text-red-600 text-[13px] font-medium">
@@ -227,6 +290,7 @@ const PatientProfileSetupPage: React.FC = () => {
                                         type="date"
                                         value={formData.dateOfBirth}
                                         onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
+                                        max={todayIst()}
                                         disabled={!isEditing}
                                         className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)] disabled:opacity-50 disabled:bg-gray-50/50"
                                         required
@@ -253,6 +317,7 @@ const PatientProfileSetupPage: React.FC = () => {
                                         <option value="Male">Male</option>
                                         <option value="Female">Female</option>
                                         <option value="Other">Other</option>
+                                        <option value="Prefer not to say">Prefer not to say</option>
                                     </select>
                                 </div>
 
@@ -266,7 +331,7 @@ const PatientProfileSetupPage: React.FC = () => {
                                         onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                                         disabled={!isEditing}
                                         className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)] disabled:opacity-50 disabled:bg-gray-50/50"
-                                        placeholder="+91 1234567890"
+                                        placeholder="+91 98765 43210"
                                         required
                                     />
                                 </div>
@@ -278,56 +343,21 @@ const PatientProfileSetupPage: React.FC = () => {
                             {/* Emergency Contact */}
                             <div>
                                 <h3 className="text-[12px] font-bold text-[var(--text)] mb-5 tracking-widest uppercase pl-1" style={{ fontFamily: 'var(--font-mono)' }}>
-                                    Emergency Contact <span className="text-[var(--text-3)] font-medium normal-case ml-1 tracking-normal">(Optional)</span>
+                                    Emergency Contact
                                 </h3>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-6">
-                                    <div>
-                                        <label className="block text-sm font-medium text-[var(--text-2)] mb-2">
-                                            Name
-                                        </label>
-                                        <input
-                                            type="text"
-                                            value={formData.emergencyContactName}
-                                            onChange={(e) => setFormData({ ...formData, emergencyContactName: e.target.value })}
-                                            disabled={!isEditing}
-                                            className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)] disabled:opacity-50 disabled:bg-gray-50/50"
-                                            placeholder="Jane Doe"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-[var(--text-2)] mb-2">
-                                            Phone
-                                        </label>
-                                        <input
-                                            type="tel"
-                                            value={formData.emergencyContactPhone}
-                                            onChange={(e) => setFormData({ ...formData, emergencyContactPhone: e.target.value })}
-                                            disabled={!isEditing}
-                                            className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)] disabled:opacity-50 disabled:bg-gray-50/50"
-                                            placeholder="+91 1234567890"
-                                        />
-                                    </div>
-                                    <div>
-                                        <label className="block text-sm font-medium text-[var(--text-2)] mb-2">
-                                            Relationship
-                                        </label>
-                                        <select
-                                            value={formData.emergencyContactRelationship}
-                                            onChange={(e) => setFormData({ ...formData, emergencyContactRelationship: e.target.value })}
-                                            disabled={!isEditing}
-                                            className="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)] disabled:opacity-50 disabled:bg-gray-50/50"
-                                        >
-                                            <option value="">Select relationship</option>
-                                            <option value="Parent">Parent</option>
-                                            <option value="Spouse">Spouse</option>
-                                            <option value="Sibling">Sibling</option>
-                                            <option value="Friend">Friend</option>
-                                            <option value="Partner">Partner</option>
-                                            <option value="Guardian">Guardian</option>
-                                            <option value="Other">Other</option>
-                                        </select>
-                                    </div>
-                                </div>
+                                <p className="text-[13px] text-[var(--text-3)] mb-5 pl-1">
+                                    Needed before your first session. Only reached in an emergency.
+                                </p>
+                                <EmergencyContactForm
+                                    value={formData.contact}
+                                    onChange={(contact) => setFormData({ ...formData, contact })}
+                                    errors={contactErrors}
+                                    disabled={!isEditing}
+                                    idPrefix="profile-ec"
+                                    layout="grid"
+                                    labelClassName="block text-sm font-medium text-[var(--text-2)] mb-2"
+                                    inputClassName="w-full px-4 py-3 rounded-xl border border-[var(--border)] focus:ring-2 focus:ring-[var(--teal)] focus:border-transparent outline-none transition-all bg-[var(--bg)] disabled:opacity-50 disabled:bg-gray-50/50"
+                                />
                             </div>
                         </div>
 
@@ -336,7 +366,7 @@ const PatientProfileSetupPage: React.FC = () => {
                             <div className="mt-10 pt-8 flex gap-4 shrink-0 border-t" style={{ borderColor: 'var(--border)' }}>
                                 <button
                                     type="button"
-                                    onClick={() => navigate('/patient-dashboard')}
+                                    onClick={handleCancel}
                                     className="px-8 py-3.5 bg-transparent border rounded-full font-bold text-[13px] hover:bg-[var(--bg)] transition-colors"
                                     style={{ borderColor: 'var(--border)', color: 'var(--text)' }}
                                 >
@@ -347,7 +377,7 @@ const PatientProfileSetupPage: React.FC = () => {
                                     disabled={isSaving}
                                     className="flex-1 px-8 py-3.5 bg-[var(--teal)] text-white rounded-full font-bold text-[14px] hover:shadow-lg hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
                                 >
-                                    {isSaving ? 'Saving...' : 'Save Profile'}
+                                    {isSaving ? 'Saving…' : 'Save profile'}
                                 </button>
                             </div>
                         )}

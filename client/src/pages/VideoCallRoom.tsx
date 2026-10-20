@@ -12,6 +12,8 @@ import { API_BASE_URL, SOCKET_URL } from '../config/api';
 import { useQuery } from '@tanstack/react-query';
 import type { SessionRulesView } from '../utils/sessionRules';
 import { outcomeLabel } from '../utils/sessionRules';
+import EmergencyContactModal from '../components/EmergencyContactModal';
+import { hasEmergencyContact } from '../utils/emergencyContact';
 
 /** Fallback when a session predates server-stamped acceptanceDeadline (server: INSTANT_ACCEPT_WINDOW_MINUTES). */
 const INSTANT_ACCEPT_WINDOW_MS = 2 * 60 * 1000;
@@ -44,7 +46,7 @@ function cancelledText(session: any, role: 'patient' | 'doctor'): string {
 const VideoCallRoom: React.FC = () => {
   const { sessionId } = useParams<{ sessionId: string }>();
   const navigate = useNavigate();
-  const { user, checkAuth } = useAuth();
+  const { user } = useAuth();
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -103,8 +105,6 @@ const VideoCallRoom: React.FC = () => {
 
   //  Mandatory Emergency Contact State
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
-  const [savingContact, setSavingContact] = useState(false);
-  const [newEmergencyContact, setNewEmergencyContact] = useState({ name: '', phone: '', relationship: '' });
 
   // Consent Ending Modal States
   const [showConsentModal, setShowConsentModal] = useState(false);
@@ -477,54 +477,12 @@ const VideoCallRoom: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [acceptanceStatus, delayedUntil, remoteUserJoined, sessionData, user, sessionId]);
 
-  const saveEmergencyContact = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newEmergencyContact.name || !newEmergencyContact.phone || !newEmergencyContact.relationship) return;
-
-    setSavingContact(true);
-    try {
-      const response = await fetch(`${API_BASE_URL}/profile/setup`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({
-          emergencyContact: {
-            name: newEmergencyContact.name,
-            phone: newEmergencyContact.phone,
-            relationship: newEmergencyContact.relationship
-          }
-        })
-      });
-
-      if (response.ok) {
-        setShowEmergencyModal(false);
-        // Refresh the session user so the saved contact is what the app sees —
-        // otherwise the next visit to a call (or a re-render here) still finds
-        // no contact and asks again. Doesn't toggle the auth loading state, so
-        // the call stays mounted.
-        void checkAuth({ force: true });
-      } else {
-        const data = await response.json();
-        setError(data.message || 'Failed to save emergency contact');
-      }
-    } catch (err) {
-      console.error('Error saving emergency contact:', err);
-      setError('Failed to save emergency contact');
-    } finally {
-      setSavingContact(false);
-    }
-  };
-
   useEffect(() => {
     if (!sessionId || !user) return;
 
     //  Mandatory Check: Ensure patient has emergency contact
     if (user.role === 'patient') {
-      const hasContact = user.emergencyContact?.name && user.emergencyContact?.phone;
-      if (!hasContact) {
-        console.log('[VIDEO-ROOM] Emergency contact missing. Prompting user.');
-        setShowEmergencyModal(true);
-      }
+      if (!hasEmergencyContact(user.emergencyContact)) setShowEmergencyModal(true);
     }
     // No teardown here: AuthContext hands out a new `user` object on every
     // auth refresh, and tearing the call down on that would drop it.
@@ -1647,89 +1605,18 @@ const VideoCallRoom: React.FC = () => {
         </button>
       </div>
 
-      {/* Emergency Contact Modal (Patient Only) */}
-      {showEmergencyModal && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black/80 backdrop-blur-sm z-[200] p-4">
-          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-300">
-            <div className="bg-teal-600 p-8 text-white relative">
-              <div className="absolute top-0 right-0 p-8 opacity-10">
-                <svg className="w-24 h-24" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z" />
-                </svg>
-              </div>
-              <h2 className="text-3xl font-bold font-serif mb-2">Safety First</h2>
-              <p className="text-teal-100/80 text-sm leading-relaxed">
-                Please provide an emergency contact before we begin your session.
-              </p>
-            </div>
-
-            <form onSubmit={saveEmergencyContact} className="p-8 space-y-6">
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 transition-colors group-focus-within:text-teal-600">
-                    Contact Name
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={newEmergencyContact.name}
-                    onChange={(e) => setNewEmergencyContact({ ...newEmergencyContact, name: e.target.value })}
-                    className="w-full bg-gray-50 border-gray-200 border-2 rounded-2xl px-5 py-4 focus:border-teal-500 focus:bg-white focus:outline-none transition-all font-medium text-gray-800"
-                    placeholder="Full name of emergency contact"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">
-                    Contact Phone
-                  </label>
-                  <div className="relative">
-                    <span className="absolute left-5 top-1/2 -translate-y-1/2 text-gray-400 font-bold border-r pr-3 mr-3 border-gray-200">+91</span>
-                    <input
-                      type="tel"
-                      required
-                      pattern="[0-9]{10}"
-                      value={newEmergencyContact.phone}
-                      onChange={(e) => setNewEmergencyContact({ ...newEmergencyContact, phone: e.target.value })}
-                      className="w-full bg-gray-50 border-gray-200 border-2 rounded-2xl pl-20 pr-5 py-4 focus:border-teal-500 focus:bg-white focus:outline-none transition-all font-medium text-gray-800"
-                      placeholder="1234567890"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">
-                    Relationship
-                  </label>
-                  <select
-                    required
-                    value={newEmergencyContact.relationship}
-                    onChange={(e) => setNewEmergencyContact({ ...newEmergencyContact, relationship: e.target.value })}
-                    className="w-full bg-gray-50 border-gray-200 border-2 rounded-2xl px-5 py-4 focus:border-teal-500 focus:bg-white focus:outline-none transition-all font-medium text-gray-800"
-                  >
-                    <option value="">Select relationship</option>
-                    <option value="Parent">Parent</option>
-                    <option value="Spouse">Spouse</option>
-                    <option value="Sibling">Sibling</option>
-                    <option value="Friend">Friend</option>
-                    <option value="Partner">Partner</option>
-                    <option value="Guardian">Guardian</option>
-                    <option value="Other">Other</option>
-                  </select>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={savingContact}
-                className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-5 rounded-2xl shadow-lg shadow-teal-600/20 transition-all transform hover:-translate-y-0.5 active:translate-y-0 active:shadow-inner disabled:opacity-50"
-              >
-                {savingContact ? 'Saving Profile...' : 'Start Session Safely'}
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* Emergency contact (patient only): the shared form, saved and the
+          signed-in user refreshed by the modal itself. "Back to dashboard" is
+          the way out — this prompt used to have none. */}
+      <EmergencyContactModal
+        isOpen={showEmergencyModal}
+        title="Safety first"
+        description="Please add an emergency contact before your session begins. We only reach them in an emergency."
+        submitLabel="Save and join"
+        closeLabel="Back to dashboard"
+        onClose={() => navigate('/patient-dashboard')}
+        onSaved={() => setShowEmergencyModal(false)}
+      />
     </div>
   );
 };

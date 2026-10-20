@@ -254,12 +254,13 @@ export const isTomorrow = (dateString: string): boolean => {
  * Time-of-day greeting phrase, e.g. "Good morning".
  */
 export const getGreeting = (): string => {
+  // The viewer's own clock: it's their morning that matters here. "Good
+  // night" (a goodbye) from 8 pm and "Night owl" before 5 am read oddly as a
+  // greeting; the evening one covers both.
   const hour = new Date().getHours();
   if (hour >= 5 && hour < 12) return 'Good morning';
   if (hour >= 12 && hour < 17) return 'Good afternoon';
-  if (hour >= 17 && hour < 20) return 'Good evening';
-  if (hour >= 20 && hour < 24) return 'Good night';
-  return 'Night owl';
+  return 'Good evening';
 };
 
 /**

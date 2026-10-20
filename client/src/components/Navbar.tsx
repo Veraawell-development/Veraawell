@@ -1,12 +1,222 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useAdmin } from '../context/AdminContext';
 import { Menu, X, ChevronDown, User } from 'lucide-react';
 
-export default function Navbar() {
+interface AuthButtonsProps {
+  mobile?: boolean;
+  scrolled: boolean;
+  /** Called after any choice, so the mobile menu can close. */
+  onNavigate?: () => void;
+}
+
+/**
+ * Sign in / Get started, or — signed in — the account menu and Logout.
+ *
+ * A component of its own, not one defined inside Navbar's render: it used to
+ * be redefined on every Navbar render, so React remounted it each time and
+ * the profile menu's open state was lost — the menu closed as soon as the page
+ * scrolled past 60px. On phones the menu's links are listed out in full: the
+ * profile icon opened nothing there, and a signed-in patient on a public page
+ * had only Logout, with no way back to their dashboard.
+ */
+const AuthButtons: React.FC<AuthButtonsProps> = ({ mobile, scrolled, onNavigate }) => {
   const { isLoggedIn, user, logout, loading, likelySignedIn } = useAuth();
   const { admin } = useAdmin();
+  const navigate = useNavigate();
+  const [profileOpen, setProfileOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!profileOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setProfileOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setProfileOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [profileOpen]);
+
+  // Placeholders only while a returning user's session is being confirmed.
+  // Everyone else gets Sign In / Get Started straight away: this used to
+  // wait for the auth check for every visitor, which on a sleeping free-tier
+  // API meant ~50s of grey buttons for someone who could not be logged in.
+  if (loading && likelySignedIn) {
+    return (
+      <div className={`flex ${mobile ? 'flex-col' : 'flex-row'} gap-2 relative opacity-50`}>
+        <div className="w-20 h-9 rounded-full bg-gray-200 animate-pulse"></div>
+        <div className="w-24 h-9 rounded-full bg-gray-200 animate-pulse"></div>
+      </div>
+    );
+  }
+
+  const go = (path: string) => {
+    setProfileOpen(false);
+    onNavigate?.();
+    navigate(path);
+  };
+
+  if (isLoggedIn) {
+    const handleLogout = async () => {
+      setProfileOpen(false);
+      onNavigate?.();
+      await logout();
+      navigate('/');
+      window.location.href = '/';
+    };
+    const role = user?.role;
+    const items = admin
+      ? [{ label: 'My Dashboard', path: '/super-admin-dashboard' }]
+      : role === 'doctor'
+        ? [
+          { label: 'My Dashboard', path: '/doctor-dashboard' },
+          { label: 'My Profile', path: '/profile-setup' },
+          { label: 'Settings', path: '/doctor-settings' },
+        ]
+        : [
+          { label: 'My Dashboard', path: '/patient-dashboard' },
+          { label: 'My Profile', path: '/patient-profile-setup' },
+          { label: 'Settings', path: '/settings' },
+        ];
+
+    if (mobile) {
+      return (
+        <div className="flex flex-col gap-1">
+          {items.map(({ label, path }) => (
+            <button
+              key={label}
+              onClick={() => go(path)}
+              className="w-full text-left text-sm font-medium py-2.5"
+              style={{ color: 'var(--text)' }}
+            >
+              {label}
+            </button>
+          ))}
+          <button
+            onClick={handleLogout}
+            className="mt-2 px-5 py-2.5 text-sm font-semibold rounded-full"
+            style={{ color: 'var(--text-2)', border: '1px solid var(--border)', background: 'transparent' }}
+          >
+            Logout
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-row gap-2 relative">
+        <div className="relative" ref={menuRef}>
+          <button
+            onClick={() => setProfileOpen((open) => !open)}
+            className="w-9 h-9 rounded-full flex items-center justify-center text-white transition-all duration-200"
+            style={{ background: 'var(--teal)' }}
+            aria-label="Account menu"
+            aria-haspopup="menu"
+            aria-expanded={profileOpen}
+          >
+            <User size={16} />
+          </button>
+
+          {profileOpen && (
+            <div
+              role="menu"
+              className="absolute top-full right-0 mt-2 w-44 rounded-2xl py-2 z-50"
+              style={{
+                background: 'rgba(250,250,248,0.95)',
+                backdropFilter: 'blur(20px)',
+                border: '1px solid var(--border)',
+                boxShadow: 'var(--shadow-lg)',
+              }}
+            >
+              {items.map(({ label, path }) => (
+                <button
+                  key={label}
+                  role="menuitem"
+                  onClick={() => go(path)}
+                  className="block w-full text-left px-4 py-2.5 text-sm font-medium transition-colors duration-150"
+                  style={{ color: 'var(--text-2)' }}
+                  onMouseEnter={e => (e.currentTarget.style.color = 'var(--teal)')}
+                  onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-2)')}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={handleLogout}
+          className="px-5 py-2 text-sm font-semibold rounded-full transition-all duration-200"
+          style={{
+            color: 'var(--text-2)',
+            border: '1px solid var(--border)',
+            background: 'transparent',
+          }}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border-strong)';
+            (e.currentTarget as HTMLButtonElement).style.color = 'var(--text)';
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border)';
+            (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-2)';
+          }}
+        >
+          Logout
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`flex ${mobile ? 'flex-col' : 'flex-row'} gap-2`}>
+      <button
+        onClick={() => go('/login')}
+        className="px-5 py-2 text-sm font-semibold rounded-full transition-all duration-200"
+        style={{
+          color: 'var(--text)',
+          border: '1px solid var(--border)',
+          background: 'transparent',
+        }}
+        onMouseEnter={e => {
+          (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--teal-glow)';
+          (e.currentTarget as HTMLButtonElement).style.color = 'var(--teal)';
+        }}
+        onMouseLeave={e => {
+          (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border)';
+          (e.currentTarget as HTMLButtonElement).style.color = 'var(--text)';
+        }}
+      >
+        Sign In
+      </button>
+      <button
+        onClick={() => go('/signup')}
+        className="btn-shimmer px-5 py-2 text-sm font-semibold rounded-full text-white transition-all duration-200"
+        style={{
+          background: 'var(--teal)',
+          boxShadow: scrolled ? '0 4px 14px rgba(0,151,178,0.2)' : 'none',
+        }}
+        onMouseEnter={e => {
+          (e.currentTarget as HTMLButtonElement).style.background = 'var(--teal-dark)';
+          (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-1px)';
+        }}
+        onMouseLeave={e => {
+          (e.currentTarget as HTMLButtonElement).style.background = 'var(--teal)';
+          (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(0)';
+        }}
+      >
+        Get Started
+      </button>
+    </div>
+  );
+};
+
+export default function Navbar() {
   const navigate = useNavigate();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [resourcesOpen, setResourcesOpen] = useState(false);
@@ -60,150 +270,6 @@ export default function Navbar() {
   const handleDropdownLeave = () => {
     const t = setTimeout(() => setResourcesOpen(false), 250);
     setDropdownTimer(t);
-  };
-
-  /* ── Auth Buttons ── */
-  const AuthButtons: React.FC<{ mobile?: boolean }> = ({ mobile }) => {
-    const [profileOpen, setProfileOpen] = useState(false);
-
-    // Placeholders only while a returning user's session is being confirmed.
-    // Everyone else gets Sign In / Get Started straight away: this used to
-    // wait for the auth check for every visitor, which on a sleeping free-tier
-    // API meant ~50s of grey buttons for someone who could not be logged in.
-    if (loading && likelySignedIn) {
-      return (
-        <div className={`flex ${mobile ? 'flex-col' : 'flex-row'} gap-2 relative opacity-50`}>
-          <div className="w-20 h-9 rounded-full bg-gray-200 animate-pulse"></div>
-          <div className="w-24 h-9 rounded-full bg-gray-200 animate-pulse"></div>
-        </div>
-      );
-    }
-
-    if (isLoggedIn) {
-      const handleLogout = async () => {
-        await logout();
-        if (mobile) setIsMobileMenuOpen(false);
-        navigate('/');
-        window.location.href = '/';
-      };
-      const handleProfile = () => {
-        setProfileOpen(false);
-        if (mobile) setIsMobileMenuOpen(false);
-        navigate(user?.role === 'patient' ? '/patient-profile-setup' : '/profile-setup');
-      };
-      const handleDashboard = () => {
-        setProfileOpen(false);
-        if (mobile) setIsMobileMenuOpen(false);
-        if (admin) navigate('/super-admin-dashboard');
-        else if (user?.role === 'doctor') navigate('/doctor-dashboard');
-        else navigate('/patient-dashboard');
-      };
-
-      return (
-        <div className={`flex ${mobile ? 'flex-col' : 'flex-row'} gap-2 relative`}>
-          <div className="relative">
-            <button
-              onClick={() => setProfileOpen(!profileOpen)}
-              className="w-9 h-9 rounded-full flex items-center justify-center text-white transition-all duration-200"
-              style={{ background: 'var(--teal)' }}
-              aria-label="Profile"
-            >
-              <User size={16} />
-            </button>
-
-            {profileOpen && !mobile && (
-              <div
-                className="absolute top-full right-0 mt-2 w-44 rounded-2xl py-2 z-50"
-                style={{
-                  background: 'rgba(250,250,248,0.95)',
-                  backdropFilter: 'blur(20px)',
-                  border: '1px solid var(--border)',
-                  boxShadow: 'var(--shadow-lg)',
-                }}
-              >
-                {[
-                  { label: 'My Profile', action: handleProfile },
-                  { label: 'My Dashboard', action: handleDashboard },
-                ].map(({ label, action }) => (
-                  <button
-                    key={label}
-                    onClick={action}
-                    className="block w-full text-left px-4 py-2.5 text-sm font-medium transition-colors duration-150"
-                    style={{ color: 'var(--text-2)' }}
-                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--teal)')}
-                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-2)')}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <button
-            onClick={handleLogout}
-            className="px-5 py-2 text-sm font-semibold rounded-full transition-all duration-200"
-            style={{
-              color: 'var(--text-2)',
-              border: '1px solid var(--border)',
-              background: 'transparent',
-            }}
-            onMouseEnter={e => {
-              (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border-strong)';
-              (e.currentTarget as HTMLButtonElement).style.color = 'var(--text)';
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border)';
-              (e.currentTarget as HTMLButtonElement).style.color = 'var(--text-2)';
-            }}
-          >
-            Logout
-          </button>
-        </div>
-      );
-    }
-
-    return (
-      <div className={`flex ${mobile ? 'flex-col' : 'flex-row'} gap-2`}>
-        <button
-          onClick={() => { navigate('/login'); if (mobile) setIsMobileMenuOpen(false); }}
-          className="px-5 py-2 text-sm font-semibold rounded-full transition-all duration-200"
-          style={{
-            color: 'var(--text)',
-            border: '1px solid var(--border)',
-            background: 'transparent',
-          }}
-          onMouseEnter={e => {
-            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--teal-glow)';
-            (e.currentTarget as HTMLButtonElement).style.color = 'var(--teal)';
-          }}
-          onMouseLeave={e => {
-            (e.currentTarget as HTMLButtonElement).style.borderColor = 'var(--border)';
-            (e.currentTarget as HTMLButtonElement).style.color = 'var(--text)';
-          }}
-        >
-          Sign In
-        </button>
-        <button
-          onClick={() => { navigate('/signup'); if (mobile) setIsMobileMenuOpen(false); }}
-          className="btn-shimmer px-5 py-2 text-sm font-semibold rounded-full text-white transition-all duration-200"
-          style={{
-            background: 'var(--teal)',
-            boxShadow: scrolled ? '0 4px 14px rgba(0,151,178,0.2)' : 'none',
-          }}
-          onMouseEnter={e => {
-            (e.currentTarget as HTMLButtonElement).style.background = 'var(--teal-dark)';
-            (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(-1px)';
-          }}
-          onMouseLeave={e => {
-            (e.currentTarget as HTMLButtonElement).style.background = 'var(--teal)';
-            (e.currentTarget as HTMLButtonElement).style.transform = 'translateY(0)';
-          }}
-        >
-          Get Started
-        </button>
-      </div>
-    );
   };
 
   return (
@@ -317,7 +383,7 @@ export default function Navbar() {
 
             {/* Desktop Auth */}
             <div className="hidden md:block">
-              <AuthButtons />
+              <AuthButtons scrolled={scrolled} />
             </div>
 
             {/* Mobile Hamburger */}
@@ -325,6 +391,8 @@ export default function Navbar() {
               className="md:hidden p-1.5 rounded-lg transition-colors"
               style={{ color: 'var(--text)' }}
               onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+              aria-label={isMobileMenuOpen ? 'Close site menu' : 'Open site menu'}
+              aria-expanded={isMobileMenuOpen}
             >
               {isMobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
@@ -391,7 +459,7 @@ export default function Navbar() {
               ))}
 
               <div className="pt-4 border-t" style={{ borderColor: 'var(--border)' }}>
-                <AuthButtons mobile />
+                <AuthButtons mobile scrolled={scrolled} onNavigate={() => setIsMobileMenuOpen(false)} />
               </div>
             </div>
           </div>

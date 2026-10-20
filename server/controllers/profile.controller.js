@@ -169,7 +169,7 @@ const setupProfile = asyncHandler(async (req, res) => {
   // Update user's name if fullName or name is provided
   const targetName = fullName || name;
   if (targetName) {
-    const nameParts = targetName.trim().split(' ');
+    const nameParts = String(targetName).trim().split(/\s+/);
     user.firstName = nameParts[0] || '';
     user.lastName = nameParts.slice(1).join(' ') || '';
   }
@@ -179,17 +179,25 @@ const setupProfile = asyncHandler(async (req, res) => {
     user.phoneNumber = phoneNumber;
   }
 
-  // Update basic info if provided
-  if (dateOfBirth) user.dateOfBirth = dateOfBirth;
+  // Update basic info if provided. A date of birth in the future is a typo.
+  if (dateOfBirth) {
+    const dob = new Date(dateOfBirth);
+    if (Number.isNaN(dob.getTime()) || dob.getTime() > Date.now()) {
+      return res.status(400).json({ success: false, message: 'Enter a real date of birth.' });
+    }
+    user.dateOfBirth = dob;
+  }
   if (gender) user.gender = gender;
 
-  // Update emergency contact if provided
-  if (emergencyContact) {
-    user.emergencyContact = {
-      name: emergencyContact.name || user.emergencyContact?.name || null,
-      phone: emergencyContact.phone || user.emergencyContact?.phone || null,
-      relationship: emergencyContact.relationship || user.emergencyContact?.relationship || null
-    };
+  // The emergency contact, when sent: all three fields, or all empty (or
+  // null) to remove it. Each field used to fall back to the stored value
+  // (`x || existing`), so a contact could never be cleared, and the phone was
+  // saved unchecked.
+  if (user.role === 'patient' && emergencyContact !== undefined) {
+    const { readEmergencyContact } = require('../utils/phone');
+    const read = readEmergencyContact(emergencyContact || {});
+    if (read.error) return res.status(400).json({ success: false, message: read.error });
+    user.emergencyContact = read.clear ? { name: null, phone: null, relationship: null } : read.contact;
   }
 
   // If user is a doctor, create/update doctor profile
@@ -325,6 +333,8 @@ const getProfile = asyncHandler(async (req, res) => {
       countryCode: user.countryCode || '91',
       dateOfBirth: user.dateOfBirth || null,
       gender: user.gender || null,
+      // The page opens straight in edit mode for an unfinished profile.
+      profileCompleted: !!user.profileCompleted,
       emergencyContact: user.emergencyContact || {
         name: null,
         phone: null,
