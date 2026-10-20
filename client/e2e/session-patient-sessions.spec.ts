@@ -176,8 +176,10 @@ test.describe('My therapists', () => {
     await createSession({ patientId: users.patientB.id, doctorId: users.doctorB.id, startsInMinutes: -5 * HOUR, status: 'completed' });
     const { context, page } = await patient(browser);
     await page.goto('/my-therapists');
+    // Other specs give this patient sessions with doctorA too, and the list
+    // order is theirs: the first card is one of the two, never the directory.
     await page.getByRole('button', { name: 'Book Again' }).first().click();
-    await expect(page).toHaveURL(new RegExp(`/doctor/${users.doctorB.id}`));
+    await expect(page).toHaveURL(new RegExp(`/doctor/(${users.doctorA.id}|${users.doctorB.id})$`));
     await context.close();
   });
 });

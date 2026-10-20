@@ -169,9 +169,9 @@ const DoctorProfilePage: React.FC = () => {
   });
 
   // Whether the therapist can take an instant session right now — online and
-  // not in a session (the directory's own list). Asked only for an instant
-  // booking: a busy therapist used to be sent to a checkout the server then
-  // refused.
+  // not in a session (the directory's own list). A busy therapist used to be
+  // sent to a checkout the server then refused. Asked for a scheduled booking
+  // too, so the patient can switch between "Talk now" and "Book a time".
   const { data: onlineDoctors, isSuccess: onlineKnown } = useQuery<any[]>({
     queryKey: ['doctors', 'online'],
     queryFn: async () => {
@@ -180,8 +180,8 @@ const DoctorProfilePage: React.FC = () => {
       const data = await response.json();
       return data.doctors || [];
     },
-    enabled: !!doctorId && isImmediate,
-    refetchInterval: isImmediate && stage === 'choose' ? 30_000 : false
+    enabled: !!doctorId,
+    refetchInterval: stage === 'choose' ? 30_000 : false
   });
   const liveEntry = onlineDoctors?.find((d: any) => d._id === doctorId);
   const instantStatus: 'online' | 'busy' | 'offline' | 'unknown' = !onlineKnown
@@ -234,6 +234,13 @@ const DoctorProfilePage: React.FC = () => {
   // Older API responses carry no flags: treat that as bookable, as before.
   const canBookHere = !doctorProfile
     || (isImmediate ? doctorProfile.instantBookable !== false : doctorProfile.bookable !== false);
+  // Both ways are open when the therapist is online and free AND has dates
+  // ahead. Opening the page from "Talk now" used to leave no way to book a
+  // later time with the same therapist.
+  const canChooseHow = !!doctorProfile
+    && doctorProfile.bookable !== false
+    && doctorProfile.instantBookable !== false
+    && instantStatus === 'online';
   const error = profileError ? 'Failed to load doctor profile' : null;
 
   const generateAvailableDates = () => {
@@ -1092,6 +1099,31 @@ const DoctorProfilePage: React.FC = () => {
               }}
             >
               <div className="space-y-6 relative z-10 flex-1 flex flex-col justify-center">
+                {canChooseHow && (
+                  <div
+                    role="radiogroup"
+                    aria-label="When would you like your session?"
+                    className="grid grid-cols-2 gap-1 p-1 rounded-full"
+                    style={{ background: 'rgba(255,255,255,.7)', border: `1px solid ${doctorColor}25` }}
+                  >
+                    {([['immediate', 'Talk now'], ['scheduled', 'Book a time']] as const).map(([value, label]) => {
+                      const selected = bookingType === value;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          role="radio"
+                          aria-checked={selected}
+                          onClick={() => setBookingType(value)}
+                          className="py-2 rounded-full text-sm font-semibold transition-colors"
+                          style={selected ? { background: doctorColor, color: '#fff' } : { color: 'var(--text-2)' }}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 {/* Immediate booking: show instant session card. Scheduled: show date + slot picker. */}
                 {isImmediate && (instantStatus === 'busy' || instantStatus === 'offline') ? (
                   // Not answerable right now: say why, and offer a time instead

@@ -157,6 +157,19 @@ const setupProfile = asyncHandler(async (req, res) => {
         return res.status(400).json({ success: false, message: `${field} must be an image uploaded to Veraawell` });
       }
     }
+    // The profile is written with an upsert, which skips the schema's
+    // `required`, so a doctor could save without a professional type — and
+    // every later full save of the profile (bank details) then failed with a
+    // bare "Validation failed".
+    // A save that leaves the type out keeps the stored one (it used to blank it).
+    const sent = req.body.type;
+    const blank = sent !== undefined && (typeof sent !== 'string' || !sent.trim());
+    const stored = sent === undefined
+      ? await DoctorProfile.findOne({ userId: user._id }).select('type').lean()
+      : null;
+    if (blank || (sent === undefined && !(stored && stored.type))) {
+      return res.status(400).json({ success: false, message: 'Choose your professional type (Basic information).' });
+    }
   }
 
   const {
@@ -221,7 +234,7 @@ const setupProfile = asyncHandler(async (req, res) => {
       bannerImage: bannerImage || '/profile-bg.svg',
       qualification: qualification || [],
       languages: languages || [],
-      type: type || '',
+      ...(type !== undefined && { type: type.trim() }),
       experience: experience || 0,
       specialization: specialization || [],
       treatsFor: specialization || [],

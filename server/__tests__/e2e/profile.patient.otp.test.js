@@ -129,6 +129,38 @@ describe('profile setup', () => {
     expect(profile.specialization).toEqual(expect.arrayContaining(['Trauma']));
   });
 
+  test('a save that leaves the professional type out keeps the stored one', async () => {
+    await DoctorProfile.updateOne({ userId: f.doctorA._id }, { $set: { type: 'Counsellor' } });
+    const res = await call('post', '/api/profile/setup', doctorToken, { fullName: 'Dev Mehta', experience: 4 });
+    expect(res.status).toBeLessThan(300);
+    expect((await DoctorProfile.findOne({ userId: f.doctorA._id }).lean()).type).toBe('Counsellor');
+  });
+
+  test('a doctor with no professional type anywhere cannot save the profile', async () => {
+    await DoctorProfile.collection.updateOne({ userId: f.doctorA._id }, { $set: { type: '' } });
+    const res = await call('post', '/api/profile/setup', doctorToken, { fullName: 'Typeless Name', experience: 4 });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/professional type/i);
+    await DoctorProfile.collection.updateOne({ userId: f.doctorA._id }, { $set: { type: 'Psychologist' } });
+  });
+
+  test.each([
+    ['blank', { type: '   ' }],
+    ['not text', { type: ['Psychologist'] }]
+  ])('a doctor profile with the professional type %s is refused, and nothing is written', async (_label, override) => {
+    // The upsert skips the schema's `required`; a profile saved without a type
+    // later blocked the doctor's bank details (live, 2026-10-20).
+    const before = await DoctorProfile.findOne({ userId: f.doctorA._id }).lean();
+    const res = await call('post', '/api/profile/setup', doctorToken, {
+      fullName: 'Typeless Name', experience: 3, ...override
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/professional type/i);
+    const after = await DoctorProfile.findOne({ userId: f.doctorA._id }).lean();
+    expect(after.type).toBe(before.type);
+    expect((await User.findById(f.doctorA._id)).firstName).not.toBe('Typeless');
+  });
+
   test('GET /api/profile/setup returns the caller\'s own profile only', async () => {
     const mine = await call('get', '/api/profile/setup', doctorToken);
     expect(mine.status).toBe(200);

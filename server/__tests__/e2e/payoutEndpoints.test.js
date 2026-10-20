@@ -142,6 +142,19 @@ describe('a doctor submitting bank details', () => {
     expect(profile.payoutBank.submittedAt).toBeInstanceOf(Date);
   });
 
+  test('a gap elsewhere in the profile does not refuse the bank details', async () => {
+    // Live 2026-10-20: a new doctor saved their profile without a professional
+    // type (the upsert skips `required`), and the bank form then failed with a
+    // bare "Validation failed". Only the bank fields are checked now.
+    await DoctorProfile.collection.updateOne({ userId: f.doctorA._id }, { $set: { type: '' } });
+    const res = await call('post', '/api/payouts/bank-details', doctorToken, GOOD);
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('pending_admin_approval');
+    const profile = await DoctorProfile.findOne({ userId: f.doctorA._id }).select('payoutBankStatus type');
+    expect(profile.payoutBankStatus).toBe('pending_admin_approval');
+    expect(profile.type).toBe('');
+  });
+
   test('the account number is stored with spaces stripped, and the IFSC and PAN upper-cased', async () => {
     // People copy account numbers out of passbooks in groups of four, and
     // type an IFSC however their keyboard left it. Normalising on the way in

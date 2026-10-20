@@ -51,3 +51,12 @@ describe('report type labels', () => {
     expect(reportTypeLabel('some-future-type')).toBe('Consultation');
   });
 });
+
+describe('the company name printed on every PDF', () => {
+  it('is the registered name, with the full stop after Ltd', async () => {
+    const { COMPANY_LEGAL_NAME } = await import('../config/company');
+    const { COMPANY } = await import('../utils/pdfTheme');
+    expect(COMPANY_LEGAL_NAME).toBe('Veraawell Lifecare Pvt. Ltd.');
+    expect(COMPANY).toBe(COMPANY_LEGAL_NAME);
+  });
+});

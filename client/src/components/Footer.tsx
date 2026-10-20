@@ -197,7 +197,7 @@ const Footer: React.FC = () => {
             className="text-xs"
             style={{ color: 'var(--dark-text-2)', fontFamily: 'var(--font-mono)' }}
           >
-            © {year} {COMPANY_LEGAL_NAME}. All rights reserved.
+            © {year} {COMPANY_LEGAL_NAME} All rights reserved.
           </p>
           <div className="flex gap-6">
             {[
