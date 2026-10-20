@@ -34,22 +34,37 @@ function pageParams(query, defaultLimit, maxLimit) {
  * `patientId` keeps its object shape because every client renderer reads
  * `patientId.firstName` and `patientId.lastName.charAt(0)`. A deleted account
  * populates as null, which used to crash those renderers; it is "Anonymous".
+ *
+ * A review of a THERAPIST names nobody: it is "Verified patient". Even a
+ * first name and an initial, next to a named therapist, can tell people who
+ * know you that you are in therapy — and the review form now says plainly how
+ * it will appear. Platform testimonials (landing page, admin-approved) keep
+ * the first name and initial.
  */
+const VERIFIED_PATIENT = { firstName: 'Verified patient', lastName: '' };
+// What the form used to send for a star-only rating; shown as a quote.
+const LEGACY_FILLER = 'No additional comments provided.';
+
 function toPublicReview(review) {
   const patient = review.patientId;
   const first = patient && typeof patient.firstName === 'string' ? patient.firstName.trim() : '';
   const last = patient && typeof patient.lastName === 'string' ? patient.lastName.trim() : '';
+  const feedback = typeof review.feedback === 'string' && review.feedback.trim() !== LEGACY_FILLER ? review.feedback : '';
+  let shownAs;
+  if (review.reviewType === 'platform') {
+    shownAs = first ? { firstName: first, lastName: last ? last.charAt(0).toUpperCase() : '' } : { firstName: 'Anonymous', lastName: '' };
+  } else {
+    shownAs = VERIFIED_PATIENT;
+  }
   return {
     _id: review._id,
     rating: review.rating,
-    feedback: review.feedback,
+    feedback,
     positives: review.positives,
     wouldRecommend: review.wouldRecommend,
     reviewType: review.reviewType,
     createdAt: review.createdAt,
-    patientId: first
-      ? { firstName: first, lastName: last ? last.charAt(0).toUpperCase() : '' }
-      : { firstName: 'Anonymous', lastName: '' }
+    patientId: shownAs
   };
 }
 
@@ -81,8 +96,10 @@ const submitReview = asyncHandler(async (req, res) => {
   const { sessionId, rating, feedback, positives, improvements, wouldRecommend, reviewType } = req.body;
   const patientId = req.actor.id;
 
-  // requireRole('patient') is declared on the route.
-  if (!sessionId || !rating || !feedback) return res.status(400).json({ success: false, message: 'Session ID, rating, and feedback are required' });
+  // requireRole('patient') is declared on the route. A comment is optional: a
+  // star-only rating used to be sent with the filler "No additional comments
+  // provided.", which then appeared on the therapist's profile as a quote.
+  if (!sessionId || !rating) return res.status(400).json({ success: false, message: 'Session ID and rating are required' });
   // A non-numeric rating (e.g. the string "abc") used to slip past both
   // range checks below silently — "abc" < 1 and "abc" > 5 both evaluate to
   // false in JS, so neither branch rejected it, and it would have been
@@ -95,7 +112,9 @@ const submitReview = asyncHandler(async (req, res) => {
   if (!Number.isInteger(numericRating) || numericRating < 1 || numericRating > 5) {
     return res.status(400).json({ success: false, message: 'Rating must be a whole number from 1 to 5' });
   }
-  if (typeof feedback !== 'string') return res.status(400).json({ success: false, message: 'Feedback must be text' });
+  if (feedback !== undefined && feedback !== null && typeof feedback !== 'string') return res.status(400).json({ success: false, message: 'Feedback must be text' });
+  const comment = typeof feedback === 'string' ? feedback.trim() : '';
+  if (comment.length > 2000) return res.status(400).json({ success: false, message: 'Please keep your comment under 2000 characters' });
   if (reviewType && !['doctor', 'platform'].includes(reviewType)) return res.status(400).json({ success: false, message: 'Review type must be either "doctor" or "platform"' });
 
   const session = await Session.findById(sessionId);
@@ -108,7 +127,7 @@ const submitReview = asyncHandler(async (req, res) => {
 
   const effectiveType = reviewType || 'doctor';
   const review = new Review({
-    sessionId, patientId, doctorId: session.doctorId, rating: numericRating, feedback,
+    sessionId, patientId, doctorId: session.doctorId, rating: numericRating, feedback: comment,
     positives: positives || '', improvements: improvements || '',
     wouldRecommend: wouldRecommend !== undefined ? wouldRecommend : true,
     reviewType: effectiveType,
@@ -124,7 +143,7 @@ const submitReview = asyncHandler(async (req, res) => {
 
   if (effectiveType === 'doctor') {
     try {
-      await Session.findByIdAndUpdate(sessionId, { rating: { score: numericRating, review: feedback, ratedAt: new Date() } });
+      await Session.findByIdAndUpdate(sessionId, { rating: { score: numericRating, review: comment, ratedAt: new Date() } });
       await _syncDoctorRating(session.doctorId);
     } catch (syncError) {
       logger.warn('Error syncing session rating after review', { error: syncError.message });
@@ -139,8 +158,13 @@ const submitReview = asyncHandler(async (req, res) => {
 const checkReview = asyncHandler(async (req, res) => {
   const { sessionId } = req.params;
   const patientId = req.actor.id;
-  const review = await Review.findOne({ sessionId, patientId });
-  res.json({ success: true, hasReview: !!review, review: review || null });
+  // "Has the patient rated this session" means rated the therapist: a
+  // platform review alone used to answer yes, hiding the therapist rating.
+  const [review, platform] = await Promise.all([
+    Review.findOne({ sessionId, patientId, reviewType: 'doctor' }),
+    Review.exists({ sessionId, patientId, reviewType: 'platform' })
+  ]);
+  res.json({ success: true, hasReview: !!review, hasPlatformReview: !!platform, review: review || null });
 });
 
 /** GET /api/reviews/platform — Public platform reviews for landing page */

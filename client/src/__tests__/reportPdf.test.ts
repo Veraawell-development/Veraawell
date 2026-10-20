@@ -1,5 +1,20 @@
 import { describe, it, expect } from 'vitest';
-import { reportTypeLabel } from '../utils/reportPdf';
+import { reportTypeLabel, reportSessionDate } from '../utils/reportPdf';
+
+describe('the session a report is about', () => {
+  it('is the IST calendar day, whatever zone the viewer is in', () => {
+    // Stored as the IST day at UTC midnight; 21 Oct in India.
+    expect(reportSessionDate({ sessionId: { sessionDate: '2026-10-21T00:00:00.000Z' } })).toBe('21 October 2026');
+    // 23:30 IST on the 21st is 18:00 UTC — still the 21st.
+    expect(reportSessionDate({ sessionId: { startsAt: '2026-10-21T18:00:00.000Z' } })).toBe('21 October 2026');
+  });
+
+  it('is empty when the session is unknown', () => {
+    expect(reportSessionDate({ sessionId: null })).toBe('');
+    expect(reportSessionDate({ sessionId: 'abc' })).toBe('');
+    expect(reportSessionDate({})).toBe('');
+  });
+});
 
 /**
  * The document said "Report type: other" under a heading that called itself an

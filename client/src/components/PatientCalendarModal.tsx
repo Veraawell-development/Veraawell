@@ -6,7 +6,10 @@ import { toast } from 'react-hot-toast';
 import { resolveSessionStart, sessionLocalDateKey, formatSessionDay, formatSessionClock } from '../utils/dateUtils';
 import { calculateRefundPreview } from '../utils/refundPolicy';
 import SessionModal from './SessionModal';
-import { canJoinNow, isBooked, outcomeLabel, type SessionLike } from '../utils/sessionRules';
+import { canJoinNow, isBooked, outcomeLabel, cancelResultMessage, type SessionLike } from '../utils/sessionRules';
+import { getAuthToken } from '../utils/authToken';
+import { useDialog } from '../hooks/useDialog';
+import { useNow } from '../hooks/useNow';
 
 interface PatientCalendarModalProps {
     isOpen: boolean;
@@ -38,6 +41,8 @@ interface Session extends SessionLike {
     meetingLink?: string;
     notes?: string;
     paymentStatus?: string;
+    /** Whether the patient has already rated their therapist for it. */
+    rated?: boolean;
 }
 
 // Design tokens — matches the patient dashboard's cream/teal design language.
@@ -68,7 +73,7 @@ const FONT_SANS = "'Public Sans', 'Inter', sans-serif";
 type SessionDoctor = { firstName?: string; lastName?: string; profileImage?: string } | null | undefined;
 
 const doctorLabel = (d: SessionDoctor) =>
-    d?.firstName ? `Dr. ${d.firstName} ${d.lastName || ''}`.trim() : 'Doctor';
+    d?.firstName ? `Dr. ${`${d.firstName} ${d.lastName || ''}`.trim().replace(/^dr\.?\s+/i, '')}` : 'Doctor';
 
 const doctorInitials = (d: SessionDoctor) =>
     `${d?.firstName?.[0] || ''}${d?.lastName?.[0] || ''}`.toUpperCase() || 'D';
@@ -77,12 +82,41 @@ const doctorInitials = (d: SessionDoctor) =>
 const cellKey = (date: Date) =>
     `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 
+/**
+ * Today's IST date as a calendar cell. Sessions sit on their IST day, so
+ * "today" must too — the viewer's own date put the highlight on the wrong
+ * cell for anyone far from India around midnight.
+ */
+const istToday = (now: Date = new Date()) => {
+    const [y, m, d] = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' })
+        .format(now).split('-').map(Number);
+    return new Date(y, m - 1, d);
+};
+
+/** What kind of booking it was, in words (it printed the raw value, e.g. "REGULAR"). */
+const SESSION_TYPE_LABEL: Record<string, string> = {
+    immediate: 'Instant', regular: 'Scheduled', scheduled: 'Scheduled', discovery: 'Discovery', 'follow-up': 'Follow-up',
+};
+const sessionTypeLabel = (type?: string) => SESSION_TYPE_LABEL[type || ''] || 'Session';
+
+const authHeaders = (json = false): HeadersInit => {
+    const headers: Record<string, string> = json ? { 'Content-Type': 'application/json' } : {};
+    const token = getAuthToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+};
+
 const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onClose }) => {
     const navigate = useNavigate();
     const { user } = useAuth();
     const [sessions, setSessions] = useState<Session[]>([]);
-    const [currentMonth, setCurrentMonth] = useState(new Date());
+    const [currentMonth, setCurrentMonth] = useState(() => istToday());
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+    const [loadError, setLoadError] = useState<string | null>(null);
+    // Ticks while open: the refund preview follows the clock to the 4-hour
+    // mark, and Cancel disappears once a session has started.
+    const now = useNow(15_000, isOpen);
+    const dialog = useDialog(isOpen, onClose);
     const [filter, setFilter] = useState<'all' | 'video' | 'voice'>('all');
     const [view, setView] = useState<'upcoming' | 'past'>('upcoming');
     const [loading, setLoading] = useState(false);
@@ -92,25 +126,34 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
     const [cancelLoadingId, setCancelLoadingId] = useState<string | null>(null);
     const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
 
-    const handleCancelSession = async (sessionId: string) => {
+    // The refund shown when Cancel was pressed: if the 4-hour mark passed
+    // since, the patient is asked again instead of being refunded ₹0 silently.
+    const [refundChanged, setRefundChanged] = useState<string | null>(null);
+
+    const handleCancelSession = async (session: Session) => {
+        const sessionId = session._id;
+        const start = resolveSessionStart(session);
+        const shown = calculateRefundPreview(session.price ?? 0, start, now);
+        const fresh = calculateRefundPreview(session.price ?? 0, start, new Date());
+        if (shown.amount !== fresh.amount) {
+            setRefundChanged(sessionId);
+            return;
+        }
+        setRefundChanged(null);
         setCancelLoadingId(sessionId);
         try {
             const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/${sessionId}/cancel`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: authHeaders(true),
                 credentials: 'include'
             });
-            const data = await response.json();
+            const data = await response.json().catch(() => ({}));
             if (response.ok && data.success) {
-                // Update local state to reflect cancellation
                 // The server's own record — with the outcome and refund — so
-                // the label matches the toast. Patching just the status read
-                // "Cancelled — no refund" right after "₹X will be refunded".
+                // the label matches the message.
                 fetchSessions();
-                // The server's figure, not the preview's: it is what was actually refunded.
-                toast.success(data.refundAmount > 0
-                    ? `Session cancelled. ₹${data.refundAmount} will be refunded.`
-                    : 'Session cancelled successfully');
+                // The server's answer, not the preview's: what was actually refunded.
+                toast.success(cancelResultMessage(data), { duration: 6000 });
             } else {
                 toast.error(data.message || 'Failed to cancel session');
             }
@@ -133,18 +176,18 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
         setLoading(true);
         try {
             const response = await fetch(`${API_CONFIG.BASE_URL}/sessions/my-sessions?t=${Date.now()}`, {
-                credentials: 'include'
+                credentials: 'include',
+                headers: authHeaders()
             });
-            if (response.ok) {
-                const data = await response.json();
-                // Booked sessions only: a checkout that was closed or never
-                // paid isn't a session (it showed as "Cancelled — no refund").
-                setSessions((data as Session[]).filter(isBooked));
-            } else {
-                console.error('Failed to fetch sessions:', response.status);
-            }
-        } catch (error) {
-            console.error('Error fetching sessions:', error);
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            // Booked sessions only: a checkout that was closed or never
+            // paid isn't a session (it showed as "Cancelled — no refund").
+            setSessions((data as Session[]).filter(isBooked));
+            setLoadError(null);
+        } catch {
+            // Said as such — it used to look like "No upcoming sessions".
+            setLoadError('We couldn\'t load your sessions.');
         } finally {
             setLoading(false);
         }
@@ -180,9 +223,9 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
         return T.red; // upcoming
     };
 
-    const canCancel = (session: Session) => {
-        return session.status === 'scheduled' && session.sessionType !== 'immediate';
-    };
+    // Not once it has started: the server refuses that ("already started").
+    const canCancel = (session: Session) =>
+        session.status === 'scheduled' && session.sessionType !== 'immediate' && resolveSessionStart(session).getTime() > now.getTime();
 
     const filteredSessions = sessions.filter(session => {
         // 1. Filter by view (upcoming vs past) - STATUS-BASED
@@ -224,8 +267,9 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
         const timeA = resolveSessionStart(a).getTime() || 0;
         const timeB = resolveSessionStart(b).getTime() || 0;
 
-        // Always show the latest session on top as requested
-        return timeB - timeA;
+        // Upcoming: the next one first. Past: the most recent first. (Upcoming
+        // was furthest-first, so the next session sat at the bottom.)
+        return view === 'upcoming' ? timeA - timeB : timeB - timeA;
     });
 
     const renderCalendar = () => {
@@ -233,14 +277,18 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
         const days = [];
         const monthName = currentMonth.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 
-        // Previous month navigation
+        // Changing month clears a picked date: it is in the other month, and
+        // the list emptied for no visible reason.
         const prevMonth = () => {
             setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1));
+            setSelectedDate(null);
         };
 
         const nextMonth = () => {
             setCurrentMonth(new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1));
+            setSelectedDate(null);
         };
+        const today = istToday(now);
 
         // Empty cells for days before month starts
         for (let i = 0; i < startingDayOfWeek; i++) {
@@ -251,13 +299,17 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
         for (let day = 1; day <= daysInMonth; day++) {
             const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day);
             const daySessions = getSessionsForDate(date);
-            const isToday = date.toDateString() === new Date().toDateString();
+            const isToday = date.toDateString() === today.toDateString();
             const isSelected = selectedDate?.toDateString() === date.toDateString();
 
             days.push(
-                <div
+                <button
+                    type="button"
                     key={day}
-                    onClick={() => setSelectedDate(date)}
+                    // Pressing the picked date again clears it.
+                    onClick={() => setSelectedDate(isSelected ? null : date)}
+                    aria-pressed={isSelected}
+                    aria-label={`${date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}${daySessions.length ? `, ${daySessions.length} session${daySessions.length > 1 ? 's' : ''}` : ''}${isToday ? ', today' : ''}`}
                     className="h-10 flex flex-col items-center justify-center cursor-pointer rounded-xl transition-all"
                     style={{
                         background: isSelected ? T.teal : isToday ? T.tealBg : 'transparent',
@@ -278,7 +330,7 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                             ))}
                         </div>
                     )}
-                </div>
+                </button>
             );
         }
 
@@ -286,7 +338,7 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
             <div style={{ background: '#fff', border: `1px solid ${T.border}`, borderRadius: 20, padding: 16, boxShadow: '0 1px 3px rgba(27,43,46,.04)' }}>
                 {/* Month Header */}
                 <div className="flex items-center justify-between mb-4">
-                    <button onClick={prevMonth} className="p-1.5 rounded-full transition-all duration-200 ease-out hover:scale-110 active:scale-95" style={{ background: T.tealBg }}>
+                    <button onClick={prevMonth} aria-label="Previous month" className="p-1.5 rounded-full transition-all duration-200 ease-out hover:scale-110 active:scale-95" style={{ background: T.tealBg }}>
                         <svg className="w-5 h-5" fill="none" stroke={T.teal} viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M15 19l-7-7 7-7" />
                         </svg>
@@ -294,7 +346,7 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                     <h3 style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, color: T.text }}>
                         {monthName}
                     </h3>
-                    <button onClick={nextMonth} className="p-1.5 rounded-full transition-all duration-200 ease-out hover:scale-110 active:scale-95" style={{ background: T.tealBg }}>
+                    <button onClick={nextMonth} aria-label="Next month" className="p-1.5 rounded-full transition-all duration-200 ease-out hover:scale-110 active:scale-95" style={{ background: T.tealBg }}>
                         <svg className="w-5 h-5" fill="none" stroke={T.teal} viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
                         </svg>
@@ -381,11 +433,12 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
         const formattedDate = formatSessionDay(sessionStart, { month: 'short', day: 'numeric', year: 'numeric' }, 'en-US');
         // sessionTime is the IST wall clock already; startsAt is shown in IST to match.
         const formattedTime = session.startsAt ? formatSessionClock(sessionStart, 'en-US') : session.sessionTime;
-        const refund = calculateRefundPreview(session.price ?? 0, sessionStart);
+        const refund = calculateRefundPreview(session.price ?? 0, sessionStart, now);
 
         return (
             <div
                 key={session._id}
+                data-session-id={session._id}
                 className="transition-all duration-300 ease-out"
                 style={{ background: '#fff', border: `1px solid ${T.border}`, borderRadius: 20, padding: 20, boxShadow: '0 1px 3px rgba(27,43,46,.04)' }}
                 onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.boxShadow = '0 8px 24px rgba(27,43,46,.08)'; (e.currentTarget as HTMLDivElement).style.transform = 'translateY(-2px)'; }}
@@ -413,8 +466,8 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                     >
                         {doctorInitials(session.doctorId)}
                     </div>
-                    <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
+                    <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
                             <h4 style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, color: T.text }}>
                                 {doctorLabel(session.doctorId)}
                             </h4>
@@ -428,7 +481,7 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                         className="text-[10px] uppercase tracking-wider font-bold px-3 py-1.5 rounded-full flex-shrink-0"
                         style={{ fontFamily: FONT_SANS, background: T.bg, color: T.text2, border: `1px solid ${T.border}` }}
                     >
-                        {session.sessionType || 'Session'}
+                        {sessionTypeLabel(session.sessionType)}
                     </span>
                 </div>
 
@@ -478,12 +531,17 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                                                 <span className="text-base font-bold" style={{ fontFamily: FONT_SANS, color: refund.color }}>₹{refund.amount}</span>
                                             </div>
                                             {refund.amount > 0 && (
-                                                <p className="text-[11px] mt-1" style={{ fontFamily: FONT_SANS, color: T.muted }}>Refund will appear in your original payment method within 5–7 business days.</p>
+                                                <p className="text-[11px] mt-1" style={{ fontFamily: FONT_SANS, color: T.muted }}>Refund will appear in your original payment method within 5–7 working days.</p>
                                             )}
                                         </div>
+                                        {refundChanged === session._id && (
+                                            <p role="alert" className="text-xs mb-3 rounded-xl p-2.5" style={{ fontFamily: FONT_SANS, background: T.amberBg, color: '#7a5a2a' }}>
+                                                It's now within 4 hours of the start, so this cancellation would not be refunded. Please check and confirm again.
+                                            </p>
+                                        )}
                                         <div className="flex justify-end gap-2">
                                             <button
-                                                onClick={() => setConfirmCancelId(null)}
+                                                onClick={() => { setConfirmCancelId(null); setRefundChanged(null); }}
                                                 disabled={cancelLoadingId === session._id}
                                                 className="px-3 py-1.5 rounded-full font-bold transition-all text-xs"
                                                 style={{ fontFamily: FONT_SANS, background: T.bg, color: T.text2, border: `1px solid ${T.border}` }}
@@ -491,7 +549,7 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                                                 Keep Session
                                             </button>
                                             <button
-                                                onClick={() => handleCancelSession(session._id)}
+                                                onClick={() => handleCancelSession(session)}
                                                 disabled={cancelLoadingId === session._id}
                                                 className="px-3 py-1.5 rounded-full font-bold transition-all text-xs"
                                                 style={{ fontFamily: FONT_SANS, background: T.redBg, color: T.red, border: `1px solid ${T.red}33` }}
@@ -523,7 +581,7 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                         >
                             View Details
                         </button>
-                        {session.status === 'completed' && (
+                        {session.status === 'completed' && !session.rated && (
                             <button
                                 onClick={() => setDetail({ session, rate: true })}
                                 className="flex-1 px-4 py-2.5 rounded-full font-bold transition-all text-sm"
@@ -554,7 +612,12 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                 }
             `}</style>
             <div
-                className="rounded-[32px] max-w-6xl w-full h-[95vh] lg:h-[85vh] overflow-hidden flex flex-col animate-scaleIn transition-all duration-300 ease-in-out"
+                ref={dialog.ref}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="manage-sessions-title"
+                tabIndex={-1}
+                className="rounded-[24px] sm:rounded-[32px] max-w-6xl w-full h-[95dvh] lg:h-[85vh] overflow-hidden flex flex-col animate-scaleIn transition-all duration-300 ease-in-out outline-none"
                 style={{ background: T.bg, boxShadow: '0 20px 60px rgba(27,43,46,.25)', border: `1px solid ${T.border}` }}
             >
                 {/* Header */}
@@ -564,12 +627,13 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                             <span style={{ width: 6, height: 6, borderRadius: '50%', background: T.green, display: 'inline-block' }} />
                             Schedule
                         </div>
-                        <h2 style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 24, color: T.text }}>
+                        <h2 id="manage-sessions-title" style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 24, color: T.text }}>
                             Manage My Sessions
                         </h2>
                     </div>
                     <button
                         onClick={onClose}
+                        aria-label="Close my sessions"
                         className="p-2 rounded-full transition-all duration-300 ease-out hover:scale-105 active:scale-95"
                         style={{ background: '#fff', border: `1px solid ${T.border}` }}
                     >
@@ -631,9 +695,27 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                                 Past Sessions
                             </button>
                         </div>
+                        {selectedDate && (
+                            <div className="flex items-center gap-2 mb-4 text-sm" style={{ fontFamily: FONT_SANS, color: T.text2 }}>
+                                <span>Showing {selectedDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}</span>
+                                <button
+                                    onClick={() => setSelectedDate(null)}
+                                    className="px-3 py-1 rounded-full text-xs font-bold"
+                                    style={{ background: '#fff', color: T.teal, border: `1px solid ${T.border}` }}
+                                >
+                                    Show all dates
+                                </button>
+                            </div>
+                        )}
                         {/* Sessions List */}
                         <div className="space-y-4">
-                            {loading ? (
+                            {loadError && !loading ? (
+                                <div role="alert" className="text-center py-12 rounded-[24px]" style={{ background: '#fff', border: `1px solid ${T.border}` }}>
+                                    <p className="mb-2" style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 18, color: T.text }}>{loadError}</p>
+                                    <p className="text-sm mb-4" style={{ fontFamily: FONT_SANS, color: T.text2 }}>Check your connection and try again.</p>
+                                    <button onClick={() => void fetchSessions()} className="px-5 py-2 rounded-full text-sm font-bold" style={{ fontFamily: FONT_SANS, background: T.teal, color: '#fff' }}>Try again</button>
+                                </div>
+                            ) : loading ? (
                                 <div className="text-center py-12">
                                     <div className="inline-block w-8 h-8 border-4 rounded-full animate-spin" style={{ borderColor: T.teal, borderTopColor: 'transparent' }}></div>
                                 </div>
@@ -650,10 +732,10 @@ const PatientCalendarModal: React.FC<PatientCalendarModalProps> = ({ isOpen, onC
                                             : 'No past sessions found'}
                                     </p>
                                     <p className="text-sm" style={{ fontFamily: FONT_SANS, color: T.text2 }}>
-                                        {view === 'upcoming'
-                                            ? 'Book a new session to get started'
-                                            : selectedDate
-                                                ? 'Try selecting a different date or clear the selection'
+                                        {selectedDate
+                                            ? 'Nothing on this date — pick another, or show all dates.'
+                                            : view === 'upcoming'
+                                                ? 'Book a new session to get started'
                                                 : 'Your completed sessions will appear here'}
                                     </p>
                                 </div>

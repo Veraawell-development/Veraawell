@@ -20,6 +20,12 @@ interface Task {
     createdAt: string;
 }
 
+// IST, like every date on the platform — the device's zone could print the
+// day before or after the one the therapist set.
+const IST = 'Asia/Kolkata';
+const istDay = (d: string | Date) =>
+    new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', timeZone: IST });
+
 /**
  * The report PDF that lived here is gone — see utils/reportPdf.ts.
  *
@@ -59,15 +65,14 @@ export const generateTaskPDF = async (task: Task): Promise<void> => {
     doc.setTextColor(0, 0, 0);
     yPos += 10;
 
-    doc.text(`Due Date: ${new Date(task.dueDate).toLocaleDateString()}`, 20, yPos);
+    doc.text(`Due: ${task.dueDate ? istDay(task.dueDate) : '—'}`, 20, yPos);
     yPos += 10;
     doc.text(`Status: ${task.status.charAt(0).toUpperCase() + task.status.slice(1)}`, 20, yPos);
     yPos += 15;
 
-    doc.text(`Assigned by: Dr. ${task.doctorId.firstName} ${task.doctorId.lastName}`, 20, yPos);
-    yPos += 10;
-    // Note: patientId is just a string ID, not an object with name
-    doc.text(`Patient ID: ${task.patientId}`, 20, yPos);
+    // (It also printed the patient's raw account id, which means nothing to anyone.)
+    const doctor = `${task.doctorId?.firstName || ''} ${task.doctorId?.lastName || ''}`.trim().replace(/^dr\.?\s+/i, '');
+    doc.text(`Assigned by: ${doctor ? `Dr. ${doctor}` : 'Your therapist'}`, 20, yPos);
     yPos += 15;
 
     // Separator line
@@ -100,7 +105,7 @@ export const generateTaskPDF = async (task: Task): Promise<void> => {
 
     doc.setFontSize(9);
     doc.setTextColor(128, 128, 128);
-    doc.text(`Generated on: ${new Date().toLocaleString()}`, 20, yPos);
+    doc.text(`Generated on: ${new Date().toLocaleString('en-IN', { timeZone: IST, dateStyle: 'long', timeStyle: 'short' })} IST`, 20, yPos);
     doc.text(`Task ID: ${task._id}`, 20, yPos + 5);
 
     // Save

@@ -9,6 +9,7 @@ import logger from '../utils/logger';
 import { useToast } from '../hooks/useToast';
 import type { Task } from '../types';
 import { generateTaskPDF } from '../utils/pdfGenerator';
+import { getAuthToken } from '../utils/authToken';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 
@@ -20,6 +21,25 @@ interface PersonalTask {
 }
 
 type DragItem = { type: 'clinical' | 'personal'; id: string };
+
+const authHeaders = (json = false): Record<string, string> => {
+  const headers: Record<string, string> = json ? { 'Content-Type': 'application/json' } : {};
+  const token = getAuthToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+  return headers;
+};
+
+/** "Dr. Rao" — without doubling a "Dr" the name already carries. */
+const drShort = (d?: { firstName?: string; lastName?: string } | null) => {
+  const name = (d?.lastName || d?.firstName || '').replace(/^dr\.?\s+/i, '').trim();
+  return name ? `Dr. ${name}` : 'Your therapist';
+};
+
+/** Open a card from the keyboard too (it was mouse-only). */
+const onActivate = (fn: () => void) => (e: React.KeyboardEvent) => {
+  if (e.target !== e.currentTarget) return;
+  if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); }
+};
 
 const PendingTasksPage: React.FC = () => {
   // Personal Tasks State
@@ -37,23 +57,24 @@ const PendingTasksPage: React.FC = () => {
   const { showSuccess, showError } = useToast();
   const queryClient = useQueryClient();
 
-  const { data: clinicalTasks = { pending: [], completed: [] }, isLoading: loading } = useQuery({
+  const { data: clinicalTasks = { pending: [], completed: [] }, isLoading: loading, error: loadError, refetch, isFetching } = useQuery({
     queryKey: ['patient', 'tasks', user?.userId],
     queryFn: async () => {
       if (!user) return { pending: [], completed: [] };
       // Previously two round trips (one filtered by status=pending, one by
       // status=completed) where fetching the full list once and partitioning
       // client-side does the same job in a single request.
-      const res = await fetch(`${API_CONFIG.BASE_URL}/session-tools/tasks/patient/${user.userId}`, { credentials: 'include' });
+      const res = await fetch(`${API_CONFIG.BASE_URL}/session-tools/tasks/patient/${user.userId}`, { credentials: 'include', headers: authHeaders() });
       if (!res.ok) throw new Error('Failed to fetch tasks');
 
       const data = await res.json();
       const allTasks: any[] = Array.isArray(data.tasks) ? data.tasks : [];
-      const sortTasks = (tasks: any[]) => tasks.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
+      // In the server's order — soonest due first. It was re-sorted newest
+      // created first, so the task due tomorrow could sit at the bottom.
       return {
-        pending: sortTasks(allTasks.filter((t) => t.status !== 'completed')),
-        completed: sortTasks(allTasks.filter((t) => t.status === 'completed'))
+        pending: allTasks.filter((t) => t.status !== 'completed'),
+        completed: allTasks.filter((t) => t.status === 'completed')
       };
     },
     enabled: !!user
@@ -66,7 +87,7 @@ const PendingTasksPage: React.FC = () => {
     mutationFn: async ({ taskId, newStatus }: { taskId: string; newStatus: 'pending' | 'completed' }) => {
       const response = await fetch(`${API_CONFIG.BASE_URL}/session-tools/tasks/${taskId}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: authHeaders(true),
         credentials: 'include',
         body: JSON.stringify({ status: newStatus })
       });
@@ -107,9 +128,11 @@ const PendingTasksPage: React.FC = () => {
 
   useEffect(() => {
     if (user) {
-      const stored = localStorage.getItem(`personalTasks_${user.userId}`);
-      if (stored) {
-        setPersonalTasks(JSON.parse(stored));
+      try {
+        const stored = localStorage.getItem(`personalTasks_${user.userId}`);
+        if (stored) setPersonalTasks(JSON.parse(stored));
+      } catch {
+        // Storage blocked or corrupt: start empty rather than break the page.
       }
     }
   }, [user]);
@@ -117,7 +140,7 @@ const PendingTasksPage: React.FC = () => {
   const savePersonalTasks = (tasks: PersonalTask[]) => {
     setPersonalTasks(tasks);
     if (user) {
-      localStorage.setItem(`personalTasks_${user.userId}`, JSON.stringify(tasks));
+      try { localStorage.setItem(`personalTasks_${user.userId}`, JSON.stringify(tasks)); } catch { /* storage blocked */ }
     }
   };
 
@@ -208,7 +231,7 @@ const PendingTasksPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="h-screen bg-[var(--bg)] flex items-center justify-center">
+      <div className="h-[100dvh] bg-[var(--bg)] flex items-center justify-center">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-[var(--teal)] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-500 text-[13px] font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>Loading your board...</p>
@@ -221,8 +244,10 @@ const PendingTasksPage: React.FC = () => {
   const donePersonalTasks = personalTasks.filter(t => t.completed);
 
   return (
-    <div className="h-screen pt-[64px] md:pt-[80px] bg-[var(--bg)] font-sans selection:bg-[#F0FBFF] overflow-hidden flex flex-col box-border">
-      <div className="flex-1 max-w-[1500px] mx-auto w-full px-6 py-6 flex flex-col min-h-0">
+    // On a phone the page scrolls and the columns stack at their own height;
+    // the fixed-height board with a scroll per column is for wide screens.
+    <div className="min-h-[100dvh] lg:h-[100dvh] pt-[64px] md:pt-[80px] bg-[var(--bg)] font-sans selection:bg-[#F0FBFF] lg:overflow-hidden flex flex-col box-border">
+      <div className="flex-1 max-w-[1500px] mx-auto w-full px-4 sm:px-6 py-6 flex flex-col lg:min-h-0">
         
         {/* Header Section */}
         <div className="mb-6 shrink-0 flex items-center gap-4">
@@ -230,6 +255,7 @@ const PendingTasksPage: React.FC = () => {
                 onClick={() => navigate('/patient-dashboard')} 
                 className="flex items-center justify-center w-10 h-10 bg-white border border-gray-200 rounded-full text-gray-500 hover:text-[var(--teal)] hover:border-[var(--teal)] hover:shadow-sm transition-all group"
                 title="Back to Dashboard"
+                aria-label="Back to dashboard"
             >
                 <FiArrowLeft className="w-5 h-5 group-hover:-translate-x-0.5 transition-transform" />
             </button>
@@ -239,11 +265,11 @@ const PendingTasksPage: React.FC = () => {
         </div>
 
         {/* Board Container */}
-        <div className="flex-1 flex flex-col lg:flex-row items-stretch justify-center gap-6 overflow-x-auto pb-4 custom-scrollbar min-h-0">
+        <div className="flex-1 flex flex-col lg:flex-row items-stretch justify-center gap-6 lg:overflow-x-auto pb-4 custom-scrollbar lg:min-h-0">
             
             {/* COLUMN 1: CLINICAL TASKS */}
             <div 
-                className={`w-full lg:w-[350px] shrink-0 rounded-[24px] p-5 border flex flex-col h-full transition-all duration-300 ${dragOverCol === 'pending' ? 'bg-[#F0FBFF]/50 border-[var(--teal)]/30 shadow-inner' : 'bg-gray-50/80 border-gray-100'}`}
+                className={`w-full lg:w-[350px] shrink-0 rounded-[24px] p-5 border flex flex-col lg:h-full transition-all duration-300 ${dragOverCol === 'pending' ? 'bg-[#F0FBFF]/50 border-[var(--teal)]/30 shadow-inner' : 'bg-gray-50/80 border-gray-100'}`}
                 onDragOver={(e) => handleDragOver(e, 'pending')}
                 onDragLeave={() => setDragOverCol(null)}
                 onDrop={(e) => handleDrop(e, 'pending')}
@@ -255,11 +281,19 @@ const PendingTasksPage: React.FC = () => {
                             {pendingTasks.length}
                         </span>
                     </h2>
-                    <FiMoreHorizontal className="text-gray-400 w-5 h-5" />
+                    <FiMoreHorizontal aria-hidden="true" className="text-gray-400 w-5 h-5" />
                 </div>
                 
-                <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 pb-2">
-                    {pendingTasks.length === 0 ? (
+                <div className="flex-1 lg:overflow-y-auto custom-scrollbar pr-1 pb-2">
+                    {loadError ? (
+                        // Said as such — it used to read "No pending clinical tasks".
+                        <div role="alert" className="border border-red-100 rounded-[16px] p-6 text-center bg-white">
+                            <p className="text-[13px] font-semibold text-gray-700 mb-3">We couldn't load your therapist's tasks.</p>
+                            <button onClick={() => void refetch()} disabled={isFetching} className="px-4 py-2 rounded-full text-[12px] font-semibold text-white bg-[var(--teal)] disabled:opacity-60">
+                                {isFetching ? 'Trying…' : 'Try again'}
+                            </button>
+                        </div>
+                    ) : pendingTasks.length === 0 ? (
                         <div className="border-2 border-dashed border-gray-200 rounded-[16px] p-8 text-center bg-white/50 h-32 flex items-center justify-center">
                             <p className="text-[13px] font-medium text-gray-400">No pending clinical tasks.</p>
                         </div>
@@ -277,6 +311,10 @@ const PendingTasksPage: React.FC = () => {
                                     onDragStart={(e: any) => handleDragStart(e, 'clinical', task._id)}
                                     onDragEnd={(e: any) => handleDragEnd(e, task._id)}
                                     onClick={() => handleView(task)}
+                                    onKeyDown={onActivate(() => handleView(task))}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label={`Open task: ${task.title || 'Untitled task'}`}
                                     className="bg-white rounded-[16px] p-5 mb-4 shadow-sm border border-gray-200 hover:border-[var(--teal)] hover:shadow-md transition-all cursor-grab active:cursor-grabbing group"
                                 >
                                     <div className="flex justify-between items-start mb-3 pointer-events-none">
@@ -285,6 +323,7 @@ const PendingTasksPage: React.FC = () => {
                                         </span>
                                         <button 
                                             onClick={(e) => { e.stopPropagation(); handleUpdateStatus(task._id, 'completed'); }}
+                                            aria-label={`Mark "${task.title || 'task'}" done`}
                                             className="w-7 h-7 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-400 hover:bg-[var(--teal)] hover:border-[var(--teal)] hover:text-white transition-all pointer-events-auto"
                                         >
                                             <FiCheck className="w-3.5 h-3.5" />
@@ -292,13 +331,19 @@ const PendingTasksPage: React.FC = () => {
                                     </div>
                                     <h3 className="text-[15px] font-bold text-gray-800 mb-2 leading-tight pointer-events-none">{task.title || 'Untitled Task'}</h3>
                                     <p className="text-[13px] text-gray-500 line-clamp-2 mb-4 leading-relaxed pointer-events-none">{task.description || 'No description provided.'}</p>
-                                    <div className="flex items-center justify-between border-t border-gray-50 pt-4 mt-auto pointer-events-none">
-                                        <div className="flex items-center gap-2.5">
-                                            <div className="w-7 h-7 rounded-full bg-[#F0FBFF] border border-[#BDEBFF] flex items-center justify-center text-[#0096B4] text-[11px] font-bold uppercase">
+                                    <div className="flex items-center justify-between gap-2 border-t border-gray-50 pt-4 mt-auto pointer-events-none">
+                                        <div className="flex items-center gap-2.5 min-w-0">
+                                            <div className="w-7 h-7 rounded-full bg-[#F0FBFF] border border-[#BDEBFF] flex items-center justify-center text-[#0096B4] text-[11px] font-bold uppercase shrink-0">
                                                 {task.doctorId?.firstName?.[0] || 'D'}{task.doctorId?.lastName?.[0] || 'R'}
                                             </div>
-                                            <span className="text-[11px] font-bold text-gray-500">Dr. {task.doctorId?.lastName || 'Unknown'}</span>
+                                            <span className="text-[11px] font-bold text-gray-500 truncate">{drShort(task.doctorId)}</span>
                                         </div>
+                                        {/* When it is due — the card didn't say. */}
+                                        {task.dueDate && (
+                                            <span className="text-[11px] font-semibold text-gray-500 shrink-0 flex items-center gap-1">
+                                                <FiClock aria-hidden="true" className="w-3 h-3" /> Due {formatDate(task.dueDate)}
+                                            </span>
+                                        )}
                                     </div>
                                 </motion.div>
                             ))}
@@ -309,7 +354,7 @@ const PendingTasksPage: React.FC = () => {
 
             {/* COLUMN 2: MY OWN TASKS */}
             <div 
-                className={`w-full lg:w-[350px] shrink-0 rounded-[24px] p-5 border border-dashed flex flex-col h-full transition-all duration-300 shadow-[0_0_15px_-3px_rgba(0,180,216,0.05)] ${dragOverCol === 'personal' ? 'bg-[#F0FBFF]/70 border-[var(--teal)]' : 'bg-white/60 border-[var(--teal)]/30'}`}
+                className={`w-full lg:w-[350px] shrink-0 rounded-[24px] p-5 border border-dashed flex flex-col lg:h-full transition-all duration-300 shadow-[0_0_15px_-3px_rgba(0,180,216,0.05)] ${dragOverCol === 'personal' ? 'bg-[#F0FBFF]/70 border-[var(--teal)]' : 'bg-white/60 border-[var(--teal)]/30'}`}
                 onDragOver={(e) => handleDragOver(e, 'personal')}
                 onDragLeave={() => setDragOverCol(null)}
                 onDrop={(e) => handleDrop(e, 'personal')}
@@ -322,6 +367,8 @@ const PendingTasksPage: React.FC = () => {
                         </span>
                     </h2>
                 </div>
+                {/* Said up front: these never leave this browser. */}
+                <p className="text-[11px] text-gray-500 -mt-3 mb-3 px-1">Saved on this device only — your therapist doesn't see them.</p>
                 
                 <form onSubmit={handleAddPersonalTask} className="mb-4 shrink-0">
                     <div className="relative">
@@ -330,11 +377,14 @@ const PendingTasksPage: React.FC = () => {
                             value={newPersonalTask}
                             onChange={(e) => setNewPersonalTask(e.target.value)}
                             placeholder="Add a personal to-do..."
+                            aria-label="Add a personal to-do"
+                            maxLength={200}
                             className="w-full bg-white border border-gray-200 rounded-[12px] pl-4 pr-10 py-2.5 text-[13px] text-gray-700 focus:outline-none focus:ring-2 focus:ring-[var(--teal)]/30 focus:border-[var(--teal)] transition-all shadow-sm"
                         />
                         <button 
                             type="submit"
                             disabled={!newPersonalTask.trim()}
+                            aria-label="Add"
                             className="absolute right-2 top-1.5 p-1.5 bg-[var(--teal)] text-white rounded-lg disabled:opacity-50 disabled:bg-gray-300 transition-colors"
                         >
                             <FiPlus className="w-3.5 h-3.5" />
@@ -342,7 +392,7 @@ const PendingTasksPage: React.FC = () => {
                     </div>
                 </form>
                 
-                <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 pb-2">
+                <div className="flex-1 lg:overflow-y-auto custom-scrollbar pr-1 pb-2">
                     {pendingPersonalTasks.length === 0 ? (
                         <div className="border-2 border-dashed border-gray-100 rounded-[16px] h-32 flex items-center justify-center text-center bg-white/30">
                             <p className="text-[13px] font-medium text-gray-400">Drag items here or add new ones.</p>
@@ -364,6 +414,7 @@ const PendingTasksPage: React.FC = () => {
                                 >
                                     <button 
                                         onClick={() => togglePersonalTask(task.id, true)}
+                                        aria-label={`Mark "${task.title}" done`}
                                         className="shrink-0 w-5 h-5 rounded flex items-center justify-center mt-0.5 transition-colors border-2 border-gray-300 text-transparent hover:border-[var(--teal)]"
                                     >
                                         <FiCheck className="w-3.5 h-3.5" />
@@ -375,7 +426,8 @@ const PendingTasksPage: React.FC = () => {
                                     </div>
                                     <button 
                                         onClick={() => deletePersonalTask(task.id)}
-                                        className="opacity-0 group-hover:opacity-100 shrink-0 text-gray-300 hover:text-red-500 p-1 transition-all"
+                                        aria-label={`Delete "${task.title}"`}
+                                        className="opacity-100 lg:opacity-0 lg:group-hover:opacity-100 focus:opacity-100 shrink-0 text-gray-400 hover:text-red-500 p-1 transition-all"
                                     >
                                         <FiTrash2 className="w-3.5 h-3.5" />
                                     </button>
@@ -388,7 +440,7 @@ const PendingTasksPage: React.FC = () => {
 
             {/* COLUMN 3: DONE */}
             <div 
-                className={`w-full lg:w-[350px] shrink-0 rounded-[24px] p-5 border flex flex-col h-full transition-all duration-300 ${dragOverCol === 'done' ? 'bg-emerald-50/50 border-emerald-200 shadow-inner' : 'bg-gray-50/40 border-gray-100/50'}`}
+                className={`w-full lg:w-[350px] shrink-0 rounded-[24px] p-5 border flex flex-col lg:h-full transition-all duration-300 ${dragOverCol === 'done' ? 'bg-emerald-50/50 border-emerald-200 shadow-inner' : 'bg-gray-50/40 border-gray-100/50'}`}
                 onDragOver={(e) => handleDragOver(e, 'done')}
                 onDragLeave={() => setDragOverCol(null)}
                 onDrop={(e) => handleDrop(e, 'done')}
@@ -402,7 +454,7 @@ const PendingTasksPage: React.FC = () => {
                     </h2>
                 </div>
                 
-                <div className="flex-1 overflow-y-auto custom-scrollbar pr-1 pb-2">
+                <div className="flex-1 lg:overflow-y-auto custom-scrollbar pr-1 pb-2">
                     {completedTasks.length === 0 && donePersonalTasks.length === 0 ? (
                         <div className="border-2 border-dashed border-gray-100 rounded-[16px] p-8 text-center bg-white/30 h-32 flex items-center justify-center">
                             <p className="text-[13px] font-medium text-gray-400">No completed tasks.</p>
@@ -422,6 +474,10 @@ const PendingTasksPage: React.FC = () => {
                                     onDragStart={(e: any) => handleDragStart(e, 'clinical', task._id)}
                                     onDragEnd={(e: any) => handleDragEnd(e, task._id)}
                                     onClick={() => handleView(task)}
+                                    onKeyDown={onActivate(() => handleView(task))}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-label={`Open task: ${task.title || 'Untitled task'}`}
                                     className="bg-white/80 rounded-[16px] p-5 mb-4 border border-gray-100 hover:border-gray-300 hover:shadow-sm transition-all cursor-grab active:cursor-grabbing opacity-75 hover:opacity-100 group"
                                 >
                                     <div className="flex justify-between items-start mb-3 pointer-events-none">
@@ -430,6 +486,7 @@ const PendingTasksPage: React.FC = () => {
                                         </span>
                                         <button 
                                             onClick={(e) => { e.stopPropagation(); handleUpdateStatus(task._id, 'pending'); }}
+                                            aria-label={`Mark "${task.title || 'task'}" not done`}
                                             className="text-[11px] font-bold text-gray-400 hover:text-orange-500 underline decoration-transparent hover:decoration-orange-500 transition-all uppercase tracking-wide pointer-events-auto"
                                         >
                                             Undo
@@ -441,7 +498,7 @@ const PendingTasksPage: React.FC = () => {
                                             <div className="w-6 h-6 rounded-full bg-gray-100 flex items-center justify-center text-gray-500 text-[10px] font-bold uppercase">
                                                 {task.doctorId?.lastName?.[0] || 'D'}
                                             </div>
-                                            <span className="text-[11px] font-bold text-gray-400">Dr. {task.doctorId?.lastName || 'Unknown'}</span>
+                                            <span className="text-[11px] font-bold text-gray-400">{drShort(task.doctorId)}</span>
                                         </div>
                                     </div>
                                 </motion.div>
@@ -463,6 +520,7 @@ const PendingTasksPage: React.FC = () => {
                                 >
                                     <button 
                                         onClick={() => togglePersonalTask(task.id, false)}
+                                        aria-label={`Mark "${task.title}" not done`}
                                         className="shrink-0 w-5 h-5 rounded flex items-center justify-center mt-0.5 transition-colors bg-emerald-100 text-emerald-600 hover:bg-gray-200 hover:text-gray-500"
                                     >
                                         <FiCheck className="w-3.5 h-3.5" />
@@ -474,7 +532,8 @@ const PendingTasksPage: React.FC = () => {
                                     </div>
                                     <button 
                                         onClick={() => deletePersonalTask(task.id)}
-                                        className="opacity-0 group-hover:opacity-100 shrink-0 text-gray-300 hover:text-red-500 p-1 transition-all"
+                                        aria-label={`Delete "${task.title}"`}
+                                        className="opacity-100 lg:opacity-0 lg:group-hover:opacity-100 focus:opacity-100 shrink-0 text-gray-400 hover:text-red-500 p-1 transition-all"
                                     >
                                         <FiTrash2 className="w-3.5 h-3.5" />
                                     </button>
@@ -494,7 +553,8 @@ const PendingTasksPage: React.FC = () => {
         title={selectedTask?.title || 'Task Details'}
         content={selectedTask?.description || 'No description available.'}
         date={selectedTask?.dueDate || ''}
-        doctorName={selectedTask ? `Dr. ${selectedTask.doctorId?.firstName || ''} ${selectedTask.doctorId?.lastName || ''}` : ''}
+        dateLabel="Due"
+        doctorName={selectedTask ? drShort(selectedTask.doctorId) : ''}
         type={selectedTask?.status === 'completed' ? 'Completed Task' : 'Pending Task'}
         onDownload={() => selectedTask && handleDownload(selectedTask)}
       />
