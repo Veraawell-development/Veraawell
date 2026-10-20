@@ -237,8 +237,12 @@ describe('call statistics', () => {
     const noted = new Set<string>();
     for (const m of src.matchAll(/this\.note\(\s*'([a-z-]+)'/g)) noted.add(m[1]);
     for (const m of src.matchAll(/'(ice-stuck|ice-gave-up|ice-restart|relay-escalation)'/g)) noted.add(m[1]);
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { EVENT_TYPES } = require('../../../server/services/call/callTelemetry');
+    // Read as text: requiring it would pull in server-only packages (the
+    // client CI job doesn't install the server's dependencies).
+    const server = fs.readFileSync(path.resolve(__dirname, '../../../server/services/call/callTelemetry.js'), 'utf8');
+    const list = /const EVENT_TYPES = \[([^\]]+)\]/.exec(server)?.[1] || '';
+    const EVENT_TYPES = [...list.matchAll(/'([a-z-]+)'/g)].map((m) => m[1]);
+    expect(EVENT_TYPES.length).toBeGreaterThan(10);
     expect(noted.size).toBeGreaterThan(10);
     expect([...noted].filter((t) => !EVENT_TYPES.includes(t))).toEqual([]);
   });
