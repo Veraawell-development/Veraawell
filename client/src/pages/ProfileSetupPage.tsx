@@ -143,6 +143,19 @@ const ProfileSetupPage: React.FC = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    // The Save button is on every step, and the step checks only ran on
+    // "Next": a profile could be saved with no professional type, which then
+    // blocked the bank details.
+    if (!formData.name.trim() || !formData.type || String(formData.experience).trim() === '') {
+      setCurrentStep(1);
+      setError('Fill in your name, professional type and years of experience.');
+      return;
+    }
+    if (!formData.qualification.length || !formData.languages.length || !formData.specialization.length) {
+      setCurrentStep(2);
+      setError('Add at least one qualification, language and specialization.');
+      return;
+    }
     if (missingPrices.length > 0) {
       setCurrentStep(3);
       setError(`Set a price for every session. Missing: ${missingPrices.join(', ')}.`);

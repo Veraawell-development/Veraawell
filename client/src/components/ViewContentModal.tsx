@@ -168,7 +168,7 @@ const ViewContentModal: React.FC<ViewContentModalProps> = ({
                             style={{ fontFamily: 'Inter, sans-serif' }}
                         >
                             <FiDownload className="w-4 h-4" />
-                            Download Official PDF
+                            Download PDF
                         </button>
                     </div>
                 )}

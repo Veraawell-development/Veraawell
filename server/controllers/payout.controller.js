@@ -92,7 +92,10 @@ const submitBankDetails = asyncHandler(async (req, res) => {
   profile.payoutBank = { ...clean, submittedAt: new Date() };
   profile.payoutBankStatus = 'pending_admin_approval';
   profile.payoutRejectionReason = null;
-  await profile.save();
+  // Only the bank fields are checked: an unrelated gap elsewhere in the
+  // profile (e.g. no professional type) used to refuse the bank details with
+  // a bare "Validation failed".
+  await profile.save({ validateModifiedOnly: true });
 
   logger.info('Bank details submitted', { doctorId: String(req.actor.id).substring(0, 8) });
   // The doctor can't take bookings until an admin approves them.

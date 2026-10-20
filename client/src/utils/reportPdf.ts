@@ -1,5 +1,9 @@
 import { reportFields } from './reportContent';
-import { COMPANY_LEGAL_NAME } from '../config/company';
+import { doctorDisplayName } from './doctorName';
+import {
+  C, PAGE_W, MARGIN, CONTENT_W, BODY_BOTTOM, BODY_LEAD,
+  loadLogo, masthead, title as drawTitle, factsCard, sectionHeading, bodyText, bullet, eyebrow, footers, fileName
+} from './pdfTheme';
 
 /**
  * The one clinical report PDF.
@@ -38,27 +42,9 @@ import { COMPANY_LEGAL_NAME } from '../config/company';
  *  - Body content comes from reportFields() in reportContent.ts, the same
  *    formatter the on-screen list and detail view use, so the PDF cannot drift
  *    from what the doctor saw when they filed it.
- *  - Helvetica. jsPDF ships Helvetica/Times/Courier; the product's Newsreader
- *    and Public Sans would each need a ~100-300 KB embedded TTF for a document
- *    nobody reads on screen. Hierarchy is carried by size, weight and space.
+ *  - The look (masthead, facts card, numbered sections, footer with the
+ *    registered company name) is shared with the task sheet: utils/pdfTheme.ts.
  */
-
-/* ────────────────────────────── design tokens ───────────────────────────── */
-
-const INK = '#16262a';
-const TEAL = '#0097b2';        // the logo teal, declared in index.css
-const TEAL_WASH = '#f0fafc';   // the palest tint of it, for the summary strip
-const MUTED = '#8a938f';
-const HAIRLINE = '#e4e7e6';
-
-const PAGE_W = 210;
-const PAGE_H = 297;
-const MARGIN = 20;
-const CONTENT_W = PAGE_W - MARGIN * 2;
-const FOOTER_Y = PAGE_H - 14;
-
-const COMPANY = COMPANY_LEGAL_NAME;
-const LOGO_PATH = '/logo/1.png';
 
 /** Raw enum values must never reach the page — "other" is not a report type. */
 const REPORT_TYPE_LABELS: Record<string, string> = {
@@ -91,61 +77,8 @@ export interface ReportPdfInput {
 
 /* ───────────────────────────────── helpers ──────────────────────────────── */
 
-let logoCache: string | null | undefined;
-
-/**
- * The logo as a PNG data URI, fetched once.
- *
- * jsPDF cannot take a URL or an SVG, so this is the only route. Resolves to
- * null rather than throwing: a missing logo must degrade to a wordmark, never
- * to a failed download.
- */
-async function loadLogo(): Promise<string | null> {
-  if (logoCache !== undefined) return logoCache;
-  try {
-    const res = await fetch(LOGO_PATH);
-    if (!res.ok) throw new Error(String(res.status));
-    const blob = await res.blob();
-    const raw = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result as string);
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-    // The source is 1024x1024. jsPDF decodes a PNG to raw pixels before
-    // embedding, so handing it the original produced a 4 MB report for a
-    // 13mm mark. Downscaled to roughly 300dpi at the size it is actually
-    // drawn; falls back to the original if there is no canvas.
-    logoCache = await downscale(raw, 160);
-  } catch {
-    logoCache = null;
-  }
-  return logoCache;
-}
-
-/** Redraw a data-URI image at `size` px square. Returns the input unchanged if that is not possible. */
-async function downscale(dataUri: string, size: number): Promise<string> {
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new Image();
-      el.onload = () => resolve(el);
-      el.onerror = reject;
-      el.src = dataUri;
-    });
-    const canvas = document.createElement('canvas');
-    canvas.width = size;
-    canvas.height = size;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return dataUri;
-    ctx.drawImage(img, 0, 0, size, size);
-    return canvas.toDataURL('image/png');
-  } catch {
-    return dataUri;
-  }
-}
-
-const fullName = (p?: { firstName?: string; lastName?: string } | null, prefix = '') =>
-  (p?.firstName ? `${prefix}${p.firstName} ${p.lastName || ''}`.trim() : '');
+const fullName = (p?: { firstName?: string; lastName?: string } | null) =>
+  (p?.firstName ? `${p.firstName} ${p.lastName || ''}`.trim() : '');
 
 // In IST, like every date on the platform: the viewer's own zone could print
 // the day before (or after) the one the session and the signature belong to.
@@ -192,82 +125,25 @@ function pngSize(dataUri: string): { w: number; h: number } | null {
 
 export async function buildReportPdf(report: ReportPdfInput): Promise<any> {
   const { jsPDF } = await import('jspdf');
-  const doc = new jsPDF();
+  const doc = new jsPDF({ compress: true });
   const logo = await loadLogo();
 
   const patient = fullName(report.patientId);
-  const doctor = fullName(report.doctorId, 'Dr. ');
+  // "Dr." once, even when the stored first name already carries it.
+  const doctor = report.doctorId?.firstName ? doctorDisplayName(report.doctorId.firstName, report.doctorId.lastName) : '';
   const dateText = longDate(report.createdAt);
+  const sessionDate = reportSessionDate(report);
 
-  let y = 0;
+  let y = masthead(doc, logo, 'Clinical session report', { text: reportTypeLabel(report.reportType) });
 
-  /* ── masthead ──────────────────────────────────────────────────────────── */
-  const LOGO_SIZE = 13;
-  if (logo) {
-    try {
-      // Square source, so no aspect maths — and drawn large enough to read as
-      // a mark rather than a speck.
-      doc.addImage(logo, 'PNG', MARGIN, 14, LOGO_SIZE, LOGO_SIZE);
-    } catch {
-      /* a bad asset must not cost the user their download */
-    }
-  }
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(16);
-  doc.setTextColor(INK);
-  doc.text('Veraawell', logo ? MARGIN + LOGO_SIZE + 5 : MARGIN, 23.5);
-
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.setTextColor(TEAL);
-  doc.text('CLINICAL SESSION REPORT', PAGE_W - MARGIN, 19.5, { align: 'right' });
-  doc.setTextColor(MUTED);
-  doc.setFontSize(8.5);
-  doc.text(dateText, PAGE_W - MARGIN, 25, { align: 'right' });
-
-  doc.setDrawColor(TEAL);
-  doc.setLineWidth(0.7);
-  doc.line(MARGIN, 33, PAGE_W - MARGIN, 33);
-
-  y = 47;
-
-  /* ── title ─────────────────────────────────────────────────────────────── */
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(19);
-  doc.setTextColor(INK);
-  const titleLines: string[] = doc.splitTextToSize(cleanTitle(report.title, patient), CONTENT_W);
-  doc.text(titleLines, MARGIN, y);
-  y += titleLines.length * 7.6 + 8;
-
-  /* ── who and what ──────────────────────────────────────────────────────── */
-  const meta: Array<[string, string]> = [
-    ['PREPARED BY', doctor || 'Your practitioner'],
-    ['PATIENT', patient || '—'],
-    ['REPORT TYPE', reportTypeLabel(report.reportType)],
-    // The session the report is about, when known; when it was filed is
-    // in the signature line.
-    reportSessionDate(report) ? ['SESSION DATE', reportSessionDate(report)] : ['DATE', dateText || '—']
-  ];
-
-  const colW = CONTENT_W / 2;
-  meta.forEach(([label, value], i) => {
-    const x = MARGIN + (i % 2) * colW;
-    const rowY = y + Math.floor(i / 2) * 12.5;
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(6.8);
-    doc.setTextColor(MUTED);
-    doc.text(label, x, rowY);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10.5);
-    doc.setTextColor(INK);
-    // Clipped to its own column, so a long value cannot collide with the next
-    // label the way the original magic x-offsets allowed.
-    doc.text(doc.splitTextToSize(value, colW - 8)[0], x, rowY + 5);
-  });
-  y += Math.ceil(meta.length / 2) * 12.5 + 6;
+  /* ── title and facts ───────────────────────────────────────────────────── */
+  y = drawTitle(doc, cleanTitle(report.title, patient), y + 4, sessionDate ? `Session on ${sessionDate}` : undefined);
+  y = factsCard(doc, [
+    ['Prepared by', doctor || 'Your practitioner'],
+    ['Patient', patient || '—'],
+    ['Session date', sessionDate || '—'],
+    ['Filed on', dateText || '—'],
+  ], y);
 
   /* ── at a glance ───────────────────────────────────────────────────────── */
   const fields = reportFields(report.content);
@@ -276,187 +152,140 @@ export async function buildReportPdf(report: ReportPdfInput): Promise<any> {
 
   if (glance.length > 0) {
     const H = 22;
-    doc.setFillColor(TEAL_WASH);
-    doc.roundedRect(MARGIN, y, CONTENT_W, H, 2.5, 2.5, 'F');
-
-    const cellW = CONTENT_W / glance.length;
+    const GAP = 5;
+    const cardW = (CONTENT_W - GAP * (glance.length - 1)) / glance.length;
     glance.forEach((f, i) => {
-      const x = MARGIN + i * cellW + 8;
-
+      const x = MARGIN + i * (cardW + GAP);
+      doc.setFillColor(C.TEAL_WASH);
+      doc.setDrawColor(C.TEAL_TINT);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(x, y, cardW, H, 3, 3, 'FD');
+      eyebrow(doc, f.label, x + 6, y + 7, { color: C.TEAL_DARK });
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(6.8);
-      doc.setTextColor(MUTED);
-      doc.text(f.label.toUpperCase(), x, y + 8);
+      doc.setFontSize(16);
+      doc.setTextColor(C.INK);
+      doc.text(f.value, x + 6, y + 15.6);
 
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12.5);
-      doc.setTextColor(INK);
-      doc.text(f.value, x, y + 15.5);
-
-      // Progress is a number out of ten; a short meter reads faster than the
-      // digits and costs two rectangles.
+      // Progress is a number out of ten; a meter reads faster than the digits.
       const m = /^(\d+(?:\.\d+)?)\s*\/\s*10$/.exec(f.value);
       if (m) {
         const pct = Math.max(0, Math.min(1, parseFloat(m[1]) / 10));
-        const barX = x + 22;
-        const barW = Math.min(38, cellW - 34);
+        const barX = x + 6 + doc.getTextWidth(f.value) + 6;
+        const barW = cardW - (barX - x) - 7;
         if (barW > 10) {
-          doc.setFillColor('#d8ecf1');
-          doc.roundedRect(barX, y + 12.2, barW, 3.2, 1.6, 1.6, 'F');
+          doc.setFillColor(C.TEAL_TINT);
+          doc.roundedRect(barX, y + 12.8, barW, 2.6, 1.3, 1.3, 'F');
           if (pct > 0) {
-            doc.setFillColor(TEAL);
-            doc.roundedRect(barX, y + 12.2, Math.max(3.2, barW * pct), 3.2, 1.6, 1.6, 'F');
+            doc.setFillColor(C.TEAL);
+            doc.roundedRect(barX, y + 12.8, Math.max(2.6, barW * pct), 2.6, 1.3, 1.3, 'F');
           }
         }
       }
-
-      if (i > 0) {
-        doc.setDrawColor('#d8ecf1');
-        doc.setLineWidth(0.3);
-        doc.line(MARGIN + i * cellW, y + 5, MARGIN + i * cellW, y + H - 5);
-      }
     });
-    y += H + 12;
+    y += H + 11;
   } else {
-    y += 4;
+    y += 2;
   }
 
   /* ── narrative ─────────────────────────────────────────────────────────── */
   // The sign-off occupies a fixed band at the foot of the last page, so the
   // body must stop above it or the two would overlap.
-  const SIG_H = 30;
-  const sigTop = PAGE_H - 34 - SIG_H;
-  const contentBottom = sigTop - 6;
+  const SIG_H = 28;
+  const sigTop = BODY_BOTTOM - SIG_H;
+  const contentBottom = sigTop - 4;
 
-  // Where the last line of text was actually drawn. Distinct from `y`, which
-  // carries each section's trailing gap — using that to decide whether the
-  // sign-off fits pushed a report onto a second page over a few millimetres
-  // of whitespace that nothing was ever drawn into.
+  // Where the last line was actually drawn — distinct from `y`, which carries
+  // each section's trailing gap; using that pushed short reports onto a second
+  // page over whitespace nothing was drawn into.
   let lastInk = y;
-
   const newPage = () => {
     doc.addPage();
-    y = MARGIN + 8;
+    y = MARGIN + 6;
     lastInk = y;
   };
 
-  const section = (heading: string, body: string) => {
-    if (!body) return;
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10.5);
-    const lines: string[] = doc.splitTextToSize(body, CONTENT_W);
-
-    // Never orphan a heading at the foot of a page — but reserve only what
-    // this section actually needs. A flat reservation broke a one-line
-    // section onto a second page over a few spare millimetres.
-    const needed = 5.8 + Math.min(lines.length, 2) * 5.4;
-    if (y + needed > contentBottom) newPage();
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(TEAL);
-    doc.text(heading.toUpperCase(), MARGIN, y);
-    y += 5.8;
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(10.5);
-    doc.setTextColor(INK);
-
-    // Line by line, so a long body breaks across pages instead of running off
-    // the bottom — the original only checked between sections.
-    for (const line of lines) {
-      if (y > contentBottom) newPage();
-      doc.text(line, MARGIN, y);
-      lastInk = y;
-      y += 5.4;
+  let index = 0;
+  const section = (heading: string, paragraphs: string[], bullets = false) => {
+    if (paragraphs.length === 0) return;
+    bodyText(doc);
+    const indent = bullets ? 5 : 0;
+    const lines: Array<{ text: string; first: boolean }> = [];
+    for (const p of paragraphs) {
+      (doc.splitTextToSize(p, CONTENT_W - indent) as string[]).forEach((text, i) => lines.push({ text, first: i === 0 }));
     }
-    y += 9;
+    // Never orphan a heading at the foot of a page — reserve only what this
+    // section needs to show its heading and first two lines.
+    if (y + 9 + Math.min(lines.length, 2) * BODY_LEAD > contentBottom) newPage();
+    index += 1;
+    y = sectionHeading(doc, index, heading, y);
+    bodyText(doc);
+    for (const line of lines) {
+      if (y > contentBottom) { newPage(); bodyText(doc); }
+      if (bullets && line.first) bullet(doc, MARGIN, y);
+      doc.text(line.text, MARGIN + indent, y);
+      lastInk = y;
+      y += BODY_LEAD;
+    }
+    y += 7;
   };
 
   if (narrative.length > 0) {
     for (const f of narrative) {
-      // Observations arrive comma-joined; give them real bullets, including
-      // the first, which the original '\n• ' join always missed.
-      const body = f.label === 'Observations'
-        ? f.value.split(', ').map((o) => `•   ${o}`).join('\n')
-        : f.value;
-      section(f.label, body);
+      // Observations arrive comma-joined: one bullet each.
+      if (f.label === 'Observations') section(f.label, f.value.split(', ').filter(Boolean), true);
+      else section(f.label, f.value.split(/\n+/).filter(Boolean));
     }
   } else if (glance.length === 0) {
-    section('Notes', report.content || 'No details were recorded.');
+    section('Notes', [report.content || 'No details were recorded.']);
   }
 
   /* ── sign-off, pinned to the foot of the last page ─────────────────────── */
-  // Only move to a new page when real content would otherwise be sat on.
   if (lastInk > sigTop) newPage();
-
   let sy = sigTop;
+  eyebrow(doc, report.doctorSignature ? 'Signed by' : 'Prepared by', MARGIN, sy);
+  sy += 2;
 
-  const sigW = 50;
+  const sigW = 48;
   if (report.doctorSignature) {
     const size = pngSize(report.doctorSignature);
     let w = sigW;
-    let h = 15;
+    let h = 14;
     if (size) {
-      h = Math.min(15, (size.h / size.w) * sigW);
+      h = Math.min(14, (size.h / size.w) * sigW);
       w = (size.w / size.h) * h;
     }
     try {
-      doc.addImage(report.doctorSignature, 'PNG', MARGIN, sy + (16 - h), Math.min(w, sigW), h);
+      doc.addImage(report.doctorSignature, 'PNG', MARGIN, sy + (15 - h), Math.min(w, sigW), h);
     } catch {
       /* fall through to the rule */
     }
   }
   sy += 17;
-
-  doc.setDrawColor(HAIRLINE);
+  doc.setDrawColor(C.HAIRLINE);
   doc.setLineWidth(0.3);
-  doc.line(MARGIN, sy, MARGIN + sigW + 14, sy);
+  doc.line(MARGIN, sy, MARGIN + 64, sy);
   sy += 5;
-
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.5);
-  doc.setTextColor(INK);
+  doc.setFontSize(9.6);
+  doc.setTextColor(C.INK);
   doc.text(doctor || 'Practitioner', MARGIN, sy);
   sy += 4.4;
-
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.setTextColor(MUTED);
-  // The attestation is what gives the image meaning: a drawn signature is not
-  // an identity check, so the document says only what it actually knows.
-  doc.text(
-    report.doctorSignature ? `Signed electronically on ${dateText}` : `Filed on ${dateText}`,
-    MARGIN,
-    sy
-  );
+  doc.setFontSize(7.4);
+  doc.setTextColor(C.MUTED);
+  // A drawn signature is not an identity check: the line says only what is known.
+  doc.text(report.doctorSignature ? `Signed electronically on ${dateText}` : `Filed on ${dateText}`, MARGIN, sy);
 
-  /* ── footer, stamped once the page count is known ──────────────────────── */
-  const pages = (doc as any).internal.getNumberOfPages();
-  for (let i = 1; i <= pages; i += 1) {
-    doc.setPage(i);
-    doc.setDrawColor(HAIRLINE);
-    doc.setLineWidth(0.3);
-    doc.line(MARGIN, FOOTER_Y - 5.5, PAGE_W - MARGIN, FOOTER_Y - 5.5);
+  // A quiet note on the right of the sign-off, balancing it.
+  doc.setFontSize(7.4);
+  doc.text(['Confidential health information.', 'Share it only with people you choose.'], PAGE_W - MARGIN, sigTop + 22, { align: 'right', lineHeightFactor: 1.5 });
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(MUTED);
-    doc.text(COMPANY, MARGIN, FOOTER_Y);
-    doc.text('Electronically generated', PAGE_W / 2, FOOTER_Y, { align: 'center' });
-    doc.text(`Page ${i} of ${pages}`, PAGE_W - MARGIN, FOOTER_Y, { align: 'right' });
-  }
-
+  footers(doc, 'Electronically generated');
   return doc;
 }
 
 /** Build and download. */
 export async function generateReportPdf(report: ReportPdfInput): Promise<void> {
   const doc = await buildReportPdf(report);
-  const safe = (report.title || 'session-report')
-    .replace(/[^a-zA-Z0-9]/g, '_')
-    .replace(/_+/g, '_')
-    .replace(/^_|_$/g, '');
-  doc.save(`${safe}.pdf`);
+  doc.save(`${fileName(report.title || 'session-report')}.pdf`);
 }

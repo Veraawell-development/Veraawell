@@ -1,12 +1,4 @@
-interface Report {
-    _id: string;
-    title: string;
-    reportType: string;
-    content: string;
-    createdAt: string;
-    doctorId: { firstName: string; lastName: string };
-    patientId: { firstName: string; lastName: string };
-}
+import { doctorDisplayName } from './doctorName';
 
 interface Task {
     _id: string;
@@ -34,81 +26,65 @@ const istDay = (d: string | Date) =>
  * download one session and hold two different-looking documents. This file
  * now owns only the task/homework PDF, which is a genuinely different thing.
  */
-export const generateTaskPDF = async (task: Task): Promise<void> => {
+const PRIORITY: Record<string, { fill: string; color: string }> = {
+    high: { fill: '#fde4e4', color: '#b42318' },
+    medium: { fill: '#fdf0d5', color: '#9a6700' },
+    low: { fill: '#dcf3e6', color: '#1a7f4b' },
+};
+
+/** The task sheet, in the same look as the report (utils/pdfTheme.ts). */
+export const buildTaskPdf = async (task: Task) => {
     // Loaded on demand, like reportPdf.ts: a static import put jsPDF (and its
     // html2canvas/DOMPurify dependencies) in the main bundle for every visitor.
     const { jsPDF } = await import('jspdf');
-    const doc = new jsPDF();
+    const theme = await import('./pdfTheme');
+    const { C, MARGIN, CONTENT_W, BODY_BOTTOM, BODY_LEAD } = theme;
+    const doc = new jsPDF({ compress: true });
+    const logo = await theme.loadLogo();
 
-    // Header
-    doc.setFontSize(18);
-    doc.setTextColor(56, 171, 174); // Teal color #38ABAE
-    doc.text('VERAAWELL MENTAL HEALTH PLATFORM', 105, 20, { align: 'center' });
+    const priority = (task.priority || 'medium').toLowerCase();
+    let y = theme.masthead(doc, logo, 'Therapy task', { text: `${priority} priority`, ...(PRIORITY[priority] || PRIORITY.medium) });
+    y = theme.title(doc, task.title || 'Your task', y + 6, task.dueDate ? `Due ${istDay(task.dueDate)}` : undefined);
 
-    doc.setFontSize(14);
-    doc.text('Task Assignment', 105, 30, { align: 'center' });
+    // (It used to print the patient's and the task's raw ids, which mean nothing to anyone.)
+    const status = task.status ? task.status.charAt(0).toUpperCase() + task.status.slice(1) : '—';
+    y = theme.factsCard(doc, [
+        ['Assigned by', task.doctorId?.firstName ? doctorDisplayName(task.doctorId.firstName, task.doctorId.lastName) : 'Your therapist'],
+        ['Due', task.dueDate ? istDay(task.dueDate) : 'No date'],
+        ['Status', status],
+        ['Assigned on', task.createdAt ? istDay(task.createdAt) : '—'],
+    ], y);
 
-    // Task Details
-    doc.setFontSize(12);
-    doc.setTextColor(0, 0, 0);
-
-    let yPos = 50;
-    doc.text(`Task: ${task.title}`, 20, yPos);
-    yPos += 10;
-
-    // Priority with color coding
-    const priorityColor: [number, number, number] = task.priority === 'high' ? [220, 38, 38] :
-        task.priority === 'medium' ? [234, 179, 8] :
-            [34, 197, 94];
-    doc.setTextColor(priorityColor[0], priorityColor[1], priorityColor[2]);
-    doc.text(`Priority: ${task.priority.toUpperCase()}`, 20, yPos);
-    doc.setTextColor(0, 0, 0);
-    yPos += 10;
-
-    doc.text(`Due: ${task.dueDate ? istDay(task.dueDate) : '—'}`, 20, yPos);
-    yPos += 10;
-    doc.text(`Status: ${task.status.charAt(0).toUpperCase() + task.status.slice(1)}`, 20, yPos);
-    yPos += 15;
-
-    // (It also printed the patient's raw account id, which means nothing to anyone.)
-    const doctor = `${task.doctorId?.firstName || ''} ${task.doctorId?.lastName || ''}`.trim().replace(/^dr\.?\s+/i, '');
-    doc.text(`Assigned by: ${doctor ? `Dr. ${doctor}` : 'Your therapist'}`, 20, yPos);
-    yPos += 15;
-
-    // Separator line
-    doc.setDrawColor(200, 200, 200);
-    doc.line(20, yPos, 190, yPos);
-    yPos += 10;
-
-    // Description
-    doc.setFontSize(11);
-    doc.text('Description:', 20, yPos);
-    yPos += 10;
-
-    const splitDesc = doc.splitTextToSize(task.description, 170);
-    doc.text(splitDesc, 20, yPos);
-
-    // Calculate position for footer
-    const descHeight = splitDesc.length * 7;
-    yPos += descHeight + 15;
-
-    // Add new page if content is too long
-    if (yPos > 270) {
-        doc.addPage();
-        yPos = 20;
+    y = theme.sectionHeading(doc, 1, 'What to do', y);
+    theme.bodyText(doc);
+    const lines: string[] = doc.splitTextToSize(task.description || 'Your therapist did not add details.', CONTENT_W);
+    for (const line of lines) {
+        if (y > BODY_BOTTOM - 4) {
+            doc.addPage();
+            y = MARGIN + 6;
+            theme.bodyText(doc);
+        }
+        doc.text(line, MARGIN, y);
+        y += BODY_LEAD;
     }
 
-    // Footer
-    doc.setDrawColor(200, 200, 200);
-    doc.line(20, yPos, 190, yPos);
-    yPos += 10;
+    // A gentle closing note, as on paper handed over in a session.
+    y += 8;
+    if (y < BODY_BOTTOM - 22) {
+        doc.setFillColor(C.TEAL_WASH);
+        doc.roundedRect(MARGIN, y, CONTENT_W, 16, 3, 3, 'F');
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.6);
+        doc.setTextColor(C.TEAL_DARK);
+        doc.text('Mark this task done in Veraawell when you finish it, so your therapist can see it before your next session.', MARGIN + 6, y + 9.2, { maxWidth: CONTENT_W - 12 });
+    }
 
-    doc.setFontSize(9);
-    doc.setTextColor(128, 128, 128);
-    doc.text(`Generated on: ${new Date().toLocaleString('en-IN', { timeZone: IST, dateStyle: 'long', timeStyle: 'short' })} IST`, 20, yPos);
-    doc.text(`Task ID: ${task._id}`, 20, yPos + 5);
+    theme.footers(doc, `Generated ${new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric', timeZone: IST })}`);
+    return doc;
+};
 
-    // Save
-    const fileName = `Task_${task.title.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`;
-    doc.save(fileName);
+export const generateTaskPDF = async (task: Task): Promise<void> => {
+    const doc = await buildTaskPdf(task);
+    const { fileName } = await import('./pdfTheme');
+    doc.save(`Task_${fileName(task.title || 'task')}.pdf`);
 };
