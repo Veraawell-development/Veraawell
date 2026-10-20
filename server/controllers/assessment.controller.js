@@ -8,7 +8,7 @@ const MentalHealthAssessment = require('../models/mentalHealthAssessment');
 const { asyncHandler } = require('../middleware/error.middleware');
 const { NotFoundError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
-const { computeScore, validateResponses, isScorable } = require('../utils/assessmentScoring');
+const { computeScore, validateResponses, isScorable, SCORING_VERSION } = require('../utils/assessmentScoring');
 
 const logger = createLogger('ASSESSMENT-CTRL');
 
@@ -51,7 +51,7 @@ const saveAssessment = asyncHandler(async (req, res) => {
     });
   }
 
-  const assessment = new MentalHealthAssessment({ userId, testType, responses: checked.responses, scores, completedAt: new Date() });
+  const assessment = new MentalHealthAssessment({ userId, testType, responses: checked.responses, scores, completedAt: new Date(), testVersion: SCORING_VERSION });
   await assessment.save();
 
   logger.info('Assessment saved', { userId: userId.toString().substring(0, 8), testType });

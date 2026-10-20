@@ -148,7 +148,7 @@ const WellnessCard: React.FC = () => {
               <div
                 className="w-12 h-12 rounded-full flex-shrink-0"
                 style={{ 
-                  background: 'url(/priya.png) center/cover no-repeat',
+                  background: 'url(/priya.webp) center/cover no-repeat',
                   boxShadow: '0 4px 12px rgba(0,0,0,0.08)'
                 }}
               />
@@ -465,9 +465,9 @@ const HeroSection: React.FC = () => {
               }}
             >
               <div className="flex -space-x-3">
-                <img src="/priya.png" alt="User" className="w-10 h-10 rounded-full border-2 border-white object-cover shadow-sm" />
-                <img src="/rohit.png" alt="User" className="w-10 h-10 rounded-full border-2 border-white object-cover shadow-sm" />
-                <img src="/anjali.png" alt="User" className="w-10 h-10 rounded-full border-2 border-white object-cover shadow-sm" />
+                <img src="/priya.webp" alt="" className="w-10 h-10 rounded-full border-2 border-white object-cover shadow-sm" />
+                <img src="/rohit.webp" alt="" className="w-10 h-10 rounded-full border-2 border-white object-cover shadow-sm" />
+                <img src="/anjali.webp" alt="" className="w-10 h-10 rounded-full border-2 border-white object-cover shadow-sm" />
                 <div className="w-10 h-10 rounded-full border-2 border-white bg-teal-50 flex items-center justify-center text-teal-700 text-xs font-bold shadow-sm">+1k</div>
               </div>
               <div className="flex flex-col">

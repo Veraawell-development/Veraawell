@@ -109,7 +109,7 @@ const MissionStats: React.FC = () => {
                 className="absolute top-4 left-4 sm:top-8 sm:left-8 w-[50%] aspect-[4/5] rounded-[24px] overflow-hidden shadow-xl border-4 border-white transition-all duration-500 ease-out z-10"
                 style={{ transform: 'rotate(-6deg)' }}
               >
-                <img src="/anjali.png" alt="Dr. Priya" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                <img src="/anjali.webp" alt="Dr. Anjali" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-60" />
               </div>
 
@@ -118,7 +118,7 @@ const MissionStats: React.FC = () => {
                 className="absolute bottom-8 right-4 sm:bottom-12 sm:right-8 w-[45%] aspect-square rounded-[24px] overflow-hidden shadow-xl border-4 border-white transition-all duration-500 ease-out z-20"
                 style={{ transform: 'rotate(4deg)' }}
               >
-                <img src="/rohit.png" alt="Dr. Rohit" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                <img src="/rohit.webp" alt="Dr. Rohit" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent opacity-60" />
               </div>
 
@@ -126,7 +126,7 @@ const MissionStats: React.FC = () => {
               <div 
                 className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[40%] w-[38%] aspect-square rounded-full overflow-hidden shadow-2xl border-4 border-white transition-all duration-500 ease-out z-30 group-hover:scale-105"
               >
-                <img src="/priya.png" alt="Dr. Anjali" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                <img src="/priya.webp" alt="Dr. Priya" className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
               </div>
 
               {/* Floating glass badge */}

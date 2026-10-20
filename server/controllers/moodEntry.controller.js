@@ -5,14 +5,21 @@
 
 const MoodEntry = require('../models/moodEntry');
 const { asyncHandler } = require('../middleware/error.middleware');
-const { AuthorizationError, ValidationError } = require('../utils/errors');
+const { ValidationError } = require('../utils/errors');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('MOOD-CTRL');
 
 // Patient-local "today" — pinned to IST so the daily check-in resets at
 // midnight India time regardless of the server's own timezone.
-const todayIST = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+const todayIST = (now = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(now);
+
+/** The IST calendar date `n` days before today, as 'YYYY-MM-DD'. */
+const istDaysAgo = (n, now = new Date()) => {
+  const d = new Date(`${todayIST(now)}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - n);
+  return d.toISOString().slice(0, 10);
+};
 
 /**
  * GET /api/session-tools/mood/today
@@ -58,15 +65,18 @@ const createEntry = asyncHandler(async (req, res) => {
 
 /**
  * GET /api/session-tools/mood/history?days=30
- * Recent mood entries for trend display
+ * The entries of the last `days` IST calendar days, today included, newest
+ * first. It used to return the last `days` ENTRIES, so a patient who checks
+ * in now and then got weeks-old entries averaged into "this week".
  */
 const getHistory = asyncHandler(async (req, res) => {
-  const days = Math.min(Math.max(parseInt(req.query.days) || 30, 1), 90);
-  const entries = await MoodEntry.find({ patientId: req.actor.id })
-    .sort({ date: -1 })
-    .limit(days);
+  const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 90);
+  const to = todayIST();
+  const from = istDaysAgo(days - 1);
+  const entries = await MoodEntry.find({ patientId: req.actor.id, date: { $gte: from, $lte: to } })
+    .sort({ date: -1 });
 
-  res.json({ success: true, entries });
+  res.json({ success: true, entries, from, to });
 });
 
 module.exports = { getToday, createEntry, getHistory };

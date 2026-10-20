@@ -4,8 +4,10 @@ import tailwindcss from '@tailwindcss/vite'
 import removeConsole from 'vite-plugin-remove-console'
 
 // https://vite.dev/config/
+// Production builds drop console.log/debug noise. console.info is kept for
+// the one deliberate banner in main.tsx; warn/error stay for real problems.
 export default defineConfig({
-  plugins: [react(), tailwindcss(), removeConsole({ includes: ['log'] })],
+  plugins: [react(), tailwindcss(), removeConsole({ includes: ['log', 'debug'] })],
   server: {
     proxy: {
       '/api': 'http://localhost:5001',

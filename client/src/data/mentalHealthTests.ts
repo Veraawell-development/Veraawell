@@ -30,6 +30,12 @@ export interface TestDefinition {
     defaultOptions: TestAnswerOption[];
     scoring: {
         maxScore: number;
+        /** Questions asked but not added to the total (e.g. PHQ-9 item 10). */
+        unscored?: number[];
+        /** A branching test whose maximum depends on the path picked by question `on`. */
+        branchMax?: { on: number; max: Record<number, number> };
+        /** 'percentage': the bands below are percentages of the path's maximum, not raw totals. */
+        severityBy?: 'total' | 'percentage';
         severityLevels: {
             minimal: { max: number; label?: string; description?: string };
             mild: { min: number; max: number; label?: string; description?: string };
@@ -92,7 +98,9 @@ export const DEPRESSION_TEST: TestDefinition = {
     ],
     defaultOptions: FREQUENCY_OPTIONS,
     scoring: {
-        maxScore: 30, 
+        // PHQ-9 scores items 1–9 (0–27); item 10 is asked but not added.
+        maxScore: 27,
+        unscored: [10],
         severityLevels: {
             minimal: { max: 4 },
             mild: { min: 5, max: 9 },
@@ -192,13 +200,13 @@ export const PTSD_TEST: TestDefinition = {
     questionCount: 24,
     estimatedTime: '6 minutes',
     sections: [
-        { id: 'consent', title: 'Additional Questions', description: 'Can you help us answer 9 extra questions about your experiences over different periods of time (1 month vs. 3 months)?' },
+        { id: 'consent', title: 'Before we start' },
         { id: 'experience', title: 'Past Experiences', description: 'Sometimes things happen to people that are unusually or especially frightening, horrible, or traumatic.' },
         { 
             id: 'month', 
             title: 'Past Month', 
             description: 'In the past month, have you...',
-            condition: (responses) => responses[1] === 1 // Only if they select YES (1) for extra questions (Question ID 1)
+            condition: (responses) => responses[1] === 1 // only if they agreed (Q1) to the questions about how they feel now
         },
         { 
             id: 'quarter', 
@@ -208,7 +216,7 @@ export const PTSD_TEST: TestDefinition = {
         }
     ],
     questions: [
-        { id: 1, sectionId: 'consent', text: 'Can you help us answer 9 extra questions about your experiences over different periods of time (1 month vs. 3 months)?', options: YES_NO_OPTIONS },
+        { id: 1, sectionId: 'consent', text: 'After the questions about past experiences, can we also ask how you have been feeling over the past month and the past 3 months?', options: YES_NO_OPTIONS },
         { id: 2, sectionId: 'experience', text: 'Been in a national disaster where you thought you were going to die or be seriously injured?', options: YES_NO_OPTIONS },
         { id: 3, sectionId: 'experience', text: 'Been attacked or hurt very badly?', options: YES_NO_OPTIONS },
         { id: 4, sectionId: 'experience', text: 'Any type of unwanted or uncomfortable sexual encounter?', options: YES_NO_OPTIONS },
@@ -235,7 +243,9 @@ export const PTSD_TEST: TestDefinition = {
     ],
     defaultOptions: YES_NO_OPTIONS,
     scoring: {
-        maxScore: 24,
+        // Q1 (whether to ask the symptom questions) is not a symptom: not counted.
+        maxScore: 23,
+        unscored: [1],
         severityLevels: {
             minimal: { max: 5 },
             mild: { min: 6, max: 12 },
@@ -251,7 +261,7 @@ export const ADDICTION_TEST: TestDefinition = {
     name: 'Addiction Test',
     fullName: 'Substance Use and Addiction Screening',
     description: 'Assessment for problematic substance use or behavior.',
-    questionCount: 15,
+    questionCount: 6, // Q1, then the 2–5 questions of the chosen path
     estimatedTime: '4 minutes',
     sections: [
         { id: 'type', title: 'Concern Area' },
@@ -286,12 +296,19 @@ export const ADDICTION_TEST: TestDefinition = {
     ],
     defaultOptions: YES_NO_OPTIONS,
     scoring: {
-        maxScore: 10,
+        // Q1 picks the path (alcohol 5 questions, drugs 3, behaviour 2) and
+        // is not scored. Banded on the share of that path's questions
+        // answered "yes": none minimal, under half mild, half or more
+        // moderate, all severe. See server/utils/assessmentScoring.js.
+        maxScore: 5,
+        unscored: [1],
+        branchMax: { on: 1, max: { 0: 5, 1: 3, 2: 2 } },
+        severityBy: 'percentage',
         severityLevels: {
-            minimal: { max: 2 },
-            mild: { min: 3, max: 5 },
-            moderate: { min: 6, max: 8 },
-            severe: { min: 9 }
+            minimal: { max: 0 },
+            mild: { min: 1, max: 49 },
+            moderate: { min: 50, max: 99 },
+            severe: { min: 100 }
         }
     }
 };
@@ -553,7 +570,11 @@ export const MENTAL_HEALTH_TESTS: Record<string, TestDefinition> = {
     'eating-disorder': EATING_DISORDER_TEST
 };
 
-// Helper function to calculate score and severity
+/**
+ * Score and severity for a set of answers. Mirrors computeScore in
+ * server/utils/assessmentScoring.js (client/src/__tests__/parity.test.ts
+ * holds the two together); the server's result is the one that is stored.
+ */
 export const calculateTestScore = (
     testId: string,
     responses: { questionId: number; answer: number }[]
@@ -561,21 +582,45 @@ export const calculateTestScore = (
     const test = MENTAL_HEALTH_TESTS[testId];
     if (!test) throw new Error('Invalid test type');
 
-    const total = responses.reduce((sum, r) => sum + r.answer, 0);
-    const percentage = (total / test.scoring.maxScore) * 100;
+    const { scoring } = test;
+    const unscored = scoring.unscored || [];
+    const total = responses
+        .filter((r) => !unscored.includes(Number(r.questionId)))
+        .reduce((sum, r) => sum + (Number(r.answer) || 0), 0);
 
+    let maxScore = scoring.maxScore;
+    if (scoring.branchMax) {
+        const pick = responses.find((r) => Number(r.questionId) === scoring.branchMax!.on);
+        maxScore = (pick && Object.prototype.hasOwnProperty.call(scoring.branchMax.max, String(Number(pick.answer)))
+            ? scoring.branchMax.max[Number(pick.answer)]
+            : 0) || scoring.maxScore;
+    }
+    const percentage = Math.round((total / maxScore) * 100);
+
+    const measure = scoring.severityBy === 'percentage' ? percentage : total;
+    const levels = scoring.severityLevels;
     let severity = 'minimal';
-    const levels = test.scoring.severityLevels;
-
-    if (total >= levels.severe.min) {
+    if (measure >= levels.severe.min) {
         severity = 'severe';
-    } else if (levels['moderately-severe'] && total >= (levels['moderately-severe'] as any).min) {
+    } else if (levels['moderately-severe'] && measure >= levels['moderately-severe'].min) {
         severity = 'moderately-severe';
-    } else if (total >= levels.moderate.min) {
+    } else if (measure >= levels.moderate.min) {
         severity = 'moderate';
-    } else if (total >= levels.mild.min) {
+    } else if (measure >= levels.mild.min) {
         severity = 'mild';
     }
 
-    return { total, severity, percentage: Math.round(percentage) };
+    return { total, severity, percentage };
+};
+
+/** The maximum a result could have reached — for addiction, on the path it took. */
+export const maxScoreFor = (testId: string, responses?: { questionId: number; answer: number }[]): number => {
+    const scoring = MENTAL_HEALTH_TESTS[testId]?.scoring;
+    if (!scoring) return 0;
+    if (scoring.branchMax && responses) {
+        const pick = responses.find((r) => Number(r.questionId) === scoring.branchMax!.on);
+        const max = pick ? scoring.branchMax.max[Number(pick.answer)] : undefined;
+        if (max) return max;
+    }
+    return scoring.maxScore;
 };

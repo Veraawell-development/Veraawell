@@ -16,17 +16,41 @@
  */
 
 const SCORING_TABLES = {
-  depression: { maxScore: 30, severityLevels: { minimal: { max: 4 }, mild: { min: 5, max: 9 }, moderate: { min: 10, max: 14 }, 'moderately-severe': { min: 15, max: 19 }, severe: { min: 20 } } },
+  // PHQ-9: items 1–9 are scored (0–27). Item 10 ("how difficult have these
+  // problems made it…") is asked but never added — it is the PHQ-9's
+  // functional question, and summing it inflated the band (max 30, not 27).
+  depression: { maxScore: 27, unscored: [10], severityLevels: { minimal: { max: 4 }, mild: { min: 5, max: 9 }, moderate: { min: 10, max: 14 }, 'moderately-severe': { min: 15, max: 19 }, severe: { min: 20 } } },
   anxiety: { maxScore: 21, severityLevels: { minimal: { max: 4 }, mild: { min: 5, max: 9 }, moderate: { min: 10, max: 14 }, severe: { min: 15 } } },
   adhd: { maxScore: 79, severityLevels: { minimal: { max: 20 }, mild: { min: 21, max: 40 }, moderate: { min: 41, max: 60 }, severe: { min: 61 } } },
-  ptsd: { maxScore: 24, severityLevels: { minimal: { max: 5 }, mild: { min: 6, max: 12 }, moderate: { min: 13, max: 18 }, severe: { min: 19 } } },
-  addiction: { maxScore: 10, severityLevels: { minimal: { max: 2 }, mild: { min: 3, max: 5 }, moderate: { min: 6, max: 8 }, severe: { min: 9 } } },
+  // Q1 only asks whether the patient will answer the symptom questions; a
+  // "yes" to it is not a symptom, so it is not counted (max 23, not 24).
+  ptsd: { maxScore: 23, unscored: [1], severityLevels: { minimal: { max: 5 }, mild: { min: 6, max: 12 }, moderate: { min: 13, max: 18 }, severe: { min: 19 } } },
+  // Q1 picks the area (alcohol / drugs / a behaviour); its value 0/1/2 used to
+  // be added to the total. The three paths have 5, 3 and 2 yes/no questions,
+  // so one fixed band table could never fit all of them — the best possible
+  // result was "mild". Banded instead on the share of the chosen path's
+  // questions answered "yes": none is minimal, under half mild, half or more
+  // moderate, all of them severe.
+  addiction: {
+    maxScore: 5,
+    unscored: [1],
+    branchMax: { on: 1, max: { 0: 5, 1: 3, 2: 2 } },
+    severityBy: 'percentage',
+    severityLevels: { minimal: { max: 0 }, mild: { min: 1, max: 49 }, moderate: { min: 50, max: 99 }, severe: { min: 100 } }
+  },
   'social-anxiety': { maxScore: 42, severityLevels: { minimal: { max: 8 }, mild: { min: 9, max: 18 }, moderate: { min: 19, max: 30 }, severe: { min: 31 } } },
   'post-partum': { maxScore: 30, severityLevels: { minimal: { max: 6 }, mild: { min: 7, max: 12 }, moderate: { min: 13, max: 18 }, severe: { min: 19 } } },
   bipolar: { maxScore: 24, severityLevels: { minimal: { max: 5 }, mild: { min: 6, max: 12 }, moderate: { min: 13, max: 18 }, severe: { min: 19 } } },
   gambling: { maxScore: 23, severityLevels: { minimal: { max: 4 }, mild: { min: 5, max: 10 }, moderate: { min: 11, max: 17 }, severe: { min: 18 } } },
   'eating-disorder': { maxScore: 5, severityLevels: { minimal: { max: 1 }, mild: { min: 2, max: 2 }, moderate: { min: 3, max: 4 }, severe: { min: 5 } } },
 };
+
+/**
+ * Bumped whenever the scoring above changes, and stored on each result as
+ * `testVersion`, so a result says which rules produced it (and
+ * migrations/rescoreAssessments.js can bring older ones up to date).
+ */
+const SCORING_VERSION = '2.0';
 
 /**
  * dla20 is intentionally excluded. It has a different structure, and the
@@ -57,7 +81,8 @@ function isScorable(testType) {
  * @returns {{total: number, severity: string, percentage: number} | null}
  *   null means "not covered by this table".
  *
- * A pure sum over whatever it is given — it does not range-check. That is
+ * A pure sum over whatever it is given (less the table's `unscored`
+ * questions) — it does not range-check. That is
  * validateResponses' job, and it must run first on anything a client sent;
  * computeScore stays total so that client/src/__tests__/parity.test.ts can
  * compare the two scorers on arbitrary input.
@@ -68,20 +93,31 @@ function computeScore(testType, responses) {
   const table = own(SCORING_TABLES, testType);
   if (!table) return null;
 
-  const total = Array.isArray(responses)
-    ? responses.reduce((sum, r) => sum + (Number(r?.answer) || 0), 0)
-    : 0;
-  const percentage = Math.round((total / table.maxScore) * 100);
+  const list = Array.isArray(responses) ? responses : [];
+  const unscored = table.unscored || [];
+  const total = list
+    .filter((r) => !unscored.includes(Number(r?.questionId)))
+    .reduce((sum, r) => sum + (Number(r?.answer) || 0), 0);
 
+  // The addiction test's paths differ in length, so its maximum depends on
+  // the path chosen; an unknown path falls back to the table's maxScore.
+  let maxScore = table.maxScore;
+  if (table.branchMax) {
+    const pick = list.find((r) => Number(r?.questionId) === table.branchMax.on);
+    maxScore = (pick && own(table.branchMax.max, String(Number(pick.answer)))) || table.maxScore;
+  }
+  const percentage = Math.round((total / maxScore) * 100);
+
+  const measure = table.severityBy === 'percentage' ? percentage : total;
   const levels = table.severityLevels;
   let severity = 'minimal';
-  if (total >= levels.severe.min) {
+  if (measure >= levels.severe.min) {
     severity = 'severe';
-  } else if (levels['moderately-severe'] && total >= levels['moderately-severe'].min) {
+  } else if (levels['moderately-severe'] && measure >= levels['moderately-severe'].min) {
     severity = 'moderately-severe';
-  } else if (total >= levels.moderate.min) {
+  } else if (measure >= levels.moderate.min) {
     severity = 'moderate';
-  } else if (total >= levels.mild.min) {
+  } else if (measure >= levels.mild.min) {
     severity = 'mild';
   }
 
@@ -121,7 +157,14 @@ const QUESTION_SETS = {
   depression: { questions: answersFor(range(1, 10), FREQUENCY) },
   anxiety: { questions: answersFor(range(1, 7), FREQUENCY) },
   adhd: { questions: { ...answersFor(range(1, 7), YES_NO), ...answersFor(range(8, 25), FIVE_POINT) } },
-  ptsd: { questions: answersFor(range(1, 24), YES_NO) },
+  // Q1 asks whether the patient will answer the symptom questions (10–24);
+  // "no" ends the test after the past-experience questions (2–9).
+  ptsd: {
+    questions: answersFor(range(1, 24), YES_NO),
+    always: range(1, 9),
+    branchOn: 1,
+    branches: { 0: [], 1: range(10, 24) }
+  },
   addiction: {
     questions: { 1: [0, 1, 2], ...answersFor([2, 3, 4, 10, 11, 5, 6, 7, 8, 9], YES_NO) },
     always: [1],
@@ -191,4 +234,4 @@ function validateResponses(testType, responses) {
   };
 }
 
-module.exports = { computeScore, validateResponses, isScorable, SCORING_TABLES, QUESTION_SETS };
+module.exports = { computeScore, validateResponses, isScorable, SCORING_TABLES, QUESTION_SETS, SCORING_VERSION };

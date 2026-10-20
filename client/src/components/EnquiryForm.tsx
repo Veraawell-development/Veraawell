@@ -248,8 +248,8 @@ const EnquiryForm: React.FC<EnquiryFormProps> = ({ type }) => {
           </button>
           <p className="text-center text-sm text-[var(--text-3)]">
             Prefer email? Write to{' '}
-            <a href="mailto:contact@veraawell.com" className="text-[var(--teal)] hover:underline font-medium">
-              contact@veraawell.com
+            <a href="mailto:support@veraawell.com" className="text-[var(--teal)] hover:underline font-medium">
+              support@veraawell.com
             </a>
           </p>
         </div>
