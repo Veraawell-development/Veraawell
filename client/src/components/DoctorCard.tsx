@@ -7,7 +7,7 @@ type DoctorCardProps = {
   experience: string;
   qualification: string;
   /**
-   * The lowest of the therapist's six prices, in rupees ("₹800/session").
+   * The lowest of the therapist's six prices, in rupees, shown as "From ₹600".
    * Replaces a "₹min - ₹max" string the card parsed with /₹(\d+)/ — which
    * read ₹1,500 as ₹1.
    */
@@ -129,7 +129,7 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
               className="flex-none rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap"
               style={{ background: `${bgColor}12`, color: bgColor }}
             >
-              {formatINR(startingPrice)}<span style={{ opacity: 0.7, fontWeight: 500 }}>/session</span>
+              <span style={{ opacity: 0.7, fontWeight: 500 }}>From </span>{formatINR(startingPrice)}
             </span>
           )}
         </div>

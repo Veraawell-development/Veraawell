@@ -92,6 +92,11 @@ test.describe('the availability calendar', () => {
 
 test.describe('the doctor dashboard', () => {
   test('warns when the calendar has no open dates, and links to fix it', async ({ browser }) => {
+    // Two dashboard loads at phone and desktop width: more than the default
+    // 30 s on a loaded machine. A timeout closes the DB before `finally`
+    // can put the calendar back, and every later booking test then sees a
+    // therapist with no open days — so leave room.
+    test.setTimeout(90_000);
     const { users } = fixtures();
     const avail = (await db()).collection('doctoravailabilities');
     const before = await avail.findOne({ doctorId: new ObjectId(users.doctorB.id) });
@@ -105,7 +110,8 @@ test.describe('the doctor dashboard', () => {
       await expect(doctor.page).toHaveURL(/manage-calendar/);
       await doctor.context.close();
     } finally {
-      await avail.updateOne({ doctorId: new ObjectId(users.doctorB.id) }, { $set: { activeDates: before?.activeDates || [], customAvailability: before?.customAvailability || [] } });
+      // A fresh handle: if the test timed out, afterAll has already closed `avail`'s client.
+      await (await db()).collection('doctoravailabilities').updateOne({ doctorId: new ObjectId(users.doctorB.id) }, { $set: { activeDates: before?.activeDates || [], customAvailability: before?.customAvailability || [] } });
     }
     // With dates ahead, no warning.
     const doctor = await as(browser, 'doctor');

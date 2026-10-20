@@ -327,7 +327,8 @@ test.describe('booking', () => {
     // Both seeded doctors render with their real qualification, server-priced
     // session fee and treated conditions.
     await expect(page.getByText('MPhil Clinical Psychology').first()).toBeVisible();
-    await expect(page.getByText(/₹800\/session/).first()).toBeVisible();
+    // The lowest of the six seeded prices: a 20-minute voice session.
+    await expect(page.getByText(/From\s*₹600/).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /Book Session/i }).first()).toBeVisible();
   });
 

@@ -161,7 +161,8 @@ test.describe('the session rules on the call screen', () => {
     // The session's own modal, with what became of it.
     await expect(patient.page.getByText('Completed').last()).toBeVisible({ timeout: 10_000 });
     // Opening the rating form from the session details used to crash the page.
-    await patient.page.getByRole('button', { name: 'Rate Session' }).last().click();
+    // The details dialog's own button — the Manage list's one sits behind it.
+    await patient.page.getByRole('dialog', { name: 'Session Details' }).getByRole('button', { name: 'Rate Session' }).click();
     await expect(patient.page.getByText('Session Feedback')).toBeVisible();
     await expect(patient.page.getByText('Something went wrong')).toHaveCount(0);
     await patient.context.close();
