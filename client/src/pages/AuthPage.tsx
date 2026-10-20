@@ -117,6 +117,8 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
   // Both are validated as same-origin relative paths.
   const redirectTarget = getRedirectFromSearch(location.search)
     ?? sanitizeRedirect(typeof redirectFrom === 'string' ? redirectFrom : null);
+  // Passed on to the page we return to, by every sign-in route.
+  const bookingState = redirectTarget ? { serviceType: redirectServiceType, bookingType: redirectBookingType } : undefined;
 
   useEffect(() => {
     if (mode === 'signup') setRegisterMode(true);
@@ -169,7 +171,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
       if (data.token) setAuthToken(data.token);
       if (onSuccess) onSuccess();
       // Without a target, App's logged-in-on-/login effect picks the dashboard.
-      if (redirectTarget) navigate(redirectTarget, { replace: true, state: { serviceType: redirectServiceType, bookingType: redirectBookingType } });
+      if (redirectTarget) navigate(redirectTarget, { replace: true, state: bookingState });
     },
     onError: (err: any) => { setError(err.message || 'Network error. Please try again.'); }
   });
@@ -207,7 +209,10 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
       if (data.token) setAuthToken(data.token);
       await checkAuth();
       setFirstName(''); setEmail(''); setPhoneNo(''); setRegisterPassword(''); setRegisterConfirm('');
-      navigate(redirectTarget ?? '/patient-dashboard', { replace: true });
+      // Back to the booking that sent them here, with how they were booking
+      // (instant or a time) — as the sign-in path already did. The choices
+      // themselves are kept by the booking page (utils/pendingBooking.ts).
+      navigate(redirectTarget ?? '/patient-dashboard', { replace: true, state: bookingState });
     },
     onError: (err: any) => { setRegisterMsg(err.message || 'Network error. Please try again.'); }
   });
@@ -239,7 +244,7 @@ export default function AuthPage({ mode, onSuccess }: AuthPageProps) {
       toast.success('Email verified successfully!');
       if (data.token) setAuthToken(data.token);
       await checkAuth();
-      navigate(redirectTarget ?? (isProfessional ? '/doctor-dashboard' : '/patient-dashboard'), { replace: true });
+      navigate(redirectTarget ?? (isProfessional ? '/doctor-dashboard' : '/patient-dashboard'), { replace: true, state: bookingState });
     },
     onError: (err: any) => { setError(err.message || 'Network error. Please try again.'); }
   });
