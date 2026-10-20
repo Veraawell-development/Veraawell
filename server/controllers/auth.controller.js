@@ -264,6 +264,9 @@ const verifySignup = asyncHandler(async (req, res) => {
   // login page refused them as "pending approval". No session until an admin
   // approves; the approval email tells them to sign in.
   if (newUser.role === 'doctor' && newUser.approvalStatus !== 'approved') {
+    emailService.sendAdminAlertEmail('New therapist application', [
+      `${newUser.firstName || ''} ${newUser.lastName || ''}`.trim() + ' has verified their email and is waiting for approval.'
+    ], { rows: [['Email', newUser.email]] }).catch(() => {});
     return res.json({
       success: true,
       requiresApproval: true,
@@ -468,8 +471,24 @@ const updatePassword = asyncHandler(async (req, res) => {
  */
 const deleteAccount = asyncHandler(async (req, res) => {
   const userId = req.user._id;
+  const { email, firstName } = req.user;
 
   await authService.deleteAccount(userId);
+
+  // A confirmation to the address the account had (it is gone from our
+  // records now): if they didn't do this, they need to know.
+  if (email) {
+    emailService.sendNoticeEmail(email, {
+      subject: 'Your Veraawell account has been deleted',
+      title: 'Account deleted',
+      recipientName: firstName,
+      paragraphs: [
+        'Your Veraawell account and your personal data have been deleted, as you asked. Records we must keep by law (payments and refunds) no longer carry your name.',
+        "If you didn't ask for this, write to support@veraawell.com straight away."
+      ],
+      noButton: true
+    }, 'account deleted').catch(() => {});
+  }
 
   // Clear cookie and log out. This was a bare clearCookie('token'), which in
   // production targets the API host while the cookie lives on .veraawell.com

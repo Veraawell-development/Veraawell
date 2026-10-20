@@ -168,6 +168,7 @@ async function respondToEnd(sessionId, role, agree, { now = new Date(), io = nul
   ch.room('confirm-end-session', { agree: true, confirmedByRole: role });
   ch.room('session-ended', { reason: 'consent' });
   ch.both('session:ended', { reason: 'consent', status: 'completed' });
+  require('./liveUpdates').doctorAvailability(io, session.doctorId);
   logger.info('ended by agreement', { sessionId: short(sessionId), agreedBy: role });
 
   await sendCompletionSummary(session._id);

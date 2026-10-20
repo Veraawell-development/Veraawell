@@ -524,8 +524,6 @@ async function deleteAccount(userId) {
     }
   }
 
-  const Conversation = require('../models/conversation');
-  const Message = require('../models/message');
   const DoctorProfile = require('../models/doctorProfile');
   const Review = require('../models/review');
   // These five were previously NOT cascade-deleted — journal entries, mood
@@ -560,8 +558,9 @@ async function deleteAccount(userId) {
   // Cascade delete all associated data in parallel
   await Promise.all([
     Session.deleteMany(sessionsToDelete),
-    Conversation.deleteMany({ 'participants.userId': userId }),
-    Message.deleteMany({ $or: [{ senderId: userId }, { receiverId: userId }] }),
+    // Conversations and messages stay: the other person keeps their copy of
+    // the thread (a therapist's record of what was said), shown from a
+    // "Deleted user" who can no longer send or receive.
     DoctorProfile.deleteOne({ userId }),
     Review.deleteMany({ $or: [{ patientId: userId }, { doctorId: userId }] }),
     Journal.deleteMany({ patientId: userId }),

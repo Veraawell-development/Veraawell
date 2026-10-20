@@ -131,6 +131,26 @@ function outcomeMessage(code, role, { patientName, price, doctorEarnings }) {
   }
 }
 
+/** A refund email's words for where the refund actually is. */
+function withRefundState(message, paymentStatus) {
+  if (paymentStatus === 'not_required') {
+    return {
+      ...message,
+      subject: message.subject.replace(/ — full refund on its way|Refund on its way — /, '').trim() || message.title,
+      paragraphs: [message.paragraphs[0].replace(/, so we're refunding you in full\.| and we're refunding you in full\./, '.'), 'No payment was taken for this session.'],
+      amountLabel: undefined, amount: undefined
+    };
+  }
+  if (paymentStatus === 'refund_failed') {
+    return {
+      ...message,
+      paragraphs: [message.paragraphs[0], 'Your refund is taking longer than usual to process. Our team has been alerted and will make sure it reaches you — you don\'t need to do anything.'],
+      amountLabel: 'Refund (processing)'
+    };
+  }
+  return message;
+}
+
 /** Best effort: an outcome stands whether or not its emails go out. */
 async function sendOutcomeEmails(sessionId, code) {
   try {
@@ -147,8 +167,12 @@ async function sendOutcomeEmails(sessionId, code) {
 
     for (const role of ['patient', 'doctor']) {
       const person = role === 'patient' ? session.patientId : session.doctorId;
-      const message = outcomeMessage(code, role, facts);
+      let message = outcomeMessage(code, role, facts);
       if (!message || !person || !person.email) continue;
+      // Say what happened to the money, not what the policy promises: a free
+      // session has nothing to refund, and a refund the gateway refused is
+      // delayed (it is in the admin retry queue).
+      if (role === 'patient' && message.amountLabel === 'Refund') message = withRefundState(message, session.paymentStatus);
       // eslint-disable-next-line no-await-in-loop
       await emailService.sendSessionOutcomeEmail(person.email, {
         ...message,
@@ -242,6 +266,7 @@ async function decide(session, { now, io }) {
     await sendOutcomeEmails(session._id, outcome.code);
   }
   tellBoth(io, current, 'session:ended', { reason: outcome.code, status: current.status });
+  require('./liveUpdates').doctorAvailability(io, current.doctorId);
   return true;
 }
 
@@ -307,13 +332,10 @@ async function claimAbsentRefund(session, { now = new Date(), io = null } = {}) 
   await doctorCounters.increment(session.doctorId._id || session.doctorId, 'late', { now });
   await sendOutcomeEmails(session._id, OUTCOME.DOCTOR_ABSENT_REFUND);
 
-  // `cancelledBy` is the patient's id, like every other cancellation, so the
-  // patient's own screens know it was theirs and stay quiet; the message is
+  // By the patient, so the patient's own screens stay quiet; the message is
   // for the doctor.
   const message = 'Your patient left after waiting for you, and the session was refunded.';
-  tellBoth(io, current, 'session:cancelled', {
-    status: 'cancelled', cancelledBy: String(session.patientId._id || session.patientId), refundAmount: current.price, message
-  });
+  require('./liveUpdates').sessionCancelled(io, current, { byRole: 'patient', refundAmount: current.price, message });
   // Anyone on the call screen (a therapist arriving right now) is told too.
   if (io) io.to(String(session._id)).emit('session-ended', { reason: OUTCOME.DOCTOR_ABSENT_REFUND });
   logger.info('absent-refund-claimed', { sessionId: short(session._id) });

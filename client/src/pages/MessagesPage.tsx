@@ -1,524 +1,170 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { FiSend, FiX } from 'react-icons/fi';
-import { useNavigate } from 'react-router-dom';
+import React, { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import { FiArrowLeft } from 'react-icons/fi';
 import { useAuth } from '../context/AuthContext';
-import { io, Socket } from 'socket.io-client';
-import { API_BASE_URL, SOCKET_URL } from '../config/api';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-
-interface Message {
-  _id: string;
-  text: string;
-  timestamp: string;
-  senderId: string;
-  senderName: string;
-  isSentByMe: boolean;
-  // Present on the socket payload (services/chat.service.js:75), absent from
-  // the REST thread response — hence optional.
-  conversationId?: string;
-}
+import { API_BASE_URL } from '../config/api';
+import ChatThread from '../chat/ChatThread';
+import { initials, listTimeLabel } from '../chat/chatUtils';
 
 interface Conversation {
   _id: string;
-  userId: string;
+  userId: string | null;
   userName: string;
-  userAvatar?: string;
+  userRole: 'patient' | 'doctor';
   lastMessage: string;
-  lastMessageTime: string;
+  lastMessageAt: string | null;
   unreadCount: number;
-  userRole: string;
+  canMessage: boolean;
+  closedReason: 'closed' | 'unavailable' | 'not-booked' | null;
 }
 
+/** Wide enough for the list and the thread side by side (Tailwind md). */
+const isWide = () => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches;
+
+/**
+ * Messages: the conversation list and the open conversation (src/chat/).
+ * The thread is the same component as the in-call chat.
+ *
+ * `?c=<conversationId>` opens a conversation directly (links from elsewhere).
+ */
 const MessagesPage: React.FC = () => {
   const navigate = useNavigate();
-  const { user, token } = useAuth();
-  const [selectedConversation, setSelectedConversation] = useState<Conversation | null>(null);
-  const [newMessage, setNewMessage] = useState('');
-  const [sending, setSending] = useState(false);
-  const socketRef = useRef<Socket | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  const selectedConvRef = useRef<string | null>(null);
+  const { user } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const [search, setSearch] = useState('');
+  const selectedId = params.get('c');
 
-  const queryClient = useQueryClient();
-
-  const { data: conversations = [], isLoading: loading } = useQuery({
+  const { data: conversations = [], isLoading, isError, refetch, isFetching } = useQuery<Conversation[]>({
     queryKey: ['chat', 'conversations'],
     queryFn: async () => {
       const res = await fetch(`${API_BASE_URL}/chat/conversations`, { credentials: 'include' });
       if (!res.ok) throw new Error('Failed to fetch conversations');
       return res.json();
     },
-    // Auto-select most recent immediately to prevent empty state flashing
+    staleTime: 0,
   });
 
-  const { data: messages = [] } = useQuery({
-    queryKey: ['chat', 'messages', selectedConversation?._id],
-    queryFn: async () => {
-      const res = await fetch(`${API_BASE_URL}/chat/messages/${selectedConversation?._id}`, { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to fetch messages');
-      return res.json();
-    },
-    enabled: !!selectedConversation?._id
-  });
-
-  /**
-   * Tell the server this thread has been read, then let the dashboards know.
-   *
-   * Read state used to be a side effect of two things only: the socket
-   * `conversation:join`, and the GET that loads the thread. Both fire on
-   * ENTERING a conversation, so a message that arrived while the thread was
-   * already open stayed unread forever — the badge survived a reload. And
-   * because nothing invalidated ['chat','unreadCount'], even a successful
-   * server-side mark took up to `refetchInterval` (10s) to show.
-   *
-   * PUT .../read already existed and no client called it. Calling it
-   * explicitly also means the read survives a dead WebSocket, which the
-   * join-only path did not.
-   */
-  const markConversationRead = useCallback(async (conversationId: string) => {
-    if (!conversationId) return;
-    try {
-      await fetch(`${API_BASE_URL}/chat/conversation/${conversationId}/read`, {
-        method: 'PUT',
-        credentials: 'include',
-      });
-    } catch {
-      // A failed mark is not worth interrupting the reader for; the next
-      // open, or the dashboard's poll, will reconcile.
-      return;
-    }
-    queryClient.invalidateQueries({ queryKey: ['chat', 'unreadCount'] });
-    queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
-  }, [queryClient]);
-
-  const markConversationReadRef = useRef(markConversationRead);
-  useEffect(() => { markConversationReadRef.current = markConversationRead; }, [markConversationRead]);
-
-  useEffect(() => {
-    if (conversations.length > 0 && !selectedConversation) {
-      setSelectedConversation(conversations[0]);
-    }
-  }, [conversations, selectedConversation]);
-
-  useEffect(() => {
-    selectedConvRef.current = selectedConversation?._id || null;
-    if (!selectedConversation) return;
-
-    socketRef.current?.emit('conversation:join', selectedConversation._id);
-    markConversationRead(selectedConversation._id);
-  }, [selectedConversation, markConversationRead]);
-
-  // Initialize Socket.IO connection
-  useEffect(() => {
-    console.log('[MESSAGES] Initializing Socket.IO connection...');
-
-    if (!token) {
-      console.error('[MESSAGES]  No auth token available from context');
-      // Set loading to false so user sees empty state or loading spinner isn't stuck
-      return;
-    }
-
-    console.log('Connecting to Socket.IO at:', `${SOCKET_URL}/chat`);
-
-    // Initialize socket connection to /chat namespace
-    socketRef.current = io(`${SOCKET_URL}/chat`, {
-      auth: { token }, // Use token directly from context
-      transports: ['websocket'],
-      withCredentials: true,
-      reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000
-    });
-
-    // Connection event handlers
-    socketRef.current.on('connect', () => {
-      console.log('[MESSAGES]  Socket connected:', socketRef.current?.id);
-
-      // Re-join whichever conversation is open NOW. This used to read
-      // `selectedConversation` from the enclosing closure, whose deps are
-      // [SOCKET_URL, token] — so it was always the mount-time value, i.e.
-      // null, and the re-join never happened. Same stale-closure shape that
-      // commit 92bf695 fixed in SessionChat.
-      const activeConvId = selectedConvRef.current;
-      if (activeConvId) {
-        console.log('[MESSAGES] Re-joining conversation after connect:', activeConvId);
-        socketRef.current?.emit('conversation:join', activeConvId);
-        markConversationReadRef.current(activeConvId);
-      }
-    });
-
-    socketRef.current.on('connect_error', (error) => {
-      console.error('[MESSAGES]  Socket connection error:', error.message);
-    });
-
-    socketRef.current.on('disconnect', (reason) => {
-      console.log('[MESSAGES] Socket disconnected. Reason:', reason);
-      if (reason === 'io server disconnect') {
-        // Server disconnected us, try to reconnect
-        console.log('[MESSAGES] Server disconnected, attempting reconnect...');
-        socketRef.current?.connect();
-      }
-    });
-
-    // 'reconnect' is a Manager event in socket.io-client v4 — on the Socket,
-    // where this used to listen, it never fires. Re-joining the open
-    // conversation doesn't depend on it: 'connect' above fires again on every
-    // successful reconnect and does that already, so this only logs.
-    const manager = socketRef.current.io;
-    const onManagerReconnect = (attemptNumber: number) => {
-      console.log('[MESSAGES]  Socket reconnected after', attemptNumber, 'attempts');
-    };
-    manager.on('reconnect', onManagerReconnect);
-
-    // Listen for incoming messages
-    socketRef.current.on('message:receive', (message: Message) => {
-      const activeConvId = selectedConvRef.current;
-      // Only write into the thread the message actually belongs to. The server
-      // addresses the sender's own echo to their user room, which reaches every
-      // tab they have open — including ones looking at a different
-      // conversation. Without this check a message from thread B was appended
-      // to whatever thread happened to be on screen.
-      if (activeConvId && message.conversationId === activeConvId) {
-        queryClient.setQueryData(['chat', 'messages', activeConvId], (old: Message[] = []) => {
-          // The server echoes a sender's own message back via this same event,
-          // so the optimistic entry added in handleSendMessage has to be
-          // reconciled away or the message renders twice.
-          if (old.some((m) => m._id === message._id)) return old; // already applied
-          if (!message.isSentByMe) return [...old, message];
-
-          // Drop only the optimistic entry this echo confirms — matched on
-          // text, oldest first. Clearing every `temp-` entry would discard a
-          // second message still in flight.
-          const confirmedIndex = old.findIndex(
-            (m) => m._id.startsWith('temp-') && m.text === message.text
-          );
-          if (confirmedIndex === -1) return [...old, message];
-          const next = [...old];
-          next.splice(confirmedIndex, 1, message);
-          return next;
-        });
-      }
-      // A message arriving in the thread the user is currently looking at has
-      // been read the moment it renders. Without this, nothing ever marks it
-      // and the badge is stuck at 1 until the conversation is re-entered.
-      if (activeConvId && message.conversationId === activeConvId && !message.isSentByMe) {
-        markConversationReadRef.current(activeConvId);
-      } else {
-        queryClient.invalidateQueries({ queryKey: ['chat', 'unreadCount'] });
-      }
-      queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
-    });
-
-    // Listen for message notifications
-    socketRef.current.on('message:notification', (data) => {
-      console.log('New message notification:', data);
-      queryClient.invalidateQueries({ queryKey: ['chat', 'conversations'] });
-      queryClient.invalidateQueries({ queryKey: ['chat', 'unreadCount'] });
-    });
-
-    // Cleanup on unmount or token change
-    return () => {
-      // The Manager may be shared with other sockets to the same host.
-      manager.off('reconnect', onManagerReconnect);
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-      }
-    };
-  }, [SOCKET_URL, token]); // Add token as dependency
-
-  const handleSelectConversation = (conversation: Conversation) => {
-    // Leave previous conversation room
-    if (selectedConversation && socketRef.current) {
-      socketRef.current.emit('conversation:leave', selectedConversation._id);
-    }
-    setSelectedConversation(conversation);
+  const select = (id: string | null) => {
+    const next = new URLSearchParams(params);
+    if (id) next.set('c', id); else next.delete('c');
+    setParams(next, { replace: !id });
   };
 
-  const handleSendMessage = () => {
-    if (!newMessage.trim() || !selectedConversation || sending) {
-      return;
-    }
-
-    // Check if socket exists and is connected
-    if (!socketRef.current) {
-      console.error('[MESSAGES]  Socket not initialized');
-      alert('Connection error. Please refresh the page.');
-      return;
-    }
-
-    if (!socketRef.current.connected) {
-      console.error('[MESSAGES]  Socket not connected');
-      alert('Not connected. Please check your internet connection.');
-      return;
-    }
-
-    setSending(true);
-    console.log('[MESSAGES] Sending message:', newMessage.substring(0, 50) + '...');
-
-    try {
-      // Optimistic UI Update
-      const optimisticMessage: Message = {
-        _id: `temp-${Date.now()}`,
-        text: newMessage.trim(),
-        // The server sends `timestamp` pre-formatted (toLocaleTimeString) and the
-        // bubble renders it verbatim, so an ISO string here showed up as a raw
-        // "2026-09-07T06:35:12.741Z" under the message. Match the server's format.
-        timestamp: new Date().toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }),
-        senderId: user?.userId || '',
-        senderName: user?.firstName || user?.username || 'Me',
-        isSentByMe: true
-      };
-      
-      queryClient.setQueryData(['chat', 'messages', selectedConversation._id], (old: Message[] = []) => [...old, optimisticMessage]);
-
-      // Send message via Socket.IO
-      socketRef.current.emit('message:send', {
-        conversationId: selectedConversation._id,
-        text: newMessage.trim()
-      });
-
-      console.log('[MESSAGES]  Message emitted to server');
-      setNewMessage('');
-
-      // Reset sending state after a short delay
-      setTimeout(() => setSending(false), 300);
-    } catch (error) {
-      console.error('[MESSAGES]  Error sending message:', error);
-      alert('Failed to send message. Please try again.');
-      setSending(false);
-    }
-  };
-
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
-    }
-  };
-
-  // Auto-scroll to bottom when new messages arrive
+  // Open the latest conversation on a wide screen, once. On a phone the list
+  // comes first — and Back to it used to re-open the first conversation at
+  // once, so the others could never be reached.
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    if (!selectedId && conversations.length > 0 && isWide()) select(conversations[0]._id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversations.length > 0]);
 
+  const selected = conversations.find((c) => c._id === selectedId) || null;
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return q ? conversations.filter((c) => c.userName.toLowerCase().includes(q) || c.lastMessage.toLowerCase().includes(q)) : conversations;
+  }, [conversations, search]);
 
-
-  if (loading) {
-    return (
-      <div className="flex-1 flex items-center justify-center bg-[#F0F2F5]">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-[#38ABAE] mx-auto"></div>
-          <p className="mt-4 text-gray-500 font-medium tracking-wide">Loading messages...</p>
-        </div>
-      </div>
-    );
-  }
+  const back = () => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard');
 
   return (
-    <div className="w-full h-screen pt-[64px] md:pt-[80px] flex bg-white overflow-hidden box-border">
-      <div className="flex w-full h-full">
-        
-        {/* Conversations List (Left Pane) */}
-        <div className={`${selectedConversation ? 'hidden md:flex' : 'flex'} w-full md:w-[320px] lg:w-[380px] bg-white border-r border-gray-100 flex-col shrink-0`}>
-          
-          {/* Sidebar Header */}
+    <div className="w-full h-[100dvh] pt-[64px] md:pt-[80px] flex bg-white overflow-hidden box-border">
+      <div className="flex w-full h-full min-h-0">
+        {/* The list */}
+        <aside className={`${selected ? 'hidden md:flex' : 'flex'} w-full md:w-[320px] lg:w-[380px] bg-white border-r border-gray-100 flex-col shrink-0 min-h-0`} aria-label="Conversations">
           <div className="p-5 pb-3 shrink-0">
             <div className="flex items-center gap-2 mb-4">
-              <button
-                onClick={() => navigate(user?.role === 'doctor' ? '/doctor-dashboard' : '/patient-dashboard')}
-                className="p-2 hover:bg-gray-50 rounded-full transition-colors text-gray-400 hover:text-gray-900"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
-                </svg>
+              <button type="button" onClick={back} aria-label="Back to dashboard" className="p-2 hover:bg-gray-50 rounded-full transition-colors text-gray-500 hover:text-gray-900">
+                <FiArrowLeft className="w-5 h-5" />
               </button>
               <h1 className="text-xl font-bold text-gray-900 tracking-tight">Messages</h1>
             </div>
-            
-            <div className="relative group">
-              <input
-                type="text"
-                placeholder="Search..."
-                className="w-full pl-10 pr-4 py-2.5 bg-gray-50/50 hover:bg-gray-50 border border-gray-100 focus:bg-white focus:border-teal-500/30 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/10 transition-all text-gray-800 placeholder-gray-400"
-                style={{ fontFamily: 'Inter, sans-serif' }}
-              />
-              <svg className="w-4 h-4 text-gray-400 group-focus-within:text-teal-500 absolute left-3.5 top-[11px] transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-              </svg>
-            </div>
+            <label htmlFor="chat-search" className="sr-only">Search conversations</label>
+            <input
+              id="chat-search"
+              type="search"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name or message"
+              className="w-full px-4 py-2.5 bg-gray-50 border border-gray-100 focus:bg-white focus:border-teal-500/30 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-teal-500/10 text-gray-800 placeholder-gray-400"
+            />
           </div>
-          
-          {/* Conversation Items */}
-          <div className="overflow-y-auto flex-1 px-3 pb-3 space-y-1.5 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-gray-200 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-gray-300">
-            {conversations.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-center p-6">
-                <div className="w-16 h-16 mb-4 rounded-2xl bg-gray-50 flex items-center justify-center">
-                  <svg className="w-8 h-8 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 8.511c.884.284 1.5 1.128 1.5 2.097v4.286c0 1.136-.847 2.1-1.98 2.193-.34.027-.68.052-1.02.072v3.091l-3-3c-1.354 0-2.694-.055-4.02-.163a2.115 2.115 0 01-.825-.242m9.345-8.334a2.126 2.126 0 00-.476-.095 48.64 48.64 0 00-8.048 0c-1.131.094-1.976 1.057-1.976 2.192v4.286c0 .837.46 1.58 1.155 1.951m9.345-8.334V6.637c0-1.621-1.152-3.026-2.76-3.235A48.455 48.455 0 0011.25 3c-2.115 0-4.198.137-6.24.402-1.608.209-2.76 1.614-2.76 3.235v6.226c0 1.621 1.152 3.026 2.76 3.235.577.075 1.157.14 1.74.194V21l4.155-4.155" />
-                  </svg>
-                </div>
-                <p className="text-gray-500 font-medium text-[15px]" style={{ fontFamily: 'Inter, sans-serif' }}>No conversations yet</p>
-              </div>
-            ) : (
-              conversations.map((conversation: Conversation) => (
-                <div
-                  key={conversation._id}
-                  onClick={() => handleSelectConversation(conversation)}
-                  className={`flex items-center gap-3 p-3 mx-1 rounded-xl cursor-pointer transition-colors ${selectedConversation?._id === conversation._id
-                    ? 'bg-teal-50/50'
-                    : 'hover:bg-gray-50/50'
-                    }`}
-                >
-                  <div className={`relative flex-shrink-0 w-11 h-11 rounded-full flex items-center justify-center text-white font-semibold text-base transition-colors ${selectedConversation?._id === conversation._id ? 'bg-[#38ABAE]' : 'bg-[#38ABAE]/90 group-hover:bg-[#38ABAE]'}`}>
-                    {conversation.userName.charAt(0)}
-                    {conversation.unreadCount > 0 && (
-                      <div className="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center ring-2 ring-white">
-                        {conversation.unreadCount}
-                      </div>
-                    )}
-                  </div>
 
-                  <div className="flex-1 min-w-0 pr-1">
-                    <div className="flex items-center justify-between mb-0.5">
-                      <h3 className={`font-semibold text-sm truncate tracking-tight ${selectedConversation?._id === conversation._id ? 'text-teal-950' : 'text-gray-800'}`}>
-                        {conversation.userName}
-                      </h3>
-                      <span className={`text-[11px] font-medium ${selectedConversation?._id === conversation._id ? 'text-teal-700/70' : 'text-gray-400'}`} style={{ fontFamily: 'Inter, sans-serif' }}>
-                        {conversation.lastMessageTime?.split('T')[0] || 'Recently'}
-                      </span>
-                    </div>
-                    <p className={`text-xs truncate ${selectedConversation?._id === conversation._id ? 'text-teal-900/80 font-medium' : 'text-gray-500'}`} style={{ fontFamily: 'Inter, sans-serif' }}>
-                      {conversation.lastMessage || 'Start a conversation'}
-                    </p>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-
-        {/* Chat Area (Right Pane) */}
-        {selectedConversation ? (
-          <div className="flex-1 flex flex-col bg-[#FAFAFA] min-w-0 relative">
-            {/* Background Pattern (Optional subtle detail) */}
-            <div className="absolute inset-0 opacity-[0.03] pointer-events-none" style={{ backgroundImage: 'radial-gradient(#000 1px, transparent 1px)', backgroundSize: '24px 24px' }}></div>
-            
-            {/* Chat Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-white shrink-0 z-10">
-              <div className="flex items-center gap-3">
-                <button
-                  onClick={() => setSelectedConversation(null)}
-                  className="md:hidden p-1.5 -ml-2 text-gray-400 hover:text-gray-800 bg-gray-50 hover:bg-gray-100 rounded-full transition-colors"
-                >
-                  <FiX className="w-5 h-5" />
-                </button>
-                <div className="w-10 h-10 rounded-full bg-[#38ABAE] flex items-center justify-center text-white font-semibold text-base shadow-sm">
-                  {selectedConversation.userName.charAt(0)}
-                </div>
-                <div>
-                  <h3 className="font-bold text-[15px] text-gray-900 tracking-tight">
-                    {selectedConversation.userName}
-                  </h3>
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                    <p className="text-xs font-medium text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>
-                      {selectedConversation.userRole === 'doctor' ? 'Professional' : 'Patient'}
-                    </p>
-                  </div>
-                </div>
+          <div className="overflow-y-auto flex-1 px-3 pb-3 space-y-1">
+            {isLoading ? (
+              <p className="text-center text-sm text-gray-400 mt-10" role="status">Loading conversations…</p>
+            ) : isError ? (
+              <div className="text-center mt-10 px-4" role="alert">
+                <p className="text-sm text-gray-600">Couldn't load your conversations.</p>
+                <button type="button" onClick={() => { void refetch(); }} disabled={isFetching} className="mt-3 px-4 py-2 rounded-full bg-[#38ABAE] text-white text-xs font-semibold disabled:opacity-50">Try again</button>
               </div>
-              {/* (A "more" button with no menu behind it was here.) */}
-            </div>
-
-            {/* Messages Area */}
-            <div className="flex-1 overflow-y-auto px-6 md:px-8 py-8 space-y-6 relative z-0 [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-thumb]:bg-gray-200 [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-gray-300">
-              {messages.length === 0 ? (
-                <div className="flex items-center justify-center h-full">
-                  <div className="text-center p-8 bg-white rounded-[24px] shadow-sm border border-gray-100 max-w-sm">
-                    <div className="w-16 h-16 mx-auto mb-5 rounded-2xl bg-[#38ABAE]/10 flex items-center justify-center">
-                      <svg className="w-8 h-8 text-[#38ABAE]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                         <path strokeLinecap="round" strokeLinejoin="round" d="M15.362 5.214A8.252 8.252 0 0112 21 8.25 8.25 0 016.038 7.048 8.287 8.287 0 009 9.6a8.983 8.983 0 013.361-6.867 8.21 8.21 0 003 2.48z" />
-                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 18a3.75 3.75 0 00.495-7.467 5.99 5.99 0 00-1.925 3.546 5.974 5.974 0 01-2.133-1A3.75 3.75 0 0012 18z" />
-                      </svg>
-                    </div>
-                    <h4 className="text-gray-900 font-extrabold mb-2 tracking-tight text-lg">Start the Conversation</h4>
-                    <p className="text-gray-500 text-[14px] leading-relaxed font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>
-                      Say hello to {selectedConversation.userName}! Only the two of you can read these messages.
-                    </p>
-                  </div>
-                </div>
-              ) : (
-                messages.map((message: Message, index: number) => {
-                  const isLastMessage = index === messages.length - 1;
-                  const isNextMessageSameSender = !isLastMessage && messages[index + 1].senderId === message.senderId;
-                  
-                  return (
-                  <div
-                    key={message._id}
-                    data-testid="chat-message"
-                    data-own={message.isSentByMe ? 'true' : 'false'}
-                    className={`flex ${message.isSentByMe ? 'justify-end' : 'justify-start'}`}
-                  >
-                    <div
-                      className={`max-w-[70%] px-4 py-2.5 shadow-sm ${message.isSentByMe
-                        ? `bg-[#38ABAE] text-white rounded-[18px] rounded-tr-[4px] ${isNextMessageSameSender ? 'rounded-br-[4px]' : ''}`
-                        : `bg-white border border-gray-100 text-gray-800 rounded-[18px] rounded-tl-[4px] ${isNextMessageSameSender ? 'rounded-bl-[4px]' : ''}`
-                        }`}
-                      style={{ fontFamily: 'Inter, sans-serif' }}
-                    >
-                      <p className="text-[14.5px] leading-relaxed">
-                        {message.text}
-                      </p>
-                      <p className={`text-[9px] mt-1 font-semibold uppercase tracking-wider ${message.isSentByMe ? 'text-teal-100 text-right' : 'text-gray-400 text-left'
-                        }`}>
-                        {message.timestamp}
-                      </p>
-                    </div>
-                  </div>
-                  );
-                })
-              )}
-              <div ref={messagesEndRef} />
-            </div>
-
-            {/* Message Input Container */}
-            <div className="p-4 bg-white border-t border-gray-100 shrink-0 z-10">
-              <div className="flex items-center gap-3 bg-gray-50/50 border border-gray-100 rounded-full p-1.5 pl-5 focus-within:bg-white focus-within:ring-2 focus-within:ring-teal-500/10 focus-within:border-teal-500/30 transition-all">
-                <input
-                  type="text"
-                  value={newMessage}
-                  onChange={(e) => setNewMessage(e.target.value)}
-                  onKeyPress={handleKeyPress}
-                  placeholder="Type a message..."
-                  className="flex-1 bg-transparent border-none text-[14.5px] text-gray-800 focus:outline-none focus:ring-0 placeholder-gray-400"
-                  style={{ fontFamily: 'Inter, sans-serif' }}
-                />
-                <button
-                  onClick={handleSendMessage}
-                  disabled={sending || !newMessage.trim()}
-                  className="w-10 h-10 shrink-0 rounded-full flex items-center justify-center text-white bg-[#38ABAE] hover:bg-[#2A8285] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <svg className="w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 10.5L12 3m0 0l7.5 7.5M12 3v18" />
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="hidden md:flex flex-1 items-center justify-center bg-white relative">
-            <div className="text-center max-w-sm p-10 flex flex-col items-center">
-              <div className="w-20 h-20 mb-6 rounded-full bg-[#F0F2F5] flex items-center justify-center">
-                <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.76c0 1.6 1.123 2.994 2.707 3.227 1.068.157 2.148.279 3.238.364.466.037.893.281 1.153.671L12 21l2.652-3.978c.26-.39.687-.634 1.153-.67 1.09-.086 2.17-.208 3.238-.365 1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
-                </svg>
-              </div>
-              <h2 className="text-[20px] font-bold text-gray-900 mb-2 tracking-tight">
-                Your Messages
-              </h2>
-              <p className="text-gray-500 text-[14px] leading-relaxed" style={{ fontFamily: 'Inter, sans-serif' }}>
-                Select a conversation from the sidebar or start a new one to begin chatting.
+            ) : filtered.length === 0 ? (
+              <p className="text-center text-sm text-gray-500 mt-10 px-6">
+                {search ? 'No conversations match.' : 'No conversations yet. Chat opens with a therapist once a session is booked.'}
               </p>
+            ) : filtered.map((c) => {
+              const active = c._id === selectedId;
+              return (
+                <button
+                  type="button"
+                  key={c._id}
+                  onClick={() => select(c._id)}
+                  aria-current={active ? 'true' : undefined}
+                  className={`w-full text-left flex items-center gap-3 p-3 rounded-xl transition-colors ${active ? 'bg-teal-50/70' : 'hover:bg-gray-50'}`}
+                  data-testid="conversation-item"
+                >
+                  <span className="relative flex-shrink-0 w-11 h-11 rounded-full bg-[#38ABAE] flex items-center justify-center text-white font-semibold text-sm" aria-hidden="true">
+                    {initials(c.userName)}
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="flex items-center justify-between gap-2">
+                      <span className={`font-semibold text-sm truncate ${active ? 'text-teal-950' : 'text-gray-800'}`}>{c.userName}</span>
+                      <span className="text-[11px] text-gray-400 shrink-0">{listTimeLabel(c.lastMessageAt)}</span>
+                    </span>
+                    <span className="flex items-center justify-between gap-2 mt-0.5">
+                      <span className={`text-xs truncate ${c.unreadCount ? 'text-gray-900 font-semibold' : 'text-gray-500'}`}>{c.lastMessage || 'No messages yet'}</span>
+                      {c.unreadCount > 0 && (
+                        <span className="shrink-0 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] h-[18px] px-1 flex items-center justify-center" aria-label={`${c.unreadCount} unread`}>
+                          {c.unreadCount > 99 ? '99+' : c.unreadCount}
+                        </span>
+                      )}
+                    </span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </aside>
+
+        {/* The conversation */}
+        {selected ? (
+          <section className="flex-1 flex flex-col min-w-0 min-h-0" aria-label={`Conversation with ${selected.userName}`}>
+            <header className="flex items-center gap-3 px-4 md:px-6 py-3.5 border-b border-gray-100 bg-white shrink-0">
+              <button type="button" onClick={() => select(null)} aria-label="Back to conversations" className="md:hidden p-1.5 -ml-1 text-gray-500 hover:text-gray-900 rounded-full">
+                <FiArrowLeft className="w-5 h-5" />
+              </button>
+              <span className="w-10 h-10 rounded-full bg-[#38ABAE] flex items-center justify-center text-white font-semibold text-sm" aria-hidden="true">{initials(selected.userName)}</span>
+              <div className="min-w-0">
+                <h2 className="font-bold text-[15px] text-gray-900 truncate">{selected.userName}</h2>
+                <p className="text-xs text-gray-500">{selected.userRole === 'doctor' ? 'Therapist' : 'Patient'}</p>
+              </div>
+            </header>
+            <div className="flex-1 min-h-0">
+              <ChatThread
+                conversationId={selected._id}
+                otherName={selected.userName}
+                canMessage={selected.canMessage}
+                closedReason={selected.closedReason}
+                visible
+                theme="light"
+              />
+            </div>
+          </section>
+        ) : (
+          <div className="hidden md:flex flex-1 items-center justify-center bg-white">
+            <div className="text-center max-w-sm p-10">
+              <h2 className="text-[20px] font-bold text-gray-900 mb-2">Your messages</h2>
+              <p className="text-gray-500 text-[14px]">Choose a conversation to read and reply.</p>
             </div>
           </div>
         )}

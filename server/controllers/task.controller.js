@@ -30,6 +30,7 @@ const createTask = asyncHandler(async (req, res) => {
     .populate('doctorId', 'firstName lastName')
     .populate('patientId', 'firstName lastName');
 
+  require('../services/liveUpdates').clinicalUpdated(req.app.get('io'), patientId, 'task');
   logger.info('Task created', { taskId: shortId(task._id) });
   res.status(201).json({ success: true, message: 'Task created successfully', task: populatedTask });
 });
@@ -98,6 +99,10 @@ const updateTask = asyncHandler(async (req, res) => {
     .populate('doctorId', 'firstName lastName')
     .populate('patientId', 'firstName lastName');
 
+  // The other person: a patient ticking a task off tells the doctor, and the
+  // other way round.
+  const otherId = req.actor.role === 'patient' ? task.doctorId : task.patientId;
+  require('../services/liveUpdates').clinicalUpdated(req.app.get('io'), otherId, 'task');
   logger.info('Task updated', { taskId: shortId(taskId), status });
   res.json({ success: true, message: 'Task updated successfully', task: populatedTask });
 });

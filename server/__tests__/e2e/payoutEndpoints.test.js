@@ -468,6 +468,11 @@ describe('the weekly payout run over HTTP', () => {
     expect(paid.status).toBe(200);
     expect(paid.body.payout.status).toBe('paid');
     expect(paid.body.payout.transferReference).toBe('UTR-ENDPOINT-1');
+    // The doctor is told the payout was sent, with the amount and the UTR.
+    const notice = mockMail.sendNoticeEmail.mock.calls.find(([, d]) => /payout of/.test(d.subject));
+    expect(notice[0]).toBe(f.doctorA.email);
+    expect(notice[1].subject).toMatch(/₹800/);
+    expect(notice[1].rows).toEqual(expect.arrayContaining([['Transfer reference (UTR)', 'UTR-ENDPOINT-1']]));
 
     // And the doctor can now see it in their own history.
     const mine = await call('get', '/api/payouts/my-payouts', doctorToken);

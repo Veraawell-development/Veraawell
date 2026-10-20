@@ -436,7 +436,7 @@ test.describe('sending a message', () => {
     await page.goto('/messages');
     // Not networkidle: the chat socket stays open and the unread count polls
     // every 10 seconds, so the network never goes quiet on this page.
-    const composer = page.getByPlaceholder('Type a message...');
+    const composer = page.getByPlaceholder(/Type a message/);
     await expect(composer).toBeVisible({ timeout: 20_000 });
 
     const text = `e2e-once-${Date.now()}`;
@@ -458,7 +458,7 @@ test.describe('sending a message', () => {
     // "2026-09-07T06:35:12.741Z" underneath the message.
     await ensureConversation(page);
     await page.goto('/messages');
-    const composer = page.getByPlaceholder('Type a message...');
+    const composer = page.getByPlaceholder(/Type a message/);
     await expect(composer).toBeVisible({ timeout: 20_000 });
 
     const text = `e2e-clock-${Date.now()}`;

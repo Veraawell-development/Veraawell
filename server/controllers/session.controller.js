@@ -17,7 +17,7 @@ const SocketEmitter = require('../utils/socketEmitter');
 
 const { calculateSessionPrice, validateBookingParams, getOrCreateAvailability, getGenderBasedImage } = require('../services/session.service');
 const { calculateRefund, describeRefundPolicy } = require('../services/refundPolicy');
-const { resolveStartsAt, hoursUntilStart, deriveFields } = require('../services/sessionTime');
+const { resolveStartsAt, hoursUntilStart, deriveFields, displayWhen } = require('../services/sessionTime');
 const { payableSessionMatch } = require('../services/earnings');
 const { zonedToUtc } = require('../utils/zonedTime');
 const {
@@ -418,32 +418,8 @@ async function _notifyUnpaidBooking(req, session) {
   const doctorId = String(populated.doctorId._id);
   // Nothing was owed, so the booking is confirmed now: chat opens with it.
   await openConversation(patientId, doctorId, session._id);
-  _emitToUsers(req, 'session:booked', {
-    session: populated, patientId, doctorId, sessionId: String(session._id),
-    acceptanceDeadline: populated.acceptanceDeadline || null, timestamp: new Date()
-  }, [patientId, doctorId]);
-  try {
-    const date = new Date(populated.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-    const type = populated.sessionType === 'immediate' ? 'Immediate' : 'Regular';
-    const doctorName = `${populated.doctorId.firstName} ${populated.doctorId.lastName}`;
-    // Every field the templates render. This path used to pass only date,
-    // time and type, and the doctor's email arrived as "Hi Dr. undefined …
-    // Duration undefined minutes … Your Earnings ₹undefined".
-    if (populated.patientId.email) {
-      await emailService.sendBookingConfirmationEmail(populated.patientId.email, {
-        date, time: populated.sessionTime, type, doctorName, duration: populated.duration, price: populated.price
-      });
-    }
-    if (populated.doctorId.email) {
-      await emailService.sendDoctorNewBookingEmail(populated.doctorId.email, {
-        doctorName,
-        patientName: `${populated.patientId.firstName} ${populated.patientId.lastName}`,
-        date, time: populated.sessionTime, type, duration: populated.duration, doctorEarnings: populated.doctorEarnings
-      });
-    }
-  } catch (emailErr) {
-    logger.warn('Booking email failed', { error: emailErr.message });
-  }
+  require('../services/liveUpdates').sessionBooked(req.app.get('io'), populated);
+  await require('../services/sessionPayment').sendBookingEmails(populated);
   return populated;
 }
 
@@ -1025,6 +1001,10 @@ const cancelSession = asyncHandler(async (req, res) => {
   // both refund. It also refuses synthetic payment ids and zero amounts, and
   // records refund_failed for the admin retry queue if Razorpay declines.
   let current = cancelled.session;
+  // What actually happened to the money, for the screens and the emails:
+  // 'unpaid' (nothing was taken), 'none' (policy: no refund), 'issued', or
+  // 'failed' (owed, but the gateway refused — in the admin retry queue).
+  let refundState = current.paymentStatus === 'paid' ? (refundAmount > 0 ? 'issued' : 'none') : 'unpaid';
   if (refundAmount > 0 && current.paymentStatus === 'paid') {
     const refund = await refundSession(current, {
       actor,
@@ -1032,7 +1012,9 @@ const cancelSession = asyncHandler(async (req, res) => {
       reason: `Cancelled by ${cancellerRole}`
     });
     if (refund.session) current = refund.session;
+    if (refund.skipped) refundState = 'unpaid';
     if (refund.failed) {
+      refundState = 'failed';
       logger.error('Refund failed on cancellation; left in refund_failed for the admin retry queue', {
         sessionId: sessionId.substring(0, 8)
       });
@@ -1048,52 +1030,51 @@ const cancelSession = asyncHandler(async (req, res) => {
   // late cancellation can never free somebody else's rebooking of it.
   await releaseSessionSlot(current);
 
-  // Notify both parties via socket
-  const pId = session.patientId.toString();
-  const dId = session.doctorId.toString();
-  _emitToUsers(req, 'session:cancelled', {
-    sessionId: session._id.toString(), 
-    cancelledBy: userId, 
-    refundAmount,
-    timestamp: new Date()
-  }, [pId, dId]);
+  // Both people's screens (and the call screen, if open).
+  const refunded = refundState === 'issued' || refundState === 'failed' ? refundAmount : 0;
+  require('../services/liveUpdates').sessionCancelled(req.app.get('io'), session, { byRole: cancellerRole, refundAmount: refunded });
 
-  // Send cancellation emails to both parties
-  try {
+  // Cancellation emails. Not for a checkout that was never paid: nothing was
+  // booked, and the doctor never heard of it.
+  if (outcomeCode !== sessionPolicy.OUTCOME.CHECKOUT_ABANDONED) try {
     const populatedSession = await Session.findById(session._id)
       .populate('patientId', 'firstName lastName email')
       .populate('doctorId', 'firstName lastName email');
-    const sessionDate = new Date(session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-    const cancellerLabel = cancellerRole === 'doctor' ? 'Dr. ' + populatedSession.doctorId.firstName + ' ' + populatedSession.doctorId.lastName : populatedSession.patientId.firstName + ' ' + populatedSession.patientId.lastName;
-    
-    // Email patient
+    const { date, time } = displayWhen(populatedSession);
+    const doctorName = `Dr. ${populatedSession.doctorId.firstName} ${populatedSession.doctorId.lastName}`;
+    const patientName = `${populatedSession.patientId.firstName} ${populatedSession.patientId.lastName}`;
+    const cancellerLabel = cancellerRole === 'doctor' ? doctorName : patientName;
+    const moneyLine = refundState === 'issued' ? ' A full refund is on its way.'
+      : refundState === 'failed' ? ' Your refund is being processed — it is taking longer than usual, and our team has been alerted.'
+        : '';
+
     if (populatedSession.patientId?.email) {
       await emailService.sendCancellationEmail(populatedSession.patientId.email, {
         recipientName: populatedSession.patientId.firstName,
-        date: sessionDate,
-        time: session.sessionTime,
+        date,
+        time,
         cancelledBy: cancellerLabel,
         refundAmount,
+        refundState,
         message: cancellerRole === 'doctor'
-          ? `We're sorry — your therapist cancelled this session${reason ? `: "${reason}"` : '.'} A full refund is on its way.`
+          ? `We're sorry — your therapist cancelled this session${reason ? `: "${reason}"` : '.'}${moneyLine}`
           : lateCancellation
             ? 'Your session has been cancelled. Cancellations within 4 hours of the start are not refunded, because your therapist\'s time was reserved for you — they are still paid for it.'
-            : 'Your session has been cancelled.'
+            : `Your session has been cancelled.${moneyLine}`
       });
     }
-    // Email doctor
     if (populatedSession.doctorId?.email) {
       await emailService.sendCancellationEmail(populatedSession.doctorId.email, {
-        recipientName: `Dr. ${populatedSession.doctorId.firstName} ${populatedSession.doctorId.lastName}`,
-        date: sessionDate,
-        time: session.sessionTime,
+        recipientName: doctorName,
+        date,
+        time,
         cancelledBy: cancellerLabel,
-        refundAmount: 0, // No refund info for doctor
+        refundState: 'hide',
         message: cancellerRole === 'patient'
           ? (lateCancellation
-            ? `The patient cancelled within 4 hours of the start, so you'll still be paid your share${session.doctorEarnings ? ` (₹${session.doctorEarnings})` : ''} in your weekly payout.`
-            : 'The patient has cancelled their upcoming session.')
-          : `You have cancelled your session with ${populatedSession.patientId.firstName} ${populatedSession.patientId.lastName}.`
+            ? `${patientName} cancelled within 4 hours of the start, so you'll still be paid your share${session.doctorEarnings ? ` (${require('../utils/money').inr(session.doctorEarnings)})` : ''} in your weekly payout.`
+            : `${patientName} has cancelled this session.`)
+          : `You have cancelled your session with ${patientName}. They have been refunded in full.`
       });
     }
   } catch (emailErr) { logger.warn('Cancellation email failed', { error: emailErr.message }); }
@@ -1220,6 +1201,7 @@ const acceptSession = asyncHandler(async (req, res) => {
 
   const updateData = { sessionId, acceptanceStatus: 'accepted', message: 'Doctor has accepted the request and is joining.' };
   _emitToUsers(req, 'session:status-update', updateData, [accepted.patientId._id.toString(), userId]);
+  require('../services/liveUpdates').doctorAvailability(req.app.get('io'), userId);
   const io = req.app.get('io');
   if (io) io.to(sessionId).emit('session:status-update', updateData);
   // A patient already waiting in the call: its clock starts now.
@@ -1352,8 +1334,8 @@ async function _autoCancelUnacceptedSession(session, io, { by = 'system', now = 
     if (patient && patient.email) {
       await emailService.sendCancellationEmail(patient.email, {
         recipientName: patient.firstName,
-        date: new Date(result.session.sessionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }),
-        time: result.session.sessionTime,
+        date: displayWhen(result.session).date,
+        time: displayWhen(result.session).time,
         cancelledBy: by === 'patient' ? 'You' : 'System (Doctor Unavailable)',
         refundAmount: refunded ? result.session.price : 0,
         message: refunded
@@ -1363,11 +1345,9 @@ async function _autoCancelUnacceptedSession(session, io, { by = 'system', now = 
     }
   } catch (e) { logger.warn('Missed session email failed', { error: e.message }); }
 
-  const updateData = { sessionId: sessionId.toString(), status: 'cancelled', cancelledBy: by, message };
-  if (io) {
-    new SocketEmitter(io).emitToUsers([patientId, doctorId], 'session:cancelled', updateData);
-    io.to(sessionId.toString()).emit('session:cancelled', updateData);
-  }
+  require('../services/liveUpdates').sessionCancelled(io, { _id: sessionId, patientId, doctorId }, {
+    byRole: by === 'patient' ? 'patient' : 'system', refundAmount: refunded ? result.session.price : 0, message
+  });
   return { cancelled: true, refunded, session: result.session };
 }
 

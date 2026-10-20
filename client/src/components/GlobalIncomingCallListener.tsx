@@ -80,13 +80,23 @@ const GlobalIncomingCallListener: React.FC = () => {
       });
     };
 
+    // Answered elsewhere (the doctor's other device): stop ringing here. It
+    // used to keep ringing, and Accept then took over the call from the
+    // device that had answered.
+    const handleAnswered = ({ sessionId, acceptanceStatus }: { sessionId?: string; acceptanceStatus?: string }) => {
+      if (!acceptanceStatus || acceptanceStatus === 'pending') return;
+      setIncomingRequest((current: any) => (current && String(current._id) === String(sessionId) ? null : current));
+    };
+
     socket.on('session:booked', handleSessionBooked);
     socket.on('session:cancelled', handleCancelled);
+    socket.on('session:status-update', handleAnswered);
     socket.on('connect', handleReconnect);
 
     return () => {
       socket.off('session:booked', handleSessionBooked);
       socket.off('session:cancelled', handleCancelled);
+      socket.off('session:status-update', handleAnswered);
       socket.off('connect', handleReconnect);
     };
   }, [isLoggedIn, socket, user, fetchPending]);

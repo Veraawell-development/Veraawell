@@ -32,6 +32,7 @@ interface StatusUpdate {
 
 interface Cancelled {
   sessionId?: string;
+  byRole?: 'patient' | 'doctor' | 'system' | 'admin';
   cancelledBy?: string;
   refundAmount?: number;
   message?: string;
@@ -95,8 +96,10 @@ const PatientSessionNotifier: React.FC = () => {
       const sessionId = data?.sessionId;
       // A cancellation this patient made is already confirmed by the screen
       // they made it on.
-      if (!sessionId || (data.cancelledBy && data.cancelledBy === user?.userId)) return;
-      const refund = data.refundAmount ? ` ₹${data.refundAmount} will be refunded.` : '';
+      // (`byRole`; older servers sent the canceller's id as cancelledBy.)
+      const byPatient = data.byRole ? data.byRole === 'patient' : data.cancelledBy === user?.userId || data.cancelledBy === 'patient';
+      if (!sessionId || byPatient) return;
+      const refund = data.refundAmount ? ` ₹${data.refundAmount.toLocaleString('en-IN')} will be refunded.` : '';
       toast.error(data.message || `Your session was cancelled.${refund}`, { id: `session-cancelled-${sessionId}`, duration: 10000 });
     };
 

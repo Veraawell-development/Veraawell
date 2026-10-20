@@ -1,6 +1,8 @@
 import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { DataSocketProvider } from './context/DataSocketContext';
+import { ChatSocketProvider } from './chat/ChatSocketContext';
+import LiveUpdates from './components/LiveUpdates';
 import ErrorBoundary from './components/ErrorBoundary';
 import { AdminProvider, useAdmin } from './context/AdminContext';
 import { BrowserRouter as Router, Routes, Route, useLocation, useNavigate, useParams, Navigate } from 'react-router-dom';
@@ -464,7 +466,9 @@ export default function App() {
     <Router>
       <AuthProvider>
         <DataSocketProvider>
+        <ChatSocketProvider>
         <AdminProvider>
+          <LiveUpdates />
           <GlobalIncomingCallListener />
           <PatientSessionNotifier />
           <Toaster
@@ -503,6 +507,7 @@ export default function App() {
           />
           <AppWithFooter />
         </AdminProvider>
+        </ChatSocketProvider>
         </DataSocketProvider>
       </AuthProvider>
     </Router>

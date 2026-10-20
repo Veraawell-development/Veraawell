@@ -276,6 +276,9 @@ const sessionSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  // A payment attempt failed during checkout (Razorpay lets the patient try
+  // again). Told by email only if the checkout then expires unpaid.
+  lastPaymentFailureAt: { type: Date, default: null },
   refundFailureReason: {
     type: String,
     default: null

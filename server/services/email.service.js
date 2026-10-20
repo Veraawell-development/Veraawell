@@ -28,6 +28,25 @@ function getResendClient() {
 // For testing on a free Resend account without a verified domain, use 'onboarding@resend.dev'
 // Note: 'onboarding@resend.dev' will ONLY send emails to the email address you signed up to Resend with!
 const SENDER_EMAIL = 'Veraawell <support@veraawell.com>';
+const REPLY_TO = 'support@veraawell.com';
+
+/**
+ * The plain-text part, from the HTML: some mail apps show only text, and a
+ * mail without one scores worse with spam filters.
+ */
+function htmlToText(html) {
+  return String(html || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<a [^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, '$2 ($1)')
+    .replace(/<(br|\/p|\/div|\/h1|\/h2|\/li)[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n\s*\n\s*/g, '\n\n')
+    .trim();
+}
+
+const { inr } = require('../utils/money');
 
 /**
  * The one place an email leaves this process.
@@ -52,7 +71,7 @@ async function deliver(label, { to, subject, html }) {
     throw err;
   }
 
-  const { data, error } = await resend.emails.send({ from: SENDER_EMAIL, to, subject, html });
+  const { data, error } = await resend.emails.send({ from: SENDER_EMAIL, replyTo: REPLY_TO, to, subject, html, text: htmlToText(html) });
   if (error) {
     const err = new Error(`Email provider refused the ${label} email: ${error.message || error.name || 'unknown error'}`);
     err.code = 'EMAIL_DELIVERY_FAILED';
@@ -196,6 +215,7 @@ async function sendAdminCredentialsEmail(email, tempPassword) {
         <div class="row"><span class="label">Temporary password</span><span class="value" style="font-family:monospace">${e(tempPassword)}</span></div>
       </div>
       <p class="body-text">Please change your password when you first sign in.</p>
+      <div class="btn-wrap"><a href="${e(getFrontendUrl())}/admin-login" class="btn">Sign in</a></div>
     `)
   });
 }
@@ -372,6 +392,7 @@ function generateOTPEmailHTML(otp, userType) {
           <div class="otp-code">${e(otp)}</div>
         </div>
 
+        <p class="message" style="font-size:14px">This code works for 15 minutes.</p>
         <div class="info-box">
           <strong>Security Tip:</strong> Never share this code with anyone. Veraawell staff will never ask for your OTP.
         </div>
@@ -544,13 +565,18 @@ function generateBookingConfirmationHTML(sessionDetails = {}) {
       <div class="container">
         <div class="logo-text">Veraawell</div>
         <h1 class="header">Booking Confirmed</h1>
-        <p class="message">Your session has been successfully booked. Here are your details:</p>
+        <p class="message">Your session is booked. Here are the details:</p>
         ${box([
+          row('Therapist:', sessionDetails.doctorName),
           row('Date:', sessionDetails.date),
           row('Time:', sessionDetails.time),
-          row('Type:', sessionDetails.type)
+          row('Duration:', sessionDetails.duration, { suffix: ' minutes' }),
+          row('Session:', sessionDetails.mode),
+          row('Amount paid:', present(sessionDetails.price) && Number(sessionDetails.price) > 0 ? inr(sessionDetails.price) : null)
         ], 'details-box')}
-        <p class="message" style="font-size: 14px;">You can join the call directly from your dashboard when the time comes.</p>
+        <p class="message" style="font-size: 14px;">You can join from 15 minutes before the start, from your dashboard. Please add an emergency contact before then if you haven't yet.</p>
+        <div style="text-align:center;margin:28px 0"><a href="${e(getFrontendUrl())}/patient-dashboard" style="display:inline-block;background:#0097b2;color:#fff;padding:13px 36px;border-radius:9999px;text-decoration:none;font-weight:600">Go to your dashboard</a></div>
+        <p class="message" style="font-size: 13px; color:#94a3b8">Need to cancel? Cancel at least 4 hours before the start for a full refund.</p>
         <div class="footer">
           <p>© ${new Date().getFullYear()} Veraawell. All rights reserved.</p>
         </div>
@@ -678,7 +704,9 @@ function generateSessionReminderHTML(session, reminderType, doctorName, recipien
   const reader = recipient === 'doctor' ? (session.doctorId || {}) : (session.patientId || {});
   const hi = greeting(reader.firstName, recipient === 'doctor' ? 'Dr. ' : '');
   const doctor = e(doctorName);
-  const at = present(session.sessionTime) ? ` at ${e(session.sessionTime)}` : '';
+  // The session's own time, in IST and labelled as such.
+  const when = require('./sessionTime').displayWhen(session).time || session.sessionTime;
+  const at = present(when) ? ` at ${e(when)}` : '';
   let messageHTML = '';
   if (reminderType === '15min') {
     messageHTML = `<p class="message">${hi}</p>
@@ -823,7 +851,7 @@ async function sendCancellationEmail(email, details) {
 async function sendRefundInitiatedEmail(email, details) {
   return sendBestEffort('refund initiated', {
     to: email,
-    subject: `Refund Initiated${present(details.amount) ? ` — ₹${details.amount}` : ''} | Veraawell`,
+    subject: `Refund Initiated${present(details.amount) ? ` — ${inr(details.amount)}` : ''} | Veraawell`,
     html: generateRefundHTML(details, 'initiated')
   });
 }
@@ -835,7 +863,7 @@ async function sendRefundConfirmedEmail(email, details) {
   return sendBestEffort('refund confirmed', {
     to: email,
     subject: present(details.amount)
-      ? `Refund Confirmed — ₹${details.amount} is on its way | Veraawell`
+      ? `Refund Confirmed — ${inr(details.amount)} is on its way | Veraawell`
       : 'Refund Confirmed — it is on its way | Veraawell',
     html: generateRefundHTML(details, 'confirmed')
   });
@@ -848,7 +876,7 @@ async function sendDoctorSessionSummaryEmail(email, details) {
   return sendBestEffort('doctor session summary', {
     to: email,
     subject: present(details.earnings)
-      ? `Session Complete — ₹${details.earnings} earned | Veraawell`
+      ? `Session Complete — ${inr(details.earnings)} earned | Veraawell`
       : 'Session Complete | Veraawell',
     html: generateDoctorSessionSummaryHTML(details)
   });
@@ -872,12 +900,49 @@ async function sendSessionOutcomeEmail(email, details) {
 }
 
 /**
+ * A short notice in the standard layout: a title, a few paragraphs, optional
+ * detail rows and a button. For the messages that differ only in words
+ * (instant-request notices, refund delays, payouts, account deletion).
+ *
+ * @param {string} email
+ * @param {{ subject: string, title: string, recipientName?: string, doctor?: boolean,
+ *           paragraphs: string[], when?: string, rows?: [string, string][],
+ *           amountLabel?: string, amount?: number, path?: string, buttonLabel?: string,
+ *           noButton?: boolean }} details
+ * @param {string} [label] for the log
+ */
+async function sendNoticeEmail(email, details, label = 'notice') {
+  return sendBestEffort(label, {
+    to: email,
+    subject: `${details.subject} | Veraawell`,
+    html: generateSessionOutcomeHTML(details)
+  });
+}
+
+/**
+ * Something an admin must look at (a refund the gateway refused, a new
+ * doctor application, bank details to check). To ADMIN_ALERT_EMAIL, else the
+ * support inbox.
+ */
+async function sendAdminAlertEmail(subject, paragraphs, { rows = [], path = 'super-admin-dashboard' } = {}) {
+  const to = getEnv('ADMIN_ALERT_EMAIL', 'support@veraawell.com');
+  return sendNoticeEmail(to, {
+    subject: `[Admin] ${subject}`,
+    title: subject,
+    paragraphs,
+    rows,
+    path,
+    buttonLabel: 'Open the admin console'
+  }, 'admin alert');
+}
+
+/**
  * Send payout account activated email to doctor
  */
 async function sendPayoutActivatedEmail(email, name) {
   return sendBestEffort('payout activated', {
     to: email,
-    subject: 'Your Payout Account is Active! | Veraawell',
+    subject: 'Your bank details are approved | Veraawell',
     html: generatePayoutStatusHTML(name, 'active', '')
   });
 }
@@ -928,7 +993,7 @@ function generateDoctorNewBookingHTML(d = {}) {
       row('Time', d.time),
       row('Duration', d.duration, { suffix: ' minutes' }),
       row('Session Type', d.type),
-      row('Your Earnings', d.doctorEarnings, { prefix: '₹' })
+      row('Your Earnings', present(d.doctorEarnings) ? inr(d.doctorEarnings) : null)
     ])}
     <div class="btn-wrap"><a href="${e(getFrontendUrl())}/doctor-dashboard" class="btn">Go to Dashboard</a></div>
   `);
@@ -938,24 +1003,32 @@ function generatePaymentFailedHTML(d = {}) {
   return wrap(`
     <h1 class="header" style="color:#ef4444">❌ Payment Failed</h1>
     <p class="body-text">${greeting(d.patientName)}</p>
-    <p class="body-text">Unfortunately your payment for the session could not be processed. Your booking has not been confirmed.</p>
+    <p class="body-text">Your payment didn't go through, so the booking wasn't confirmed and the time slot has been released.</p>
     ${box([
-      row('Doctor', d.doctorName, { prefix: 'Dr. ' }),
-      row('Amount', d.amount, { prefix: '₹' })
+      row('Therapist', present(d.doctorName) ? `Dr. ${d.doctorName}` : null),
+      row('Amount', present(d.amount) ? inr(d.amount) : null)
     ])}
-    <p class="body-text">No money has been deducted. Please try booking again.</p>
+    <p class="body-text">If money did leave your account, it is refunded automatically within 5–7 working days. You can book again any time.</p>
     <div class="btn-wrap"><a href="${e(getFrontendUrl())}/patient-dashboard" class="btn">Try Again</a></div>
   `);
 }
 
+/**
+ * d.refundState says what happened to the money — the email used to promise
+ * "Refund ₹X, 5–7 days" from the policy amount, even for a checkout that was
+ * never paid or a refund the gateway had refused:
+ *   'issued'  refunded d.refundAmount       'failed'  refund owed but delayed
+ *   'none'    nothing refunded (policy)     'unpaid' / 'hide'  no money rows
+ */
 function generateCancellationHTML(d = {}) {
-  const isRefund = Number(d.refundAmount) > 0;
-  const refundRows = isRefund
-    ? [
-      row('Refund Amount', d.refundAmount, { prefix: '₹', valueStyle: 'color:#10b981' }),
-      row('Refund Timeline', '5–7 business days')
-    ]
-    : [row('Refund', 'Not applicable per cancellation policy', { valueStyle: 'color:#6b7280' })];
+  const state = d.refundState || (Number(d.refundAmount) > 0 ? 'issued' : 'none');
+  const refundRows = state === 'issued'
+    ? [row('Refund Amount', inr(d.refundAmount), { valueStyle: 'color:#10b981' }), row('Refund Timeline', '5–7 working days')]
+    : state === 'failed'
+      ? [row('Refund', `${inr(d.refundAmount)} — processing (taking longer than usual)`, { valueStyle: 'color:#f59e0b' })]
+      : state === 'none'
+        ? [row('Refund', 'None — cancelled within 4 hours of the start', { valueStyle: 'color:#6b7280' })]
+        : [];
   return wrap(`
     <h1 class="header" style="color:#f59e0b">Session Cancelled</h1>
     <p class="body-text">${greeting(d.recipientName)}</p>
@@ -973,7 +1046,7 @@ function generateCancellationHTML(d = {}) {
 function generateRefundHTML(d = {}, type) {
   const isConfirmed = type === 'confirmed';
   const title = isConfirmed ? '✅ Refund Confirmed' : '⏳ Refund Initiated';
-  const amount = present(d.amount) ? `of ₹${e(d.amount)} ` : '';
+  const amount = present(d.amount) ? `of ${e(inr(d.amount))} ` : '';
   const message = isConfirmed
     ? `Your refund ${amount}has been confirmed and will reflect in your original payment method within 5–7 business days.`
     : `A refund ${amount}has been initiated. It will appear in your original payment method within 5–7 business days.`;
@@ -982,7 +1055,7 @@ function generateRefundHTML(d = {}, type) {
     <p class="body-text">${greeting(d.patientName)}</p>
     <p class="body-text">${message}</p>
     ${box([
-      row('Refund Amount', d.amount, { prefix: '₹' }),
+      row('Refund Amount', present(d.amount) ? inr(d.amount) : null),
       row('Refund ID', present(d.refundId) ? d.refundId : 'Processing', { valueStyle: 'font-size:12px;font-family:monospace' }),
       row('Original Session', d.date)
     ])}
@@ -991,7 +1064,10 @@ function generateRefundHTML(d = {}, type) {
 
 function generateDoctorSessionSummaryHTML(d = {}) {
   const withPatient = present(d.patientName) ? ` with ${e(d.patientName)}` : '';
-  const feeLabel = present(d.feePercent) ? `Platform Fee (${d.feePercent}%)` : 'Platform Fee';
+  // From the booking's own amounts: the current fee setting may have changed
+  // since, and then "Platform Fee (20%) − ₹240" contradicted itself.
+  const feePercent = Number(d.price) > 0 && present(d.platformFee) ? Math.round((Number(d.platformFee) / Number(d.price)) * 1000) / 10 : d.feePercent;
+  const feeLabel = present(feePercent) ? `Platform Fee (${feePercent}%)` : 'Platform Fee';
   return wrap(`
     <h1 class="header" style="color:#10b981">Session Complete 🎉</h1>
     <p class="body-text">${greeting(d.doctorName, 'Dr. ')}</p>
@@ -1000,10 +1076,9 @@ function generateDoctorSessionSummaryHTML(d = {}) {
       row('Patient', d.patientName),
       row('Date', d.date),
       row('Duration', d.duration, { suffix: ' minutes' }),
-      row('Gross Revenue', d.price, { prefix: '₹' }),
-      row(feeLabel, d.platformFee, { prefix: '- ₹', valueStyle: 'color:#6b7280' }),
-      row('Your Earnings', d.earnings, {
-        prefix: '₹',
+      row('Gross Revenue', present(d.price) ? inr(d.price) : null),
+      row(feeLabel, present(d.platformFee) ? `− ${inr(d.platformFee)}` : null, { valueStyle: 'color:#6b7280' }),
+      row('Your Earnings', present(d.earnings) ? inr(d.earnings) : null, {
         valueStyle: 'font-size:18px',
         rowStyle: 'border-top:1px solid rgba(0,151,178,0.2);padding-top:12px;margin-top:4px'
       })
@@ -1014,26 +1089,26 @@ function generateDoctorSessionSummaryHTML(d = {}) {
 }
 
 function generateSessionOutcomeHTML(d = {}) {
-  const rows = [row('Session', d.when)];
-  if (present(d.amountLabel) && present(d.amount)) rows.push(row(d.amountLabel, d.amount, { prefix: '₹' }));
-  const dashboard = d.doctor ? 'doctor-dashboard' : 'patient-dashboard';
+  const rows = [row('Session', d.when), ...(d.rows || []).map(([label, value]) => row(label, value))];
+  if (present(d.amountLabel) && present(d.amount)) rows.push(row(d.amountLabel, inr(d.amount)));
+  const dashboard = d.path || (d.doctor ? 'doctor-dashboard' : 'patient-dashboard');
   return wrap(`
     <h1 class="header">${e(d.title)}</h1>
     <p class="body-text">${greeting(d.recipientName, d.doctor ? 'Dr. ' : '')}</p>
     ${(d.paragraphs || []).map((p) => `<p class="body-text">${e(p)}</p>`).join('')}
     ${box(rows)}
     <p class="body-text" style="font-size:13px;color:#9ca3af">Questions? Write to support@veraawell.com</p>
-    <div class="btn-wrap"><a href="${e(getFrontendUrl())}/${dashboard}" class="btn">Go to Dashboard</a></div>
+    ${d.noButton ? '' : `<div class="btn-wrap"><a href="${e(getFrontendUrl())}/${e(dashboard)}" class="btn">${e(d.buttonLabel || 'Go to Dashboard')}</a></div>`}
   `);
 }
 
 function generatePayoutStatusHTML(name, status, reason) {
   const isActive = status === 'active';
-  const title = isActive ? '🎉 Payout Account Activated!' : '⚠️ Payout Setup Issue';
+  const title = isActive ? 'Bank details approved' : '⚠️ Bank details not approved';
   const color = isActive ? '#10b981' : '#ef4444';
   const message = isActive
-    ? 'Great news! Your Razorpay payout account is now active. Your earnings from completed sessions will be automatically transferred within 3 business days.'
-    : `There was an issue setting up your payout account. Reason: ${e(present(reason) ? reason : 'Please contact support.')}. You may re-apply from your settings page.`;
+    ? 'Your bank details are approved, so patients can now book you. Your earnings are paid out weekly, by bank transfer to the account you gave us.'
+    : `We couldn't approve your bank details. Reason: ${e(present(reason) ? reason : 'please contact support.')} You can correct them in your settings.`;
   return wrap(`
     <h1 class="header" style="color:${color}">${title}</h1>
     <p class="body-text">${greeting(name, 'Dr. ')}</p>
@@ -1043,6 +1118,10 @@ function generatePayoutStatusHTML(name, status, reason) {
 }
 
 module.exports = {
+  sendNoticeEmail,
+  sendAdminAlertEmail,
+  inr,
+  htmlToText,
   sendPasswordResetEmail,
   sendOTPEmail,
   sendAdminPasswordResetEmail,
