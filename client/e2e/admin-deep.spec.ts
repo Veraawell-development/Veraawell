@@ -42,7 +42,7 @@ test.describe('tier gating', () => {
     await loginViaUi(page, users.admin.email, users.admin.password);
     await expect(page).toHaveURL(/super-admin-dashboard/, { timeout: 20_000 });
     await expect(page.getByRole('heading', { name: 'Dashboard Overview' })).toBeVisible();
-    await expect(sidebar(page).getByRole('button')).toHaveText([/^Analytics/, /^Pending Doctors/, /^Reviews/]);
+    await expect(sidebar(page).getByRole('button')).toHaveText([/^Analytics/, /^Calls/, /^Pending Doctors/, /^Reviews/]);
 
     // A link carrying a super-admin tab in its state.
     await page.goto('/admin/articles');
@@ -54,6 +54,9 @@ test.describe('tier gating', () => {
     await expect(page).toHaveURL(/\/super-admin-dashboard$/, { timeout: 15_000 });
 
     // What they can use, works.
+    await openTab(page, 'Calls');
+    await expect(page.getByRole('heading', { name: 'Call Reliability' })).toBeVisible();
+    await expect(page.getByText('Calls connected')).toBeVisible({ timeout: 15_000 });
     await openTab(page, 'Reviews');
     await expect(page.getByRole('heading', { name: 'Review Moderation' })).toBeVisible();
     await openTab(page, 'Pending Doctors');
@@ -116,7 +119,7 @@ test.describe('admin sign-up', () => {
 
     await page.getByRole('button', { name: 'Sign In' }).click();
     await expect(page).toHaveURL(/super-admin-dashboard/, { timeout: 20_000 });
-    await expect(sidebar(page).getByRole('button')).toHaveText([/^Analytics/, /^Pending Doctors/, /^Reviews/]);
+    await expect(sidebar(page).getByRole('button')).toHaveText([/^Analytics/, /^Calls/, /^Pending Doctors/, /^Reviews/]);
   });
 });
 
