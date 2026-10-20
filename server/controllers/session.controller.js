@@ -15,7 +15,7 @@ const Review = require('../models/review');
 const PlatformSettings = require('../models/platformSettings');
 const SocketEmitter = require('../utils/socketEmitter');
 
-const { calculateSessionPrice, validateBookingParams, getOrCreateAvailability, getGenderBasedImage } = require('../services/session.service');
+const { calculateSessionPrice, validateBookingParams, getOrCreateAvailability } = require('../services/session.service');
 const { calculateRefund, describeRefundPolicy } = require('../services/refundPolicy');
 const { resolveStartsAt, hoursUntilStart, deriveFields, displayWhen } = require('../services/sessionTime');
 const { payableSessionMatch } = require('../services/earnings');
@@ -316,7 +316,8 @@ const getCallHistory = asyncHandler(async (req, res) => {
     .populate('patientId', 'firstName lastName').populate('doctorId', 'firstName lastName').select('+rating').sort({ startsAt: -1, sessionDate: -1 }).skip(skip).limit(limit).lean();
   const formatted = callHistory.map(s => ({
     _id: s._id,
-    name: userRole === 'patient' ? (s.doctorId ? `Dr. ${s.doctorId.firstName} ${s.doctorId.lastName}` : 'Deleted account') : (s.patientId ? `${s.patientId.firstName} ${s.patientId.lastName}` : 'Deleted account'),
+    // "Dr." once, even when the stored name already starts with it.
+    name: userRole === 'patient' ? (s.doctorId ? `Dr. ${`${s.doctorId.firstName} ${s.doctorId.lastName || ''}`.trim().replace(/^dr\.?\s+/i, '')}` : 'Deleted account') : (s.patientId ? `${s.patientId.firstName} ${s.patientId.lastName}` : 'Deleted account'),
     // `mode` is the call mode. It used to read "Cancelled & Refunded" for
     // every cancellation, refunded or not; what became of the session is now
     // its outcome, labelled by the app (client/src/utils/outcomeLabels.ts).
@@ -324,7 +325,7 @@ const getCallHistory = asyncHandler(async (req, res) => {
     // show its full booked length ("20 mins") as if it had happened.
     date: s.sessionDate, startsAt: s.startsAt, duration: s.actualDuration || (s.status === 'completed' ? s.duration : 0), plannedDuration: s.duration, mode: s.callMode || 'Video Calling',
     paymentAmount: s.price, paymentStatus: s.paymentStatus, refundAmount: s.refundAmount || 0,
-    sessionType: s.sessionType, status: s.status, callStatus: s.callStatus, rating: s.rating,
+    sessionType: s.sessionType, status: s.status, callStatus: s.callStatus, rating: s.rating, rated: !!(s.rating && s.rating.score),
     outcome: s.outcome && s.outcome.code ? s.outcome.code : null,
     cancelledBy: s.cancelledBy || null, lateCancellation: !!s.lateCancellation
   }));
@@ -332,6 +333,25 @@ const getCallHistory = asyncHandler(async (req, res) => {
 });
 
 /** GET /api/sessions/doctors/:doctorId/slots/:date */
+/**
+ * A day's free slots that can still be booked — not taken, and not starting
+ * within the next JOIN_LEAD_MINUTES — as { time, startsAt }, in time order
+ * (a doctor's saved slots can be in any order, "01:00 PM" before "12:00 PM").
+ * Shared by the slot list and the profile's "which days are open" strip,
+ * which used to count today's already-passed slots as open.
+ */
+function _bookableSlotTimes(availability, date, now = new Date()) {
+  const earliest = new Date(now.getTime() + JOIN_LEAD_MINUTES * 60 * 1000);
+  const open = [];
+  for (const slot of availability.getAvailableSlotsForDate(date).filter(s => !s.isBooked)) {
+    let startsAt;
+    try { startsAt = zonedToUtc(date, slot.time, PLATFORM_TIMEZONE); } catch (e) { continue; }
+    if (startsAt < earliest) continue;
+    open.push({ time: slot.time, startsAt });
+  }
+  return open.sort((a, b) => a.startsAt - b.startsAt);
+}
+
 const getDoctorSlots = asyncHandler(async (req, res) => {
   // Abandoned checkouts are expired by the scheduler every minute
   // (sessionPayment.expireStaleCheckouts). This used to run a second,
@@ -348,18 +368,7 @@ const getDoctorSlots = asyncHandler(async (req, res) => {
   // for any id it was given, patients' ids included.
   const availability = await DoctorAvailability.findOne({ doctorId });
   if (!availability) return res.json({ availableSlots: [] });
-  const earliest = new Date(Date.now() + JOIN_LEAD_MINUTES * 60 * 1000);
-  const open = [];
-  for (const slot of availability.getAvailableSlotsForDate(date).filter(s => !s.isBooked)) {
-    let startsAt;
-    try { startsAt = zonedToUtc(date, slot.time, PLATFORM_TIMEZONE); } catch (e) { continue; }
-    if (startsAt < earliest) continue;
-    open.push({ time: slot.time, startsAt });
-  }
-  // In time order: a doctor's saved slots can be in any order ("01:00 PM"
-  // before "12:00 PM"), which the patient saw as is — and the busy check
-  // below takes its range from the first and last slot.
-  open.sort((a, b) => a.startsAt - b.startsAt);
+  const open = _bookableSlotTimes(availability, date);
   let availableSlots = open.map((o) => o.time);
   if (open.length) {
     const spans = await availabilityService.busySpans(doctorId, open[0].startsAt,
@@ -500,6 +509,13 @@ const bookImmediate = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, message: 'Immediate session order created.', session: populated });
 });
 
+/** The patient's chosen service as a session note, or '' when they didn't choose one. */
+function _serviceNote(serviceType) {
+  if (typeof serviceType !== 'string') return '';
+  const service = serviceType.trim().slice(0, 80);
+  return service && service.toLowerCase() !== 'general' ? `Service Type: ${service}` : '';
+}
+
 /** POST /api/sessions/book — Book a scheduled session */
 const bookSession = asyncHandler(async (req, res) => {
   const { doctorId, sessionDate, sessionTime, sessionType, mode = 'video', duration, serviceType } = req.body;
@@ -588,7 +604,10 @@ const bookSession = asyncHandler(async (req, res) => {
     status: paymentState.status,
     paymentId: paymentState.paymentId,
     razorpayOrderId: paymentState.razorpayOrderId,
-    meetingLink, sessionNotes: `Service Type: ${serviceType || 'General'}`,
+    // What the patient came for, when they picked a service (Services page →
+    // directory → here). "General" was written for everyone, which told the
+    // therapist nothing and looked like a choice the patient had made.
+    meetingLink, sessionNotes: _serviceNote(serviceType),
     callMode: CALL_MODE_MAP[mode] || 'Video Calling'
   });
 
@@ -633,7 +652,9 @@ const attachDoctorProfiles = async (sessions, role = null) => {
       s.doctorId.profileImage = profileMap[s.doctorId._id.toString()];
     }
     if (s.doctorId && (!s.doctorId.profileImage || s.doctorId.profileImage.includes('doctor-0') || s.doctorId.profileImage === '/doctor-placeholder.svg')) {
-      s.doctorId.profileImage = getGenderBasedImage(s.doctorId);
+      // No photo: the screens show the therapist's initials. A stock photo
+      // picked by guessing gender from the first name was a stranger's face.
+      s.doctorId.profileImage = null;
     }
     if (role) s.rules = sessionPolicy.view(s, role, now);
     return s;
@@ -648,6 +669,16 @@ const getMySessions = asyncHandler(async (req, res) => {
 
   const sessions = await Session.find(req.authz.scope).populate('patientId', 'firstName lastName email').populate('doctorId', 'firstName lastName email').sort({ startsAt: -1, sessionDate: -1 }).skip(skip).limit(limit);
   const enrichedSessions = await attachDoctorProfiles(sessions, req.actor.role);
+  // For the patient: whether each completed session already has their rating
+  // of the therapist, so "Rate Session" isn't offered twice (submitting again
+  // was refused as a duplicate). One query for the page.
+  if (req.actor.role === 'patient') {
+    const completed = enrichedSessions.filter((s) => s.status === 'completed').map((s) => s._id);
+    const rated = completed.length
+      ? new Set((await Review.find({ sessionId: { $in: completed }, patientId: new mongoose.Types.ObjectId(req.actor.id), reviewType: 'doctor' }).select('sessionId').lean()).map((r) => String(r.sessionId)))
+      : new Set();
+    for (const s of enrichedSessions) if (s.status === 'completed') s.rated = rated.has(String(s._id));
+  }
   res.json(enrichedSessions);
 });
 
@@ -661,6 +692,17 @@ const getUpcoming = asyncHandler(async (req, res) => {
   const enrichedSessions = await attachDoctorProfiles(sessions, req.actor.role);
   res.json(enrichedSessions);
 });
+
+/**
+ * The therapist's own photo, or '' — the app then shows their initials. A
+ * missing photo used to be replaced with a stock face picked by guessing
+ * gender from the first name (getGenderBasedImage): a stranger's photo under
+ * a therapist's name, sometimes the wrong gender.
+ */
+function _realPhoto(url) {
+  if (!url || !String(url).trim() || String(url).includes('doctor-0') || url === '/doctor-placeholder.svg' || url === '/default-doctor.png') return '';
+  return url;
+}
 
 /** GET /api/sessions/doctors — All doctors with profiles (public) */
 const getAllDoctors = asyncHandler(async (req, res) => {
@@ -709,10 +751,8 @@ const getAllDoctors = asyncHandler(async (req, res) => {
   const ratingMap = {};
   ratingAgg.forEach(r => { ratingMap[r._id.toString()] = { average: Math.round(r.average * 10) / 10, totalReviews: r.totalReviews }; });
   const result = valid.map(profile => {
-    if (!profile.profileImage || profile.profileImage.trim() === '' || profile.profileImage.includes('doctor-0') || profile.profileImage === '/doctor-placeholder.svg') {
-      profile.profileImage = getGenderBasedImage(profile.userId);
-    }
     const obj = profile.toObject();
+    obj.profileImage = _realPhoto(obj.profileImage);
     const uid = obj.userId?._id?.toString();
     obj.rating = (uid && ratingMap[uid]) ? ratingMap[uid] : { average: 0, totalReviews: 0 };
     return obj;
@@ -738,10 +778,8 @@ const getDoctorById = asyncHandler(async (req, res) => {
     { $group: { _id: null, average: { $avg: '$rating' }, totalReviews: { $sum: 1 } } }
   ]);
   const liveRating = ratingStats.length > 0 ? { average: Math.round(ratingStats[0].average * 10) / 10, totalReviews: ratingStats[0].totalReviews } : { average: 0, totalReviews: 0 };
-  if (!profile.profileImage || profile.profileImage.includes('doctor-0') || profile.profileImage === '/doctor-placeholder.svg') {
-    profile.profileImage = getGenderBasedImage(doctor);
-  }
   const obj = profile.toObject();
+  obj.profileImage = _realPhoto(obj.profileImage);
   obj.rating = liveRating;
   // Whether this page can sell a session at all — so it can say so, instead
   // of letting the patient through to a checkout that then fails. The two
@@ -760,7 +798,9 @@ const getDoctorById = asyncHandler(async (req, res) => {
     const { utcToZoned } = require('../utils/zonedTime');
     for (let i = 0; i < 14; i += 1) {
       const day = utcToZoned(new Date(Date.now() + i * 24 * 60 * 60 * 1000), PLATFORM_TIMEZONE).localDate;
-      if (availability.getAvailableSlotsForDate(day).some((slot) => !slot.isBooked)) obj.openDates.push(day);
+      // The same test as the slot list, so "today" isn't shown open on the
+      // strength of this morning's slots and then lists nothing.
+      if (_bookableSlotTimes(availability, day).length > 0) obj.openDates.push(day);
     }
   }
   res.json(obj);
@@ -889,6 +929,16 @@ const abandonCheckout = asyncHandler(async (req, res) => {
   res.json({ success: true, outcome: result.outcome });
 });
 
+/** For a repeat cancel: where the money of an already-cancelled session is. */
+function _cancelledRefundState(session) {
+  switch (session.paymentStatus) {
+    case 'refunded': case 'refund_pending': return 'issued';
+    case 'refund_failed': return 'failed';
+    case 'paid': return 'none';
+    default: return 'unpaid';
+  }
+}
+
 /** POST /api/sessions/:sessionId/cancel */
 const cancelSession = asyncHandler(async (req, res) => {
   const { sessionId } = req.params;
@@ -919,6 +969,7 @@ const cancelSession = asyncHandler(async (req, res) => {
       success: true,
       message: 'Session already cancelled',
       refundAmount: session.refundAmount || 0,
+      refundState: _cancelledRefundState(session),
       refundPolicy: describeRefundPolicy(session.refundAmount || 0, session.price)
     });
   }
@@ -991,6 +1042,7 @@ const cancelSession = asyncHandler(async (req, res) => {
       success: true,
       message: 'Session already cancelled',
       refundAmount: current.refundAmount || 0,
+      refundState: _cancelledRefundState(current),
       refundPolicy: describeRefundPolicy(current.refundAmount || 0, current.price)
     });
   }
@@ -1085,6 +1137,10 @@ const cancelSession = asyncHandler(async (req, res) => {
     success: true,
     message: 'Session cancelled successfully',
     refundAmount,
+    // What happened to the money ('issued' | 'failed' | 'none' | 'unpaid'),
+    // so the screen can say "Full refund of ₹X" or "Nothing was charged"
+    // rather than "a refund if applicable".
+    refundState,
     lateCancellation,
     refundPolicy: describeRefundPolicy(refundAmount, session.price)
   });

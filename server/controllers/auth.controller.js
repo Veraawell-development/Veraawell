@@ -408,7 +408,11 @@ const getProtected = asyncHandler(async (req, res) => {
       role: user.role,
       firstName: user.firstName,
       lastName: user.lastName,
-      emergencyContact: user.emergencyContact || { name: null, phone: null, relationship: null }
+      emergencyContact: user.emergencyContact || { name: null, phone: null, relationship: null },
+      // How this account signs in: a Google account has no password, so the
+      // settings page hides "Change password" instead of offering a form
+      // the server can only refuse.
+      signInMethod: user.googleId ? 'google' : 'password'
     },
     // Send token to client for WebSocket auth (stored in memory). The one
     // that actually authenticated this request: the cookie used to be echoed

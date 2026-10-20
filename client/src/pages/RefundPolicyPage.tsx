@@ -86,7 +86,7 @@ export default function RefundPolicyPage() {
             <FiClock style={{ color: 'var(--teal)' }} size={24} className="mb-4" />
             <h3 className="text-lg font-medium mb-2" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>4-Hour Notice</h3>
             <p className="text-sm leading-relaxed font-sans" style={{ color: 'var(--text-2)' }}>
-              Cancellations made at least 4 hours before your session start time are eligible for a 100% full refund, no questions asked.
+              Cancel more than 4 hours before your session starts and you get a 100% refund, no questions asked.
             </p>
           </div>
 

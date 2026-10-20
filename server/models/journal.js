@@ -6,17 +6,22 @@ const journalSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  // Limits enforced (with readable messages) in controllers/journal.controller.js.
   title: {
     type: String,
-    required: true
+    required: true,
+    trim: true,
+    maxlength: 200
   },
   content: {
     type: String,
-    required: true
+    required: true,
+    maxlength: 20000
   },
   mood: {
     type: String,
-    default: ''
+    default: '',
+    maxlength: 50
   },
   tags: [{
     type: String

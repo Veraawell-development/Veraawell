@@ -33,7 +33,10 @@ const ComingSoonBadge = () => {
 
 const PatientSettingsPage: React.FC = () => {
   const navigate = useNavigate();
-  const { logout, setAuthToken } = useAuth();
+  const { logout, setAuthToken, user } = useAuth();
+  // A Google account has no password: say so instead of offering a form the
+  // server can only refuse ("This account signs in with Google…").
+  const signsInWithGoogle = user?.signInMethod === 'google';
   
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
@@ -160,9 +163,13 @@ const PatientSettingsPage: React.FC = () => {
             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
               <div>
                 <h3 className="text-gray-800 font-medium">Change Password</h3>
-                <p className="text-gray-500 text-sm mt-0.5">Update your account password securely.</p>
+                <p className="text-gray-500 text-sm mt-0.5">
+                  {signsInWithGoogle
+                    ? 'You sign in with Google, so there is no Veraawell password to change.'
+                    : 'Update your account password securely.'}
+                </p>
               </div>
-              {!showPasswordForm ? (
+              {signsInWithGoogle ? null : !showPasswordForm ? (
                 <button 
                   onClick={() => setShowPasswordForm(true)}
                   className="px-4 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors shadow-sm shrink-0"

@@ -127,9 +127,14 @@ export const formatPlatformLocalDate = (
  */
 export const formatDate = (dateString: string): string => {
   const date = new Date(dateString);
-  const day = date.getDate();
-  const month = date.toLocaleString('en-US', { month: 'long' });
-  const year = date.getFullYear();
+  if (Number.isNaN(date.getTime())) return '—';
+  // The IST calendar day, not the viewer's: a note written at 1 am IST is
+  // still "15th" for a patient whose laptop is set to London.
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: PLATFORM_TIMEZONE, day: 'numeric', month: 'long', year: 'numeric' }).formatToParts(date);
+  const part = (type: string) => parts.find((p) => p.type === type)?.value || '';
+  const day = Number(part('day'));
+  const month = part('month');
+  const year = part('year');
   
   const suffix = (day: number): string => {
     if (day > 3 && day < 21) return 'th';
@@ -249,12 +254,13 @@ export const isTomorrow = (dateString: string): boolean => {
  * Time-of-day greeting phrase, e.g. "Good morning".
  */
 export const getGreeting = (): string => {
+  // The viewer's own clock: it's their morning that matters here. "Good
+  // night" (a goodbye) from 8 pm and "Night owl" before 5 am read oddly as a
+  // greeting; the evening one covers both.
   const hour = new Date().getHours();
   if (hour >= 5 && hour < 12) return 'Good morning';
   if (hour >= 12 && hour < 17) return 'Good afternoon';
-  if (hour >= 17 && hour < 20) return 'Good evening';
-  if (hour >= 20 && hour < 24) return 'Good night';
-  return 'Night owl';
+  return 'Good evening';
 };
 
 /**

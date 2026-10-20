@@ -8,20 +8,29 @@
  *
  *   approved, active account                         always
  *   an admin-approved way to be paid (payoutApproved) always
- *   a price (pricing.min > 0)                        always
+ *   a price for all six sessions (20/40/55 min,      always
+ *     video and voice)
  *   published dates still ahead (bookableUntil)      to book a time slot;
  *                                                    an instant session
  *                                                    doesn't use the calendar
+ *
+ * All six prices, not "any price": Veraawell offers every length in both
+ * modes, and a therapist with a gap used to be sold at a fallback price they
+ * never set (services/session.service.js resolvePrice). Until the gap is
+ * filled in their settings, they are not listed.
  *
  * Whether they're online, actually connected and free right now is the
  * separate, live question in services/availability.js.
  */
 
+const { PRICE_PATHS, isFullyPriced } = require('./session.service');
+
 const BOOKABLE_USER_FILTER = Object.freeze({ role: 'doctor', approvalStatus: 'approved', status: 'active' });
 
 /** The DoctorProfile part of the rule, as a query filter. */
 function bookableProfileFilter({ scheduled = true, now = new Date() } = {}) {
-  const filter = { payoutApproved: true, 'pricing.min': { $gt: 0 } };
+  const filter = { payoutApproved: true };
+  for (const path of PRICE_PATHS) filter[path] = { $gt: 0 };
   if (scheduled) filter.bookableUntil = { $gte: now };
   return filter;
 }
@@ -35,7 +44,7 @@ function bookabilityOf(profile, { now = new Date() } = {}) {
   if (!profile) return { scheduled: false, instant: false };
   // `instant` is also "can be booked at all" — the booking path then checks
   // the chosen slot exists, the precise form of having dates ahead.
-  const paidAndPriced = !!profile.payoutApproved && Number(profile.pricing && profile.pricing.min) > 0;
+  const paidAndPriced = !!profile.payoutApproved && isFullyPriced(profile.pricing);
   const datesAhead = !!profile.bookableUntil && new Date(profile.bookableUntil) >= now;
   return { scheduled: paidAndPriced && datesAhead, instant: paidAndPriced };
 }

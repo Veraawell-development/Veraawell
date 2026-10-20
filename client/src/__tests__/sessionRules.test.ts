@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { joinWindow, canJoinNow, hasEnded, isBooked, outcomeLabel, type SessionLike } from '../utils/sessionRules';
+import { joinWindow, canJoinNow, hasEnded, isBooked, outcomeLabel, refundStatusText, cancelResultMessage, type SessionLike } from '../utils/sessionRules';
+import { calculateRefundPreview } from '../utils/refundPolicy';
 
 const MIN = 60 * 1000;
 const T = new Date('2026-11-02T04:30:00.000Z'); // 10:00 IST
@@ -58,14 +59,24 @@ describe('what became of a session', () => {
     expect(label({ status: 'cancelled', outcome: { code: 'cancelled_by_patient' }, paymentStatus: 'refunded', refundAmount: 1000 }))
       .toBe('Cancelled — refunded ₹1000');
     expect(label({ status: 'cancelled', paymentStatus: 'paid' })).toBe('Cancelled — no refund');
-    expect(label({ status: 'cancelled', paymentStatus: 'refund_failed' })).toBe('Cancelled — refund being retried');
+    expect(label({ status: 'cancelled', paymentStatus: 'refund_failed' })).toBe("Cancelled — refund delayed — we're on it");
+    expect(label({ status: 'cancelled', paymentStatus: 'not_required' })).toBe('Cancelled');
+  });
+
+  it('a refund that has only started is not called "refunded"', () => {
+    expect(label({ status: 'cancelled', outcome: { code: 'cancelled_by_patient' }, paymentStatus: 'refund_pending', refundAmount: 1000 }))
+      .toBe('Cancelled — refund started — 5–7 working days');
+    expect(label({ status: 'cancelled', outcome: { code: 'cancelled_by_patient' }, paymentStatus: 'refund_pending' }, 'doctor'))
+      .toBe('Cancelled — patient refund started');
+    expect(label({ status: 'no-show', outcome: { code: 'doctor_no_show' }, paymentStatus: 'refund_pending' }))
+      .toBe("Therapist didn't join — refund started — 5–7 working days");
   });
 
   it('no-shows say whose, and where the refund is', () => {
     expect(label({ status: 'no-show', outcome: { code: 'patient_no_show' } })).toBe('Missed — no refund');
     expect(label({ status: 'no-show', outcome: { code: 'patient_no_show' } }, 'doctor')).toBe("Patient didn't join — you're paid");
     expect(label({ status: 'no-show', outcome: { code: 'doctor_no_show' }, paymentStatus: 'refunded' })).toBe("Therapist didn't join — refunded");
-    expect(label({ status: 'no-show', outcome: { code: 'doctor_no_show' }, paymentStatus: 'refund_failed' })).toBe("Therapist didn't join — refund being retried");
+    expect(label({ status: 'no-show', outcome: { code: 'doctor_no_show' }, paymentStatus: 'refund_failed' })).toBe("Therapist didn't join — refund delayed — we're on it");
     expect(label({ status: 'no-show', outcome: { code: 'nobody_came' }, paymentStatus: 'refunded' }, 'doctor')).toBe('Nobody joined — patient refunded');
   });
 
@@ -85,5 +96,39 @@ describe('isBooked', () => {
   it('counts paid, free and refunded bookings, not open or failed checkouts', () => {
     for (const p of ['paid', 'not_required', 'refunded', 'refund_pending', 'refund_failed']) expect(isBooked({ paymentStatus: p } as SessionLike)).toBe(true);
     for (const p of ['pending', 'failed', undefined]) expect(isBooked({ paymentStatus: p } as SessionLike)).toBe(false);
+  });
+});
+
+describe('refundStatusText', () => {
+  it('names each stage of a refund, and nothing when there is none', () => {
+    expect(refundStatusText({ paymentStatus: 'refund_pending' })).toBe('refund started — 5–7 working days');
+    expect(refundStatusText({ paymentStatus: 'refund_failed' })).toBe("refund delayed — we're on it");
+    expect(refundStatusText({ paymentStatus: 'refunded', refundAmount: 800 })).toBe('refunded ₹800');
+    expect(refundStatusText({ paymentStatus: 'refunded' })).toBe('refunded');
+    for (const p of ['paid', 'not_required', 'failed', undefined]) expect(refundStatusText({ paymentStatus: p })).toBeNull();
+  });
+});
+
+describe('after cancelling: what the patient is told', () => {
+  it('says what the server did with the money — never "a refund if applicable"', () => {
+    expect(cancelResultMessage({ refundState: 'issued', refundAmount: 1200 })).toBe('Session cancelled. Full refund of ₹1200 — it reaches your account in 5–7 working days.');
+    expect(cancelResultMessage({ refundState: 'none', refundAmount: 0, lateCancellation: true })).toMatch(/^Session cancelled\. No refund — it was within 4 hours/);
+    expect(cancelResultMessage({ refundState: 'unpaid', refundAmount: 1200 })).toBe('Session cancelled. Nothing was charged.');
+    expect(cancelResultMessage({ refundState: 'failed', refundAmount: 1200 })).toMatch(/refund of ₹1200 is delayed/);
+  });
+
+  it('an older server that sent only the amount', () => {
+    expect(cancelResultMessage({ refundAmount: 900 })).toMatch(/Full refund of ₹900/);
+    expect(cancelResultMessage({ refundAmount: 0, lateCancellation: true })).toMatch(/No refund/);
+    expect(cancelResultMessage({})).toBe('Session cancelled.');
+  });
+});
+
+describe('the cancel preview follows the clock', () => {
+  it('flips at the 4-hour mark for the same open panel (the moment passed in, not the moment it opened)', () => {
+    const start = at(0);
+    expect(calculateRefundPreview(1000, start, at(-4 * 60 - 1)).amount).toBe(1000);
+    expect(calculateRefundPreview(1000, start, at(-4 * 60)).amount).toBe(0);
+    expect(calculateRefundPreview(1000, start, at(-30)).amount).toBe(0);
   });
 });

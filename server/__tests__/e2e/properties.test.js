@@ -263,11 +263,13 @@ describe('assessment scoring', () => {
     { minLength: 1, maxLength: 30 }
   );
 
-  test('the total is exactly the sum of the answers', () => {
+  test('the total is exactly the sum of the scored answers', () => {
+    const { SCORING_TABLES } = require('../../utils/assessmentScoring');
     fc.assert(fc.property(fc.constantFrom(...TYPES), answers, (type, rs) => {
       const scored = computeScore(type, rs);
       if (scored === null) return false;
-      return scored.total === rs.reduce((n, r) => n + r.answer, 0);
+      const unscored = SCORING_TABLES[type].unscored || [];
+      return scored.total === rs.filter((r) => !unscored.includes(r.questionId)).reduce((n, r) => n + r.answer, 0);
     }), { numRuns: RUNS });
   });
 
@@ -281,13 +283,18 @@ describe('assessment scoring', () => {
 
   test('severity never decreases as answers get worse', () => {
     const RANK = { minimal: 0, mild: 1, moderate: 2, 'moderately-severe': 3, severe: 4 };
+    const { SCORING_TABLES } = require('../../utils/assessmentScoring');
     fc.assert(fc.property(
       fc.constantFrom(...TYPES),
       fc.integer({ min: 1, max: 20 }),
       fc.integer({ min: 0, max: 3 }),
       (type, n, base) => {
-        const lower = Array.from({ length: n }, (_, i) => ({ questionId: i + 1, answer: base }));
-        const higher = Array.from({ length: n }, (_, i) => ({ questionId: i + 1, answer: base + 1 }));
+        // The question that picks a path (addiction Q1) is not an answer that
+        // can be "worse"; it stays on the same path in both sets.
+        const on = SCORING_TABLES[type].branchMax?.on;
+        const answer = (id, value) => ({ questionId: id, answer: id === on ? 0 : value });
+        const lower = Array.from({ length: n }, (_, i) => answer(i + 1, base));
+        const higher = Array.from({ length: n }, (_, i) => answer(i + 1, base + 1));
         const a = computeScore(type, lower);
         const b = computeScore(type, higher);
         return a !== null && b !== null && RANK[b.severity] >= RANK[a.severity];
@@ -339,39 +346,62 @@ describe('assessment scoring', () => {
   test('a complete, maximal answer set is accepted for every test and stays within maxScore', () => {
     // Anti-vacuity for the property above: without this, a validator that
     // refused everything would pass it. Also pins the question table to the
-    // scoring table — every non-branching test reaches exactly its maxScore.
+    // scoring table — every test reaches exactly its maxScore on its longest
+    // path, and no path goes past it.
     const { QUESTION_SETS, SCORING_TABLES } = require('../../utils/assessmentScoring');
     for (const type of TYPES) {
       const set = QUESTION_SETS[type];
-      const ids = set.branches ? [...set.always, ...set.branches[0]] : Object.keys(set.questions).map(Number);
-      const rs = ids.map((id) => ({ questionId: id, answer: Math.max(...set.questions[id]) }));
-      if (set.branches) rs[0].answer = 0; // the alcohol branch
-      const checked = validateResponses(type, rs);
-      expect([type, checked.error]).toEqual([type, undefined]);
-      const scored = computeScore(type, checked.responses);
-      if (!set.branches) expect([type, scored.total]).toEqual([type, SCORING_TABLES[type].maxScore]);
-      expect(scored.total).toBeLessThanOrEqual(SCORING_TABLES[type].maxScore);
+      const paths = set.branches
+        ? Object.entries(set.branches).map(([pick, ids]) => ({ pick: Number(pick), ids: [...set.always, ...ids] }))
+        : [{ pick: null, ids: Object.keys(set.questions).map(Number) }];
+      let best = 0;
+      for (const { pick, ids } of paths) {
+        const rs = ids.map((id) => ({ questionId: id, answer: id === set.branchOn ? pick : Math.max(...set.questions[id]) }));
+        const checked = validateResponses(type, rs);
+        expect([type, pick, checked.error]).toEqual([type, pick, undefined]);
+        const scored = computeScore(type, checked.responses);
+        expect(scored.total).toBeLessThanOrEqual(SCORING_TABLES[type].maxScore);
+        best = Math.max(best, scored.total);
+      }
+      expect([type, best]).toEqual([type, SCORING_TABLES[type].maxScore]);
     }
   });
 
-  test('the addiction test cannot reach its own moderate or severe band', () => {
-    // A characterisation of the TEST DEFINITION, shared with the client
-    // (client/src/data/mentalHealthTests.ts). Its maxScore is 10 and 'moderate'
-    // starts at 6, but the longest branch is Q1 plus five YES/NO questions:
-    // alcohol (Q1 = 0) tops out at 5, drugs (1 + 3) and behaviour (2 + 2) at 4.
-    // Q1 is a category picker, yet its option value is summed into the total.
-    // Every possible addiction result is therefore 'minimal' or 'mild'. Fixing
-    // it is a clinical decision for both scorers at once (the parity test pins
-    // them together), not something to change here alone.
+  test('every addiction path can reach every band, and Q1 itself scores nothing', () => {
+    // Q1 picks alcohol / drugs / a behaviour. Its value (0/1/2) used to be
+    // summed, and one band table was shared by paths of 5, 3 and 2 questions,
+    // so no result could ever be above "mild". Banded now on the share of the
+    // chosen path answered "yes".
     const { QUESTION_SETS } = require('../../utils/assessmentScoring');
     const set = QUESTION_SETS.addiction;
-    let best = 0;
-    for (const [branch, ids] of Object.entries(set.branches)) {
-      const rs = [{ questionId: 1, answer: Number(branch) }, ...ids.map((id) => ({ questionId: id, answer: 1 }))];
-      best = Math.max(best, computeScore('addiction', validateResponses('addiction', rs).responses).total);
+    for (const [pick, ids] of Object.entries(set.branches)) {
+      const severities = new Set();
+      for (let yes = 0; yes <= ids.length; yes += 1) {
+        const rs = [{ questionId: 1, answer: Number(pick) }, ...ids.map((id, i) => ({ questionId: id, answer: i < yes ? 1 : 0 }))];
+        const scored = computeScore('addiction', validateResponses('addiction', rs).responses);
+        expect(scored.total).toBe(yes);
+        severities.add(scored.severity);
+      }
+      expect([pick, severities.has('minimal'), severities.has('severe')]).toEqual([pick, true, true]);
+      if (ids.length > 2) expect([pick, severities.has('mild'), severities.has('moderate')]).toEqual([pick, true, true]);
     }
-    expect(best).toBe(5);
-    expect(computeScore('addiction', [{ questionId: 1, answer: best }]).severity).toBe('mild');
+  });
+
+  test('PTSD: answering "no" to Q1 ends the test after the past-experience questions', () => {
+    const rs = Array.from({ length: 9 }, (_, i) => ({ questionId: i + 1, answer: i === 0 ? 0 : 1 }));
+    const checked = validateResponses('ptsd', rs);
+    expect(checked.error).toBeUndefined();
+    expect(computeScore('ptsd', checked.responses)).toMatchObject({ total: 8, severity: 'mild' });
+    // Saying "yes" to Q1 still requires the symptom questions.
+    const yes = rs.map((r) => (r.questionId === 1 ? { ...r, answer: 1 } : r));
+    expect(validateResponses('ptsd', yes).error).toMatch(/Missing answers for question\(s\) 10/);
+  });
+
+  test('depression is the PHQ-9: item 10 is asked but not scored', () => {
+    const rs = Array.from({ length: 10 }, (_, i) => ({ questionId: i + 1, answer: 3 }));
+    expect(computeScore('depression', validateResponses('depression', rs).responses)).toMatchObject({ total: 27, percentage: 100, severity: 'severe' });
+    const onlyItem10 = rs.map((r) => ({ ...r, answer: r.questionId === 10 ? 3 : 0 }));
+    expect(computeScore('depression', onlyItem10)).toMatchObject({ total: 0, severity: 'minimal' });
   });
 
   test('within the answer range every test type does stay inside 0-100%', () => {
@@ -381,7 +411,12 @@ describe('assessment scoring', () => {
       fc.record({ questionId: fc.integer({ min: 1, max: 9 }), answer: fc.integer({ min: 0, max: 1 }) }),
       { minLength: 1, maxLength: 5 }
     );
-    fc.assert(fc.property(fc.constantFrom(...TYPES), inRange, (type, rs) => {
+    // Branching tests are left out: their maximum is the chosen path's, and
+    // an arbitrary list mixes paths in a way no client can send. The
+    // validated property above covers them.
+    const { SCORING_TABLES } = require('../../utils/assessmentScoring');
+    const flat = TYPES.filter((t) => !SCORING_TABLES[t].branchMax);
+    fc.assert(fc.property(fc.constantFrom(...flat), inRange, (type, rs) => {
       const scored = computeScore(type, rs);
       return scored.percentage >= 0 && scored.percentage <= 100;
     }), { numRuns: RUNS });

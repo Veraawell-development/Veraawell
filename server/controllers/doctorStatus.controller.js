@@ -44,7 +44,7 @@ const getStatus = asyncHandler(async (req, res) => {
  *    Now" showed 2 doctors whose booking would then be refused.
  *
  * It now applies the directory's rules — approved account, payoutApproved,
- * pricing.min > 0 — minus the published-calendar condition, which an instant
+ * all six prices set (services/bookability.js) — minus the published-calendar condition, which an instant
  * session does not need. Each entry carries the public profile
  * (PUBLIC_DOCTOR_FIELDS, the same allowlist the directory uses) so the card
  * can be rendered from this response alone.

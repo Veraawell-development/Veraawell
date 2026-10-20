@@ -1,10 +1,17 @@
 import React, { useState } from 'react';
+import { formatINR } from '../utils/sessionPricing';
+import { stripDrPrefix } from '../utils/doctorName';
 
 type DoctorCardProps = {
   name: string;
   experience: string;
   qualification: string;
-  pricing: string;
+  /**
+   * The lowest of the therapist's six prices, in rupees, shown as "From ₹600".
+   * Replaces a "₹min - ₹max" string the card parsed with /₹(\d+)/ — which
+   * read ₹1,500 as ₹1.
+   */
+  startingPrice?: number | null;
   language: string;
   treatsFor: string;
   imageSrc: string;
@@ -38,7 +45,7 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
   name,
   experience,
   qualification,
-  pricing, // The original design doesn't show pricing in this card, but we can pass it if needed later
+  startingPrice,
   language,
   treatsFor,
   imageSrc,
@@ -53,9 +60,11 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
 }) => {
   const look = STATUS_LOOK[status || (isOnline ? 'online' : 'offline')];
   const [tagsExpanded, setTagsExpanded] = useState(false);
-
-  const startingPriceMatch = pricing?.match(/₹\s*(\d+)/);
-  const startingPrice = startingPriceMatch ? startingPriceMatch[1] : null;
+  // The therapist's photo, or their initials when there is none or it fails
+  // to load — never a broken image.
+  const [photoFailed, setPhotoFailed] = useState(false);
+  const photo = imageSrc && !photoFailed ? imageSrc : null;
+  const initials = stripDrPrefix(name).split(/\s+/).filter(Boolean).map((p) => p[0]).slice(0, 2).join('').toUpperCase() || '?';
 
   const allTags = treatsFor
     .split(',')
@@ -88,14 +97,16 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
           <div className="flex items-center gap-4 min-w-0">
             {/* Avatar */}
             <div
-              className="w-14 h-14 rounded-[18px] flex items-center justify-center text-xl font-bold text-white flex-shrink-0"
+              className="w-14 h-14 rounded-[18px] flex items-center justify-center text-xl font-bold text-white flex-shrink-0 overflow-hidden"
               style={{
-                background: imageSrc ? `url(${imageSrc}) center/cover no-repeat` : bgColor,
+                background: bgColor,
                 border: `2px solid ${bgColor}40`,
                 boxShadow: `0 4px 14px -4px ${bgColor}50`,
               }}
             >
-              {!imageSrc && name.charAt(4)} {/* Fallback initial assuming "Dr. X" */}
+              {photo
+                ? <img src={photo} alt="" className="w-full h-full object-cover" onError={() => setPhotoFailed(true)} />
+                : <span aria-hidden="true">{initials}</span>}
             </div>
             <div className="min-w-0">
               <h3
@@ -118,7 +129,7 @@ const DoctorCard: React.FC<DoctorCardProps> = ({
               className="flex-none rounded-full px-2.5 py-1 text-xs font-semibold whitespace-nowrap"
               style={{ background: `${bgColor}12`, color: bgColor }}
             >
-              ₹{startingPrice}<span style={{ opacity: 0.7, fontWeight: 500 }}>/session</span>
+              <span style={{ opacity: 0.7, fontWeight: 500 }}>From </span>{formatINR(startingPrice)}
             </span>
           )}
         </div>

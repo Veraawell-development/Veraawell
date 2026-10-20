@@ -15,7 +15,10 @@ interface User {
   role: string;
   firstName: string;
   lastName: string;
+  /** Undefined when /profile/status could not be read: unknown, not "incomplete". */
   profileCompleted?: boolean;
+  /** 'google' accounts have no password to change. */
+  signInMethod?: 'google' | 'password';
   emergencyContact?: {
     name: string | null;
     phone: string | null;
@@ -217,8 +220,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
           const data = await res.json();
 
-          // Fetch profile status (only if authenticated)
-          let profileCompleted = false;
+          // Fetch profile status (only if authenticated). Left undefined when
+          // it can't be read: a failed status call used to read as "not
+          // complete" and showed the welcome popup to patients who had long
+          // finished their profile.
+          let profileCompleted: boolean | undefined;
           try {
             const profileRes = await fetch(`${API_BASE_URL}/profile/status`, {
               credentials: 'include',
@@ -229,7 +235,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             });
             if (profileRes.ok) {
               const profileData = await profileRes.json();
-              profileCompleted = profileData.profileCompleted;
+              profileCompleted = !!profileData.profileCompleted;
             }
           } catch (err) {
             console.warn('[Auth] Failed to fetch profile status', err);

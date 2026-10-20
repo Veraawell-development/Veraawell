@@ -26,10 +26,12 @@ const reviewSchema = new mongoose.Schema({
     max: 5,
     validate: { validator: Number.isInteger, message: 'Rating must be a whole number from 1 to 5' }
   },
+  // Optional: a star-only rating has no comment (it used to be filled with
+  // "No additional comments provided.").
   feedback: {
     type: String,
-    required: true,
-    trim: true
+    trim: true,
+    default: ''
   },
   // What went well
   positives: {

@@ -10,7 +10,7 @@ import SessionDayBanner from '../components/SessionDayBanner';
 import PatientCalendarModal from '../components/PatientCalendarModal';
 import { useAuth } from '../context/AuthContext';
 import { API_CONFIG } from '../config/api';
-import { formatDate, getGreeting, resolveSessionStart, resolveSessionEnd, sessionLocalDateKey, daysUntilSession, formatSessionClock, PLATFORM_TIMEZONE } from '../utils/dateUtils';
+import { formatDate, formatPlatformDate, getGreeting, resolveSessionStart, sessionLocalDateKey, daysUntilSession, formatSessionClock, PLATFORM_TIMEZONE } from '../utils/dateUtils';
 import { canJoinNow, joinWindow, outcomeLabel } from '../utils/sessionRules';
 import logger from '../utils/logger';
 import type { Session, Report, Task, JournalEntry } from '../types';
@@ -19,6 +19,9 @@ import toast from 'react-hot-toast';
 import { reportSnippet } from '../utils/reportContent';
 import { MENTAL_HEALTH_TESTS } from '../data/mentalHealthTests';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { activePopup, chooseVisitPopup, nextRatingSkip, ratingPromptDue, readRatingSkip } from '../utils/dashboardPopups';
+import type { DashboardPopup } from '../utils/dashboardPopups';
+import { hasEmergencyContact } from '../utils/emergencyContact';
 
 interface UpcomingSession extends Session {
   callMode?: string;
@@ -80,12 +83,28 @@ const getInitials = (firstName?: string, lastName?: string) =>
 // for why a raw JSON fallback is never acceptable here.
 const getReportSnippet = (report: Report) => reportSnippet(report.content, 90);
 
-const getSeverityLabel = (score: number, maxScore: number) => {
-  const percentage = (score / maxScore) * 100;
-  if (percentage >= 75) return 'Severe';
-  if (percentage >= 50) return 'Moderate';
-  if (percentage >= 25) return 'Mild';
-  return 'Minimal';
+// The severity the server scored and stored with the result — the same one
+// the results page shows. The tiles used to work out their own from the
+// score as a share of the maximum, which under-reported (a PHQ-9 of 10 is
+// "Moderate", not "Mild").
+const severityLabel = (severity?: string) => {
+  if (!severity) return '—';
+  const words = severity.replace(/[-_]/g, ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
+};
+
+/** localStorage, read safely: blocked storage (private mode) reads as empty. */
+const readStored = (key: string): string | null => {
+  try { return window.localStorage.getItem(key); } catch { return null; }
+};
+const writeStored = (key: string, value: string) => {
+  try { window.localStorage.setItem(key, value); } catch { /* best effort */ }
+};
+
+/** Today in IST: { year, month (1-12), day }. The calendar's "today", wherever the viewer is. */
+const istToday = () => {
+  const [y, m, d] = new Intl.DateTimeFormat('en-CA', { timeZone: PLATFORM_TIMEZONE }).format(new Date()).split('-').map(Number);
+  return { year: y, month: m, day: d };
 };
 
 // startsAt when the server sent it; the legacy (sessionDate, sessionTime)
@@ -105,7 +124,7 @@ const formatSessionChip = (session: UpcomingSession) => {
   const dayOfWeek = dt.toLocaleDateString('en-US', { weekday: 'short', timeZone: PLATFORM_TIMEZONE });
   const dayMonth = dt.toLocaleDateString('en-US', { day: 'numeric', month: 'short', timeZone: PLATFORM_TIMEZONE });
   const time = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: PLATFORM_TIMEZONE });
-  return `${dayOfWeek}, ${dayMonth} · ${time} — ${relativeDayLabel(session)}`;
+  return `${dayOfWeek}, ${dayMonth} · ${time} IST — ${relativeDayLabel(session)}`;
 };
 
 const formatMoreSessionWhen = (session: UpcomingSession) => {
@@ -113,7 +132,7 @@ const formatMoreSessionWhen = (session: UpcomingSession) => {
   const dayOfWeek = dt.toLocaleDateString('en-US', { weekday: 'short', timeZone: PLATFORM_TIMEZONE });
   const dayMonth = dt.toLocaleDateString('en-US', { day: 'numeric', month: 'short', timeZone: PLATFORM_TIMEZONE });
   const time = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: PLATFORM_TIMEZONE });
-  return `${dayOfWeek}, ${dayMonth} · ${time}`;
+  return `${dayOfWeek}, ${dayMonth} · ${time} IST`;
 };
 
 const PatientDashboard: React.FC = () => {
@@ -124,41 +143,48 @@ const PatientDashboard: React.FC = () => {
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
   const [isSessionModalOpen, setIsSessionModalOpen] = useState(false);
 
-  const [showWelcomeModal, setShowWelcomeModal] = useState(false);
+  // Closed this visit (each popup also keeps its own "done" state in storage).
+  const [welcomeClosed, setWelcomeClosed] = useState(false);
+  const [ratingClosed, setRatingClosed] = useState(false);
+  const [moodClosed, setMoodClosed] = useState(false);
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [isHotlineModalOpen, setIsHotlineModalOpen] = useState(false);
   const [isCalendarModalOpen, setIsCalendarModalOpen] = useState(false);
-  const [showRatingModal, setShowRatingModal] = useState(false);
-  const [sessionToRate, setSessionToRate] = useState<Session | null>(null);
-  const [showMoodModal, setShowMoodModal] = useState(false);
   const [moodSubmitting, setMoodSubmitting] = useState(false);
-  const [selectedDay, setSelectedDay] = useState<number>(new Date().getDate());
+  // The calendar's "today" is the IST day, as everywhere else on the page:
+  // the viewer's own date used to be used, a day out for anyone west of IST
+  // in the evening.
+  const todayIst = istToday();
+  const [selectedDay, setSelectedDay] = useState<number>(todayIst.day);
+  // Re-render every 30 s so the Up Next card's Join button appears on time
+  // (15 minutes before the start) without a reload.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   const { socket } = useDataSocket();
   const queryClient = useQueryClient();
 
-  const today = new Date();
   // The month the schedule shows; the arrows move it (it was fixed to the
   // current month, so next month's sessions couldn't be seen here).
-  const [viewMonth, setViewMonth] = useState(() => new Date(today.getFullYear(), today.getMonth(), 1));
+  const [viewMonth, setViewMonth] = useState(() => new Date(todayIst.year, todayIst.month - 1, 1));
   const year = viewMonth.getFullYear();
   const month = viewMonth.getMonth() + 1;
   const shiftMonth = (by: number) => {
     const next = new Date(viewMonth.getFullYear(), viewMonth.getMonth() + by, 1);
     setViewMonth(next);
     // Today in the current month, the 1st in any other.
-    setSelectedDay(next.getFullYear() === today.getFullYear() && next.getMonth() === today.getMonth() ? today.getDate() : 1);
+    setSelectedDay(next.getFullYear() === todayIst.year && next.getMonth() + 1 === todayIst.month ? todayIst.day : 1);
   };
 
-  // Show welcome modal only once
-  useEffect(() => {
-    if (user && user.profileCompleted === false) {
-      const hasSeenWelcome = localStorage.getItem(`welcomeModal_${user.userId}`);
-      if (!hasSeenWelcome) {
-        setShowWelcomeModal(true);
-      }
-    }
-  }, [user]);
+  // The welcome popup: once, for a profile that isn't finished. Only on a
+  // definite "not finished" — profileCompleted is undefined when the status
+  // couldn't be read, and that used to show the welcome to patients who had
+  // finished long ago.
+  const welcomeSeen = !!user && readStored(`welcomeModal_${user.userId}`) !== null;
+  const welcomeDue = !!user && user.profileCompleted === false && !welcomeSeen && !welcomeClosed;
 
   // Same key — and so the same shape, the FULL list — as the two reports
   // pages: this used to cache only the first four under it, so the reports
@@ -242,7 +268,11 @@ const PatientDashboard: React.FC = () => {
   const pendingFeedbackRetriesRef = useRef(0);
   const MAX_PENDING_FEEDBACK_RETRIES = 5;
 
-  const { data: pendingFeedbackSession } = useQuery({
+  const {
+    data: pendingFeedbackSession,
+    isFetched: feedbackFetched,
+    isFetching: feedbackFetching,
+  } = useQuery<Session | null>({
     queryKey: ['patient', 'pendingFeedback'],
     queryFn: async () => {
       const res = await fetch(`${API_CONFIG.BASE_URL}/sessions/pending-feedback`, { credentials: 'include' });
@@ -267,19 +297,21 @@ const PatientDashboard: React.FC = () => {
     }
   }, [pendingFeedbackSession]);
 
-  useEffect(() => {
-    if (pendingFeedbackSession) {
-      const dismissed = user?.userId
-        && localStorage.getItem(`ratingPromptDismissed_${user.userId}_${pendingFeedbackSession._id}`) === 'true';
-      if (!dismissed) {
-        setSessionToRate(pendingFeedbackSession);
-        setShowRatingModal(true);
-      }
-    }
-  }, [pendingFeedbackSession, user?.userId]);
+  const ratingKeyFor = (sessionId?: string) =>
+    user?.userId && sessionId ? `ratingPromptDismissed_${user.userId}_${sessionId}` : null;
+  const pendingRatingKey = ratingKeyFor(pendingFeedbackSession?._id);
+  const ratingDue = !!pendingFeedbackSession && !ratingClosed
+    && ratingPromptDue(readRatingSkip(pendingRatingKey ? readStored(pendingRatingKey) : null));
+  // Known once the first answer is in — and, straight after a call, once the
+  // short retry for the just-finished session has found it or given up.
+  const feedbackSettled = feedbackFetched && (
+    !justFinishedCallRef.current
+    || !!pendingFeedbackSession
+    || (pendingFeedbackRetriesRef.current >= MAX_PENDING_FEEDBACK_RETRIES && !feedbackFetching)
+  );
 
   // Daily mood check-in — server is source of truth for "already logged today"
-  const { data: moodToday } = useQuery({
+  const { data: moodToday, isFetched: moodFetched } = useQuery({
     queryKey: ['patient', 'moodToday'],
     queryFn: async () => {
       const res = await fetch(`${API_CONFIG.BASE_URL}/session-tools/mood/today`, { credentials: 'include' });
@@ -289,12 +321,8 @@ const PatientDashboard: React.FC = () => {
     enabled: !!user?.userId,
   });
 
-  useEffect(() => {
-    if (!moodToday || moodToday.hasLoggedToday) return;
-    const todayIso = moodToday.date;
-    const dismissedToday = !!todayIso && localStorage.getItem(`moodPromptDismissed_${user?.userId}`) === todayIso;
-    if (!dismissedToday) setShowMoodModal(true);
-  }, [moodToday, user?.userId]);
+  const moodDue = !!moodToday && !moodToday.hasLoggedToday && !moodClosed
+    && !(moodToday.date && readStored(`moodPromptDismissed_${user?.userId}`) === moodToday.date);
 
   useEffect(() => {
     const handleVisibility = () => {
@@ -335,9 +363,9 @@ const PatientDashboard: React.FC = () => {
   };
 
   const handleMoodModalClose = () => {
-    setShowMoodModal(false);
+    setMoodClosed(true);
     if (user?.userId && moodToday?.date) {
-      localStorage.setItem(`moodPromptDismissed_${user.userId}`, moodToday.date);
+      writeStored(`moodPromptDismissed_${user.userId}`, moodToday.date);
     }
   };
 
@@ -362,11 +390,12 @@ const PatientDashboard: React.FC = () => {
       const now = Date.now();
       // A session in progress ('active') stays listed whatever the clock
       // says — an instant session the doctor delayed can run past its nominal
-      // end — and a scheduled one stays until its end, not its start, so
-      // today's current session doesn't vanish from "upcoming".
+      // end — and a scheduled one stays until it can no longer be joined (the
+      // server's window, which runs later when the doctor joined late). It
+      // used to drop at the booked end, while the call could still be joined.
       return data
         .filter((s) => s.status === 'scheduled' || s.status === 'active')
-        .filter((s) => s.status === 'active' || resolveSessionEnd(s).getTime() >= now)
+        .filter((s) => s.status === 'active' || joinWindow(s).closesAt.getTime() >= now)
         .sort((a, b) => {
           if ((a.status === 'active') !== (b.status === 'active')) return a.status === 'active' ? -1 : 1;
           return getSessionDateTime(a).getTime() - getSessionDateTime(b).getTime();
@@ -430,20 +459,11 @@ const PatientDashboard: React.FC = () => {
 
   //  FALLBACK REFRESH: Detect navigation state and refresh dashboard
   useEffect(() => {
-    const state = location.state as { refreshSessions?: boolean; showRating?: boolean; sessionId?: string };
-
-    if (state?.refreshSessions) {
-      toast.success('Session booked! Refreshing dashboard...');
-      queryClient.invalidateQueries({ queryKey: ['patient', 'calendarSessions'] });
-      queryClient.invalidateQueries({ queryKey: ['patient', 'upcomingSessions'] });
-    }
+    const state = location.state as { showRating?: boolean; sessionId?: string } | null;
 
     if (state?.showRating) {
       justFinishedCallRef.current = true;
       queryClient.invalidateQueries({ queryKey: ['patient', 'pendingFeedback'] });
-    }
-
-    if (state?.refreshSessions || state?.showRating) {
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.state, navigate, location.pathname, queryClient]);
@@ -536,26 +556,33 @@ const PatientDashboard: React.FC = () => {
   });
   const testsToRender = sortedTestIds.slice(0, 4);
 
-  // Welcome, rating, and mood check-in are mutually exclusive full-screen modals.
-  //
-  // And at most ONE per visit: a new patient used to get the welcome, then the
-  // rating prompt, then the mood check-in, one after another. The first that
-  // is due shows (a just-finished session's rating comes first); the others
-  // wait for a later visit — each keeps its own "already done" state.
-  const dueDashboardModal: 'welcome' | 'rating' | 'mood' | null = showRatingModal
-    ? 'rating'
-    : showWelcomeModal
-      ? 'welcome'
-      : showMoodModal
-        ? 'mood'
-        : null;
-  const [visitPopup, setVisitPopup] = useState<'welcome' | 'rating' | 'mood' | null>(null);
+  // Welcome, rating and mood check-in: at most one per visit, chosen once all
+  // three are known (see utils/dashboardPopups). The others wait for a later
+  // visit; each keeps its own "already done" state.
+  const popupDue: Record<DashboardPopup, boolean> = { welcome: welcomeDue, rating: ratingDue, mood: moodDue };
+  const popupsSettled = !!user && feedbackSettled && moodFetched;
+  const [visitPopup, setVisitPopup] = useState<DashboardPopup | 'none' | null>(null);
+  const nextVisitPopup = chooseVisitPopup({ chosen: visitPopup, settled: popupsSettled, due: popupDue });
   useEffect(() => {
-    if (dueDashboardModal && !visitPopup) setVisitPopup(dueDashboardModal);
-  }, [dueDashboardModal, visitPopup]);
-  const activeDashboardModal = dueDashboardModal && dueDashboardModal === (visitPopup || dueDashboardModal)
-    ? dueDashboardModal
-    : null;
+    if (nextVisitPopup !== visitPopup) setVisitPopup(nextVisitPopup);
+  }, [nextVisitPopup, visitPopup]);
+  const activeDashboardModal = activePopup(visitPopup, { welcome: welcomeClosed, rating: ratingClosed, mood: moodClosed });
+  // The session being rated, kept while the prompt is open: rating it makes
+  // pending-feedback come back empty, and the prompt's wrap-up must not vanish.
+  const [ratingSession, setRatingSession] = useState<Session | null>(null);
+  if (activeDashboardModal === 'rating' && !ratingSession && pendingFeedbackSession) {
+    setRatingSession(pendingFeedbackSession);
+  }
+
+  // After "I'll do this later" on the welcome, the dashboard still says what's
+  // missing — it used to say nothing once the popup was gone.
+  const profileNudge = !user || activeDashboardModal === 'welcome'
+    ? null
+    : user.profileCompleted === false
+      ? { title: 'Finish your profile', text: 'A few details help your therapist get to know you. It takes a minute.' }
+      : user.profileCompleted === true && !hasEmergencyContact(user.emergencyContact)
+        ? { title: 'Add an emergency contact', text: 'You’ll need one before you can join a session.' }
+        : null;
 
   const nextSessionRelative = nextSession ? relativeDayLabel(nextSession) : null;
 
@@ -573,8 +600,8 @@ const PatientDashboard: React.FC = () => {
       <WelcomeModal
         isOpen={activeDashboardModal === 'welcome'}
         onClose={() => {
-          setShowWelcomeModal(false);
-          if (user) localStorage.setItem(`welcomeModal_${user.userId}`, 'true');
+          setWelcomeClosed(true);
+          if (user) writeStored(`welcomeModal_${user.userId}`, 'true');
         }}
       />
 
@@ -719,17 +746,24 @@ const PatientDashboard: React.FC = () => {
             <div className="flex gap-2.5">
               {MOOD_DOTS.map((m) => {
                 const isSelected = !!moodToday?.hasLoggedToday && moodToday?.entry?.mood === m.value;
+                // The selected dot gets a white gap and an outer ring in its
+                // colour; it used to get a border the same colour as its fill,
+                // so the choice didn't show.
                 return (
                   <button
                     key={m.value}
                     title={m.label}
+                    aria-label={`Mood: ${m.label}`}
+                    aria-pressed={isSelected}
                     disabled={moodSubmitting}
                     onClick={() => handleMoodDotClick(m.value)}
                     style={{
                       width: 22,
                       height: 22,
                       borderRadius: '50%',
-                      border: `2px solid ${isSelected ? m.color : 'transparent'}`,
+                      border: `2px solid ${isSelected ? '#fff' : 'transparent'}`,
+                      boxShadow: isSelected ? `0 0 0 2px ${m.color}` : 'none',
+                      transform: isSelected ? 'scale(1.12)' : 'none',
                       background: m.color,
                       cursor: moodSubmitting ? 'default' : 'pointer',
                       padding: 0,
@@ -760,7 +794,7 @@ const PatientDashboard: React.FC = () => {
             </button>
             <button
               onClick={() => navigate('/messages')}
-              aria-label="Messages"
+              aria-label={unreadCount > 0 ? `Messages, ${unreadCount} unread` : 'Messages'}
               className="flex items-center justify-center relative"
               style={{ width: 40, height: 40, borderRadius: '50%', border: '1px solid rgba(27,43,46,.15)', background: '#fff', cursor: 'pointer' }}
             >
@@ -769,7 +803,7 @@ const PatientDashboard: React.FC = () => {
               </svg>
               {unreadCount > 0 && (
                 <span style={{ position: 'absolute', top: -2, right: -2, background: '#e05d4c', color: '#fff', fontSize: 9, fontWeight: 700, borderRadius: '50%', minWidth: 16, height: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px' }}>
-                  {unreadCount}
+                  {unreadCount > 9 ? '9+' : unreadCount}
                 </span>
               )}
             </button>
@@ -812,7 +846,7 @@ const PatientDashboard: React.FC = () => {
                   {activeInstantSession.acceptanceStatus === 'accepted'
                     ? 'has accepted and is joining'
                     : activeInstantSession.acceptanceStatus === 'delayed' && activeInstantSession.delayedUntil
-                      ? `will join at ${new Date(activeInstantSession.delayedUntil).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: PLATFORM_TIMEZONE })}`
+                      ? `will join at ${new Date(activeInstantSession.delayedUntil).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: PLATFORM_TIMEZONE })} IST`
                       : 'is being notified'}
                 </span>
               </div>
@@ -834,8 +868,25 @@ const PatientDashboard: React.FC = () => {
       {nextSession && (
         <SessionDayBanner
           session={nextSession}
-          hasEmergencyContact={!!(user?.emergencyContact?.name && user?.emergencyContact?.phone)}
+          hasEmergencyContact={hasEmergencyContact(user?.emergencyContact)}
         />
+      )}
+
+      {profileNudge && (
+        <div className="relative z-10 px-4 sm:px-6 lg:px-11 pt-3 max-w-[1600px] mx-auto w-full">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 justify-between" style={{ ...cardStyle, padding: '12px 18px' }}>
+            <div className="min-w-0">
+              <div style={{ fontWeight: 600, fontSize: 13.5, color: T.text }}>{profileNudge.title}</div>
+              <div style={{ fontSize: 12.5, color: T.text2 }}>{profileNudge.text}</div>
+            </div>
+            <button
+              onClick={() => navigate('/patient-profile-setup')}
+              style={{ background: '#fff', color: T.teal, border: '1px solid rgba(31,122,140,.35)', borderRadius: 100, padding: '8px 18px', fontWeight: 600, fontSize: 12.5, cursor: 'pointer', whiteSpace: 'nowrap' }}
+            >
+              {user?.profileCompleted === false ? 'Finish profile' : 'Add contact'}
+            </button>
+          </div>
+        </div>
       )}
 
       {/* ── Main content ── */}
@@ -977,7 +1028,7 @@ const PatientDashboard: React.FC = () => {
                         >
                           <span className="min-w-0">
                             <span style={{ display: 'block', fontWeight: 600, fontSize: 13, color: T.text }}>
-                              {formatSessionClock(getSessionDateTime(s), 'en-US')} · {s.doctorId?.firstName ? `Dr. ${s.doctorId.firstName} ${s.doctorId.lastName || ''}`.trim() : 'Your therapist'}
+                              {formatSessionClock(getSessionDateTime(s), 'en-US')} IST · {s.doctorId?.firstName ? `Dr. ${s.doctorId.firstName} ${s.doctorId.lastName || ''}`.trim() : 'Your therapist'}
                             </span>
                             <span style={{ display: 'block', fontSize: 12, color: T.text2 }}>
                               {(s as UpcomingSession).callMode || 'Video Calling'} · {s.duration || 60} min
@@ -1006,16 +1057,16 @@ const PatientDashboard: React.FC = () => {
             <div className="grid grid-cols-2 auto-rows-fr gap-2" data-testid="patient-screening-tiles">
               {testsToRender.map((testId) => {
                 const testDef = MENTAL_HEALTH_TESTS[testId];
-                let testName = testDef ? testDef.name : testId;
-                let maxScore = testDef ? testDef.scoring.maxScore : 100;
+                const testName = testDef ? testDef.name : testId;
+                const maxScore = testDef ? testDef.scoring.maxScore : 100;
 
                 const scoreData = latestScores[testId];
                 const hasScore = !!scoreData;
                 const score = hasScore ? scoreData.latestScore : 0;
                 const pct = hasScore ? Math.min(100, Math.round((score / maxScore) * 100)) : 0;
-                const severity = hasScore ? getSeverityLabel(score, maxScore) : '—';
+                const severity = hasScore ? severityLabel(scoreData.latestSeverity) : '—';
                 const takenLabel = hasScore
-                  ? new Date(scoreData.latestDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                  ? formatPlatformDate(scoreData.latestDate, { month: 'short', day: 'numeric' })
                   : 'Not yet';
 
                 return (
@@ -1036,8 +1087,9 @@ const PatientDashboard: React.FC = () => {
                         misalignment appeared and disappeared on resize.
                       */}
                       <div
-                        className="min-w-0 flex items-center"
-                        style={{ fontWeight: 600, fontSize: 11, lineHeight: 1.25, color: T.text, height: 28 }}
+                        className="min-w-0"
+                        title={testName}
+                        style={{ fontWeight: 600, fontSize: 11, lineHeight: 1.25, color: T.text, height: 28, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}
                       >
                         {testName}
                       </div>
@@ -1177,7 +1229,7 @@ const PatientDashboard: React.FC = () => {
                     </button>
                   ) : (
                     <div style={{ flex: 1, alignSelf: 'center', fontSize: 12, color: T.muted }}>
-                      You can join from {formatSessionClock(new Date(joinWindow(nextSession).opensAt), 'en-US')}
+                      You can join from {formatSessionClock(new Date(joinWindow(nextSession).opensAt), 'en-US')} IST
                     </div>
                   )}
                   <button
@@ -1253,21 +1305,18 @@ const PatientDashboard: React.FC = () => {
       />
 
       {/* Auto Rating Modal */}
-      {sessionToRate && (
+      {ratingSession && (
         <RatingModal
           isOpen={activeDashboardModal === 'rating'}
-          sessionId={sessionToRate._id}
-          doctorId={sessionToRate.doctorId?._id}
-          doctorName={sessionToRate.doctorId?.lastName ? `Dr. ${sessionToRate.doctorId.firstName || ''} ${sessionToRate.doctorId.lastName}` : 'your therapist'}
+          sessionId={ratingSession._id}
+          doctorId={ratingSession.doctorId?._id}
+          doctorName={ratingSession.doctorId?.lastName ? `Dr. ${ratingSession.doctorId.firstName || ''} ${ratingSession.doctorId.lastName}` : 'your therapist'}
           onClose={() => {
-            setShowRatingModal(false);
-            if (user?.userId && sessionToRate?._id) {
-              // Persist the skip so a dismissed prompt doesn't pop back up on the
-              // next tab-focus/remount-triggered refetch (mirrors the mood
-              // check-in modal's dismiss-persistence pattern above).
-              localStorage.setItem(`ratingPromptDismissed_${user.userId}_${sessionToRate._id}`, 'true');
-            }
-            setSessionToRate(null);
+            setRatingClosed(true);
+            // A skip asks once more on a later visit, then stops for this
+            // session (it used to stop for good after one "Do this later").
+            const key = ratingKeyFor(ratingSession._id);
+            if (key) writeStored(key, JSON.stringify(nextRatingSkip(readRatingSkip(readStored(key)))));
           }}
           onSubmit={handleRatingSubmit}
         />

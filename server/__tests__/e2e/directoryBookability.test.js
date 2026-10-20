@@ -58,7 +58,7 @@ async function makeDoctor({ userOverrides = {}, profileOverrides = {} } = {}) {
     userId: user._id,
     specialization: ['Anxiety'], experience: 5, qualification: ['MPhil'],
     languages: ['English'], treatsFor: ['Anxiety'], type: 'Clinical Psychologist',
-    pricing: { min: 800, max: 2000, session20: 800 },
+    pricing: { min: 600, max: 2000, session20: 800, session40: 1500, session55: 2000, audio: { session20: 600, session40: 1200, session55: 1600 } },
     payoutApproved: true,
     bookableUntil: new Date(Date.now() + 14 * 864e5),
     ...profileOverrides
@@ -121,6 +121,13 @@ describe('who the directory lists', () => {
   test('a doctor with no price set is hidden', async () => {
     const { user } = await makeDoctor({
       profileOverrides: { pricing: { min: 0, max: 0, session20: 0 } }
+    });
+    expect(await isListed(user._id)).toBe(false);
+  });
+
+  test('a doctor with a gap in their six prices is hidden — they would be sold at a price they never set', async () => {
+    const { user } = await makeDoctor({
+      profileOverrides: { pricing: { min: 800, max: 2000, session20: 800, session40: 1500, session55: 2000, audio: { session20: 600, session40: 0, session55: 1600 } } }
     });
     expect(await isListed(user._id)).toBe(false);
   });
@@ -211,5 +218,81 @@ describe('bookableUntil is derived from the doctor\'s own calendar', () => {
     const profile = await DoctorProfile.findOne({ userId: user._id }).select('+bookableUntil');
     expect(profile.bookableUntil).toBeNull();
     expect(await isListed(user._id)).toBe(false);
+  });
+});
+
+describe('what the directory and profile show', () => {
+  test('a therapist without a photo gets none — not a stock face guessed from their first name', async () => {
+    // getGenderBasedImage used to put /female.jpg or /male.jpg under their
+    // name; the app now shows their initials instead.
+    const { user } = await makeDoctor({ userOverrides: { firstName: 'Priya' }, profileOverrides: { profileImage: '' } });
+    const list = await request(server).get('/api/sessions/doctors');
+    const listed = list.body.find((d) => String(d.userId?._id) === String(user._id));
+    expect(listed.profileImage).toBe('');
+    const one = await request(server).get(`/api/sessions/doctors/${user._id}`);
+    expect(one.body.profileImage).toBe('');
+  });
+
+  test('a real photo is passed through', async () => {
+    const url = 'https://res.cloudinary.com/demo/image/upload/v1/doctors/a.jpg';
+    const { user } = await makeDoctor({ profileOverrides: { profileImage: url } });
+    const one = await request(server).get(`/api/sessions/doctors/${user._id}`);
+    expect(one.body.profileImage).toBe(url);
+  });
+
+  test('"open days" leave out a day whose only time has already passed', async () => {
+    // getDoctorById counted any unbooked slot, so today showed as open on the
+    // strength of this morning's times and then listed none.
+    const { utcToZoned } = require('../../utils/zonedTime');
+    const now = utcToZoned(new Date(), 'Asia/Kolkata');
+    const hh = Number(now.localTime.split(':')[0]);
+    if (hh < 2) return; // needs an hour of today already behind us
+    const h = hh - 1;
+    const past = `${String((h % 12) || 12).padStart(2, '0')}:00 ${h >= 12 ? 'PM' : 'AM'}`;
+    const tomorrow = utcToZoned(new Date(Date.now() + 864e5), 'Asia/Kolkata').localDate;
+    const { user } = await makeDoctor();
+    await DoctorAvailability.create({
+      doctorId: user._id, availabilityType: 'same_slots',
+      defaultSlots: [past], activeDates: [now.localDate, tomorrow]
+    });
+    const one = await request(server).get(`/api/sessions/doctors/${user._id}`);
+    expect(one.body.openDates).not.toContain(now.localDate);
+    expect(one.body.openDates).toContain(tomorrow);
+  });
+});
+
+describe('the rule itself, outside a request', () => {
+  const { bookabilityOf, bookableProfileFilter } = require('../../services/bookability');
+  const full = { session20: 800, session40: 1500, session55: 2000, audio: { session20: 600, session40: 1200, session55: 1600 } };
+
+  test('no profile, or a gap in the six prices: not bookable at all', () => {
+    expect(bookabilityOf(null)).toEqual({ scheduled: false, instant: false });
+    expect(bookabilityOf({ payoutApproved: true, pricing: { ...full, audio: { ...full.audio, session55: 0 } }, bookableUntil: new Date(Date.now() + 864e5) }))
+      .toEqual({ scheduled: false, instant: false });
+  });
+
+  test('paid and priced but no dates ahead: instant only', () => {
+    const now = new Date();
+    expect(bookabilityOf({ payoutApproved: true, pricing: full, bookableUntil: new Date(now - 864e5) }, { now }))
+      .toEqual({ scheduled: false, instant: true });
+    expect(bookabilityOf({ payoutApproved: true, pricing: full })).toEqual({ scheduled: false, instant: true });
+  });
+
+  test('the query form asks for all six prices, and dates only when booking a time', () => {
+    const scheduled = bookableProfileFilter();
+    expect(scheduled.payoutApproved).toBe(true);
+    expect(Object.values(scheduled).filter((v) => v && v.$gt === 0)).toHaveLength(6);
+    expect(scheduled.bookableUntil.$gte).toBeInstanceOf(Date);
+    expect(bookableProfileFilter({ scheduled: false }).bookableUntil).toBeUndefined();
+  });
+
+  test('a doctor with no calendar yet gets one with the default times, once', async () => {
+    const { getOrCreateAvailability } = require('../../services/session.service');
+    const { user } = await makeDoctor();
+    const first = await getOrCreateAvailability(user._id);
+    expect(first.defaultSlots).toEqual(['09:00 AM', '11:00 AM', '03:00 PM', '05:00 PM']);
+    const again = await getOrCreateAvailability(user._id);
+    expect(String(again._id)).toBe(String(first._id));
+    expect(await DoctorAvailability.countDocuments({ doctorId: user._id })).toBe(1);
   });
 });

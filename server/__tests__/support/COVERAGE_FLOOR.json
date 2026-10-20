@@ -2,8 +2,8 @@
   "_comment": "A RATCHET, not a target. Regenerate with: node scripts/check-coverage.js --update. Values may only rise; a drop fails npm run test:coverage.",
   "_recorded": "2026-10-20",
   "_total": {
-    "statements": 87.63,
-    "branches": 78.86
+    "statements": 87.86,
+    "branches": 79.53
   },
   "files": {
     "authz/actor.js": {
@@ -96,7 +96,7 @@
     },
     "controllers/auth.controller.js": {
       "statements": 92,
-      "branches": 80
+      "branches": 80.45
     },
     "controllers/availability.controller.js": {
       "statements": 81.94,
@@ -119,20 +119,20 @@
       "branches": 95.65
     },
     "controllers/journal.controller.js": {
-      "statements": 94.87,
-      "branches": 71.42
+      "statements": 100,
+      "branches": 95.34
     },
     "controllers/moodEntry.controller.js": {
-      "statements": 96.42,
-      "branches": 82.35
+      "statements": 97.05,
+      "branches": 84.21
     },
     "controllers/note.controller.js": {
       "statements": 84,
       "branches": 100
     },
     "controllers/patient.controller.js": {
-      "statements": 82.14,
-      "branches": 59.25
+      "statements": 84.48,
+      "branches": 65.62
     },
     "controllers/payment.controller.js": {
       "statements": 80.95,
@@ -143,20 +143,20 @@
       "branches": 78.33
     },
     "controllers/profile.controller.js": {
-      "statements": 90.78,
-      "branches": 74.23
+      "statements": 92.16,
+      "branches": 80.45
     },
     "controllers/report.controller.js": {
       "statements": 76.19,
       "branches": 55.55
     },
     "controllers/review.controller.js": {
-      "statements": 73.33,
-      "branches": 74.03
+      "statements": 75.69,
+      "branches": 79.31
     },
     "controllers/session.controller.js": {
-      "statements": 88.48,
-      "branches": 76.51
+      "statements": 88.85,
+      "branches": 77.57
     },
     "controllers/sessionReport.controller.js": {
       "statements": 95.55,
@@ -291,7 +291,7 @@
       "branches": 100
     },
     "routes/seo.js": {
-      "statements": 82.6,
+      "statements": 82.97,
       "branches": 40
     },
     "routes/sessionReports.js": {
@@ -331,8 +331,8 @@
       "branches": 95.45
     },
     "services/bookability.js": {
-      "statements": 91.66,
-      "branches": 82.35
+      "statements": 100,
+      "branches": 100
     },
     "services/cache.service.js": {
       "statements": 100,
@@ -391,8 +391,8 @@
       "branches": 89.38
     },
     "services/session.service.js": {
-      "statements": 91.66,
-      "branches": 91.17
+      "statements": 96.55,
+      "branches": 96.15
     },
     "services/sessionEnding.js": {
       "statements": 93.81,
@@ -400,7 +400,7 @@
     },
     "services/sessionOutcomes.js": {
       "statements": 89.78,
-      "branches": 77.77
+      "branches": 76.85
     },
     "services/sessionPayment.js": {
       "statements": 82.55,
@@ -443,8 +443,8 @@
       "branches": 92.68
     },
     "utils/assessmentScoring.js": {
-      "statements": 95.71,
-      "branches": 94.44
+      "statements": 96.25,
+      "branches": 95.23
     },
     "utils/cloudinaryUrl.js": {
       "statements": 100,
@@ -460,6 +460,10 @@
     },
     "utils/otpGenerator.js": {
       "statements": 90,
+      "branches": 80
+    },
+    "utils/phone.js": {
+      "statements": 89.65,
       "branches": 80
     },
     "utils/socketEmitter.js": {

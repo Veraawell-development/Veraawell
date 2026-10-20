@@ -32,11 +32,8 @@ const escapeXml = (unsafe) => {
  * were listed if they had verified an email.
  */
 async function indexableDoctors() {
-    const profiles = await DoctorProfile.find({
-        payoutApproved: true,
-        'pricing.min': { $gt: 0 },
-        bookableUntil: { $gte: new Date() }
-    })
+    const { bookableProfileFilter } = require('../services/bookability');
+    const profiles = await DoctorProfile.find(bookableProfileFilter({ scheduled: true }))
         .select('userId updatedAt')
         .populate({
             path: 'userId',

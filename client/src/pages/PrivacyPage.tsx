@@ -86,7 +86,7 @@ export default function PrivacyPage() {
             <FiShield style={{ color: 'var(--teal)' }} size={24} className="mb-4" />
             <h3 className="text-lg font-medium mb-2" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>End-to-End Privacy</h3>
             <p className="text-sm leading-relaxed font-sans" style={{ color: 'var(--text-2)' }}>
-              Your session recordings and therapist conversations are completely secure and confidential.
+              Your sessions are never recorded, and your conversations with your therapist stay private and confidential.
             </p>
           </div>
 
@@ -103,7 +103,7 @@ export default function PrivacyPage() {
             <FiLock style={{ color: 'var(--sage)' }} size={24} className="mb-4" />
             <h3 className="text-lg font-medium mb-2" style={{ color: 'var(--text)', fontFamily: 'var(--font-display)' }}>Data Control</h3>
             <p className="text-sm leading-relaxed font-sans" style={{ color: 'var(--text-2)' }}>
-              You retain full ownership. You can download, update, or request permanent deletion of your account at any time.
+              You retain full ownership. You can update your details, or delete your account yourself in Settings, at any time.
             </p>
           </div>
         </motion.div>
@@ -186,7 +186,7 @@ export default function PrivacyPage() {
               4. Data Deletion & Your Rights
             </h2>
             <p className="text-base leading-relaxed font-sans" style={{ color: 'var(--text-2)' }}>
-              Users may request deletion of their account and personal data by contacting us at support@veraawell.com. We will process such requests within a reasonable period, subject to applicable legal and regulatory requirements.
+              You can delete your account yourself at any time from Settings → Delete Account. If you need help, or want to ask what we hold about you, write to support@veraawell.com and we will respond within a reasonable period, subject to applicable legal and regulatory requirements.
             </p>
           </section>
 
@@ -214,13 +214,13 @@ export default function PrivacyPage() {
 
           {/* Contact CTA */}
           <div className="mt-12 p-8 rounded-3xl bg-[var(--dark-bg)] text-center">
-            <p className="text-[var(--dark-text-2)] font-sans mb-4">Would you like to request a data export or account deletion?</p>
+            <p className="text-[var(--dark-text-2)] font-sans mb-4">A question about your data or your privacy?</p>
             <a 
-              href="mailto:privacy@veraawell.com" 
+              href="mailto:support@veraawell.com" 
               className="inline-flex items-center justify-center px-6 py-3 rounded-full font-medium transition-colors"
               style={{ background: 'var(--teal)', color: 'white' }}
             >
-              Contact Privacy Officer
+              Write to support@veraawell.com
             </a>
           </div>
 

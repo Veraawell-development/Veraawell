@@ -101,10 +101,33 @@ const outcomeCode = (session: SessionLike): string | null => {
 const refunded = (session: SessionLike) =>
   session.paymentStatus === 'refunded' || session.paymentStatus === 'refund_pending';
 
+/**
+ * Where a refund is, in a few words. `refund_pending` used to read
+ * "refunded" — the money hadn't arrived, and the patient was told it had.
+ * Null when no refund is under way or done.
+ */
+export function refundStatusText(session: SessionLike): string | null {
+  switch (session.paymentStatus) {
+    case 'refunded': return session.refundAmount ? `refunded ₹${session.refundAmount}` : 'refunded';
+    case 'refund_pending': return 'refund started — 5–7 working days';
+    case 'refund_failed': return "refund delayed — we're on it";
+    default: return null;
+  }
+}
+
 /** For an outcome that owes a refund: where that refund actually is. */
 const refundState = (session: SessionLike) => {
-  if (refunded(session)) return 'refunded';
-  if (session.paymentStatus === 'refund_failed') return 'refund being retried';
+  const text = refundStatusText(session);
+  if (text) return text;
+  if (session.paymentStatus === 'not_required') return 'nothing was charged';
+  return 'refund pending';
+};
+
+/** The same, for the therapist: about the patient's refund, never an amount. */
+const patientRefundState = (session: SessionLike) => {
+  if (session.paymentStatus === 'refunded') return 'refunded';
+  if (session.paymentStatus === 'refund_pending') return 'refund started';
+  if (session.paymentStatus === 'refund_failed') return 'refund delayed';
   if (session.paymentStatus === 'not_required') return 'nothing was charged';
   return 'refund pending';
 };
@@ -117,9 +140,8 @@ export function outcomeLabel(session: SessionLike, viewer: 'patient' | 'doctor')
   const status = session.status || '';
   if (LIVE.includes(status) || status === 'payment_pending') return null;
   const code = outcomeCode(session);
-  const amount = session.refundAmount || session.price || 0;
-  const refund = refundState(session);
   const patient = viewer === 'patient';
+  const refund = patient ? refundState(session) : patientRefundState(session);
 
   if (status === 'completed') {
     return code === 'ended_by_consent'
@@ -140,8 +162,8 @@ export function outcomeLabel(session: SessionLike, viewer: 'patient' | 'doctor')
       case 'nobody_came':
         return { label: `Nobody joined — ${patient ? refund : `patient ${refund}`}`, tone: 'neutral' };
       default:
-        return refunded(session)
-          ? { label: 'No-show — refunded', tone: 'neutral' }
+        return refunded(session) || session.paymentStatus === 'refund_failed'
+          ? { label: `No-show — ${refund}`, tone: 'neutral' }
           : { label: 'No-show', tone: 'neutral' };
     }
   }
@@ -169,10 +191,40 @@ export function outcomeLabel(session: SessionLike, viewer: 'patient' | 'doctor')
       case 'checkout_abandoned':
         return { label: 'Payment not completed', tone: 'neutral' };
       default:
-        if (refunded(session)) return { label: patient ? `Cancelled — refunded ₹${amount}` : 'Cancelled — patient refunded', tone: 'neutral' };
-        if (session.paymentStatus === 'refund_failed') return { label: 'Cancelled — refund being retried', tone: 'warn' };
+        if (refunded(session)) return { label: patient ? `Cancelled — ${refund}` : `Cancelled — patient ${refund}`, tone: 'neutral' };
+        if (session.paymentStatus === 'refund_failed') return { label: patient ? `Cancelled — ${refund}` : `Cancelled — patient ${refund}`, tone: 'warn' };
+        if (session.paymentStatus === 'not_required') return { label: 'Cancelled', tone: 'neutral' };
         return { label: 'Cancelled — no refund', tone: 'neutral' };
     }
   }
   return null;
+}
+
+/** What a cancel response said happened to the money (server: cancelSession). */
+export interface CancelResult {
+  refundAmount?: number;
+  refundState?: 'issued' | 'failed' | 'none' | 'unpaid';
+  lateCancellation?: boolean;
+}
+
+const FULL_REFUND = (amount: number) => `Session cancelled. Full refund of ₹${amount} — it reaches your account in 5–7 working days.`;
+const NO_REFUND = 'Session cancelled. No refund — it was within 4 hours of the start, so your therapist is paid for the reserved time.';
+
+/**
+ * The patient's confirmation after cancelling, from the server's answer — not
+ * from the preview, which can be on the wrong side of the 4-hour mark by the
+ * time Cancel is pressed. It used to say "a refund if applicable".
+ */
+export function cancelResultMessage(result: CancelResult): string {
+  const amount = result.refundAmount || 0;
+  switch (result.refundState) {
+    case 'issued': return FULL_REFUND(amount);
+    case 'failed': return `Session cancelled. Your refund of ₹${amount} is delayed — we're on it and will email you.`;
+    case 'unpaid': return 'Session cancelled. Nothing was charged.';
+    case 'none': return NO_REFUND;
+    default:
+      // An older server sent only the amount.
+      if (amount > 0) return FULL_REFUND(amount);
+      return result.lateCancellation ? NO_REFUND : 'Session cancelled.';
+  }
 }

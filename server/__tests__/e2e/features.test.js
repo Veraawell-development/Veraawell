@@ -214,13 +214,52 @@ describe('mental health assessments', () => {
     expect(res.status).toBe(201);
     const saved = await Models.Assessment.findOne({ userId: f.patientA._id }).lean();
     expect(saved.responses.map((r) => r.questionId)).toEqual([1, 5, 6, 7]);
-    expect(saved.scores.total).toBe(3);
+    // Q1 (the area picker) is stored but not scored: two "yes" out of the
+    // drugs path's three questions.
+    expect(saved.scores).toMatchObject({ total: 2, percentage: 67, severity: 'moderate' });
+    expect(saved.testVersion).toBe('2.0');
 
     // And the branch's own questions are required.
     const partial = await call('post', '/api/assessments', tokens.patientA, {
       testType: 'addiction', scores: claimed, responses: [{ questionId: 1, answer: 1 }, { questionId: 5, answer: 1 }]
     });
     expect(partial.status).toBe(400);
+  });
+
+  test('PTSD: a patient who answers "no" to Q1 can finish and save', async () => {
+    // Q1 asks whether the symptom questions may follow; "no" ends the test
+    // after the past-experience questions. The server used to demand all 24
+    // answers, so this path ended on "Missing answers for question(s) 10…".
+    const responses9 = Array.from({ length: 9 }, (_, i) => ({ questionId: i + 1, answer: i === 0 ? 0 : (i % 2) }));
+    const res = await call('post', '/api/assessments', tokens.patientA, { testType: 'ptsd', responses: responses9, scores: claimed });
+    expect(res.status).toBe(201);
+    expect(res.body.assessment.scores).toMatchObject({ total: 4, severity: 'minimal' });
+  });
+
+  test('the rescore migration: dry run changes nothing; apply rescores old results once', async () => {
+    const { rescoreAssessments } = require('../../migrations/rescoreAssessments');
+    const db = require('mongoose').connection.db;
+    const col = db.collection('mentalhealthassessments');
+    // Scored under the old rules: item 10 counted (24 → "severe"), the
+    // addiction picker counted (1 + 2 = 3 → "mild").
+    const phq = [...Array.from({ length: 8 }, (_, i) => ({ questionId: i + 1, answer: 2 })), { questionId: 9, answer: 1 }, { questionId: 10, answer: 3 }];
+    await col.insertMany([
+      { userId: f.patientA._id, testType: 'depression', responses: phq, scores: { total: 20, severity: 'severe', percentage: 67 }, testVersion: '1.0', completedAt: new Date() },
+      { userId: f.patientA._id, testType: 'addiction', responses: [{ questionId: 1, answer: 1 }, { questionId: 5, answer: 1 }, { questionId: 6, answer: 1 }, { questionId: 7, answer: 0 }], scores: { total: 3, severity: 'mild', percentage: 30 }, testVersion: '1.0', completedAt: new Date() },
+      { userId: f.patientA._id, testType: 'dla20', responses: [], scores: { total: 1, severity: 'mild', percentage: 1 }, testVersion: '1.0', completedAt: new Date() }
+    ]);
+
+    const dry = await rescoreAssessments(db);
+    expect(dry).toMatchObject({ scanned: 3, changed: 2, severityChanged: 2, skipped: 1 });
+    expect(dry.moves).toEqual({ 'depression: severe → moderately-severe': 1, 'addiction: mild → moderate': 1 });
+    expect((await col.findOne({ testType: 'depression' })).scores.total).toBe(20);
+
+    const done = await rescoreAssessments(db, { apply: true });
+    expect(done.changed).toBe(2);
+    expect((await col.findOne({ testType: 'depression' }))).toMatchObject({ scores: { total: 17, severity: 'moderately-severe', percentage: 63 }, testVersion: '2.0' });
+    expect((await col.findOne({ testType: 'addiction' })).scores).toMatchObject({ total: 2, severity: 'moderate' });
+    expect((await col.findOne({ testType: 'dla20' })).scores.total).toBe(1);
+    expect(await rescoreAssessments(db, { apply: true })).toMatchObject({ changed: 0 });
   });
 
   test('DLA-20 is refused rather than saved with the client\'s own score', async () => {
@@ -258,6 +297,25 @@ describe('mood check-in', () => {
 
     const huge = await call('get', '/api/session-tools/mood/history?days=99999', tokens.patientA);
     expect(huge.status).toBe(200);
+  });
+
+  test('history is the last N IST calendar days, not the last N entries', async () => {
+    const istDate = (daysAgo) => {
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+      const d = new Date(`${today}T12:00:00Z`);
+      d.setUTCDate(d.getUTCDate() - daysAgo);
+      return d.toISOString().slice(0, 10);
+    };
+    // Two recent check-ins and one from five weeks ago: a "last 14" window
+    // must not reach back for the old one just because there are few entries.
+    await Models.MoodEntry.insertMany([0, 13, 35].map((ago, i) => ({
+      patientId: f.patientA._id, date: istDate(ago), mood: i + 1, label: Models.MoodEntry.MOOD_LABELS[i]
+    })));
+
+    const res = await call('get', '/api/session-tools/mood/history?days=14', tokens.patientA);
+    expect(res.status).toBe(200);
+    expect(res.body.entries.map((e) => e.date)).toEqual([istDate(0), istDate(13)]);
+    expect(res.body).toMatchObject({ from: istDate(13), to: istDate(0) });
   });
 
   test('the note\'s 280-character limit is enforced on the upsert path', async () => {
@@ -307,6 +365,52 @@ describe('journal', () => {
       expect((await call('delete', `/api/session-tools/journal/${entry._id}`, tokens[who])).status).toBe(403);
     }
     expect(await Models.Journal.countDocuments({})).toBe(1);
+  });
+
+  test('blank or oversized entries are refused with a readable reason; edits are checked too', async () => {
+    const post = (body) => call('post', '/api/session-tools/journal', tokens.patientA, body);
+    const blank = await post({ title: '   ', content: 'something' });
+    expect(blank.status).toBe(400);
+    expect(blank.body.message).toMatch(/title/);
+    expect((await post({ title: 'ok', content: '\n  \n' })).status).toBe(400);
+    expect((await post({ title: 'x'.repeat(201), content: 'ok' })).status).toBe(400);
+    expect((await post({ title: 'ok', content: 'x'.repeat(20001) })).status).toBe(400);
+    expect((await post({ title: { $ne: '' }, content: 'ok' })).status).toBe(400);
+    expect(await Models.Journal.countDocuments({})).toBe(0);
+
+    const created = await post({ title: '  Morning  ', content: 'fine  ' });
+    expect(created.status).toBe(201);
+    expect(created.body.journal).toMatchObject({ title: 'Morning', content: 'fine' });
+    const id = created.body.journal._id;
+    expect((await call('put', `/api/session-tools/journal/${id}`, tokens.patientA, { title: '' })).status).toBe(400);
+    const moodOnly = await call('put', `/api/session-tools/journal/${id}`, tokens.patientA, { mood: 'Calm' });
+    expect(moodOnly.status).toBe(200);
+    expect(moodOnly.body.journal).toMatchObject({ title: 'Morning', mood: 'Calm' });
+
+    // Tags and mood: bounded too, trimmed, blanks dropped.
+    expect((await post({ title: 'ok', content: 'ok', tags: 'not-a-list' })).status).toBe(400);
+    expect((await post({ title: 'ok', content: 'ok', tags: Array.from({ length: 21 }, (_, i) => `t${i}`) })).status).toBe(400);
+    expect((await post({ title: 'ok', content: 'ok', tags: ['x'.repeat(41)] })).status).toBe(400);
+    expect((await post({ title: 'ok', content: 'ok', tags: [{ $gt: '' }] })).status).toBe(400);
+    expect((await post({ title: 'ok', content: 'ok', mood: 'x'.repeat(51) })).status).toBe(400);
+    const tagged = await post({ title: 'Tagged', content: 'ok', mood: ' Calm ', tags: [' sleep ', '', 'work'] });
+    expect(tagged.status).toBe(201);
+    expect(tagged.body.journal).toMatchObject({ mood: 'Calm', tags: ['sleep', 'work'] });
+  });
+
+  test('the list pages through every entry and says when there are older ones', async () => {
+    const base = Date.now();
+    await Models.Journal.insertMany(Array.from({ length: 23 }, (_, i) => ({
+      patientId: f.patientA._id, title: `Entry ${i}`, content: 'c', createdAt: new Date(base - i * 60000)
+    })));
+    const url = (page) => `/api/session-tools/journal/patient/${f.patientA._id}?page=${page}`;
+    const first = await call('get', url(1), tokens.patientA);
+    expect(first.body).toMatchObject({ hasMore: true, limit: 20 });
+    expect(first.body.journals).toHaveLength(20);
+    expect(first.body.journals[0].title).toBe('Entry 0');
+    const second = await call('get', url(2), tokens.patientA);
+    expect(second.body.hasMore).toBe(false);
+    expect(second.body.journals.map((j) => j.title)).toEqual(['Entry 20', 'Entry 21', 'Entry 22']);
   });
 });
 
@@ -802,11 +906,13 @@ describe('reviews', () => {
     return review;
   }
 
-  test('a public review names the patient by first name and last initial only', async () => {
+  test('a public therapist review names nobody: it is "Verified patient"', async () => {
     // Both public endpoints populated `firstName lastName` and returned the
     // whole document, so an anonymous caller could read the full name of a
     // person in therapy, their account id, the moderator's notes and the
-    // private "improvements" feedback meant for the doctor.
+    // private "improvements" feedback meant for the doctor. Then it was first
+    // name + last initial; next to a named therapist even that can out a
+    // patient, so a therapist review is now anonymous (Phase 5 decision).
     const review = await approvedReview({ improvements: 'private-improvement-marker' });
     await Models.Review.updateOne({ _id: review._id }, { adminNotes: 'admin-notes-marker' });
 
@@ -815,8 +921,9 @@ describe('reviews', () => {
     expect(res.body.reviews).toHaveLength(1);
     const [shown] = res.body.reviews;
 
-    expect(shown.patientId).toEqual({ firstName: f.patientA.firstName, lastName: f.patientA.lastName.charAt(0) });
+    expect(shown.patientId).toEqual({ firstName: 'Verified patient', lastName: '' });
     const raw = JSON.stringify(res.body);
+    expect(raw).not.toContain(f.patientA.firstName);
     expect(raw).not.toContain(f.patientA.lastName);
     expect(raw).not.toContain(String(f.patientA._id));
     expect(raw).not.toMatch(/private-improvement-marker|admin-notes-marker/);
@@ -824,12 +931,37 @@ describe('reviews', () => {
     expect(shown).toMatchObject({ rating: 5, feedback: 'Helpful' });
   });
 
-  test('a review whose author account is gone is shown as Anonymous rather than crashing the page', async () => {
+  test('a review whose author account is gone is still shown, without crashing the page', async () => {
     const review = await approvedReview();
     await Models.Review.updateOne({ _id: review._id }, { patientId: new mongoose.Types.ObjectId() });
 
     const res = await request(server).get(`/api/reviews/doctor/${f.doctorA._id}`);
-    expect(res.body.reviews[0].patientId).toEqual({ firstName: 'Anonymous', lastName: '' });
+    expect(res.body.reviews[0].patientId).toEqual({ firstName: 'Verified patient', lastName: '' });
+  });
+
+  test('a star-only rating is stored with no comment, and is never shown as a filler quote', async () => {
+    const s = await completedSession();
+    const res = await call('post', '/api/reviews/submit', tokens.patientA, { sessionId: String(s._id), reviewType: 'doctor', rating: 4 });
+    expect(res.status).toBe(201);
+    expect((await Models.Review.findOne({ sessionId: s._id })).feedback).toBe('');
+
+    // A row from before: the form sent "No additional comments provided.".
+    const old = await completedSession();
+    await Models.Review.create({
+      sessionId: old._id, patientId: f.patientA._id, doctorId: f.doctorA._id, reviewType: 'doctor', rating: 5,
+      feedback: 'No additional comments provided.', approvedForDisplay: true, isPublic: true
+    });
+    const list = await request(server).get(`/api/reviews/doctor/${f.doctorA._id}`);
+    expect(list.body.reviews.map((r) => r.feedback)).toEqual(['', '']);
+  });
+
+  test('a comment that is not text, or is very long, is refused', async () => {
+    const s = await completedSession();
+    const notText = await call('post', '/api/reviews/submit', tokens.patientA, { sessionId: String(s._id), reviewType: 'doctor', rating: 4, feedback: { a: 1 } });
+    expect(notText.status).toBe(400);
+    const tooLong = await call('post', '/api/reviews/submit', tokens.patientA, { sessionId: String(s._id), reviewType: 'doctor', rating: 4, feedback: 'x'.repeat(2001) });
+    expect(tooLong.status).toBe(400);
+    expect(await Models.Review.countDocuments({ sessionId: s._id })).toBe(0);
   });
 
   test('a platform review is not on the landing page until an admin approves it', async () => {

@@ -19,6 +19,9 @@ import { API_URL } from './helpers';
 async function arriveAtDashboard(page: Page) {
   await page.goto('/patient-dashboard');
   await expect(page.getByText('YOUR DASHBOARD')).toBeVisible({ timeout: 20_000 });
+  // The one popup a visit gets is chosen once its three sources have all
+  // answered (utils/dashboardPopups), so let those requests land first.
+  await page.waitForLoadState('networkidle').catch(() => {});
 
   for (const name of [/I'll do this later/i, /^Close$/]) {
     const btn = page.getByRole('button', { name }).first();
@@ -299,17 +302,20 @@ test.describe('the DLA-20 screening', () => {
 });
 
 test.describe('booking', () => {
-  test('the directory opens on "Available Now" and shows nothing when no one is online', async ({ page }) => {
-    // Arriving without location.state defaults to the online-only view, so a
-    // patient who navigates straight to /choose-professional sees an empty
-    // directory whenever no therapist happens to be toggled online — even
-    // though bookable doctors exist.
+  test('the directory opens on "All", not on an empty "Available Now"', async ({ page }) => {
+    // It used to default to the online-only view, so a patient arriving at
+    // /choose-professional saw "No professionals online" whenever no
+    // therapist happened to be online — even though bookable doctors exist.
     await page.goto('/choose-professional');
     await expect(page.getByText('Find Your Therapist')).toBeVisible({ timeout: 25_000 });
+    await expect(page.getByText('All Professionals')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText('2 available')).toBeVisible();
+    // The online tab is still one click away, and says so when it is empty.
+    await page.getByRole('button', { name: 'Available Now' }).click();
     await expect(page.getByText(/No professionals online/i)).toBeVisible({ timeout: 15_000 });
   });
 
-  test('switching to "All" reveals the bookable doctors', async ({ page }) => {
+  test('the "All" tab lists the bookable doctors', async ({ page }) => {
     await page.goto('/choose-professional');
     await expect(page.getByText('Find Your Therapist')).toBeVisible({ timeout: 25_000 });
 
@@ -321,7 +327,8 @@ test.describe('booking', () => {
     // Both seeded doctors render with their real qualification, server-priced
     // session fee and treated conditions.
     await expect(page.getByText('MPhil Clinical Psychology').first()).toBeVisible();
-    await expect(page.getByText(/₹800\/session/).first()).toBeVisible();
+    // The lowest of the six seeded prices: a 20-minute voice session.
+    await expect(page.getByText(/From\s*₹600/).first()).toBeVisible();
     await expect(page.getByRole('button', { name: /Book Session/i }).first()).toBeVisible();
   });
 
@@ -333,7 +340,7 @@ test.describe('booking', () => {
     await expect(page.getByText(/EXPERIENCE/i).first()).toBeVisible();
     await expect(page.getByText(/8\+ years/)).toBeVisible();
     // Server-authoritative pricing from the seeded profile.
-    await expect(page.getByText(/Rs\.\s*800/)).toBeVisible();
+    await expect(page.getByText('₹800', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: /Book Appointment/i })).toBeVisible();
   });
 
@@ -367,44 +374,79 @@ test.describe('role enforcement', () => {
   });
 });
 
-test.describe('missing images', () => {
-  test('a deleted asset answers 200 with HTML instead of 404ing', async ({ page }) => {
-    // This is why the breakage is invisible to monitoring. The SPA fallback —
-    // Vite's in development, the catch-all rewrite in client/vercel.json in
-    // production — serves index.html for any unmatched path, so a request for
-    // a deleted image succeeds with Content-Type: text/html. Nothing logs a
-    // 404, and only the rendered page shows the failure.
-    for (const asset of ['/priya.png', '/profile-main.jpg']) {
+test.describe('landing images', () => {
+  /**
+   * These three tests used to assert the images WERE broken (a characterisation
+   * of /priya.png and /profile-main.jpg answering 200 text/html). The files are
+   * in client/public; what is checked now is that every image on the page
+   * actually decodes. A missing asset is caught here locally too: Vite's SPA
+   * fallback answers it with index.html, which decodes to naturalWidth 0.
+   * That production now answers a missing asset with 404 instead of the SPA
+   * page is the vercel.json rewrite rule (src/__tests__/vercelRewrite.test.ts).
+   */
+  const brokenImages = (page: Page) => page.evaluate(() => [...document.querySelectorAll('img')]
+    .filter((i) => i.complete && i.naturalWidth === 0 && i.getAttribute('src'))
+    .map((i) => i.getAttribute('src')));
+
+  test('the assets the pages use are served as images, not as the SPA page', async ({ page }) => {
+    for (const asset of ['/priya.webp', '/anjali.webp', '/rohit.webp', '/profile-main.jpg']) {
       const res = await page.request.get(asset);
-      expect(res.status()).toBe(200);
-      expect(res.headers()['content-type']).toContain('text/html');
+      expect([asset, res.status()]).toEqual([asset, 200]);
+      expect(res.headers()['content-type']).toMatch(/^image\//);
     }
   });
 
-  test('the landing page renders broken images', async ({ page }) => {
-    // An <img> whose response is HTML decodes to nothing: complete, with
-    // naturalWidth 0. That is the only reliable signal here.
+  test('every image on the landing page loads', async ({ page }) => {
     await page.goto('/');
-    await page.waitForTimeout(3000);
-
-    const broken = await page.evaluate(() => [...document.querySelectorAll('img')]
-      .filter((i) => i.complete && i.naturalWidth === 0)
-      .map((i) => i.getAttribute('src')));
-
-    expect(broken).toContain('/priya.png');
-    expect(broken.length).toBeGreaterThan(0);
+    await page.waitForLoadState('networkidle');
+    // Lazy images below the fold only load when scrolled to.
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(1500);
+    expect(await brokenImages(page)).toEqual([]);
   });
 
-  test('the About page renders a broken portrait', async ({ page }) => {
+  test('every image on the About page loads, the portrait included', async ({ page }) => {
     await page.goto('/about');
-    await page.waitForTimeout(3000);
-
-    const broken = await page.evaluate(() => [...document.querySelectorAll('img')]
-      .filter((i) => i.complete && i.naturalWidth === 0)
-      .map((i) => i.getAttribute('src')));
-
-    expect(broken).toContain('/profile-main.jpg');
+    await page.waitForLoadState('networkidle');
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await page.waitForTimeout(1500);
+    expect(await brokenImages(page)).toEqual([]);
+    const portrait = page.locator('img[src="/profile-main.jpg"]');
+    await expect(portrait).toHaveCount(1);
+    expect(await portrait.evaluate((i: HTMLImageElement) => i.naturalWidth)).toBeGreaterThan(0);
   });
+});
+
+test.describe('the assessments page cards line up', () => {
+  /**
+   * A completed test's card hid its description and had a taller footer, so
+   * in a row of taken and untaken tests the footer dividers sat about 34px
+   * apart. Every card now keeps the two-line description and a fixed footer.
+   */
+  for (const width of [1440, 1024]) {
+    test(`footer dividers are level across each row at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 });
+      await page.goto('/mental-health');
+      const cards = page.getByRole('link', { name: /^(Start|Retake) the /i });
+      await expect(cards.first()).toBeVisible({ timeout: 20_000 });
+
+      const rows = await cards.evaluateAll((els) => {
+        const byRow = new Map<number, number[]>();
+        for (const el of els) {
+          const top = Math.round(el.getBoundingClientRect().top);
+          const divider = el.querySelector('.border-t') as HTMLElement | null;
+          if (!divider) continue;
+          const list = byRow.get(top) || [];
+          list.push(Math.round(divider.getBoundingClientRect().top));
+          byRow.set(top, list);
+        }
+        return [...byRow.values()];
+      });
+
+      expect(rows.length).toBeGreaterThan(1);
+      for (const dividers of rows) expect(new Set(dividers).size).toBe(1);
+    });
+  }
 });
 
 /**

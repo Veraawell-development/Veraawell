@@ -222,6 +222,18 @@ describe('doctor pricing', () => {
     expect(restore.status).toBeLessThan(300);
   });
 
+  test('a grid with a gap is refused, naming what is missing — every length is sold in both modes', async () => {
+    // A therapist who priced only some slots used to be sold for the rest at
+    // a fallback price they never set (session.service resolvePrice).
+    const res = await call('patch', '/api/profile/pricing', doctorToken, {
+      pricing: { ...validPricing, session55: 0, audio: { ...validPricing.audio, session40: '' } }
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toBe('Set a price for every session. Missing: 55-min video, 40-min audio.');
+    const profile = await DoctorProfile.findOne({ userId: f.doctorA._id }).lean();
+    expect(profile.pricing.session55).toBe(validPricing.session55);
+  });
+
   test('a patient cannot set pricing', async () => {
     const res = await call('patch', '/api/profile/pricing', patientToken, { pricing: validPricing });
     expect(res.status).toBe(403);
@@ -257,7 +269,7 @@ describe('profile setup applies the same pricing rules as PATCH /pricing', () =>
 
   test('saving the profile without pricing leaves an existing grid alone', async () => {
     const priced = await call('patch', '/api/profile/pricing', freshDocToken, {
-      pricing: { session20: 700, session40: 1100, session55: 1400 }
+      pricing: { session20: 700, session40: 1100, session55: 1400, audio: { session20: 700, session40: 1000, session55: 1300 } }
     });
     expect(priced.status).toBeLessThan(300);
 
@@ -283,7 +295,7 @@ describe('profile setup applies the same pricing rules as PATCH /pricing', () =>
   test('a valid grid is stored as numbers with min and max derived', async () => {
     const res = await call('post', '/api/profile/setup', freshDocToken, {
       fullName: 'Fresh Doctor',
-      pricing: { session20: '500', session40: 900, session55: 1200, audio: { session20: 400 } }
+      pricing: { session20: '500', session40: 900, session55: 1200, audio: { session20: 400, session40: 800, session55: 1100 } }
     });
     expect(res.status).toBeLessThan(300);
 
@@ -292,6 +304,17 @@ describe('profile setup applies the same pricing rules as PATCH /pricing', () =>
     expect(pricing.audio.session20).toBe(400);
     expect(pricing.min).toBe(400);
     expect(pricing.max).toBe(1200);
+  });
+
+  test('setup with a partial grid is refused like PATCH /pricing, and writes nothing', async () => {
+    const res = await call('post', '/api/profile/setup', freshDocToken, {
+      fullName: 'Renamed Doctor',
+      pricing: { session20: 500, session40: 900, session55: 1200, audio: { session20: 400 } }
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/Missing: 40-min audio, 55-min audio/);
+    expect((await User.findById(freshDoc._id)).firstName).toBe('Fresh');
+    expect((await DoctorProfile.findOne({ userId: freshDoc._id }).lean()).pricing.audio.session40).toBe(800);
   });
 
   test('profile and banner images must be our uploads or bundled defaults', async () => {
@@ -447,6 +470,110 @@ describe('emergency contacts', () => {
     );
     const res = await call('get', `/api/sessions/patients/${f.patientA._id}/emergency-contact`, strangerDoc);
     expect(res.status).toBe(403);
+  });
+});
+
+describe('emergency contact: one rule on both endpoints', () => {
+  const contactOf = async () => (await User.findById(f.patientA._id).lean()).emergencyContact;
+
+  test.each([
+    ['+91 98765 43210'], ['9876543210'], ['098765 43210'], ['91-98765-43210']
+  ])('%s is stored as +919876543210 (the old form saved "+91 98765 43210" as 9198765432)', async (phone) => {
+    const res = await call('post', '/api/patients/emergency-contact', patientToken, {
+      contactName: 'Ravi Rao', contactPhone: phone, contactRelationship: 'Sibling'
+    });
+    expect(res.status).toBe(200);
+    expect((await contactOf()).phone).toBe('+919876543210');
+  });
+
+  test('the profile endpoint normalises the same way', async () => {
+    const res = await call('post', '/api/profile/setup', patientToken, {
+      emergencyContact: { name: ' Ravi Rao ', phone: '+91 98123 45679', relationship: 'Sibling' }
+    });
+    expect(res.status).toBe(200);
+    expect(await contactOf()).toMatchObject({ name: 'Ravi Rao', phone: '+919812345679', relationship: 'Sibling' });
+  });
+
+  test.each([
+    ['12345'], ['0000000000'], ['+1 415 555 0100'], ['not a phone']
+  ])('a phone like %s is refused with a clear 400, on both endpoints, and nothing changes', async (phone) => {
+    await call('post', '/api/patients/emergency-contact', patientToken, {
+      contactName: 'Ravi Rao', contactPhone: '9812345679', contactRelationship: 'Sibling'
+    });
+    const a = await call('post', '/api/patients/emergency-contact', patientToken, {
+      contactName: 'Ravi Rao', contactPhone: phone, contactRelationship: 'Sibling'
+    });
+    expect(a.status).toBe(400);
+    expect(a.body.message).toMatch(/10 digits/);
+    const b = await call('post', '/api/profile/setup', patientToken, {
+      emergencyContact: { name: 'Ravi Rao', phone, relationship: 'Sibling' }
+    });
+    expect(b.status).toBe(400);
+    expect((await contactOf()).phone).toBe('+919812345679');
+  });
+
+  test('half a contact is refused (a name with no phone used to be saved)', async () => {
+    const res = await call('post', '/api/profile/setup', patientToken, {
+      emergencyContact: { name: 'Ravi Rao', phone: '', relationship: '' }
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.message).toMatch(/name, a phone number and a relationship/);
+  });
+
+  test('all three empty removes the contact — it used to keep the old one', async () => {
+    await call('post', '/api/patients/emergency-contact', patientToken, {
+      contactName: 'Ravi Rao', contactPhone: '9812345679', contactRelationship: 'Sibling'
+    });
+    const viaProfile = await call('post', '/api/profile/setup', patientToken, {
+      emergencyContact: { name: '', phone: '', relationship: '' }
+    });
+    expect(viaProfile.status).toBe(200);
+    expect(await contactOf()).toMatchObject({ name: null, phone: null, relationship: null });
+
+    await call('post', '/api/patients/emergency-contact', patientToken, {
+      contactName: 'Ravi Rao', contactPhone: '9812345679', contactRelationship: 'Sibling'
+    });
+    const viaContact = await call('post', '/api/patients/emergency-contact', patientToken, {
+      contactName: '', contactPhone: '', contactRelationship: ''
+    });
+    expect(viaContact.status).toBe(200);
+    expect(await contactOf()).toMatchObject({ name: null, phone: null });
+  });
+
+  test('a profile save that leaves the contact out keeps it', async () => {
+    await call('post', '/api/patients/emergency-contact', patientToken, {
+      contactName: 'Ravi Rao', contactPhone: '9812345679', contactRelationship: 'Sibling'
+    });
+    await call('post', '/api/profile/setup', patientToken, { fullName: 'Asha Rao' });
+    expect((await contactOf()).phone).toBe('+919812345679');
+  });
+
+  test('a date of birth in the future is refused', async () => {
+    const res = await call('post', '/api/profile/setup', patientToken, { dateOfBirth: '2999-01-01' });
+    expect(res.status).toBe(400);
+  });
+
+  test('"Prefer not to say" is a gender the profile accepts', async () => {
+    const res = await call('post', '/api/profile/setup', patientToken, { gender: 'Prefer not to say' });
+    expect(res.status).toBe(200);
+    expect((await User.findById(f.patientA._id)).gender).toBe('Prefer not to say');
+  });
+
+  test('the profile tells the page whether it is finished', async () => {
+    const res = await call('get', '/api/profile/setup', patientToken);
+    expect(typeof res.body.profile.profileCompleted).toBe('boolean');
+  });
+
+  test('/protected says how the account signs in', async () => {
+    const pw = await call('get', '/api/protected', patientToken);
+    expect(pw.body.user.signInMethod).toBe('password');
+    await User.updateOne({ _id: f.patientA._id }, { $set: { googleId: 'g-123' } });
+    try {
+      const g = await call('get', '/api/protected', patientToken);
+      expect(g.body.user.signInMethod).toBe('google');
+    } finally {
+      await User.updateOne({ _id: f.patientA._id }, { $unset: { googleId: 1 } });
+    }
   });
 });
 

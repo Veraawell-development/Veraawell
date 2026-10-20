@@ -1,15 +1,17 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet-async';
-import { useLocation, useNavigate, useParams, Link } from 'react-router-dom';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../config/api';
-import { getAuthToken } from '../utils/authToken';
 import { useAuth } from '../context/AuthContext';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { resolveSessionStart, PLATFORM_TIMEZONE } from '../utils/dateUtils';
-import { resolveSessionPrice, offeredDurations } from '../utils/sessionPricing';
+import { resolveSessionStart, formatSessionDay, PLATFORM_TIMEZONE } from '../utils/dateUtils';
+import { resolveSessionPrice, offeredDurations, startingPrice, formatINR } from '../utils/sessionPricing';
 import type { SessionMode } from '../utils/sessionPricing';
-import { FiVideo, FiPhone, FiRadio, FiCheck } from 'react-icons/fi';
+import { doctorDisplayName, doctorInitials, experienceLabel } from '../utils/doctorName';
+import { savePendingBooking, readPendingBooking, clearPendingBooking } from '../utils/pendingBooking';
+import { loadRazorpay, abandonResult, paymentOutcome } from '../utils/razorpayCheckout';
+import { FiVideo, FiPhone, FiRadio, FiCheck, FiClock } from 'react-icons/fi';
 import { getDoctorAccentColor } from '../utils/doctorColor';
 
 interface BookingState {
@@ -59,6 +61,37 @@ interface DoctorProfile {
   /** From the server: can a time slot / an instant session be booked at all. */
   bookable?: boolean;
   instantBookable?: boolean;
+  openDates?: string[];
+}
+
+/**
+ * Where the booking is: picking options, reviewing the summary, waiting for
+ * the payment to be confirmed, or done (booked — or, rarely, not).
+ */
+type Stage = 'choose' | 'review' | 'confirming' | 'done';
+
+interface BookingResult {
+  outcome: 'paid' | 'pending' | 'failed';
+  price: number;
+  date: string;
+  timeSlot: string;
+  mode: SessionMode;
+  duration: number;
+}
+
+/** A stable empty list: `data = []` in a query made a new array each render and fed an effect loop. */
+const NO_SLOTS: string[] = [];
+const CONFIRM_POLL_MS = 3000;
+const CONFIRM_POLL_TRIES = 20;
+
+class BookingError extends Error {
+  reason?: string;
+  status?: number;
+  constructor(message: string, reason?: string, status?: number) {
+    super(message);
+    this.reason = reason;
+    this.status = status;
+  }
 }
 
 const DoctorProfilePage: React.FC = () => {
@@ -66,25 +99,35 @@ const DoctorProfilePage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { isLoggedIn, user } = useAuth();
-  const { serviceType, bookingType } = (location.state as any) || { bookingType: 'scheduled' };
-
-  // Determine if this is an immediate booking (Available Now doctor)
-  const isImmediate = bookingType === 'immediate';
-
   const queryClient = useQueryClient();
 
-  const [booking, setBooking] = useState<BookingState>({
-    mode: 'video',
-    duration: 20, // Default to 20
-    price: null,
-    date: '',
-    timeSlot: ''
+  // A selection parked before sign-in (utils/pendingBooking.ts). Read once:
+  // sign-in, sign-up + code and Google all come back here, and the patient
+  // used to have to pick everything again.
+  const [pending] = useState(() => readPendingBooking(doctorId));
+  const navState = (location.state as { serviceType?: string; bookingType?: string } | null) || {};
+  const serviceType = navState.serviceType ?? pending?.serviceType;
+  const [bookingType, setBookingType] = useState<'scheduled' | 'immediate'>(() => {
+    const requested = navState.bookingType ?? pending?.bookingType;
+    return requested === 'immediate' ? 'immediate' : 'scheduled';
   });
+  const isImmediate = bookingType === 'immediate';
 
-  // Same rule as the server's resolvePrice (utils/sessionPricing.ts): the
-  // first positive value along the fallback chain, or null when the doctor
-  // doesn't offer this combination. The old video branch tested `!= null`, so
-  // a slot saved as 0 ("not offered") was shown — and offered — at ₹0.
+  const [booking, setBooking] = useState<BookingState>({
+    mode: pending?.mode ?? 'video',
+    duration: pending?.duration ?? 20,
+    price: null,
+    date: pending?.date ?? '',
+    timeSlot: pending?.timeSlot ?? ''
+  });
+  const [stage, setStage] = useState<Stage>('choose');
+  const [result, setResult] = useState<BookingResult | null>(null);
+  const restored = useRef(false);
+  const pollTimer = useRef<number | null>(null);
+  useEffect(() => () => { if (pollTimer.current) window.clearTimeout(pollTimer.current); }, []);
+
+  // The therapist's own price for this exact slot (utils/sessionPricing.ts),
+  // or null when they haven't set one.
   const getPriceForDurationAndMode = (dur: number, selectedMode: SessionMode): number | null =>
     resolveSessionPrice(doctorProfile?.pricing, dur, selectedMode);
 
@@ -101,8 +144,8 @@ const DoctorProfilePage: React.FC = () => {
   };
 
   const [availableDates, setAvailableDates] = useState<Array<{ date: string; weekday: string; dayNum: number; monthName: string }>>([]);
-  const [availableSlots, setAvailableSlots] = useState<string[]>([]);
   const [openFaq, setOpenFaq] = useState<number | null>(0);
+  const [photoFailed, setPhotoFailed] = useState(false);
 
   const { data: doctorProfile, isLoading: profileLoading, error: profileError } = useQuery<DoctorProfile>({
     queryKey: ['doctor', doctorId],
@@ -125,7 +168,29 @@ const DoctorProfilePage: React.FC = () => {
     enabled: !!doctorId
   });
 
-  const { data: fetchedAvailableSlots = [] } = useQuery<string[]>({
+  // Whether the therapist can take an instant session right now — online and
+  // not in a session (the directory's own list). Asked only for an instant
+  // booking: a busy therapist used to be sent to a checkout the server then
+  // refused.
+  const { data: onlineDoctors, isSuccess: onlineKnown } = useQuery<any[]>({
+    queryKey: ['doctors', 'online'],
+    queryFn: async () => {
+      const response = await fetch(`${API_BASE_URL}/doctor-status/online-doctors`);
+      if (!response.ok) throw new Error('Failed to fetch online doctors');
+      const data = await response.json();
+      return data.doctors || [];
+    },
+    enabled: !!doctorId && isImmediate,
+    refetchInterval: isImmediate && stage === 'choose' ? 30_000 : false
+  });
+  const liveEntry = onlineDoctors?.find((d: any) => d._id === doctorId);
+  const instantStatus: 'online' | 'busy' | 'offline' | 'unknown' = !onlineKnown
+    ? 'unknown'
+    : !liveEntry ? 'offline' : liveEntry.busy ? 'busy' : 'online';
+
+  // Short-lived and refetched on focus: someone else can take a time while
+  // this page sits open, and the list used to stay as it was for 5 minutes.
+  const slotsQuery = useQuery<string[]>({
     queryKey: ['doctor', 'slots', doctorId, booking.date],
     queryFn: async () => {
       const response = await fetch(`${API_BASE_URL}/sessions/doctors/${doctorId}/slots/${booking.date}`);
@@ -138,11 +203,16 @@ const DoctorProfilePage: React.FC = () => {
         resolveSessionStart({ sessionDate: booking.date, sessionTime: slot }).getTime() >= earliest
       );
     },
-    enabled: !!doctorId && !!booking.date
+    enabled: !!doctorId && !!booking.date && !isImmediate,
+    staleTime: 15_000,
+    refetchOnWindowFocus: 'always',
+    refetchInterval: stage === 'choose' ? 60_000 : false
   });
+  const availableSlots = slotsQuery.data ?? NO_SLOTS;
 
   useEffect(() => {
     generateAvailableDates();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doctorId]);
 
   // Update initial booking price once profile is loaded
@@ -150,26 +220,21 @@ const DoctorProfilePage: React.FC = () => {
     if (doctorProfile) {
       setBooking(prev => ({ ...prev, ...pickBookable(prev.mode, prev.duration) }));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [doctorProfile]);
 
+  // A chosen time that is no longer offered (taken, or now too soon) is
+  // dropped — only once the list for that day has actually loaded.
   useEffect(() => {
-    if (fetchedAvailableSlots.length > 0) {
-      setAvailableSlots(fetchedAvailableSlots);
-      if (booking.timeSlot && !fetchedAvailableSlots.includes(booking.timeSlot)) {
-        setBooking(prev => ({ ...prev, timeSlot: '' }));
-      }
-    } else {
-      setAvailableSlots([]);
-    }
-  }, [fetchedAvailableSlots, booking.timeSlot]);
+    if (!slotsQuery.data || !booking.timeSlot) return;
+    if (!slotsQuery.data.includes(booking.timeSlot)) setBooking(prev => ({ ...prev, timeSlot: '' }));
+  }, [slotsQuery.data, booking.timeSlot]);
 
   const loading = profileLoading;
   // Older API responses carry no flags: treat that as bookable, as before.
   const canBookHere = !doctorProfile
     || (isImmediate ? doctorProfile.instantBookable !== false : doctorProfile.bookable !== false);
   const error = profileError ? 'Failed to load doctor profile' : null;
-
-
 
   const generateAvailableDates = () => {
     const dates: Array<{ date: string; weekday: string; dayNum: number; monthName: string }> = [];
@@ -191,7 +256,8 @@ const DoctorProfilePage: React.FC = () => {
     }
 
     setAvailableDates(dates);
-    setBooking(prev => ({ ...prev, date: dates[0].date }));
+    // Keep a day restored from before sign-in if it is still in the strip.
+    setBooking(prev => ({ ...prev, date: prev.date && dates.some((x) => x.date === prev.date) ? prev.date : dates[0].date }));
   };
 
   const handleModeChange = (newMode: 'video' | 'voice') => {
@@ -210,14 +276,14 @@ const DoctorProfilePage: React.FC = () => {
     if (!doctorProfile) return;
     setBooking(prev => ({
       ...prev,
-      duration: duration as any,
+      duration,
       price: getPriceForDurationAndMode(duration, prev.mode)
     }));
   };
 
   // Days the therapist has a free slot (from the server). The others show as
   // off; every day used to look bookable until tapped.
-  const openDates: string[] | null = Array.isArray((doctorProfile as any)?.openDates) ? (doctorProfile as any).openDates : null;
+  const openDates: string[] | null = Array.isArray(doctorProfile?.openDates) ? doctorProfile!.openDates! : null;
   const isOffDay = (date: string) => !!openDates && !openDates.includes(date);
   const firstOpen = openDates?.[0];
   useEffect(() => {
@@ -227,166 +293,219 @@ const DoctorProfilePage: React.FC = () => {
   }, [firstOpen]);
 
   const handleDateChange = (date: string) => {
-    setBooking(prev => ({ ...prev, date }));
+    setBooking(prev => (prev.date === date ? prev : { ...prev, date, timeSlot: '' }));
   };
 
   const handleTimeSlotChange = (timeSlot: string) => {
     setBooking(prev => ({ ...prev, timeSlot }));
   };
 
+  /** The session is booked: say so, and say what happens next. */
+  const finishBooked = (sessionData: any) => {
+    clearPendingBooking();
+    queryClient.invalidateQueries({ queryKey: ['patient'] }); // every patient list: upcoming, calendar, history
+    queryClient.invalidateQueries({ queryKey: ['doctor', 'slots', doctorId] });
+    if (isImmediate && sessionData?._id) {
+      // The call room is an instant session's confirmation: it shows the
+      // request ringing and the therapist's answer.
+      toast.success('Payment confirmed — asking your therapist to join.');
+      navigate(`/video-call/${sessionData._id}`);
+      return;
+    }
+    setResult({ outcome: 'paid', price: sessionData?.price ?? booking.price ?? 0, date: booking.date, timeSlot: booking.timeSlot, mode: booking.mode, duration: booking.duration });
+    setStage('done');
+  };
+
+  /**
+   * The browser couldn't confirm the payment (the verify request failed, or
+   * Razorpay is still capturing it). The webhook or the checkout sweep will
+   * settle it on the server, so wait for that here instead of leaving the
+   * patient on an error with no booking in sight.
+   */
+  const waitForConfirmation = (sessionData: any) => {
+    setStage('confirming');
+    let tries = 0;
+    const poll = async () => {
+      tries += 1;
+      let outcome: 'paid' | 'failed' | 'pending' = 'pending';
+      try {
+        const res = await fetch(`${API_BASE_URL}/sessions/${sessionData._id}`);
+        if (res.ok) outcome = paymentOutcome(await res.json());
+      } catch {
+        /* keep waiting */
+      }
+      if (outcome === 'paid') return finishBooked(sessionData);
+      if (outcome === 'failed' || tries >= CONFIRM_POLL_TRIES) {
+        clearPendingBooking();
+        queryClient.invalidateQueries({ queryKey: ['patient'] });
+        setResult({ outcome, price: sessionData?.price ?? booking.price ?? 0, date: booking.date, timeSlot: booking.timeSlot, mode: booking.mode, duration: booking.duration });
+        setStage('done');
+        return;
+      }
+      pollTimer.current = window.setTimeout(poll, CONFIRM_POLL_MS);
+    };
+    void poll();
+  };
+
+  /** Closing the payment window: give the time back, and say only what is true. */
+  const abandonCheckout = async (sessionData: any) => {
+    let body: any = null;
+    try {
+      const res = await fetch(`${API_BASE_URL}/sessions/${sessionData._id}/abandon-checkout`, { method: 'POST' });
+      body = res.ok ? await res.json() : null;
+    } catch {
+      body = null;
+    }
+    const what = abandonResult(body);
+    if (what === 'booked') {
+      toast.success('Your payment went through — the session is booked.');
+      finishBooked(sessionData);
+      return;
+    }
+    if (what === 'processing') {
+      waitForConfirmation(sessionData);
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: ['doctor', 'slots', doctorId] });
+    setStage('choose');
+    if (what === 'freed') {
+      toast(isImmediate ? 'Payment cancelled — nothing was charged.' : 'Payment cancelled — the time is free again.');
+    } else {
+      toast("Payment cancelled. If you didn't pay, nothing was charged.");
+    }
+  };
+
+  const openCheckout = (sessionData: any) => {
+    const options = {
+      // No fallback, deliberately. This used to default to a hardcoded
+      // 'rzp_test_TCJDiOL4WcPBxR' — a DIFFERENT key from the one the
+      // server creates orders with. Razorpay ties an order to the key that
+      // created it, so the fallback did not degrade gracefully: checkout
+      // opened and then rejected the payment, which is harder to diagnose
+      // than not opening at all.
+      key: import.meta.env.VITE_RAZORPAY_KEY_ID,
+      amount: Math.round(sessionData.price * 100),
+      currency: 'INR',
+      name: 'Veraawell',
+      description: isImmediate ? 'Instant session' : 'Scheduled session',
+      order_id: sessionData.razorpayOrderId,
+      handler: async function (response: any) {
+        setStage('confirming');
+        try {
+          // Cryptographic verification. The Bearer fallback and cookies are
+          // added by the global fetch wrapper (utils/csrfFetchInterceptor.ts).
+          const verifyRes = await fetch(`${API_BASE_URL}/payments/verify`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              razorpay_order_id: response.razorpay_order_id,
+              razorpay_payment_id: response.razorpay_payment_id,
+              razorpay_signature: response.razorpay_signature,
+            })
+          });
+          const verifyData = await verifyRes.json().catch(() => ({}));
+          if (verifyRes.status === 409 && (verifyData.code === 'CHECKOUT_EXPIRED' || verifyData.code === 'DUPLICATE_PAYMENT')) {
+            // The server's own words: it says what happened to the money
+            // (expired checkout, or this session was already paid for).
+            toast.error(verifyData.message || 'This payment could not be applied to the session.', { duration: 8000 });
+            queryClient.invalidateQueries({ queryKey: ['patient'] });
+            setTimeout(() => navigate('/patient-dashboard'), 1500);
+          } else if (verifyRes.ok && verifyData.success) {
+            finishBooked(sessionData);
+          } else {
+            // Not confirmed by the browser — which is not the same as not
+            // paid. The webhook confirms it server-side; wait for that.
+            waitForConfirmation(sessionData);
+          }
+        } catch {
+          waitForConfirmation(sessionData);
+        }
+      },
+      prefill: {
+        name: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
+        email: user?.email,
+      },
+      theme: { color: '#0d9488' },
+      modal: {
+        // Closing the window gives the slot back straight away (it used
+        // to stay held for 20 minutes). The server asks Razorpay first, so
+        // a payment that did go through still books the session.
+        ondismiss: () => { void abandonCheckout(sessionData); }
+      }
+    };
+
+    const rzp = new (window as any).Razorpay(options);
+    // Razorpay lets the patient retry inside the same window, so a failed
+    // attempt is only reported — the window decides when it is over.
+    rzp.on('payment.failed', function (response: any) {
+      toast.error(`Payment failed: ${response?.error?.description || 'please try again'}. You can try again in the same window.`);
+    });
+    rzp.open();
+  };
+
   const bookSessionMutation = useMutation({
     mutationFn: async (requestBody: any) => {
-      const token = getAuthToken();
-      const headers: HeadersInit = { 'Content-Type': 'application/json' };
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-
       const endpoint = isImmediate
         ? `${API_BASE_URL}/sessions/book-immediate`
         : `${API_BASE_URL}/sessions/book`;
 
+      // Cookies, CSRF and the Bearer fallback come from the global fetch
+      // wrapper (utils/csrfFetchInterceptor.ts).
       const response = await fetch(endpoint, {
         method: 'POST',
-        headers,
-        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody)
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.message || 'Booking failed. Please try again.');
+        const body = await response.json().catch(() => ({}));
+        throw new BookingError(body.message || 'Booking failed. Please try again.', body.reason, response.status);
       }
       return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       const sessionData = data.session;
       if (sessionData && sessionData.razorpayOrderId) {
-        const options = {
-          // No fallback, deliberately. This used to default to a hardcoded
-          // 'rzp_test_TCJDiOL4WcPBxR' — a DIFFERENT key from the one the
-          // server creates orders with. Razorpay ties an order to the key that
-          // created it, so the fallback did not degrade gracefully: checkout
-          // opened and then rejected the payment, which is harder to diagnose
-          // than not opening at all. BookSessionPage.tsx:181 has always been
-          // bare; both now fail the same obvious way if the var is unset.
-          key: import.meta.env.VITE_RAZORPAY_KEY_ID,
-          amount: sessionData.price * 100,
-          currency: 'INR',
-          name: 'Veraawell',
-          description: isImmediate ? 'Immediate Session' : 'Scheduled Session',
-          order_id: sessionData.razorpayOrderId,
-          handler: async function (response: any) {
-            try {
-              // Cryptographic verification
-              const authToken = getAuthToken();
-              const verifyRes = await fetch(`${API_BASE_URL}/payments/verify`, {
-                method: 'POST',
-                credentials: 'include',
-                headers: {
-                  'Content-Type': 'application/json',
-                  // Only with a token: "Bearer null" would override the
-                  // session cookie and fail the verify with a 401.
-                  ...(authToken ? { 'Authorization': `Bearer ${authToken}` } : {})
-                },
-                body: JSON.stringify({
-                  razorpay_order_id: response.razorpay_order_id,
-                  razorpay_payment_id: response.razorpay_payment_id,
-                  razorpay_signature: response.razorpay_signature,
-                })
-              });
-              const verifyData = await verifyRes.json().catch(() => ({}));
-              if (verifyRes.status === 409 && (verifyData.code === 'CHECKOUT_EXPIRED' || verifyData.code === 'DUPLICATE_PAYMENT')) {
-                // The server's own words: it says what happened to the money
-                // (expired checkout, or this session was already paid for).
-                toast.error(verifyData.message || 'This payment could not be applied to the session.', { duration: 8000 });
-                queryClient.invalidateQueries({ queryKey: ['patient'] });
-                setTimeout(() => navigate('/patient-dashboard'), 1500);
-              } else if (verifyRes.ok && verifyData.success) {
-                toast.success(isImmediate ? 'Payment confirmed! Joining session...' : 'Session scheduled successfully!');
-                queryClient.invalidateQueries({ queryKey: ['patient'] }); // every patient list: upcoming, calendar, history
-                setTimeout(() => { 
-                  if (isImmediate && sessionData._id) {
-                    navigate(`/video-call/${sessionData._id}`);
-                  } else {
-                    navigate('/patient-dashboard'); 
-                  }
-                }, 1000);
-              } else {
-                toast.error('Payment verification failed: ' + (verifyData.message || 'Unknown error'));
-              }
-            } catch (err) {
-              toast.error('Could not verify payment. Please contact support.');
-            }
-          },
-          prefill: {
-            name: `${user?.firstName || ''} ${user?.lastName || ''}`.trim(),
-            email: user?.email,
-          },
-          theme: {
-            color: '#0d9488'
-          },
-          modal: {
-            // Closing the window gives the slot back straight away (it used
-            // to stay held for 20 minutes). The server asks Razorpay first, so
-            // a payment that did go through still books the session.
-            ondismiss: function() {
-              void fetch(`${API_BASE_URL}/sessions/${sessionData._id}/abandon-checkout`, { method: 'POST', credentials: 'include' })
-                .then((res) => (res.ok ? res.json() : null))
-                .then((result) => {
-                  if (result && typeof result.outcome === 'string' && result.outcome.startsWith('captured')) {
-                    toast.success('Your payment went through — the session is booked.');
-                    navigate(isImmediate ? `/video-call/${sessionData._id}` : '/patient-dashboard');
-                    return;
-                  }
-                  toast(isImmediate ? 'Payment cancelled — nothing was charged.' : 'Payment cancelled — the slot is free again.');
-                  queryClient.invalidateQueries({ queryKey: ['doctor', 'slots', doctorId] });
-                })
-                .catch(() => toast('Payment cancelled.'));
-            }
-          }
-        };
-
-        const rzp = new (window as any).Razorpay(options);
-        rzp.on('payment.failed', function (response: any) {
-          toast.error('Payment failed: ' + response.error.description);
-        });
-        rzp.open();
+        try {
+          await loadRazorpay();
+        } catch (err) {
+          // The order exists and holds the time: give it straight back.
+          void fetch(`${API_BASE_URL}/sessions/${sessionData._id}/abandon-checkout`, { method: 'POST' }).catch(() => {});
+          queryClient.invalidateQueries({ queryKey: ['doctor', 'slots', doctorId] });
+          toast.error((err as Error).message, { duration: 8000 });
+          setStage('review');
+          return;
+        }
+        openCheckout(sessionData);
       } else {
-        const successMessage = isImmediate
-          ? 'Requesting session... Waiting for doctor to join.'
-          : 'Session scheduled! Check your dashboard for details.';
-        toast.success(successMessage);
-        queryClient.invalidateQueries({ queryKey: ['patient'] }); // every patient list: upcoming, calendar, history
-        setTimeout(() => { 
-          if (isImmediate && sessionData?._id) {
-            navigate(`/video-call/${sessionData._id}`);
-          } else {
-            navigate('/patient-dashboard'); 
-          }
-        }, 500);
+        // Nothing to pay (a free booking): it is confirmed already.
+        finishBooked(sessionData);
       }
     },
-    onError: (error: Error) => {
-      console.error('Booking error:', error);
-      toast.error(error.message || 'Failed to book session. Please try again.');
+    onError: (err: BookingError) => {
+      if (err.reason === 'busy' || err.reason === 'offline') {
+        // The therapist went busy or offline between the page loading and
+        // paying: offer a time instead of a dead end.
+        toast.error(err.message, { duration: 7000 });
+        queryClient.invalidateQueries({ queryKey: ['doctors', 'online'] });
+        setStage('choose');
+        return;
+      }
+      if (/no longer available|not available|too soon/i.test(err.message)) {
+        toast.error(`${err.message} Please pick another time.`, { duration: 7000 });
+        setBooking(prev => ({ ...prev, timeSlot: '' }));
+        queryClient.invalidateQueries({ queryKey: ['doctor', 'slots', doctorId] });
+        setStage('choose');
+        return;
+      }
+      toast.error(err.message || 'Failed to book session. Please try again.');
     }
   });
 
+  /** "Schedule Session" / "Book Now": check the choice, then show the summary. */
   const handleBookNow = () => {
     if (booking.price === null) {
       toast.error('This session length is not offered by this therapist.');
-      return;
-    }
-
-    if (!isLoggedIn) {
-      toast.error('Please log in or sign up to book a session');
-      navigate('/login', {
-        state: {
-          from: location.pathname,
-          serviceType,
-          bookingType,
-          message: 'Please login to book a session'
-        }
-      });
       return;
     }
 
@@ -395,31 +514,81 @@ const DoctorProfilePage: React.FC = () => {
       return;
     }
 
+    if (!isLoggedIn) {
+      // Kept for after sign-in (any route — password, new account + code,
+      // or Google), so the patient comes back to the same choice.
+      if (doctorId) {
+        savePendingBooking({
+          doctorId, bookingType, serviceType, mode: booking.mode, duration: booking.duration,
+          date: booking.date, timeSlot: booking.timeSlot
+        });
+      }
+      toast('Sign in or create an account to book — your choices are saved.');
+      navigate('/login', {
+        state: {
+          from: location.pathname,
+          serviceType,
+          bookingType,
+          message: 'Please sign in to book your session'
+        }
+      });
+      return;
+    }
+
+    setStage('review');
+  };
+
+  const handlePay = () => {
     const requestBody = {
       doctorId,
       mode: booking.mode,
       duration: booking.duration,
-      // Ignored by the server (it prices the booking itself); sent for older deployments.
-      price: booking.price,
       ...(!isImmediate && {
         sessionDate: booking.date,
         sessionTime: booking.timeSlot,
         sessionType: 'scheduled',
-        serviceType: serviceType || 'General'
+        ...(serviceType && serviceType !== 'General' ? { serviceType } : {})
       })
     };
-
     bookSessionMutation.mutate(requestBody);
   };
 
   const isBooking = bookSessionMutation.isPending;
 
+  // Back from sign-in with a choice parked: once the page has what it needs
+  // (and, for a time slot, the time is still free), go straight to the summary.
+  useEffect(() => {
+    if (restored.current || !pending || !isLoggedIn || !doctorProfile || stage !== 'choose') return;
+    if (!isImmediate && !slotsQuery.isSuccess) return;
+    restored.current = true;
+    clearPendingBooking();
+    if (booking.price === null) return;
+    if (isImmediate || (booking.timeSlot && availableSlots.includes(booking.timeSlot))) {
+      setStage('review');
+    } else if (!isImmediate && pending.timeSlot) {
+      toast('The time you picked was just taken — please choose another.');
+    }
+  }, [pending, isLoggedIn, doctorProfile, stage, isImmediate, slotsQuery.isSuccess, availableSlots, booking.timeSlot, booking.price]);
 
+  // The summary closes with Escape, like any dialog.
+  useEffect(() => {
+    if (stage !== 'review') return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !isBooking) setStage('choose'); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [stage, isBooking]);
+
+  // Bring the confirmation into view when it replaces the booking form.
+  useEffect(() => {
+    if (stage === 'confirming' || stage === 'done') {
+      document.getElementById('booking-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [stage]);
 
   // Show loading state
   if (loading) {
     return (
-      <div className="bg-white min-h-screen flex items-center justify-center">
+      <div className="bg-white min-h-[100dvh] flex items-center justify-center">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-16 w-16 border-b-2 border-teal-600 mb-4"></div>
           <p className="text-xl text-gray-600" style={{ fontFamily: 'Bree Serif, serif' }}>Loading doctor profile...</p>
@@ -431,7 +600,7 @@ const DoctorProfilePage: React.FC = () => {
   // Show error state
   if (error || !doctorProfile) {
     return (
-      <div className="bg-white min-h-screen flex items-center justify-center">
+      <div className="bg-white min-h-[100dvh] flex items-center justify-center">
         <div className="text-center">
           <p className="text-xl text-red-600 mb-4" style={{ fontFamily: 'Bree Serif, serif' }}>{error || 'Doctor not found'}</p>
           <button
@@ -447,13 +616,23 @@ const DoctorProfilePage: React.FC = () => {
   }
 
   // Extract doctor data with fallbacks
-  const doctorName = `${doctorProfile.userId.firstName} ${doctorProfile.userId.lastName}`;
-  const experienceText = doctorProfile.experience > 0 ? `${doctorProfile.experience}+ years` : 'Unknown';
-  const qualificationText = doctorProfile.qualification.join(', ');
+  const displayName = doctorDisplayName(doctorProfile.userId.firstName, doctorProfile.userId.lastName);
+  const experienceText = experienceLabel(doctorProfile.experience);
   const specializationText = doctorProfile.specialization.join(', ');
   const languagesText = doctorProfile.languages.join(', ');
   const rating = doctorProfile.rating.average;
-  const fullStars = Math.floor(rating);
+  const hasRating = doctorProfile.rating.totalReviews > 0;
+  const fullStars = hasRating ? Math.round(rating) : 0;
+  const fromPrice = startingPrice(doctorProfile.pricing);
+  const photo = !photoFailed && doctorProfile.profileImage ? doctorProfile.profileImage : null;
+
+  /** "Tue 21 Oct, 10:00 AM IST" for the chosen slot. */
+  const slotWhen = (date: string, timeSlot: string) => {
+    const start = resolveSessionStart({ sessionDate: date, sessionTime: timeSlot });
+    return Number.isNaN(start.getTime())
+      ? `${date}, ${timeSlot} IST`
+      : `${formatSessionDay(start, { weekday: 'short', day: 'numeric', month: 'short' })}, ${timeSlot} IST`;
+  };
 
   const hexToRgba = (hex: string, alpha: number) => {
     const r = parseInt(hex.slice(1, 3), 16);
@@ -491,12 +670,12 @@ const DoctorProfilePage: React.FC = () => {
   );
 
   return (
-    <div className="bg-white min-h-screen pt-16 md:pt-[80px]">
+    <div className="bg-white min-h-[100dvh] pt-16 md:pt-[80px]">
       <Helmet>
-        <title>Dr. {doctorName} - {specializationText} | Veraawell</title>
-        <meta name="description" content={`Book a session with Dr. ${doctorName}. ${experienceText} of experience in ${specializationText}.`} />
-        <meta property="og:title" content={`Dr. ${doctorName} | Veraawell`} />
-        <meta property="og:description" content={`Book a session with Dr. ${doctorName}.`} />
+        <title>{`${displayName} - ${specializationText} | Veraawell`}</title>
+        <meta name="description" content={`Book a session with ${displayName}.${experienceText ? ` ${experienceText} of experience` : ''}${specializationText ? ` in ${specializationText}` : ''}.`} />
+        <meta property="og:title" content={`${displayName} | Veraawell`} />
+        <meta property="og:description" content={`Book a session with ${displayName}.`} />
         {doctorProfile.profileImage && <meta property="og:image" content={doctorProfile.profileImage} />}
         {/* The page's own address, which takes the doctor's user id; the
             profile's id here pointed search engines at "Doctor not found". */}
@@ -507,8 +686,8 @@ const DoctorProfilePage: React.FC = () => {
             "@graph": [
               {
                 "@type": "Physician",
-                "name": `Dr. ${doctorName}`,
-                "image": doctorProfile.profileImage,
+                "name": displayName,
+                ...(doctorProfile.profileImage ? { "image": doctorProfile.profileImage } : {}),
                 "description": doctorProfile.bio || `Specializes in ${specializationText}`,
                 "medicalSpecialty": doctorProfile.specialization.length > 0 ? doctorProfile.specialization[0] : "General Practice",
                 // Only real ratings: a doctor with none was published as
@@ -520,7 +699,7 @@ const DoctorProfilePage: React.FC = () => {
                     "reviewCount": doctorProfile.rating.totalReviews
                   }
                 } : {}),
-                "priceRange": `Rs. ${doctorProfile.pricing.min}+`
+                ...(fromPrice ? { "priceRange": `From ${formatINR(fromPrice)}` } : {})
               },
               {
                 "@type": "FAQPage",
@@ -574,11 +753,25 @@ const DoctorProfilePage: React.FC = () => {
             <div 
               className="w-32 h-32 sm:w-40 sm:h-40 md:w-48 md:h-48 rounded-full overflow-hidden bg-white border-4 sm:border-[6px] border-white shadow-md mx-auto md:mx-0"
             >
-              <img
-                src={doctorProfile.profileImage}
-                alt={`Dr. ${doctorName}`}
-                className="w-full h-full object-cover"
-              />
+              {/* Their own photo, or their initials — never a broken image
+                  or a stock face. */}
+              {photo ? (
+                <img
+                  src={photo}
+                  alt={displayName}
+                  className="w-full h-full object-cover"
+                  onError={() => setPhotoFailed(true)}
+                />
+              ) : (
+                <div
+                  className="w-full h-full flex items-center justify-center text-white text-4xl sm:text-5xl font-bold"
+                  style={{ background: doctorColor }}
+                  aria-label={displayName}
+                  role="img"
+                >
+                  {doctorInitials(doctorProfile.userId.firstName, doctorProfile.userId.lastName)}
+                </div>
+              )}
             </div>
           </div>
 
@@ -587,9 +780,9 @@ const DoctorProfilePage: React.FC = () => {
             <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
                 <h1 className="text-3xl sm:text-4xl font-extrabold text-gray-900 tracking-tight mb-2" style={{ fontFamily: 'Inter, sans-serif' }}>
-                  {doctorName}
+                  {displayName}
                 </h1>
-                <div className="flex items-center justify-center md:justify-start gap-1.5 mt-1.5">
+                <div className="flex items-center justify-center md:justify-start gap-1.5 mt-1.5" aria-label={hasRating ? `Rated ${rating.toFixed(1)} out of 5 from ${doctorProfile.rating.totalReviews} reviews` : 'No ratings yet'}>
                   <div className="flex text-yellow-400">
                     {[...Array(5)].map((_, i) => (
                       <svg
@@ -601,7 +794,11 @@ const DoctorProfilePage: React.FC = () => {
                       </svg>
                     ))}
                   </div>
-                  <span className="text-gray-600 font-medium text-sm sm:text-base ml-1">{rating.toFixed(2)}</span>
+                  {/* Same as the directory card: one decimal and the count, or
+                      "New" — not "0.00" under five grey stars. */}
+                  <span className="text-gray-600 font-medium text-sm sm:text-base ml-1">
+                    {hasRating ? `${rating.toFixed(1)} (${doctorProfile.rating.totalReviews})` : 'New'}
+                  </span>
                 </div>
               </div>
               
@@ -635,11 +832,13 @@ const DoctorProfilePage: React.FC = () => {
             {/* Clean Info Layout */}
             <div className="flex flex-col gap-6 mt-8">
               <div className="flex flex-col sm:flex-row sm:items-start gap-6 sm:gap-16">
-                <div>
-                  <h3 className="text-xs uppercase tracking-widest text-gray-400 font-bold mb-1.5">Experience</h3>
-                  <p className="text-gray-800 font-semibold text-base">{experienceText}</p>
-                </div>
-                
+                {experienceText && (
+                  <div>
+                    <h3 className="text-xs uppercase tracking-widest text-gray-400 font-bold mb-1.5">Experience</h3>
+                    <p className="text-gray-800 font-semibold text-base">{experienceText}</p>
+                  </div>
+                )}
+
                 <div>
                   <h3 className="text-xs uppercase tracking-widest text-gray-400 font-bold mb-1.5">Languages</h3>
                   <p className="text-gray-800 font-semibold text-base">{languagesText}</p>
@@ -710,11 +909,13 @@ const DoctorProfilePage: React.FC = () => {
           <div className="text-gray-600 text-base sm:text-lg leading-relaxed space-y-4 max-w-3xl mx-auto">
             {doctorProfile.bio && doctorProfile.bio !== 'Profile not completed yet' ? (
               <p>{doctorProfile.bio}</p>
-            ) : (
+            ) : doctorProfile.specialization?.length > 0 ? (
+              // Only what the therapist told us. This used to be a paragraph
+              // of invented beliefs and methods presented as theirs.
               <p>
-                {doctorName} is a dedicated mental wellness professional{doctorProfile.specialization?.length > 0 ? ` specializing in ${doctorProfile.specialization[0]}` : ''}. They believe that every individual possesses the inherent strength for growth and healing. By fostering a compassionate, judgment-free environment, they work collaboratively with you to navigate life's challenges, uncover your inner resilience, and build a deeply fulfilling, balanced life.
+                {displayName} works with {specializationText}{languagesText ? `, in ${languagesText}` : ''}.
               </p>
-            )}
+            ) : null}
           </div>
         </div>
       </div>
@@ -725,7 +926,71 @@ const DoctorProfilePage: React.FC = () => {
           {/* A therapist who can't be booked this way (no approved payout,
               no price, or — for a time slot — no open dates) gets a notice
               instead of a booking form that would only fail at checkout. */}
-          {!canBookHere ? (
+          {stage === 'confirming' ? (
+            <div role="status" aria-live="polite" className="max-w-xl mx-auto text-center rounded-[20px] p-8" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
+              <div className="inline-block animate-spin rounded-full h-10 w-10 border-b-2 mb-4" style={{ borderColor: doctorColor }} />
+              <h3 className="text-xl font-semibold mb-2" style={{ color: 'var(--text)' }}>Confirming your payment…</h3>
+              <p className="text-sm" style={{ color: 'var(--text-2)' }}>This usually takes a few seconds. Please keep this page open.</p>
+            </div>
+          ) : stage === 'done' && result ? (
+            <div role="status" aria-live="polite" className="max-w-xl mx-auto rounded-[20px] p-7 sm:p-8" style={{ background: 'var(--surface)', border: '1px solid var(--border)', boxShadow: '0 12px 36px rgba(27,43,46,.08)' }}>
+              {result.outcome === 'paid' ? (
+                <>
+                  <div className="w-12 h-12 rounded-full flex items-center justify-center mb-4" style={{ background: '#10B981' }}>
+                    <FiCheck size={24} style={{ color: '#fff' }} strokeWidth={3} />
+                  </div>
+                  <h3 className="text-2xl font-semibold mb-1" style={{ color: 'var(--text)' }}>You're booked</h3>
+                  <p className="text-sm mb-5" style={{ color: 'var(--text-2)' }}>We've emailed you the details.</p>
+                  <dl className="space-y-2.5 text-sm mb-5">
+                    <div className="flex justify-between gap-4"><dt style={{ color: 'var(--text-2)' }}>Therapist</dt><dd className="font-semibold text-right" style={{ color: 'var(--text)' }}>{displayName}</dd></div>
+                    <div className="flex justify-between gap-4"><dt style={{ color: 'var(--text-2)' }}>When</dt><dd className="font-semibold text-right" style={{ color: 'var(--text)' }}>{slotWhen(result.date, result.timeSlot)}</dd></div>
+                    <div className="flex justify-between gap-4"><dt style={{ color: 'var(--text-2)' }}>Session</dt><dd className="font-semibold text-right" style={{ color: 'var(--text)' }}>{result.duration} min · {result.mode === 'voice' ? 'Voice call' : 'Video call'}</dd></div>
+                    <div className="flex justify-between gap-4"><dt style={{ color: 'var(--text-2)' }}>Paid</dt><dd className="font-semibold text-right" style={{ color: 'var(--text)' }}>{formatINR(result.price)}</dd></div>
+                  </dl>
+                  <div className="rounded-xl p-4 mb-6 flex gap-3 text-sm" style={{ background: `${doctorColor}10`, color: 'var(--text)' }}>
+                    <FiClock size={18} className="shrink-0 mt-0.5" style={{ color: doctorColor }} />
+                    <p>
+                      To join, open your dashboard at the time — the <strong>Join</strong> button appears 15 minutes before the start.
+                      Need to cancel? Do it more than 4 hours before for a full refund.
+                    </p>
+                  </div>
+                </>
+              ) : result.outcome === 'pending' ? (
+                <>
+                  <h3 className="text-2xl font-semibold mb-2" style={{ color: 'var(--text)' }}>We're still confirming your payment</h3>
+                  <p className="text-sm mb-6" style={{ color: 'var(--text-2)' }}>
+                    It can take a few minutes. Your session will appear on your dashboard as soon as it's confirmed, and we'll email you.
+                    If the payment doesn't go through, any money taken is refunded automatically.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h3 className="text-2xl font-semibold mb-2" style={{ color: 'var(--text)' }}>This booking didn't go through</h3>
+                  <p className="text-sm mb-6" style={{ color: 'var(--text-2)' }}>
+                    If money left your account, it is refunded automatically (usually within 5–7 working days). You can pick a time again.
+                  </p>
+                </>
+              )}
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  onClick={() => navigate('/patient-dashboard')}
+                  className="flex-1 py-3 rounded-full text-sm font-semibold text-white"
+                  style={{ background: doctorColor }}
+                >
+                  Go to my dashboard
+                </button>
+                {result.outcome === 'failed' && (
+                  <button
+                    onClick={() => { setResult(null); setStage('choose'); queryClient.invalidateQueries({ queryKey: ['doctor', 'slots', doctorId] }); }}
+                    className="flex-1 py-3 rounded-full text-sm font-semibold"
+                    style={{ border: `1.5px solid ${doctorColor}`, color: doctorColor }}
+                  >
+                    Choose another time
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : !canBookHere ? (
             <div role="status" className="max-w-xl mx-auto text-center rounded-[20px] p-8" style={{ background: 'var(--surface)', border: '1px solid var(--border)' }}>
               <h3 className="text-xl font-semibold mb-2" style={{ color: 'var(--text)' }}>This therapist isn't taking bookings right now</h3>
               <p className="text-sm mb-5" style={{ color: 'var(--text-2)' }}>
@@ -796,7 +1061,7 @@ const DoctorProfilePage: React.FC = () => {
                         {...pillHoverHandlers(booking.duration === dur)}
                       >
                         <span className="text-[10px] sm:text-[11px] font-bold uppercase tracking-wider opacity-80 mb-0.5">{dur} Mins</span>
-                        <span className="text-xs sm:text-sm">Rs. {getPriceForDurationAndMode(dur, booking.mode)}</span>
+                        <span className="text-xs sm:text-sm">{formatINR(getPriceForDurationAndMode(dur, booking.mode))}</span>
                       </button>
                     ))}
                     {offeredDurations(doctorProfile.pricing, booking.mode).length === 0 && (
@@ -809,7 +1074,7 @@ const DoctorProfilePage: React.FC = () => {
 
                 <div className="pt-6 mt-8 border-t" style={{ borderColor: 'var(--border)' }}>
                   <p className="text-sm font-medium leading-relaxed" style={{ color: 'var(--text-2)' }}>
-                    <span className="font-bold" style={{ color: 'var(--text)' }}>Note:</span> The session for the duration of 20 minutes is a discovery session where you can discuss your problems and discuss the way forward.
+                    <span className="font-bold" style={{ color: 'var(--text)' }}>Not sure which length?</span> A 20-minute session is a good way to get to know a therapist and talk about what you'd like help with.
                   </p>
                 </div>
               </div>
@@ -828,7 +1093,38 @@ const DoctorProfilePage: React.FC = () => {
             >
               <div className="space-y-6 relative z-10 flex-1 flex flex-col justify-center">
                 {/* Immediate booking: show instant session card. Scheduled: show date + slot picker. */}
-                {isImmediate ? (
+                {isImmediate && (instantStatus === 'busy' || instantStatus === 'offline') ? (
+                  // Not answerable right now: say why, and offer a time instead
+                  // of a checkout the server would refuse.
+                  <div className="text-center py-2" role="status">
+                    <h3 className="text-[22px] font-bold mb-2.5 tracking-tight" style={{ color: 'var(--text)' }}>
+                      {instantStatus === 'busy' ? `${displayName} is in a session right now` : `${displayName} isn't online right now`}
+                    </h3>
+                    <p className="text-sm leading-relaxed max-w-xs mx-auto mb-5" style={{ color: 'var(--text-2)' }}>
+                      {doctorProfile.bookable !== false
+                        ? 'You can book a time with them instead, or choose another therapist who is online.'
+                        : 'Please choose another therapist who is online.'}
+                    </p>
+                    <div className="flex flex-col gap-2 max-w-xs mx-auto">
+                      {doctorProfile.bookable !== false && (
+                        <button
+                          onClick={() => setBookingType('scheduled')}
+                          className="py-2.5 rounded-full text-sm font-semibold text-white"
+                          style={{ background: doctorColor }}
+                        >
+                          Book a time instead
+                        </button>
+                      )}
+                      <button
+                        onClick={() => navigate('/choose-professional', { state: { bookingType: 'now' } })}
+                        className="py-2.5 rounded-full text-sm font-semibold"
+                        style={{ border: `1.5px solid ${doctorColor}`, color: doctorColor }}
+                      >
+                        See who's online
+                      </button>
+                    </div>
+                  </div>
+                ) : isImmediate ? (
                   <div className="text-center py-2">
                     {/* Icon */}
                     <div className="relative inline-flex mb-6">
@@ -852,7 +1148,7 @@ const DoctorProfilePage: React.FC = () => {
 
                     <h3 className="text-[26px] font-bold mb-2.5 tracking-tight" style={{ color: 'var(--text)' }}>Instant Session</h3>
                     <p className="text-sm leading-relaxed max-w-xs mx-auto" style={{ color: 'var(--text-2)' }}>
-                      This doctor is online right now. Book instantly and you'll be connected within minutes.
+                      {displayName} is online now. After you pay, they have 2 minutes to accept — if they don't, you get a full refund automatically.
                     </p>
                   </div>
                 ) : (
@@ -884,15 +1180,25 @@ const DoctorProfilePage: React.FC = () => {
 
                     {/* Select Slot */}
                     <div>
-                      <h3 className="font-bold text-lg mb-4" style={{ color: 'var(--text)' }}>Select Slot:</h3>
+                      <h3 className="font-bold text-lg mb-4" style={{ color: 'var(--text)' }}>
+                        Select Slot: <span className="text-sm font-semibold" style={{ color: 'var(--text-2)' }}>(times in IST)</span>
+                      </h3>
                       <div className="flex flex-wrap gap-3">
-                        {availableSlots.length > 0 ? availableSlots.map((slot) => (
+                        {slotsQuery.isLoading ? (
+                          <p className="text-sm p-4" style={{ color: 'var(--text-2)' }}>Loading times…</p>
+                        ) : slotsQuery.isError ? (
+                          <p className="text-sm p-4 rounded-xl" role="alert" style={{ color: 'var(--text-2)', background: `${doctorColor}0d` }}>
+                            Couldn't load the times.{' '}
+                            <button className="underline font-semibold" style={{ color: doctorColor }} onClick={() => slotsQuery.refetch()}>Try again</button>
+                          </p>
+                        ) : availableSlots.length > 0 ? availableSlots.map((slot) => (
                           <button
                             key={slot}
                             onClick={() => handleTimeSlotChange(slot)}
                             className="font-semibold py-2 px-6 rounded-full transition-all duration-300"
                             style={pillStyle(booking.timeSlot === slot)}
                             {...pillHoverHandlers(booking.timeSlot === slot)}
+                            aria-pressed={booking.timeSlot === slot}
                           >
                             {slot}
                           </button>
@@ -915,7 +1221,9 @@ const DoctorProfilePage: React.FC = () => {
               <div className="mt-6 relative z-10 w-full">
                 {(() => {
                   const bookDisabled = booking.price === null
-                    || (isImmediate ? isBooking : (isBooking || !booking.date || !booking.timeSlot));
+                    || (isImmediate
+                      ? (isBooking || instantStatus === 'busy' || instantStatus === 'offline')
+                      : (isBooking || !booking.date || !booking.timeSlot));
                   return (
                     <button
                       onClick={handleBookNow}
@@ -988,10 +1296,12 @@ const DoctorProfilePage: React.FC = () => {
             >
               {doctorReviews.map((review) => (
                 <div key={review._id} className="bg-white p-6 rounded-lg shadow-md flex-shrink-0 w-[85vw] sm:w-80">
-                  <h3 className="text-2xl font-bold mb-2" style={{ color: doctorColor }}>
-                    {review.patientId.firstName} {review.patientId.lastName && review.patientId.lastName.charAt(0) + '.'}
+                  {/* Reviews are anonymous: a therapy patient's name — even a
+                      first name and initial — is not published. */}
+                  <h3 className="text-lg font-bold mb-2" style={{ color: doctorColor }}>
+                    Verified patient
                   </h3>
-                  <div className="flex text-yellow-500 mb-4">
+                  <div className="flex text-yellow-500 mb-4" aria-label={`${review.rating} out of 5 stars`}>
                     {[...Array(5)].map((_, i) => (
                       <svg
                         key={i}
@@ -1002,9 +1312,13 @@ const DoctorProfilePage: React.FC = () => {
                       </svg>
                     ))}
                   </div>
-                  <p className="text-gray-600 italic leading-relaxed">
-                    "{review.feedback}"
-                  </p>
+                  {/* A star-only rating has no text — older ones carry the
+                      filler "No additional comments provided." */}
+                  {review.feedback && review.feedback.trim() && review.feedback.trim() !== 'No additional comments provided.' && (
+                    <p className="text-gray-600 italic leading-relaxed">
+                      "{review.feedback}"
+                    </p>
+                  )}
                   {review.positives && (
                     <p className="text-green-600 text-sm mt-3">
                       <strong>Positives:</strong> {review.positives}
@@ -1022,6 +1336,68 @@ const DoctorProfilePage: React.FC = () => {
         </div>
       </div>
       </div>
+
+      {/* Booking summary — what is being bought, before Razorpay opens. The
+          patient used to go from "Schedule Session" straight into a payment
+          window that showed only an amount. */}
+      {stage === 'review' && (
+        <div
+          className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center sm:p-4"
+          style={{ background: 'rgba(22,38,42,.45)', backdropFilter: 'blur(4px)' }}
+          onClick={() => { if (!isBooking) setStage('choose'); }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="booking-summary-title"
+            className="w-full sm:max-w-md bg-white rounded-t-[24px] sm:rounded-[24px] p-6 sm:p-7 max-h-[90dvh] overflow-y-auto"
+            style={{ boxShadow: '0 20px 60px rgba(27,43,46,.22)' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="booking-summary-title" className="text-xl font-semibold mb-4" style={{ color: 'var(--text)' }}>
+              Review your booking
+            </h2>
+            <dl className="space-y-2.5 text-sm mb-5">
+              <div className="flex justify-between gap-4"><dt style={{ color: 'var(--text-2)' }}>Therapist</dt><dd className="font-semibold text-right" style={{ color: 'var(--text)' }}>{displayName}</dd></div>
+              <div className="flex justify-between gap-4">
+                <dt style={{ color: 'var(--text-2)' }}>When</dt>
+                <dd className="font-semibold text-right" style={{ color: 'var(--text)' }}>
+                  {isImmediate ? 'Now — instant session' : slotWhen(booking.date, booking.timeSlot)}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-4"><dt style={{ color: 'var(--text-2)' }}>Session</dt><dd className="font-semibold text-right" style={{ color: 'var(--text)' }}>{booking.duration} min · {booking.mode === 'voice' ? 'Voice call' : 'Video call'}</dd></div>
+              <div className="flex justify-between gap-4 pt-2.5" style={{ borderTop: '1px solid var(--border)' }}>
+                <dt className="font-semibold" style={{ color: 'var(--text)' }}>Total</dt>
+                <dd className="font-bold text-right text-base" style={{ color: 'var(--text)' }}>{formatINR(booking.price)}</dd>
+              </div>
+            </dl>
+            <p className="text-xs leading-relaxed mb-6" style={{ color: 'var(--text-2)' }}>
+              {isImmediate
+                ? `After you pay, ${displayName} has 2 minutes to accept. If they don't, you get a full refund automatically.`
+                : 'You can join from 15 minutes before the start, from your dashboard. Cancel more than 4 hours before for a full refund; later cancellations aren\'t refunded.'}
+            </p>
+            <div className="flex flex-col-reverse sm:flex-row gap-3">
+              <button
+                onClick={() => setStage('choose')}
+                disabled={isBooking}
+                className="flex-1 py-3 rounded-full text-sm font-semibold disabled:opacity-50"
+                style={{ border: '1.5px solid var(--border)', color: 'var(--text)' }}
+              >
+                Back
+              </button>
+              <button
+                autoFocus
+                onClick={handlePay}
+                disabled={isBooking || booking.price === null}
+                className="flex-1 py-3 rounded-full text-sm font-semibold text-white disabled:opacity-60"
+                style={{ background: doctorColor }}
+              >
+                {isBooking ? 'Opening payment…' : `Pay ${formatINR(booking.price)}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* FAQ Accordion Section */}
       <div className="max-w-3xl mx-auto px-4 py-20 mb-10">

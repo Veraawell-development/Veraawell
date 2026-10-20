@@ -29,7 +29,7 @@ const FAQPage: React.FC = () => {
         {
             category: 'general',
             question: 'Is my information confidential?',
-            answer: 'Absolutely! We take your privacy seriously. All sessions are confidential, and your data is encrypted and stored securely. We comply with healthcare privacy standards to ensure your information is protected.'
+            answer: 'Yes. Sessions are confidential and never recorded, and your data is encrypted and stored securely. Your journal and your assessment results are private to you — your therapist cannot see them.'
         },
 
         // Booking & Sessions
@@ -47,6 +47,11 @@ const FAQPage: React.FC = () => {
             category: 'booking',
             question: 'What if I miss a session?',
             answer: 'If you haven\'t joined within 10 minutes of the start, the session counts as missed and is not refunded. If it\'s your therapist who doesn\'t join within 10 minutes, you can leave with a full refund — and if nobody joins, you are refunded automatically.'
+        },
+        {
+            category: 'booking',
+            question: 'Can I message my therapist?',
+            answer: 'Yes. Once a session with a therapist is booked and paid, you can message them from Messages. The conversation stays open until 30 days after your last session with them; after that you can still read it, but not send new messages. Booking another session opens it again.'
         },
         {
             category: 'booking',
@@ -107,7 +112,7 @@ const FAQPage: React.FC = () => {
         {
             category: 'assessments',
             question: 'Can I retake assessments?',
-            answer: 'Yes, you can retake assessments as many times as you like to track your progress. We recommend taking them periodically to monitor changes in your mental health over time.'
+            answer: 'Yes, you can retake assessments as many times as you like to track your progress. We recommend taking them periodically to monitor changes over time. Your results are private: only you can see them.'
         },
 
         // For Therapists

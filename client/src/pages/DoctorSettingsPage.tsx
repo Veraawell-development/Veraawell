@@ -12,6 +12,7 @@ import { getAuthToken } from '../utils/authToken';
 // This entire page was inert in production.
 import { API_BASE_URL } from '../config/api';
 import SignaturePad from '../components/SignaturePad';
+import { missingPriceSlots } from '../utils/sessionPricing';
 
 /** Standard platform fee, used only for the earnings ESTIMATE on this page. */
 const ESTIMATED_PLATFORM_FEE_PERCENT = 20;
@@ -349,7 +350,21 @@ const DoctorSettingsPage: React.FC = () => {
   };
 
   // ── Save Pricing ─────────────────────────────────────────────────────────────
+  // Every length is sold by video and by voice, so all six need a price; the
+  // server refuses a grid with a gap. Said here first, naming the gaps.
+  const missingPrices = missingPriceSlots({
+    video: { 20: pricing.session20, 40: pricing.session40, 55: pricing.session55 },
+    voice: { 20: pricing.audio.session20, 40: pricing.audio.session40, 55: pricing.audio.session55 },
+  });
+  const [pricingTried, setPricingTried] = useState(false);
+  const priceMissing = (value: string) => pricingTried && !(Number(value) > 0);
+
   const handleSavePricing = async () => {
+    setPricingTried(true);
+    if (missingPrices.length > 0) {
+      toast.error(`Set a price for every session. Missing: ${missingPrices.join(', ')}.`);
+      return;
+    }
     setIsSavingPricing(true);
     try {
       const res = await fetch(`${API_BASE_URL}/profile/pricing`, {
@@ -466,8 +481,10 @@ const DoctorSettingsPage: React.FC = () => {
                           max="10000"
                           value={pricing[key]}
                           onChange={e => setPricing(p => ({ ...p, [key]: e.target.value }))}
+                          aria-label={`${label} video price`}
+                          aria-invalid={priceMissing(pricing[key])}
                           className="w-full pl-7 pr-3 py-2.5 rounded-xl focus:outline-none focus:ring-2 transition-all"
-                          style={{ ...figure, fontSize: 17, border: `1px solid ${T.border}`, background: 'rgba(255,255,255,.6)' }}
+                          style={{ ...figure, fontSize: 17, border: `1px solid ${priceMissing(pricing[key]) ? '#dc2626' : T.border}`, background: 'rgba(255,255,255,.6)' }}
                           placeholder="0"
                         />
                       </div>
@@ -502,8 +519,10 @@ const DoctorSettingsPage: React.FC = () => {
                           max="10000"
                           value={pricing.audio[key]}
                           onChange={e => setPricing(p => ({ ...p, audio: { ...p.audio, [key]: e.target.value } }))}
+                          aria-label={`${label} voice price`}
+                          aria-invalid={priceMissing(pricing.audio[key])}
                           className="w-full pl-7 pr-3 py-2.5 rounded-xl focus:outline-none focus:ring-2 transition-all"
-                          style={{ ...figure, fontSize: 17, border: `1px solid ${T.border}`, background: 'rgba(255,255,255,.6)' }}
+                          style={{ ...figure, fontSize: 17, border: `1px solid ${priceMissing(pricing.audio[key]) ? '#dc2626' : T.border}`, background: 'rgba(255,255,255,.6)' }}
                           placeholder="0"
                         />
                       </div>
@@ -523,10 +542,15 @@ const DoctorSettingsPage: React.FC = () => {
               <p className="leading-relaxed" style={{ fontSize: 12, color: T.text2 }}>
                 {feeIsKnown
                   ? <>Earnings shown are after your <strong className="font-semibold">{platformFeePercent}%</strong> platform fee. Each session's exact split is fixed when it's booked.</>
-                  : <>Earnings shown are <strong className="font-semibold">estimates</strong> at the standard {platformFeePercent}% platform fee — your agreed fee may differ, and each session's exact split appears in your earnings once it's booked.</>} Earnings are paid to your bank account weekly, once your bank details are approved. Leave a price at 0 to not offer that session length.
+                  : <>Earnings shown are <strong className="font-semibold">estimates</strong> at the standard {platformFeePercent}% platform fee — your agreed fee may differ, and each session's exact split appears in your earnings once it's booked.</>} Earnings are paid to your bank account weekly, once your bank details are approved. Every session length is offered by video and by voice, so set all six prices — patients can book you once they are all set.
               </p>
             </div>
 
+            {pricingTried && missingPrices.length > 0 && (
+              <p role="alert" className="mt-4 mb-2" style={{ fontSize: 12.5, color: '#b91c1c' }}>
+                Set a price for every session. Missing: {missingPrices.join(', ')}.
+              </p>
+            )}
             <button
               onClick={handleSavePricing}
               disabled={isSavingPricing}

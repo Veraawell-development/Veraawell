@@ -92,6 +92,11 @@ test.describe('the availability calendar', () => {
 
 test.describe('the doctor dashboard', () => {
   test('warns when the calendar has no open dates, and links to fix it', async ({ browser }) => {
+    // Two dashboard loads at phone and desktop width: more than the default
+    // 30 s on a loaded machine. A timeout closes the DB before `finally`
+    // can put the calendar back, and every later booking test then sees a
+    // therapist with no open days — so leave room.
+    test.setTimeout(90_000);
     const { users } = fixtures();
     const avail = (await db()).collection('doctoravailabilities');
     const before = await avail.findOne({ doctorId: new ObjectId(users.doctorB.id) });
@@ -105,7 +110,8 @@ test.describe('the doctor dashboard', () => {
       await expect(doctor.page).toHaveURL(/manage-calendar/);
       await doctor.context.close();
     } finally {
-      await avail.updateOne({ doctorId: new ObjectId(users.doctorB.id) }, { $set: { activeDates: before?.activeDates || [], customAvailability: before?.customAvailability || [] } });
+      // A fresh handle: if the test timed out, afterAll has already closed `avail`'s client.
+      await (await db()).collection('doctoravailabilities').updateOne({ doctorId: new ObjectId(users.doctorB.id) }, { $set: { activeDates: before?.activeDates || [], customAvailability: before?.customAvailability || [] } });
     }
     // With dates ahead, no warning.
     const doctor = await as(browser, 'doctor');
@@ -154,5 +160,76 @@ test.describe('what patients see', () => {
     await patient.page.locator('button', { hasText: new RegExp(`^\\s*${weekday}\\s*${dayNum}\\s*\\w{3}\\s*$`, 'i') }).first().click();
     await expect(patient.page.getByRole('button', { name: /\d{1,2}:\d{2} (AM|PM)/ }).first()).toBeVisible({ timeout: 10_000 });
     await patient.context.close();
+  });
+
+  test('a booking is reviewed before paying, and confirmed after — with the time in IST', async ({ browser }) => {
+    const { users } = fixtures();
+    const patient = await as(browser, 'patient', 390);
+    // Third-party checkout stays blocked; the e2e stack books without payment.
+    await patient.page.route('**/checkout.razorpay.com/**', (r) => r.abort());
+    await patient.page.goto(`/doctor/${users.doctorB.id}`, { waitUntil: 'domcontentloaded' });
+    const inThree = new Date(Date.now() + 3 * DAY);
+    const dayNum = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', day: 'numeric' }).format(inThree);
+    const weekday = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', weekday: 'short' }).format(inThree);
+    await expect(patient.page.getByText(/times in IST/)).toBeVisible({ timeout: 20_000 });
+    await patient.page.locator('button', { hasText: new RegExp(`^\\s*${weekday}\\s*${dayNum}\\s*\\w{3}\\s*$`, 'i') }).first().click();
+    const slot = patient.page.getByRole('button', { name: /\d{1,2}:\d{2} (AM|PM)/ }).last();
+    await expect(slot).toBeVisible({ timeout: 10_000 });
+    const time = (await slot.innerText()).trim();
+    await slot.click();
+    await patient.page.getByRole('button', { name: 'Schedule Session' }).click();
+
+    const summary = patient.page.getByRole('dialog', { name: 'Review your booking' });
+    await expect(summary).toBeVisible();
+    await expect(summary.getByText(`${time} IST`)).toBeVisible();
+    await expect(summary.getByText(/20 min · Video call/)).toBeVisible();
+    // Escape closes it without booking.
+    await patient.page.keyboard.press('Escape');
+    await expect(summary).toHaveCount(0);
+    await patient.page.getByRole('button', { name: 'Schedule Session' }).click();
+    await summary.getByRole('button', { name: /^Pay ₹/ }).click();
+
+    await expect(patient.page.getByText("You're booked")).toBeVisible({ timeout: 15_000 });
+    await expect(patient.page.getByText(`${time} IST`)).toBeVisible();
+    await expect(patient.page.getByRole('button', { name: 'Go to my dashboard' })).toBeVisible();
+    await patient.context.close();
+
+    // Give the time back for the other specs.
+    const sessions = (await db()).collection('sessions');
+    const booked = await sessions.find({ patientId: new ObjectId(users.patientB.id), doctorId: new ObjectId(users.doctorB.id) }).sort({ createdAt: -1 }).limit(1).toArray();
+    if (booked[0]) {
+      await (await db()).collection('doctoravailabilities').updateOne({ doctorId: new ObjectId(users.doctorB.id) }, { $pull: { bookedSlots: { sessionId: booked[0]._id } } } as never);
+      await sessions.deleteOne({ _id: booked[0]._id });
+    }
+  });
+
+  test('a signed-out patient keeps their choice through sign-in', async ({ browser }) => {
+    const { users } = fixtures();
+    const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await context.newPage();
+    await page.route('**/checkout.razorpay.com/**', (r) => r.abort());
+    await page.goto(`/doctor/${users.doctorB.id}`, { waitUntil: 'domcontentloaded' });
+    await expect(page.getByText(/times in IST/)).toBeVisible({ timeout: 20_000 });
+    await page.getByRole('button', { name: /Voice Call/ }).click();
+    const inThree = new Date(Date.now() + 3 * DAY);
+    const dayNum = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', day: 'numeric' }).format(inThree);
+    const weekday = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', weekday: 'short' }).format(inThree);
+    await page.locator('button', { hasText: new RegExp(`^\\s*${weekday}\\s*${dayNum}\\s*\\w{3}\\s*$`, 'i') }).first().click();
+    const slot = page.getByRole('button', { name: /\d{1,2}:\d{2} (AM|PM)/ }).first();
+    await expect(slot).toBeVisible({ timeout: 10_000 });
+    const time = (await slot.innerText()).trim();
+    await slot.click();
+    await page.getByRole('button', { name: 'Schedule Session' }).click();
+    await expect(page).toHaveURL(/\/login/, { timeout: 10_000 });
+
+    // Sign in on the form; it returns to the therapist and opens the summary.
+    await page.getByPlaceholder('Enter your email').fill(users.patientB.email);
+    await page.getByPlaceholder('Enter your password').fill(users.patientB.password);
+    await page.getByRole('button', { name: 'Sign In as Patient' }).click();
+    const summary = page.getByRole('dialog', { name: 'Review your booking' });
+    await expect(summary).toBeVisible({ timeout: 20_000 });
+    await expect(summary.getByText(`${time} IST`)).toBeVisible();
+    await expect(summary.getByText(/Voice call/)).toBeVisible();
+    await context.close();
   });
 });

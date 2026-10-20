@@ -148,7 +148,7 @@ export default function TermsPage() {
               <ul className="list-none space-y-3 pl-2">
                 <li className="flex items-start gap-3">
                   <div className="mt-1.5 w-1.5 h-1.5 rounded-full bg-[var(--warm)] flex-shrink-0" />
-                  <span><strong>Cancellation Window:</strong> A booked session may be cancelled up to 4 hours before its start for a full refund. Cancellations inside 4 hours are non-refundable (the therapist is still paid for the reserved time). Sessions are not moved; to change the time, cancel and book again.</span>
+                  <span><strong>Cancellation Window:</strong> A booked session cancelled more than 4 hours before its start is refunded in full. Cancellations 4 hours or less before the start are non-refundable (the therapist is still paid for the reserved time). Sessions are not moved; to change the time, cancel and book again.</span>
                 </li>
               </ul>
             </div>

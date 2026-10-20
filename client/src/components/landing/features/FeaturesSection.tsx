@@ -152,7 +152,7 @@ const FeaturesSection: React.FC = () => {
               {/* Custom UI Illustration: Avatar Cluster */}
               <div className="relative h-16 mt-auto">
                 <div className="absolute bottom-0 right-0 flex -space-x-3 transition-transform duration-500 group-hover:scale-105 group-hover:-translate-y-1">
-                  <div className="w-12 h-12 rounded-full border-[3px] border-white shadow-md z-30" style={{ background: 'url(/priya.png) center/cover', backgroundColor: '#e2e8f0' }} />
+                  <div className="w-12 h-12 rounded-full border-[3px] border-white shadow-md z-30" style={{ background: 'url(/priya.webp) center/cover', backgroundColor: '#e2e8f0' }} />
                   <div className="w-12 h-12 rounded-full border-[3px] border-white shadow-md z-20 flex items-center justify-center text-xs font-bold" style={{ background: 'rgba(107, 168, 136, 0.2)', color: 'var(--sage)' }}>JS</div>
                   <div className="w-12 h-12 rounded-full border-[3px] border-white shadow-md z-10 flex items-center justify-center text-xs font-bold" style={{ background: 'rgba(0, 151, 178, 0.15)', color: 'var(--teal)' }}>AM</div>
                 </div>

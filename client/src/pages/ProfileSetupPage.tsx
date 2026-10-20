@@ -7,6 +7,7 @@ import BackToDashboard from '../components/BackToDashboard';
 import { API_BASE_URL } from '../config/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
+import { missingPriceSlots } from '../utils/sessionPricing';
 
 const ProfileSetupPage: React.FC = () => {
   const navigate = useNavigate();
@@ -132,9 +133,21 @@ const ProfileSetupPage: React.FC = () => {
     }
   });
 
+  // All six prices are required (every length is sold by video and voice);
+  // the server refuses a grid with a gap.
+  const missingPrices = missingPriceSlots({
+    video: { 20: formData.price20, 40: formData.price40, 55: formData.price55 },
+    voice: { 20: formData.audioPrice20, 40: formData.audioPrice40, 55: formData.audioPrice55 },
+  });
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (missingPrices.length > 0) {
+      setCurrentStep(3);
+      setError(`Set a price for every session. Missing: ${missingPrices.join(', ')}.`);
+      return;
+    }
     profileMutation.mutate({
       ...formData,
       experience: parseInt(formData.experience) || 0,
@@ -175,7 +188,7 @@ const ProfileSetupPage: React.FC = () => {
       case 2:
         return formData.qualification.length > 0 && formData.languages.length > 0 && formData.specialization.length > 0;
       case 3:
-        return formData.modeOfSession.length > 0;
+        return formData.modeOfSession.length > 0 && missingPrices.length === 0;
       case 4:
         return true; // Optional step
       default:
@@ -576,6 +589,10 @@ const ProfileSetupPage: React.FC = () => {
                 {/* STEP 3: Session Details */}
                 {currentStep === 3 && (
                   <>
+                    <p className="text-xs text-gray-600 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2">
+                      Every session length is offered by video and by voice, so set all six prices. Patients can book you once they are all set.
+                      {missingPrices.length > 0 && <span className="block mt-1 text-amber-700">Still to set: {missingPrices.join(', ')}.</span>}
+                    </p>
                     {/* Pricing */}
                     <div className="space-y-2">
                       <label className="block text-sm font-medium text-gray-700">
