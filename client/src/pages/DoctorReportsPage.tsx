@@ -1,3 +1,4 @@
+import { formatDate as formatIstDate } from '../utils/dateUtils';
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiDownload, FiEdit3 } from 'react-icons/fi';
@@ -54,23 +55,8 @@ const DoctorReportsPage: React.FC = () => {
     enabled: !!user
   });
 
-  const formatDateStr = (date: Date) => {
-    const day = date.getDate();
-    const month = date.toLocaleString('en-US', { month: 'long' });
-    const year = date.getFullYear();
-
-    const suffix = (d: number) => {
-      if (d > 3 && d < 21) return 'th';
-      switch (d % 10) {
-        case 1: return 'st';
-        case 2: return 'nd';
-        case 3: return 'rd';
-        default: return 'th';
-      }
-    };
-
-    return `${day}${suffix(day)} ${month} ${year}`;
-  };
+  // The IST calendar day, like every date on the platform.
+  const formatDateStr = (date: Date) => formatIstDate(date.toISOString());
 
   const { data: reports = [], isLoading: loading } = useQuery({
     // Distinct from DoctorDashboard's ['doctor', 'reports', userId, 'recent']:
@@ -124,7 +110,7 @@ const DoctorReportsPage: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="h-[calc(100vh-80px)] flex items-center justify-center bg-[#FAFAFA]">
+      <div className="h-[calc(100vh-80px)] flex items-center justify-center bg-[#f6f3ec]">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-500 text-[13px] font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>Loading reports...</p>
@@ -134,7 +120,7 @@ const DoctorReportsPage: React.FC = () => {
   }
 
   return (
-    <div className="h-screen pt-[64px] md:pt-[80px] bg-[#FAFAFA] font-sans flex flex-col overflow-hidden box-border">
+    <div className="h-screen pt-[64px] md:pt-[80px] bg-[#f6f3ec] font-sans flex flex-col overflow-hidden box-border">
       {/* Main Content Area */}
       <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 md:py-10 flex flex-col min-h-0">
         
@@ -151,7 +137,7 @@ const DoctorReportsPage: React.FC = () => {
             Back to Dashboard
           </button>
 
-          <h1 className="text-[32px] md:text-[36px] font-extrabold text-gray-800 tracking-tight mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
+          <h1 className="text-[32px] md:text-[36px] font-medium text-gray-800 mb-3" style={{ fontFamily: "'Newsreader', Georgia, serif", letterSpacing: '-0.01em' }}>
             Reports
           </h1>
           <p className="text-[15px] text-gray-500 font-medium leading-relaxed max-w-2xl" style={{ fontFamily: 'Inter, sans-serif' }}>

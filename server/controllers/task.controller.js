@@ -18,12 +18,14 @@ const logger = createLogger('TASK-CTRL');
  */
 
 const createTask = asyncHandler(async (req, res) => {
-  const { title, description, dueDate, priority } = req.body;
+  const checked = require('../utils/clinicalInput').checkTask(req.body || {});
+  if (checked.error) return res.status(400).json({ success: false, message: checked.error });
+  const { title, description, dueDate, priority } = checked.value;
   const doctorId = req.actor.id;
   // Server-derived from the authorized session — see authz/policies/clinicalRecords.policy.js
   const { sessionId, patientId } = req.authz.derived;
 
-  const task = new Task({ sessionId, doctorId, patientId, title, description, dueDate: new Date(dueDate), priority: priority || 'medium' });
+  const task = new Task({ sessionId, doctorId, patientId, title, description, dueDate, priority });
   await task.save();
 
   const populatedTask = await Task.findById(task._id)

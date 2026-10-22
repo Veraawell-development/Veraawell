@@ -16,7 +16,9 @@ const logger = createLogger('NOTE-CTRL');
  * Create a session note (Doctor only)
  */
 const createNote = asyncHandler(async (req, res) => {
-  const { content, mood, topicsDiscussed, progressInsights, therapeuticTechniques, isPrivate } = req.body;
+  const checked = require('../utils/clinicalInput').checkNote(req.body);
+  if (checked.error) return res.status(400).json({ success: false, message: checked.error });
+  const { content, mood, topicsDiscussed, progressInsights, therapeuticTechniques } = checked.value;
   const doctorId = req.actor.id;
 
   // sessionId and patientId come from the session that authorize('note:create')
@@ -25,7 +27,7 @@ const createNote = asyncHandler(async (req, res) => {
   // authorize() now deletes those keys from the body entirely.
   const { sessionId, patientId } = req.authz.derived;
 
-  const note = new SessionNote({ sessionId, doctorId, patientId, content, mood, topicsDiscussed, progressInsights, therapeuticTechniques, isPrivate: isPrivate || false });
+  const note = new SessionNote({ sessionId, doctorId, patientId, content, mood, topicsDiscussed, progressInsights, therapeuticTechniques, isPrivate: true });
   await note.save();
 
   const populatedNote = await SessionNote.findById(note._id)

@@ -109,9 +109,27 @@ describe('profile setup', () => {
     expect(user.lastName).toBe('del Carmen Santos');
   });
 
+  test('a doctor cannot rename themselves after approval; the same name is fine', async () => {
+    // The name an admin checked, shown on the directory (decision 2026-10-21).
+    const before = await DoctorProfile.findOne({ userId: f.doctorA._id }).lean();
+    const renamed = await call('post', '/api/profile/setup', doctorToken, {
+      fullName: 'Someone Else', type: 'Psychiatrist', experience: 9
+    });
+    expect(renamed.status).toBe(400);
+    expect(renamed.body.message).toMatch(/support@veraawell\.com/);
+    const user = await User.findById(f.doctorA._id);
+    expect(`${user.firstName} ${user.lastName}`).toBe('Meera Doctor');
+    // Nothing else in the request was written either.
+    expect((await DoctorProfile.findOne({ userId: f.doctorA._id }).lean()).experience).toBe(before.experience);
+
+    // "Dr." in front of the same name, or different spacing/case, is the same name.
+    const same = await call('post', '/api/profile/setup', doctorToken, { fullName: 'dr.  meera   DOCTOR', type: 'Psychiatrist', experience: 9 });
+    expect(same.status).toBeLessThan(300);
+  });
+
   test('a doctor can save professional details and they land on the DoctorProfile', async () => {
     const res = await call('post', '/api/profile/setup', doctorToken, {
-      fullName: 'Dev Mehta',
+      fullName: 'Meera Doctor',
       type: 'Psychiatrist',
       experience: 12,
       specialization: ['Trauma', 'Anxiety'],
@@ -131,7 +149,7 @@ describe('profile setup', () => {
 
   test('a save that leaves the professional type out keeps the stored one', async () => {
     await DoctorProfile.updateOne({ userId: f.doctorA._id }, { $set: { type: 'Counsellor' } });
-    const res = await call('post', '/api/profile/setup', doctorToken, { fullName: 'Dev Mehta', experience: 4 });
+    const res = await call('post', '/api/profile/setup', doctorToken, { fullName: 'Meera Doctor', experience: 4 });
     expect(res.status).toBeLessThan(300);
     expect((await DoctorProfile.findOne({ userId: f.doctorA._id }).lean()).type).toBe('Counsellor');
   });
@@ -291,7 +309,7 @@ describe('profile setup applies the same pricing rules as PATCH /pricing', () =>
   });
 
   test('a brand-new profile saved without pricing starts unpriced, not at Infinity', async () => {
-    const res = await call('post', '/api/profile/setup', freshDocToken, { fullName: 'Fresh Doctor', type: 'Psychologist', experience: 3 });
+    const res = await call('post', '/api/profile/setup', freshDocToken, { fullName: 'Meera Doctor', type: 'Psychologist', experience: 3 });
     expect(res.status).toBeLessThan(300);
 
     const profile = await DoctorProfile.findOne({ userId: freshDoc._id }).lean();
@@ -305,7 +323,7 @@ describe('profile setup applies the same pricing rules as PATCH /pricing', () =>
     });
     expect(priced.status).toBeLessThan(300);
 
-    await call('post', '/api/profile/setup', freshDocToken, { fullName: 'Fresh Doctor', type: 'Psychologist' });
+    await call('post', '/api/profile/setup', freshDocToken, { fullName: 'Meera Doctor', type: 'Psychologist' });
 
     const profile = await DoctorProfile.findOne({ userId: freshDoc._id }).lean();
     expect(profile.pricing.session40).toBe(1100);
@@ -320,13 +338,13 @@ describe('profile setup applies the same pricing rules as PATCH /pricing', () =>
       expect(res.status).toBe(400);
     }
 
-    expect((await User.findById(freshDoc._id)).firstName).toBe('Fresh');
+    expect((await User.findById(freshDoc._id)).firstName).toBe('Meera');
     expect((await DoctorProfile.findOne({ userId: freshDoc._id }).lean()).pricing.min).toBe(700);
   });
 
   test('a valid grid is stored as numbers with min and max derived', async () => {
     const res = await call('post', '/api/profile/setup', freshDocToken, {
-      fullName: 'Fresh Doctor',
+      fullName: 'Meera Doctor',
       pricing: { session20: '500', session40: 900, session55: 1200, audio: { session20: 400, session40: 800, session55: 1100 } }
     });
     expect(res.status).toBeLessThan(300);
@@ -345,7 +363,7 @@ describe('profile setup applies the same pricing rules as PATCH /pricing', () =>
     });
     expect(res.status).toBe(400);
     expect(res.body.message).toMatch(/Missing: 40-min audio, 55-min audio/);
-    expect((await User.findById(freshDoc._id)).firstName).toBe('Fresh');
+    expect((await User.findById(freshDoc._id)).firstName).toBe('Meera');
     expect((await DoctorProfile.findOne({ userId: freshDoc._id }).lean()).pricing.audio.session40).toBe(800);
   });
 
@@ -357,24 +375,24 @@ describe('profile setup applies the same pricing rules as PATCH /pricing', () =>
       { profileImage: 'javascript:alert(1)' }
     ]) {
       // eslint-disable-next-line no-await-in-loop
-      const res = await call('post', '/api/profile/setup', freshDocToken, { fullName: 'Fresh Doctor', ...body });
+      const res = await call('post', '/api/profile/setup', freshDocToken, { fullName: 'Meera Doctor', ...body });
       expect(res.status).toBe(400);
     }
 
     const ok = await call('post', '/api/profile/setup', freshDocToken, {
-      fullName: 'Fresh Doctor', profileImage: own, bannerImage: '/profile-bg.svg'
+      fullName: 'Meera Doctor', profileImage: own, bannerImage: '/profile-bg.svg'
     });
     expect(ok.status).toBeLessThan(300);
     expect((await DoctorProfile.findOne({ userId: freshDoc._id }).lean()).profileImage).toBe(own);
 
-    const cleared = await call('post', '/api/profile/setup', freshDocToken, { fullName: 'Fresh Doctor', profileImage: '' });
+    const cleared = await call('post', '/api/profile/setup', freshDocToken, { fullName: 'Meera Doctor', profileImage: '' });
     expect(cleared.status).toBeLessThan(300);
   });
 
   test('saving the profile does not put the doctor online', async () => {
     await DoctorProfile.updateOne({ userId: freshDoc._id }, { $set: { isOnline: false } });
 
-    await call('post', '/api/profile/setup', freshDocToken, { fullName: 'Fresh Doctor' });
+    await call('post', '/api/profile/setup', freshDocToken, { fullName: 'Meera Doctor' });
 
     expect((await DoctorProfile.findOne({ userId: freshDoc._id }).lean()).isOnline).toBe(false);
   });

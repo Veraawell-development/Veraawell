@@ -7,14 +7,15 @@ interface ProfileImageUploadProps {
     currentImage?: string;
     onImageUpdate: (imageUrl: string) => void;
     onImageRemove?: () => void;
-    defaultImage?: string;
+    /** Shown until a photo is uploaded. It was a stock "male" photo for everyone. */
+    initials?: string;
 }
 
 const ProfileImageUpload: React.FC<ProfileImageUploadProps> = ({
     currentImage,
     onImageUpdate,
     onImageRemove,
-    defaultImage = '/male.png'
+    initials = ''
 }) => {
     const [imageError, setImageError] = useState(false);
     const {
@@ -44,7 +45,7 @@ const ProfileImageUpload: React.FC<ProfileImageUploadProps> = ({
         !currentImage.includes('doctor-0') &&
         !currentImage.includes('doctor-placeholder');
 
-    const imageSrc = hasUploadedImage ? currentImage : defaultImage;
+    const imageSrc = hasUploadedImage ? currentImage : null;
 
     return (
         <>
@@ -52,27 +53,22 @@ const ProfileImageUpload: React.FC<ProfileImageUploadProps> = ({
                 {/* Image Preview */}
                 <div className="relative group">
                     <div className="w-32 h-32 rounded-full overflow-hidden border-4 border-gray-200 bg-gray-50">
-                        {!imageError ? (
+                        {imageSrc && !imageError ? (
                             <img
                                 key={imageSrc}
                                 src={imageSrc}
                                 alt="Profile"
                                 className="w-full h-full object-cover"
-                                onError={() => {
-                                    console.error('[IMAGE] Failed to load:', imageSrc);
-                                    setImageError(true);
-                                }}
-                                onLoad={() => {
-                                    console.log('[IMAGE] Loaded successfully:', imageSrc);
-                                    setImageError(false);
-                                }}
+                                onError={() => setImageError(true)}
+                                onLoad={() => setImageError(false)}
                             />
                         ) : (
-                            // Fallback if image fails
-                            <div className="w-full h-full flex items-center justify-center bg-gray-200">
-                                <svg className="w-16 h-16 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                </svg>
+                            <div aria-label="No photo yet" className="w-full h-full flex items-center justify-center bg-teal-700 text-white text-3xl font-semibold" style={{ fontFamily: "'Newsreader', Georgia, serif" }}>
+                                {initials || (
+                                    <svg className="w-16 h-16 text-white/70" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                    </svg>
+                                )}
                             </div>
                         )}
                     </div>

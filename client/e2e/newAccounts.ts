@@ -131,3 +131,14 @@ export async function createNewPatient(label = 'Fresh') {
   created.push(userId);
   return { userId, id: String(userId), email, password: fixtures().users.patientB.password, lastName: `${label}${id}` };
 }
+
+/** Saves a weekly calendar as the signed-in doctor: the same times on the given weekdays (0 = Sunday). */
+export async function publishWeekly(context: BrowserContext, { weekdays = [0, 1, 2, 3, 4, 5, 6], slots = ['10:00 AM', '11:00 AM'], offDates = [] as string[] } = {}) {
+  const res = await apiSend(context.request as unknown as APIRequestContext, 'POST', '/availability/save', {
+    availabilityType: 'weekly',
+    weeklySlots: weekdays.map((weekday) => ({ weekday, slots })),
+    offDates,
+    customAvailability: [],
+  });
+  expect(res.status(), await res.text()).toBeLessThan(300);
+}

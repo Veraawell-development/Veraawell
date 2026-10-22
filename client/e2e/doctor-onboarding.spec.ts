@@ -62,7 +62,6 @@ test.describe('a new therapist sets up their practice', () => {
     for (const [placeholder, value] of [['500', '600'], ['1000', '1000'], ['1500', '1400'], ['300', '500'], ['600', '900'], ['900', '1200']]) {
       await page.getByPlaceholder(placeholder, { exact: true }).fill(value);
     }
-    await page.locator('select').first().selectOption('Video Call');
 
     await save(page);
     await expect(page.getByText('Profile saved successfully!')).toBeVisible();
@@ -73,19 +72,39 @@ test.describe('a new therapist sets up their practice', () => {
     expect(saved.specialization).toEqual(['Anxiety']);
     expect(saved.pricing).toMatchObject({ session20: 600, session40: 1000, session55: 1400, audio: { session20: 500, session40: 900, session55: 1200 } });
 
-    // Not listed yet: no approved bank details, no dates.
+    // Not listed yet: no approved bank details, no dates — and the dashboard
+    // says exactly that (it used to warn only about dates).
     const before = await (await context.request.get(`${API_URL}/sessions/doctors`)).json();
     expect(JSON.stringify(before)).not.toContain(doctor.lastName);
+    const card = page.getByTestId('visibility-card');
+    await expect(card).toBeVisible();
+    await expect(card).toContainText("Patients can't find you yet");
+    await expect(card.locator('[data-check="bank"]')).toBeVisible();
+    await expect(card.locator('[data-check="dates"]')).toBeVisible();
+    await expect(card.locator('[data-check="prices"]')).toHaveCount(0);
+    await expect(card.locator('[data-check="profile"]')).toHaveCount(0);
+    // Going online is honest about it.
+    await page.getByRole('button', { name: 'Online', exact: true }).click();
+    await expect(page.getByText(/patients can't ring you yet/i)).toBeVisible();
+    await page.getByRole('button', { name: 'Offline', exact: true }).click();
 
     // 4. Bank details, exactly as typed live (a 9-digit account number).
     await page.goto('/doctor-settings');
-    // The prices from setup are already here (step 1); the bank form is step 2.
+    // The prices from setup are already here; the bank form is its own tab
+    // (it used to hide behind "Next" on a step-by-step wizard).
     await expect(page.getByRole('spinbutton', { name: '55 Minutes voice price' })).toHaveValue('1200');
-    await page.getByRole('button', { name: 'Next', exact: true }).click();
+    await page.getByRole('tab', { name: 'Bank & payouts' }).click();
+    await expect(page).toHaveURL(/#payouts/);
     await page.locator('#accountHolderName').fill('Nova Onboard');
     await page.locator('#accountNumber').fill('123456789');
+    // Typed twice; a mismatch is caught before anything is sent.
+    await page.locator('#accountNumberConfirm').fill('123456780');
     await page.locator('#ifsc').fill('HDFC0001234');
     await page.locator('#panNumber').fill('ABCDE1234F');
+    await page.getByRole('button', { name: /Submit for review/i }).click();
+    await expect(page.getByText('The account numbers do not match')).toBeVisible();
+    expect((await profileOf(doctor.userId)).payoutBankStatus || 'not_submitted').toBe('not_submitted');
+    await page.locator('#accountNumberConfirm').fill('123456789');
     const submitted = page.waitForResponse((r) => r.url().includes('/payouts/bank-details') && r.request().method() === 'POST');
     await page.getByRole('button', { name: /Submit for review/i }).click();
     const bankRes = await submitted;
@@ -100,10 +119,27 @@ test.describe('a new therapist sets up their practice', () => {
     const approve = await apiSend(context.request, 'POST', `/admin/payments/payouts/bank-details/${doctor.userId}/approve`,
       { submittedAt: pending.payoutBank.submittedAt }, superAdminHeaders());
     expect(approve.status(), await approve.text()).toBe(200);
-    const dates = await apiSend(context.request, 'POST', '/availability/save', {
-      availabilityType: 'same_slots', defaultSlots: ['10:00 AM', '11:00 AM'], activeDates: [istDay(3)], customAvailability: []
-    });
-    expect(dates.status(), await dates.text()).toBeLessThan(300);
+    // Weekly times through the calendar screen, as a therapist sets them.
+    await page.goto('/manage-calendar');
+    await page.getByRole('button', { name: /Edit Schedule/ }).first().click();
+    const inThree = new Date(Date.now() + 3 * 864e5);
+    const dayNum = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', day: 'numeric' }).format(inThree);
+    await page.getByRole('button', { name: new RegExp(`^\\w{3} ${dayNum}(:| \\(today\\))`) }).first().click();
+    await page.getByRole('button', { name: '10:00 AM', exact: true }).click();
+    await page.getByRole('button', { name: '11:00 AM', exact: true }).click();
+    await page.getByRole('button', { name: 'Same times Mon–Fri' }).click();
+    const calendarSaved = page.waitForResponse((r) => r.url().includes('/availability/save') && r.request().method() === 'POST');
+    await page.getByRole('button', { name: /^Save$/ }).click();
+    expect((await calendarSaved).status()).toBeLessThan(300);
+    const stored = await (await db()).collection('doctoravailabilities').findOne({ doctorId: doctor.userId });
+    expect(stored.availabilityType).toBe('weekly');
+    expect(stored.weeklySlots.length).toBeGreaterThanOrEqual(5);
+    void istDay;
+
+    // Everything done: the dashboard checklist is gone.
+    await page.goto('/doctor-dashboard');
+    await expect(page.getByText(/Practitioner Dashboard/i)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('visibility-card')).toHaveCount(0);
 
     // 6. A patient now finds them in the directory, priced "From ₹500".
     const patient = await browser.newContext({ storageState: EMPTY });
@@ -111,9 +147,9 @@ test.describe('a new therapist sets up their practice', () => {
     await signIn(patient, patientB.email, patientB.password, 'patient');
     const directory = await patient.newPage();
     await directory.goto('/choose-professional');
-    const card = directory.locator('div').filter({ hasText: doctor.lastName }).filter({ hasText: /From\s*₹/ }).last();
-    await expect(card).toBeVisible({ timeout: 15_000 });
-    await expect(card).toContainText(/From\s*₹500/);
+    const listing = directory.locator('div').filter({ hasText: doctor.lastName }).filter({ hasText: /From\s*₹/ }).last();
+    await expect(listing).toBeVisible({ timeout: 15_000 });
+    await expect(listing).toContainText(/From\s*₹500/);
 
     await patient.close();
     await context.close();
@@ -128,7 +164,13 @@ test.describe('a new therapist sets up their practice', () => {
     await page.goto('/profile-setup');
 
     await page.getByRole('button', { name: 'Basic', exact: true }).click();
-    await page.locator('select').first().selectOption('Counselor');
+    // The form must really be on screen: it used to be squeezed to zero width
+    // beside the tabs, and filling hidden fields made this test pass anyway.
+    const typeSelect = page.locator('select').first();
+    await expect(typeSelect).toBeInViewport();
+    const box = await typeSelect.boundingBox();
+    expect(box && box.width).toBeGreaterThan(200);
+    await typeSelect.selectOption('Counselor');
     await page.getByPlaceholder('5', { exact: true }).fill('2');
     await page.getByRole('button', { name: 'Credentials', exact: true }).click();
     const selects = page.locator('select');

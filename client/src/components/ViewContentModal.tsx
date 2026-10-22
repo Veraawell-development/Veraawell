@@ -109,9 +109,9 @@ const ViewContentModal: React.FC<ViewContentModalProps> = ({
                                         <h3 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest mb-3">Overall Progress</h3>
                                         <div className="flex items-center gap-4">
                                             <div className="flex-1 bg-gray-100 rounded-full h-2">
-                                                <div className="bg-teal-500 h-2 rounded-full transition-all" style={{ width: `${(parsedContent.progress / 10) * 100}%` }}></div>
+                                                <div className="bg-teal-500 h-2 rounded-full transition-all" style={{ width: `${Math.min(100, (parsedContent.progress / 5) * 100)}%` }}></div>
                                             </div>
-                                            <span className="font-bold text-gray-900 text-sm">{parsedContent.progress}/10</span>
+                                            <span className="font-bold text-gray-900 text-sm">{parsedContent.progress}/5</span>
                                         </div>
                                     </div>
                                 )}

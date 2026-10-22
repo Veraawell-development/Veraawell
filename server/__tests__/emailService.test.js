@@ -194,6 +194,17 @@ describe('approval outcomes', () => {
     expect(lastMessage().html).not.toMatch(/\/auth["']/);
   });
 
+  test('the approval email lists the three steps before patients can book, not "start accepting sessions"', async () => {
+    // A newly approved therapist cannot be booked until they have prices,
+    // approved bank details and weekly times (services/bookability.js).
+    await email.sendDoctorApprovedEmail('doc@example.com', 'Neha');
+    const html = lastMessage().html;
+    expect(html).not.toMatch(/start accepting sessions/);
+    expect(html).toMatch(/set prices for all six sessions/);
+    expect(html).toMatch(/bank details/);
+    expect(html).toMatch(/weekly times/);
+  });
+
   test('a rejection carries the reason the admin typed, escaped', async () => {
     await email.sendDoctorRejectedEmail('doc@example.com', 'Neha', 'Licence <expired>');
     expect(lastMessage().html).toContain('Licence &lt;expired&gt;');

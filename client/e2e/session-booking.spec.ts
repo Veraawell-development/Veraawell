@@ -2,6 +2,8 @@ import { test, expect, Browser, Page, BrowserContext } from '@playwright/test';
 import { fixtures } from './fixtures';
 import { closeDb, db, ObjectId } from './adminHelpers';
 import { createSession, readSession, signIn } from './sessionHelpers';
+import { createBookableDoctor, publishWeekly, istDay, removeNewAccounts } from './newAccounts';
+import { API_URL } from './fixtures';
 
 /**
  * Phase 2 screens, in a real browser: the doctor's Cancel (with a reason),
@@ -12,7 +14,7 @@ import { createSession, readSession, signIn } from './sessionHelpers';
 
 const DAY = 24 * 60 * 60 * 1000;
 
-test.afterAll(async () => { await closeDb(); });
+test.afterAll(async () => { await removeNewAccounts(); await closeDb(); });
 
 async function as(browser: Browser, who: 'patient' | 'doctor', width = 1440): Promise<{ context: BrowserContext; page: Page }> {
   const { users } = fixtures();
@@ -58,68 +60,73 @@ test.describe('the doctor cancels', () => {
 });
 
 test.describe('the availability calendar', () => {
-  test('every date says On or Off, including the one selected; an off day says so', async ({ browser }) => {
-    const { users } = fixtures();
-    const avail = (await db()).collection('doctoravailabilities');
-    const before = await avail.findOne({ doctorId: new ObjectId(users.doctorB.id) });
-    // Today off, everything else as seeded.
-    const todayIst = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
-    await avail.updateOne({ doctorId: new ObjectId(users.doctorB.id) }, { $pull: { activeDates: todayIst } });
-    try {
-      for (const width of [1440, 390]) {
-        const doctor = await as(browser, 'doctor', width);
-        await doctor.page.goto('/manage-calendar');
-        const today = doctor.page.getByRole('button', { name: /\(today\): off/ });
-        await expect(today).toBeVisible({ timeout: 20_000 });
-        await expect(doctor.page.getByText('This day is off')).toBeVisible();
-        // Tomorrow is on, and says so.
-        await expect(doctor.page.getByRole('button', { name: /open for booking/ }).first()).toBeVisible();
-        // Edit, turn today on: the label flips and the note goes.
-        await doctor.page.getByRole('button', { name: 'Edit Schedule' }).first().click();
-        await today.click();
-        await expect(doctor.page.getByRole('button', { name: /\(today\): open for booking/ })).toBeVisible();
-        await expect(doctor.page.getByText('This day is off')).toHaveCount(0);
-        // No horizontal scroll on a phone.
-        const overflow = await doctor.page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-        expect(overflow).toBeLessThanOrEqual(1);
-        await doctor.context.close();
-      }
-    } finally {
-      await avail.updateOne({ doctorId: new ObjectId(users.doctorB.id) }, { $set: { activeDates: before?.activeDates || [] } });
+  test('weekly times: every date says open or off; a day off can be opened again and saved', async ({ browser }) => {
+    test.setTimeout(120_000);
+    const doctor = await createBookableDoctor('Cal');
+    const tomorrow = istDay(1);
+    const later = istDay(2);
+    for (const width of [1440, 390]) {
+      const context = await browser.newContext({ viewport: { width, height: width > 600 ? 900 : 844 } });
+      await signIn(context, doctor.email, doctor.password, 'doctor');
+      // Every day 10 and 11 AM, tomorrow taken off.
+      await publishWeekly(context, { offDates: [tomorrow] });
+      const page = await context.newPage();
+      await page.goto('/manage-calendar');
+      const dayButton = (date: string, state: 'off' | 'open for booking') => {
+        const n = Number(date.slice(8));
+        return page.getByRole('button', { name: new RegExp(`^\\w{3} ${n}(?: \\(today\\))?: ${state}$`) });
+      };
+      await expect(dayButton(tomorrow, 'off')).toBeVisible({ timeout: 20_000 });
+      await expect(dayButton(later, 'open for booking')).toBeVisible();
+      await expect(page.getByTestId('weekly-summary')).toContainText('10 AM, 11 AM');
+
+      await dayButton(tomorrow, 'off').click();
+      await expect(page.getByText('No times on this day')).toBeVisible();
+
+      // Edit: open tomorrow again; the label flips and the note goes.
+      await page.getByRole('button', { name: 'Edit Schedule' }).first().click();
+      await page.getByRole('button', { name: 'Open this day' }).click();
+      await expect(dayButton(tomorrow, 'open for booking')).toBeVisible();
+      const saved = page.waitForResponse((r) => r.url().includes('/availability/save') && r.request().method() === 'POST');
+      await page.getByRole('button', { name: /^Save$/ }).click();
+      expect((await saved).status()).toBeLessThan(300);
+      const stored = await (await db()).collection('doctoravailabilities').findOne({ doctorId: doctor.userId });
+      expect(stored.offDates).not.toContain(tomorrow);
+      // No horizontal scroll on a phone.
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      expect(overflow).toBeLessThanOrEqual(1);
+      await context.close();
     }
+    // Patients see tomorrow's weekly times.
+    const slots = await (await browser.newContext()).request.get(`${API_URL}/sessions/doctors/${doctor.id}/slots/${tomorrow}`);
+    expect(JSON.stringify(await slots.json())).toMatch(/10:00 AM/);
   });
 });
 
 test.describe('the doctor dashboard', () => {
-  test('warns when the calendar has no open dates, and links to fix it', async ({ browser }) => {
-    // Two dashboard loads at phone and desktop width: more than the default
-    // 30 s on a loaded machine. A timeout closes the DB before `finally`
-    // can put the calendar back, and every later booking test then sees a
-    // therapist with no open days — so leave room.
+  test('a checklist says what is missing before patients can find the therapist, each with its fix', async ({ browser }) => {
     test.setTimeout(90_000);
-    const { users } = fixtures();
-    const avail = (await db()).collection('doctoravailabilities');
-    const before = await avail.findOne({ doctorId: new ObjectId(users.doctorB.id) });
-    await avail.updateOne({ doctorId: new ObjectId(users.doctorB.id) }, { $set: { activeDates: ['2026-01-01'], customAvailability: [] } });
-    try {
-      const doctor = await as(browser, 'doctor', 390);
-      await doctor.page.goto('/doctor-dashboard');
-      await dismissPrompts(doctor.page);
-      await expect(doctor.page.getByText(/Patients can't book you/)).toBeVisible({ timeout: 20_000 });
-      await doctor.page.getByRole('button', { name: 'Add dates →' }).click();
-      await expect(doctor.page).toHaveURL(/manage-calendar/);
-      await doctor.context.close();
-    } finally {
-      // A fresh handle: if the test timed out, afterAll has already closed `avail`'s client.
-      await (await db()).collection('doctoravailabilities').updateOne({ doctorId: new ObjectId(users.doctorB.id) }, { $set: { activeDates: before?.activeDates || [], customAvailability: before?.customAvailability || [] } });
-    }
-    // With dates ahead, no warning.
-    const doctor = await as(browser, 'doctor');
-    await doctor.page.goto('/doctor-dashboard');
-    await dismissPrompts(doctor.page);
-    await expect(doctor.page.getByText('Practitioner Dashboard')).toBeVisible({ timeout: 20_000 });
-    await expect(doctor.page.getByText(/Patients can't book you/)).toHaveCount(0);
-    await doctor.context.close();
+    // Priced and paid out, no calendar yet.
+    const doctor = await createBookableDoctor('Check');
+    const context = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    await signIn(context, doctor.email, doctor.password, 'doctor');
+    const page = await context.newPage();
+    await page.goto('/doctor-dashboard');
+    await dismissPrompts(page);
+    const card = page.getByTestId('visibility-card');
+    await expect(card).toBeVisible({ timeout: 20_000 });
+    await expect(card).toContainText("Patients can't find you yet");
+    await expect(card.locator('[data-check="prices"]')).toHaveCount(0);
+    await expect(card.locator('[data-check="bank"]')).toHaveCount(0);
+    await card.locator('[data-check="dates"]').click();
+    await expect(page).toHaveURL(/manage-calendar/);
+
+    // With weekly times saved, no warning.
+    await publishWeekly(context);
+    await page.goto('/doctor-dashboard');
+    await expect(page.getByText('Practitioner Dashboard')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('visibility-card')).toHaveCount(0);
+    await context.close();
   });
 });
 

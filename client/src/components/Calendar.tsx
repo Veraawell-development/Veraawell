@@ -6,6 +6,7 @@ import logger from '../utils/logger';
 import type { Session } from '../types';
 import { sessionLocalDateKey } from '../utils/dateUtils';
 import { canJoinNow, hasEnded, outcomeLabel } from '../utils/sessionRules';
+import { doctorDisplayName } from '../utils/doctorName';
 
 interface CalendarProps {
   userRole: 'patient' | 'doctor';
@@ -159,7 +160,8 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
             if (daySessions.some(s => getSessionVisualStatus(s) === 'joinable')) {
               statusColor = 'bg-amber-400';
             } else if (daySessions.some(s => getSessionVisualStatus(s) === 'upcoming')) {
-              statusColor = 'bg-red-500';
+              // Teal: an upcoming session is good news, not an alarm.
+              statusColor = 'bg-teal-600';
             } else if (daySessions.some(s => getSessionVisualStatus(s) === 'completed')) {
               statusColor = 'bg-green-500';
             } else {
@@ -233,7 +235,7 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
       {/* Legend */}
       <div className="mt-2 pt-2 border-t border-gray-100 flex flex-wrap items-center justify-center gap-3 text-[9px] font-bold text-gray-500 uppercase tracking-wider shrink-0" style={{ fontFamily: 'Inter, sans-serif' }}>
         <div className="flex items-center gap-1.5">
-          <div className="w-2 h-2 rounded-full bg-red-500"></div>
+          <div className="w-2 h-2 rounded-full bg-teal-600"></div>
           <span>Upcoming</span>
         </div>
         <div className="flex items-center gap-1.5">
@@ -246,7 +248,7 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
         </div>
         <div className="flex items-center gap-1.5">
           <div className="w-2 h-2 rounded-full bg-gray-400"></div>
-          <span>Cancelled</span>
+          <span>Cancelled / missed</span>
         </div>
       </div>
 
@@ -312,15 +314,15 @@ const Calendar: React.FC<CalendarProps> = ({ userRole, onSessionClick, refreshTr
                       <div className="flex-1 min-w-0">
                         <h4 className="font-semibold text-gray-900 truncate" style={{ fontFamily: 'Inter, sans-serif' }}>
                           {userRole === 'patient'
-                            ? (session.doctorId?.firstName ? `Dr. ${session.doctorId.firstName} ${session.doctorId.lastName}` : 'Doctor')
+                            ? (session.doctorId?.firstName ? doctorDisplayName(session.doctorId.firstName, session.doctorId.lastName) : 'Therapist')
                             : (session.patientId?.firstName ? `${session.patientId.firstName} ${session.patientId.lastName}` : 'Patient')
                           }
                         </h4>
                         <div className="flex items-center gap-2 mt-1">
-                          <span className="text-xs text-gray-500 capitalize">{session.sessionType}</span>
+                          <span className="text-xs text-gray-500">{session.sessionType === 'immediate' ? 'Instant' : 'Booked'}</span>
                           <span className="text-gray-300">•</span>
                           <span className={`text-[10px] font-semibold uppercase tracking-wider ${status === 'completed' ? 'text-green-600' :
-                              status === 'upcoming' ? 'text-red-500' :
+                              status === 'upcoming' ? 'text-teal-700' :
                                 status === 'joinable' ? 'text-amber-600' :
                                   'text-gray-500'
                               }`}>

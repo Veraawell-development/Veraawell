@@ -8,6 +8,7 @@ import { resolveSessionStart, PLATFORM_TIMEZONE, formatSessionClock } from '../u
 import { toast } from 'react-hot-toast';
 import { calculateRefundPreview } from '../utils/refundPolicy';
 import { canJoinNow, hasEnded, joinWindow, outcomeLabel, cancelResultMessage, type SessionLike } from '../utils/sessionRules';
+import { doctorInitials } from '../utils/doctorName';
 import { getAuthToken } from '../utils/authToken';
 import { useDialog } from '../hooks/useDialog';
 import { useNow } from '../hooks/useNow';
@@ -77,6 +78,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [loading, setLoading] = useState(false);
+  const [photoFailed, setPhotoFailed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
@@ -438,14 +440,17 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
             <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6 text-center sm:text-left">
               {/* Profile Image */}
               <div className="rounded-xl overflow-hidden flex-shrink-0 border border-gray-100 w-20 h-20 sm:w-[120px] sm:h-[120px]">
-                <img
-                  src={(userRole === 'patient' && doctorProfile?.profileImage) || "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 24 24' fill='%23A0AEC0'%3E%3Cpath d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z'/%3E%3C/svg%3E"}
-                  alt=""
-                  className="w-full h-full object-cover"
-                  onError={(e) => {
-                    (e.target as HTMLImageElement).src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120' viewBox='0 0 24 24' fill='%23A0AEC0'%3E%3Cpath d='M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z'/%3E%3C/svg%3E";
-                  }}
-                />
+                {userRole === 'patient' && doctorProfile?.profileImage && !photoFailed ? (
+                  <img src={doctorProfile.profileImage} alt="" className="w-full h-full object-cover" onError={() => setPhotoFailed(true)} />
+                ) : (
+                  // Initials, never a stand-in photo (a silhouette for patients,
+                  // a gender-guessed picture before that).
+                  <div aria-hidden="true" className="w-full h-full flex items-center justify-center text-white text-2xl sm:text-4xl font-semibold" style={{ background: '#1f7a8c', fontFamily: "'Newsreader', Georgia, serif" }}>
+                    {userRole === 'patient'
+                      ? (doctorInitials(session.doctorId?.firstName, session.doctorId?.lastName) || 'T')
+                      : `${session.patientId?.firstName?.[0] || ''}${session.patientId?.lastName?.[0] || ''}`.toUpperCase() || 'P'}
+                  </div>
+                )}
               </div>
 
               {/* Doctor/Patient Details */}
@@ -485,7 +490,7 @@ const SessionModal: React.FC<SessionModalProps> = ({ session, userRole, isOpen, 
               </div>
               <div className="space-y-1 md:border-r border-gray-200">
                 <p className="font-semibold text-gray-700">Duration</p>
-                <p>{session.duration || 60} minutes</p>
+                <p>{session.duration ? `${session.duration} minutes` : '—'}</p>
               </div>
               <div className="space-y-1">
                 <p className="font-semibold text-gray-700">Mode</p>

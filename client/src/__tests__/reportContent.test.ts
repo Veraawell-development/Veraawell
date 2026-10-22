@@ -30,7 +30,7 @@ describe('a report whose free-text fields are all empty', () => {
   it('shows what the doctor did fill in', () => {
     const snippet = reportSnippet(BLANK_FREE_TEXT);
     expect(snippet).toContain('Low');
-    expect(snippet).toContain('4/10');
+    expect(snippet).toContain('4/5');
     expect(snippet).toContain('Follow-up recommended');
   });
 
@@ -38,14 +38,14 @@ describe('a report whose free-text fields are all empty', () => {
     const text = formatReportText(BLANK_FREE_TEXT);
     expect(text).not.toContain('{');
     expect(text).toContain('Mood: Low');
-    expect(text).toContain('Progress: 4/10');
+    expect(text).toContain('Progress: 4/5');
     expect(text).toContain('Observations: Follow-up recommended, Good engagement');
   });
 });
 
 describe('a report the doctor wrote prose in', () => {
   const WITH_SUMMARY = JSON.stringify({
-    reportType: 'progress', mood: 'positive', progress: 8,
+    reportType: 'progress', mood: 'positive', progress: 3,
     observations: ['Showing improvement'],
     summary: 'Patient is responding well to the new routine.',
     recommendations: 'Continue weekly sessions.', diagnosis: ''
@@ -58,7 +58,7 @@ describe('a report the doctor wrote prose in', () => {
   it('keeps every filled field in the full text, in a stable order', () => {
     expect(formatReportText(WITH_SUMMARY).split('\n')).toEqual([
       'Mood: Positive',
-      'Progress: 8/10',
+      'Progress: 3/5',
       'Observations: Showing improvement',
       'Summary: Patient is responding well to the new routine.',
       'Recommendations: Continue weekly sessions.'

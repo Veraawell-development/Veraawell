@@ -334,6 +334,8 @@ const { requireRole } = require('./authz');
 app.get('/api/profile/signature', verifyToken, requireRole('doctor'), profileController.getSignature);
 app.put('/api/profile/signature', verifyToken, requireRole('doctor'), profileController.saveSignature);
 app.delete('/api/profile/signature', verifyToken, requireRole('doctor'), profileController.deleteSignature);
+// Why patients can or can't find this therapist (dashboard / settings checklist).
+app.get('/api/profile/visibility', verifyToken, requireRole('doctor'), profileController.getVisibility);
 
 
 // Patient profile route (alias for backward compatibility)

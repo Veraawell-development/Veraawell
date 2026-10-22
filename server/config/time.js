@@ -23,6 +23,13 @@ const PLATFORM_TIMEZONE = 'Asia/Kolkata';
 /** A session becomes joinable this many minutes before its start. */
 const JOIN_LEAD_MINUTES = 15;
 
+/**
+ * How far ahead a patient can book a time. The booking page has always shown
+ * 14 days; with a weekly repeating calendar the server has to hold the line
+ * itself, or any date years ahead would be bookable by request.
+ */
+const BOOKING_HORIZON_DAYS = 14;
+
 /** How long after the end a session is swept to completed / no-show. */
 const NO_SHOW_GRACE_MINUTES = 10;
 
@@ -91,6 +98,7 @@ module.exports = {
   GRACE_MINUTES,
   ALONE_REFUND_MINUTES,
   JOIN_LEAD_MINUTES,
+  BOOKING_HORIZON_DAYS,
   NO_SHOW_GRACE_MINUTES,
   CHECKOUT_TTL_MINUTES,
   INSTANT_ACCEPT_WINDOW_MINUTES,

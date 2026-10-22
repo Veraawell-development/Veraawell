@@ -21,8 +21,9 @@ async function arriveAtDashboard(page: Page) {
 }
 
 async function navigateVia(page: Page, item: string | RegExp, expectedUrl: RegExp) {
-  await page.locator('[aria-label="Open menu"]').first().click();
-  await page.getByText(item, { exact: typeof item === 'string' }).first().click();
+  await page.getByRole('button', { name: 'Open practice menu' }).click();
+  const menu = page.getByRole('navigation', { name: 'Practice menu' });
+  await menu.getByRole('button', { name: item }).first().click();
   await expect(page).toHaveURL(expectedUrl, { timeout: 15_000 });
 }
 
@@ -137,7 +138,19 @@ test.describe('navigation reaches every doctor route', () => {
   });
 
   test('Patients', async ({ page }) => {
-    await navigateVia(page, /Patients|Clients/i, /\/patient-details/);
+    await navigateVia(page, /My Patients/i, /\/patient-details/);
+  });
+
+  // The menu used to miss these four; each was reachable only from a button
+  // somewhere on the dashboard.
+  for (const [label, url] of [['Calendar', /\/manage-calendar/], ['Reports', /\/doctor-reports/], ['Messages', /\/messages/], ['Pricing & Payouts', /\/doctor-settings/]] as const) {
+    test(`the practice menu reaches ${label}`, async ({ page }) => {
+      await navigateVia(page, label, url);
+    });
+  }
+
+  test('the practice menu opens the therapist\'s own public profile', async ({ page }) => {
+    await navigateVia(page, 'View my public profile', new RegExp(`/doctor/${fixtures().users.doctorA.id}`));
   });
 });
 
@@ -187,10 +200,30 @@ test.describe('pricing and payouts', () => {
     await page.goto('/doctor-settings');
     await expect(page.getByText('Session Pricing')).toBeVisible({ timeout: 20_000 });
 
-    // 20% platform fee: ₹800 gross leaves ₹640, ₹1,500 leaves ₹1,200.
-    await expect(page.getByText('Platform fee: 20%')).toBeVisible();
-    await expect(page.getByText(/You earn: ₹640/)).toBeVisible();
-    await expect(page.getByText(/You earn: ₹1,200/)).toBeVisible();
+    // 20% platform fee: ₹800 gross leaves ₹640, ₹1,500 leaves ₹1,200 — the
+    // therapist's real fee, not an "estimate" (it used to be dropped on load).
+    await expect(page.getByText(/after your 20% platform fee/)).toBeVisible();
+    await expect(page.getByText(/You earn: ₹640/).first()).toBeVisible();
+    await expect(page.getByText(/You earn: ₹1,200/).first()).toBeVisible();
+    await expect(page.getByText(/≈/)).toHaveCount(0);
+  });
+
+  test('a therapist with their own agreed fee sees their own split', async ({ browser }) => {
+    const { db, closeDb, ObjectId } = await import('./adminHelpers');
+    const { signIn } = await import('./sessionHelpers');
+    const { createBookableDoctor, removeNewAccounts } = await import('./newAccounts');
+    const doctor = await createBookableDoctor('Fee');
+    await (await db()).collection('doctorprofiles').updateOne({ userId: new ObjectId(doctor.id) }, { $set: { customFeePercentage: 25 } });
+    const context = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+    await signIn(context, doctor.email, doctor.password, 'doctor');
+    const page = await context.newPage();
+    await page.goto('/doctor-settings');
+    // 20-min video at ₹600 with a 25% fee leaves ₹450.
+    await expect(page.getByText(/after your 25% platform fee/)).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/You earn: ₹450/).first()).toBeVisible();
+    await context.close();
+    await removeNewAccounts();
+    await closeDb();
   });
 });
 

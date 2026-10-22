@@ -460,7 +460,10 @@ async function sendDoctorApprovedEmail(email, name) {
   return sendBestEffort('doctor approval', {
     to: email,
     subject: 'Welcome to Veraawell! Your account is approved.',
-    html: generateDoctorStatusHTML(name, 'approved', frontendLoginUrl)
+    html: generateDoctorStatusHTML(name, 'approved', frontendLoginUrl, {
+      approvedMessage: 'Congratulations! Your professional account has been approved, and you can now sign in.',
+      setupSteps: true
+    })
   });
 }
 
@@ -596,6 +599,18 @@ function generateDoctorStatusHTML(name, status, loginUrl, options = {}) {
   const msg = isApproved
     ? (options.approvedMessage || 'Congratulations! Your professional account has been approved. You can now log in and start accepting sessions.')
     : (options.rejectedMessage || 'We regret to inform you that we cannot approve your application at this time.');
+  // What an approved therapist does next. It said "start accepting
+  // sessions", but nobody can book them until all three are done
+  // (services/bookability.js) — and nothing told them so.
+  const stepsLine = isApproved && options.setupSteps
+    ? `<p class="message">Before patients can find and book you:</p>
+       <ol class="message" style="padding-left:20px;margin:0 0 16px">
+         <li>Complete your profile and set prices for all six sessions.</li>
+         <li>Add your bank details — Veraawell checks them before your first booking.</li>
+         <li>Choose your weekly times in Manage Calendar.</li>
+       </ol>
+       <p class="message">Your dashboard shows what is still missing.</p>`
+    : '';
   // The reason the admin typed was recorded and never sent.
   const reasonLine = !isApproved && present(options.reason)
     ? `<p class="message"><strong>Reason:</strong> ${e(options.reason)}</p>`
@@ -677,6 +692,7 @@ function generateDoctorStatusHTML(name, status, loginUrl, options = {}) {
         <h1 class="header" style="color: ${color};">${title}</h1>
         <p class="message">${present(name) ? `Dear ${e(name)},` : 'Hello,'}</p>
         <p class="message">${msg}</p>
+        ${stepsLine}
         ${reasonLine}
         ${isApproved ? `
         <div class="button-container">

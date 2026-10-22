@@ -69,7 +69,10 @@ async function dismissWelcome(page: Page) {
 /** The dashboard's own way out: the menu drawer's "Sign Out". Lands on home, signed out. */
 async function signOutFromMenu(page: Page) {
   await dismissWelcome(page);
-  await page.getByRole('button', { name: 'Open menu' }).click();
+  // The therapist dashboard's menu is "Open practice menu" (a grid icon, so it
+  // isn't mistaken for the site's own ☰ on a phone); the patient's is "Open menu".
+  const menu = page.getByRole('button', { name: /^Open (practice )?menu$/ }).first();
+  await menu.click();
   await page.getByText('Sign Out', { exact: true }).click();
   await page.waitForURL((url) => url.pathname === '/', { timeout: 20_000 });
   await page.waitForLoadState('load');

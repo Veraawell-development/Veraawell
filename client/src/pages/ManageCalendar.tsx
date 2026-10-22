@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FiArrowLeft, FiEdit2, FiCheck, FiX, FiClock, FiCalendar, FiUser, FiSun, FiMoon } from 'react-icons/fi';
+import DoctorVisibilityCard from '../components/DoctorVisibilityCard';
 import { toast } from 'react-hot-toast';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../context/AuthContext';
@@ -23,6 +24,8 @@ interface UpcomingSession {
   paymentStatus: string;
   paymentId?: string;
   price: number;
+  /** The therapist's share, fixed at booking. */
+  doctorEarnings?: number;
   sessionType: string;
 }
 
@@ -36,41 +39,57 @@ const PAYMENT_WORDS: Record<string, string> = {
   refund_pending: 'Refund in progress', refunded: 'Refunded', refund_failed: 'Refund being retried'
 };
 
+const WEEKDAYS = [
+  { n: 1, short: 'Mon', long: 'Monday' }, { n: 2, short: 'Tue', long: 'Tuesday' }, { n: 3, short: 'Wed', long: 'Wednesday' },
+  { n: 4, short: 'Thu', long: 'Thursday' }, { n: 5, short: 'Fri', long: 'Friday' }, { n: 6, short: 'Sat', long: 'Saturday' },
+  { n: 0, short: 'Sun', long: 'Sunday' },
+];
+
+/** Today in IST as 'YYYY-MM-DD'. Every date here is an IST calendar day. */
+const istToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+const addDays = (date: string, n: number) => new Date(Date.parse(`${date}T00:00:00Z`) + n * 864e5).toISOString().slice(0, 10);
+const weekdayOf = (date: string) => new Date(`${date}T00:00:00Z`).getUTCDay();
+
+type Weekly = Record<number, string[]>;
+const toWeekly = (list?: { weekday: number; slots: string[] }[]): Weekly =>
+  Object.fromEntries((list || []).map((d) => [d.weekday, [...(d.slots || [])]]));
+
 const ManageCalendar: React.FC = () => {
   const navigate = useNavigate();
-  const [availabilityType, setAvailabilityType] = useState<'same_slots' | 'different_slots'>('same_slots');
+  const [availabilityType, setAvailabilityType] = useState<'weekly' | 'same_slots' | 'different_slots'>('weekly');
   const [isEditing, setIsEditing] = useState(false);
+  // Weekly repeat (decision 2026-10-21): the times for each weekday, set once.
+  // The older calendars needed every date ticked by hand, 14 days ahead, and
+  // the therapist vanished from the directory when the dates ran out.
+  const [weekly, setWeekly] = useState<Weekly>({});
+  const [offDates, setOffDates] = useState<string[]>([]);
+  // Legacy calendars (same_slots / different_slots), read until first saved as weekly.
   const [activeDates, setActiveDates] = useState<string[]>([]);
   const [defaultSlots, setDefaultSlots] = useState<string[]>([]);
   const [customAvailability, setCustomAvailability] = useState<DayAvailability[]>([]);
-  const [currentViewDate, setCurrentViewDate] = useState<string>('');
+  const [currentViewDate, setCurrentViewDate] = useState<string>(istToday());
+  // While editing a date: change every such weekday, or only this one date.
+  const [scope, setScope] = useState<'weekday' | 'day'>('weekday');
   const [upcomingSessions, setUpcomingSessions] = useState<UpcomingSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<UpcomingSession | null>(null);
   // The session being cancelled (opens the shared cancel dialog in SessionModal).
   const [cancelTarget, setCancelTarget] = useState<UpcomingSession | null>(null);
-  const getNextDays = (count: number) => {
-    const today = new Date();
-    return Array.from({ length: count }, (_, i) => {
-      const date = new Date(today);
-      date.setDate(today.getDate() + i);
-      const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
-      return {
-        dateStr,
-        dayName: date.toLocaleDateString('en-US', { weekday: 'short' }),
-        dayNum: date.getDate(),
-        fullDay: date.toLocaleDateString('en-US', { weekday: 'long' }),
-        monthName: date.toLocaleDateString('en-US', { month: 'long' }),
-        shortMonth: date.toLocaleDateString('en-US', { month: 'short' }),
-        isToday: i === 0,
-      };
-    });
-  };
 
-  const nextDays = getNextDays(14);
-
-  useEffect(() => {
-    if (nextDays.length > 0 && !currentViewDate) setCurrentViewDate(nextDays[0].dateStr);
-  }, []);
+  // The next 14 IST days — what patients can book (BOOKING_HORIZON_DAYS).
+  const nextDays = Array.from({ length: 14 }, (_, i) => {
+    const dateStr = addDays(istToday(), i);
+    const d = new Date(`${dateStr}T00:00:00Z`);
+    const fmt = (o: Intl.DateTimeFormatOptions) => d.toLocaleDateString('en-US', { ...o, timeZone: 'UTC' });
+    return {
+      dateStr,
+      dayName: fmt({ weekday: 'short' }),
+      dayNum: d.getUTCDate(),
+      fullDay: fmt({ weekday: 'long' }),
+      monthName: fmt({ month: 'long' }),
+      shortMonth: fmt({ month: 'short' }),
+      isToday: i === 0,
+    };
+  });
 
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -99,13 +118,17 @@ const ManageCalendar: React.FC = () => {
     enabled: !!user
   });
 
+  const loadFromServer = (a: any) => {
+    setAvailabilityType(a.availabilityType || 'weekly');
+    setWeekly(toWeekly(a.weeklySlots));
+    setOffDates(a.offDates || []);
+    setDefaultSlots(a.defaultSlots || []);
+    setActiveDates(a.activeDates || []);
+    setCustomAvailability(a.customAvailability || []);
+  };
+
   useEffect(() => {
-    if (serverAvailability) {
-      setAvailabilityType(serverAvailability.availabilityType || 'same_slots');
-      setDefaultSlots(serverAvailability.defaultSlots || []);
-      setActiveDates(serverAvailability.activeDates || []);
-      setCustomAvailability(serverAvailability.customAvailability || []);
-    }
+    if (serverAvailability) loadFromServer(serverAvailability);
   }, [serverAvailability]);
 
   useEffect(() => {
@@ -114,11 +137,53 @@ const ManageCalendar: React.FC = () => {
     }
   }, [fetchedUpcomingSessions]);
 
+  /**
+   * Editing an older calendar turns it into a weekly one: each weekday that
+   * has open dates in the next two weeks gets the usual times, so nothing a
+   * patient can book today disappears.
+   */
+  const startEditing = () => {
+    if (availabilityType !== 'weekly') {
+      const next: Weekly = {};
+      for (const { dateStr } of nextDays) {
+        if (availabilityType === 'same_slots' && activeDates.includes(dateStr) && defaultSlots.length) {
+          next[weekdayOf(dateStr)] = [...defaultSlots];
+        }
+      }
+      setWeekly(next);
+      setOffDates([]);
+      setAvailabilityType('weekly');
+    }
+    setScope('weekday');
+    setIsEditing(true);
+  };
+
+  const overrideFor = (date: string) => customAvailability.find((d) => d.date === date && d.slots.length > 0);
+
+  /** The times patients see on a date — the same rule as the server's getAvailableSlotsForDate. */
+  const slotsOn = (date: string): string[] => {
+    const custom = overrideFor(date);
+    if (custom) return custom.slots.map((x) => x.time);
+    if (availabilityType === 'weekly') return offDates.includes(date) ? [] : (weekly[weekdayOf(date)] || []);
+    return activeDates.includes(date) ? defaultSlots : [];
+  };
+
+  const dayState = (date: string): 'on' | 'off' | 'custom' => {
+    if (overrideFor(date)) return 'custom';
+    return slotsOn(date).length > 0 ? 'on' : 'off';
+  };
+
   const handleDateClick = (dateStr: string) => {
     setCurrentViewDate(dateStr);
-    if (isEditing && availabilityType === 'same_slots') {
-      setActiveDates(prev => prev.includes(dateStr) ? prev.filter(d => d !== dateStr) : [...prev, dateStr]);
+  };
+
+  /** Switch one date off (or back on) without touching the weekly times. */
+  const toggleDayOff = (dateStr: string) => {
+    if (overrideFor(dateStr)) {
+      setCustomAvailability((prev) => prev.filter((d) => d.date !== dateStr));
+      return;
     }
+    setOffDates((prev) => (prev.includes(dateStr) ? prev.filter((d) => d !== dateStr) : [...prev, dateStr]));
   };
 
   // A slot is an IST wall-clock time on an IST day: compare its real instant
@@ -127,36 +192,31 @@ const ManageCalendar: React.FC = () => {
     resolveSessionStart({ sessionDate: dateStr, sessionTime: timeStr }).getTime() < Date.now();
 
   const toggleSlot = (slot: string) => {
-    if (availabilityType === 'same_slots') {
-      setDefaultSlots(prev => prev.includes(slot) ? prev.filter(s => s !== slot) : [...prev, slot]);
-    } else {
-      setCustomAvailability(prev => {
-        const idx = prev.findIndex(d => d.date === currentViewDate);
-        const next = [...prev];
-        if (idx >= 0) {
-          const day = { ...next[idx] };
-          const si = day.slots.findIndex(s => s.time === slot);
-          day.slots = si >= 0 ? day.slots.filter(s => s.time !== slot) : [...day.slots, { time: slot, isBooked: false }];
-          next[idx] = day;
-        } else {
-          next.push({ date: currentViewDate, slots: [{ time: slot, isBooked: false }] });
-        }
-        return next;
+    if (scope === 'weekday') {
+      const wd = weekdayOf(currentViewDate);
+      setWeekly((prev) => {
+        const cur = prev[wd] || [];
+        return { ...prev, [wd]: cur.includes(slot) ? cur.filter((x) => x !== slot) : [...cur, slot] };
       });
+      return;
     }
+    // Only this date: start from what it shows today, then change that.
+    setCustomAvailability((prev) => {
+      const base = overrideFor(currentViewDate)?.slots.map((x) => x.time) ?? slotsOn(currentViewDate);
+      const nextTimes = base.includes(slot) ? base.filter((x) => x !== slot) : [...base, slot];
+      const rest = prev.filter((d) => d.date !== currentViewDate);
+      return nextTimes.length ? [...rest, { date: currentViewDate, slots: nextTimes.map((time) => ({ time, isBooked: false })) }] : rest;
+    });
+    if (offDates.includes(currentViewDate)) setOffDates((prev) => prev.filter((d) => d !== currentViewDate));
   };
 
-  const isSlotSelected = (slot: string) => {
-    const override = customAvailability.find(d => d.date === currentViewDate);
-    if (isEditing) return availabilityType === 'same_slots' ? defaultSlots.includes(slot) : override?.slots.some(s => s.time === slot) || false;
-    if (override?.slots.length) return override.slots.some(s => s.time === slot);
-    return activeDates.includes(currentViewDate) && defaultSlots.includes(slot);
-  };
+  const isSlotSelected = (slot: string) => slotsOn(currentViewDate).includes(slot);
 
-  const isDateActive = (dateStr: string) => {
-    const hasOverride = customAvailability.some(d => d.date === dateStr && d.slots.length > 0);
-    if (!isEditing) return hasOverride || activeDates.includes(dateStr);
-    return availabilityType === 'same_slots' ? activeDates.includes(dateStr) : hasOverride;
+  /** Give Monday to Friday the times of one weekday — the usual working week in one tap. */
+  const copyToWeekdays = (from: number) => {
+    const times = weekly[from] || [];
+    setWeekly((prev) => ({ ...prev, 1: [...times], 2: [...times], 3: [...times], 4: [...times], 5: [...times] }));
+    toast.success('Monday to Friday now have these times');
   };
 
   const saveMutation = useMutation({
@@ -182,6 +242,7 @@ const ManageCalendar: React.FC = () => {
       toast.success('Schedule saved!');
       setIsEditing(false);
       queryClient.invalidateQueries({ queryKey: ['doctor', 'availability', user?.userId] });
+      queryClient.invalidateQueries({ queryKey: ['doctor', 'visibility', user?.userId] });
     },
     onError: (err: any) => {
       toast.error(err?.message || 'Error saving schedule');
@@ -189,19 +250,22 @@ const ManageCalendar: React.FC = () => {
   });
 
   const handleDiscard = () => {
-    if (serverAvailability) {
-      setAvailabilityType(serverAvailability.availabilityType || 'same_slots');
-      setDefaultSlots(serverAvailability.defaultSlots || []);
-      setActiveDates(serverAvailability.activeDates || []);
-      setCustomAvailability(serverAvailability.customAvailability || []);
-    }
+    if (serverAvailability) loadFromServer(serverAvailability);
     setIsEditing(false);
   };
 
   const loading = saveMutation.isPending;
 
   const handleSave = () => {
-    saveMutation.mutate({ availabilityType, defaultSlots, activeDates, customAvailability });
+    const today = istToday();
+    saveMutation.mutate({
+      availabilityType: 'weekly',
+      weeklySlots: Object.entries(weekly).filter(([, slots]) => slots.length).map(([wd, slots]) => ({ weekday: Number(wd), slots })),
+      offDates: offDates.filter((d) => d >= today),
+      customAvailability: customAvailability.filter((d) => d.date >= today && d.slots.length),
+      defaultSlots: [],
+      activeDates: [],
+    });
   };
 
   const getSlotInfo = (slot: string) => {
@@ -315,21 +379,10 @@ const ManageCalendar: React.FC = () => {
           </div>
         </div>
 
-        {/* Center: Mode pill */}
-        {isEditing && (
-          <div className="flex items-center order-3 sm:order-2 w-full sm:w-auto" style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 3, gap: 2 }}>
-            {([['same_slots', 'Weekly Default'], ['different_slots', 'Specific Day']] as const).map(([v, l]) => (
-              <button key={v} onClick={() => setAvailabilityType(v)} className="flex-1 sm:flex-none" style={{ padding: '6px 14px', borderRadius: 7, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', transition: 'all 0.15s', background: availabilityType === v ? '#fff' : 'transparent', color: availabilityType === v ? C.text1 : C.text3, boxShadow: availabilityType === v ? '0 1px 4px rgba(0,0,0,0.08)' : 'none' }}>
-                {l}
-              </button>
-            ))}
-          </div>
-        )}
-
         {/* Right: Actions */}
         <div className="flex items-center gap-2 order-2 sm:order-3 ml-auto">
           {!isEditing ? (
-            <button onClick={() => setIsEditing(true)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', background: C.brand, color: '#fff', border: 'none', borderRadius: 100, fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 1px 8px rgba(31,122,140,0.25)', whiteSpace: 'nowrap' }}>
+            <button onClick={startEditing} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '9px 18px', background: C.brand, color: '#fff', border: 'none', borderRadius: 100, fontSize: 13, fontWeight: 700, cursor: 'pointer', boxShadow: '0 1px 8px rgba(31,122,140,0.25)', whiteSpace: 'nowrap' }}>
               <FiEdit2 size={13} strokeWidth={2.5} />
               Edit Schedule
             </button>
@@ -350,10 +403,14 @@ const ManageCalendar: React.FC = () => {
 
       {/* DATE STRIP */}
       <div className="flex-none px-4 sm:px-6 lg:px-8 py-2.5" style={{ borderBottom: `1px solid ${C.border}` }}>
-        {isEditing && availabilityType === 'same_slots' && (
+        {isEditing ? (
           <p style={{ fontSize: 11, color: C.text3, fontWeight: 500, margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
             <span style={{ width: 5, height: 5, borderRadius: '50%', background: C.brand, display: 'inline-block', flexShrink: 0 }} />
-            Tap a date to switch it On or Off. Every On date uses the time slots below.
+            Pick a date, then set the times for every such weekday — or change just that day.
+          </p>
+        ) : availabilityType !== 'weekly' && (
+          <p role="status" style={{ fontSize: 11.5, color: C.text1, margin: '0 0 8px', padding: '6px 10px', borderRadius: 8, background: '#fdf6ec', border: '1px solid rgba(201,154,91,.35)' }}>
+            Your calendar uses dates you picked one by one. Press <strong>Edit Schedule</strong> to switch to weekly times that repeat on their own.
           </p>
         )}
         <div style={{ display: 'flex', gap: 6, overflowX: 'auto' }} className="scrollbar-hide">
@@ -363,9 +420,7 @@ const ManageCalendar: React.FC = () => {
             // The viewed date used to be a solid fill that hid its state, so a
             // day could look open when it was off.
             const isViewing = currentViewDate === dateStr;
-            const hasOverride = customAvailability.some(d => d.date === dateStr && d.slots.length > 0);
-            const active = isDateActive(dateStr);
-            const state = hasOverride && availabilityType !== 'same_slots' ? 'custom' : active ? 'on' : 'off';
+            const state = dayState(dateStr);
             const tone = state === 'on'
               ? { bg: C.brandTint, border: C.brandSoft, label: C.brand }
               : state === 'custom'
@@ -410,7 +465,7 @@ const ManageCalendar: React.FC = () => {
                 {selectedDay ? (selectedDay.isToday ? `Today — ${selectedDay.fullDay}` : `${selectedDay.fullDay}, ${selectedDay.shortMonth} ${selectedDay.dayNum}`) : 'Select a date'}
               </p>
               <p style={{ margin: '2px 0 0', fontSize: 12, color: C.text3, fontWeight: 500 }}>
-                {isEditing ? 'Click a slot to toggle availability' : `${selectedCount} slot${selectedCount !== 1 ? 's' : ''} available`}
+                {isEditing ? (scope === 'weekday' ? 'Tap times to open or close them every week' : 'Tap times to change only this date') : `${selectedCount} slot${selectedCount !== 1 ? 's' : ''} available`}
               </p>
             </div>
             {/* Slot-state legend */}
@@ -430,10 +485,33 @@ const ManageCalendar: React.FC = () => {
 
           {/* Slots */}
           <div style={{ flex: 1, overflowY: 'auto', padding: '20px 20px 16px' }} className="scrollbar-hide">
-            {availabilityType === 'same_slots' && !isDateActive(currentViewDate) && (
+            {isEditing && (
+              <div className="flex flex-wrap items-center gap-2" style={{ marginBottom: 16 }}>
+                <div role="radiogroup" aria-label="What to change" className="flex" style={{ background: C.bg, border: `1px solid ${C.border}`, borderRadius: 10, padding: 3, gap: 2 }}>
+                  {([['weekday', `Every ${(WEEKDAYS.find((w) => w.n === weekdayOf(currentViewDate)))?.long || 'week'}`], ['day', `Only ${selectedDay ? `${selectedDay.dayName} ${selectedDay.dayNum} ${selectedDay.shortMonth}` : 'this day'}`]] as const).map(([v, l]) => (
+                    <button key={v} type="button" role="radio" aria-checked={scope === v} onClick={() => setScope(v)}
+                      style={{ padding: '6px 12px', borderRadius: 7, fontSize: 12, fontWeight: 700, border: 'none', cursor: 'pointer', background: scope === v ? '#fff' : 'transparent', color: scope === v ? C.text1 : C.text3, boxShadow: scope === v ? '0 1px 4px rgba(0,0,0,0.08)' : 'none' }}>
+                      {l}
+                    </button>
+                  ))}
+                </div>
+                {scope === 'weekday' && (weekly[weekdayOf(currentViewDate)] || []).length > 0 && (
+                  <button type="button" onClick={() => copyToWeekdays(weekdayOf(currentViewDate))}
+                    style={{ fontSize: 12, fontWeight: 700, color: C.brand, background: C.brandLight, border: `1px solid ${C.brandSoft}`, borderRadius: 8, padding: '6px 12px', cursor: 'pointer' }}>
+                    Same times Mon–Fri
+                  </button>
+                )}
+                {(weekly[weekdayOf(currentViewDate)] || []).length > 0 && (
+                  <button type="button" onClick={() => toggleDayOff(currentViewDate)}
+                    style={{ fontSize: 12, fontWeight: 700, color: C.text2, background: '#fff', border: `1px solid ${C.border}`, borderRadius: 8, padding: '6px 12px', cursor: 'pointer' }}>
+                    {dayState(currentViewDate) === 'off' ? 'Open this day' : dayState(currentViewDate) === 'custom' ? 'Use usual times this day' : 'Take this day off'}
+                  </button>
+                )}
+              </div>
+            )}
+            {!isEditing && dayState(currentViewDate) === 'off' && (
               <div role="status" style={{ marginBottom: 16, padding: '10px 14px', borderRadius: 10, background: '#fdf6ec', border: '1px solid rgba(201,154,91,.35)', fontSize: 12.5, color: C.text1 }}>
-                <strong>This day is off</strong> — patients can't book it.{' '}
-                {isEditing ? 'Tap the date above to turn it on.' : 'Use Edit Schedule, then tap the date to turn it on.'}
+                <strong>No times on this day</strong> — patients can't book it. Use Edit Schedule to add times.
               </div>
             )}
             <SlotGrid slots={AM_SLOTS} label="Morning" icon={<FiSun size={13} strokeWidth={2} />} />
@@ -446,7 +524,7 @@ const ManageCalendar: React.FC = () => {
               <p style={{ margin: 0, fontSize: 12, color: C.text3, fontWeight: 500 }}>
                 {selectedCount > 0 ? `${selectedCount} time slots open on this date` : 'No slots available for this date'}
               </p>
-              <button onClick={() => setIsEditing(true)} style={{ fontSize: 12, fontWeight: 700, color: C.brand, background: C.brandLight, border: `1px solid ${C.brandSoft}`, borderRadius: 8, padding: '5px 14px', cursor: 'pointer' }}>
+              <button onClick={startEditing} style={{ fontSize: 12, fontWeight: 700, color: C.brand, background: C.brandLight, border: `1px solid ${C.brandSoft}`, borderRadius: 8, padding: '5px 14px', cursor: 'pointer' }}>
                 Edit Schedule
               </button>
             </div>
@@ -455,6 +533,29 @@ const ManageCalendar: React.FC = () => {
 
         {/* SESSIONS SIDEBAR */}
         <div className="w-full lg:w-[260px] flex-none flex flex-col gap-3">
+          <DoctorVisibilityCard only={['dates']} />
+
+          {/* The weekly times at a glance */}
+          <div style={{ ...cardStyle, padding: '16px 16px 14px' }} className="flex-none" data-testid="weekly-summary">
+            <p style={{ margin: '0 0 10px', fontSize: 11, fontWeight: 700, color: C.text3, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Every week</p>
+            {availabilityType !== 'weekly' ? (
+              <p style={{ margin: 0, fontSize: 12, color: C.text2 }}>Not set — your calendar uses single dates.</p>
+            ) : (
+              <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                {WEEKDAYS.map((w) => {
+                  const times = (weekly[w.n] || []).slice().sort((x, y) => ALL_SLOTS.indexOf(x) - ALL_SLOTS.indexOf(y));
+                  return (
+                    <li key={w.n} style={{ display: 'flex', gap: 8, fontSize: 12 }}>
+                      <span style={{ width: 30, flex: 'none', fontWeight: 700, color: times.length ? C.text1 : C.text4 }}>{w.short}</span>
+                      <span style={{ color: times.length ? C.text2 : C.text4 }}>
+                        {times.length ? times.map((t) => t.replace(':00 ', ' ').replace(/^0/, '')).join(', ') : 'Off'}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
 
           {/* Stats card */}
           <div style={{ ...cardStyle, padding: '16px 16px 14px' }} className="flex-none">
@@ -462,7 +563,7 @@ const ManageCalendar: React.FC = () => {
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
               {[
                 { label: 'Sessions', val: upcomingSessions.length, color: C.brand, bg: C.brandLight },
-                { label: 'Active Days', val: activeDates.length + customAvailability.filter(d => d.slots.length > 0).length, color: C.purple, bg: C.purpleLight },
+                { label: 'Open days (2 weeks)', val: nextDays.filter((d) => dayState(d.dateStr) !== 'off').length, color: C.purple, bg: C.purpleLight },
               ].map(({ label, val, color, bg }) => (
                 <div key={label} style={{ background: bg, borderRadius: 10, padding: '10px 12px' }}>
                   <p style={{ margin: 0, fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 24, color, lineHeight: 1 }}>{val}</p>
@@ -587,12 +688,11 @@ const ManageCalendar: React.FC = () => {
 
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-2">
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Order Amount</span>
-                  <span className="font-bold text-gray-800">₹{selectedSession.price}</span>
-                </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-500">Payment ID</span>
-                  <span className="font-mono text-xs text-gray-600">{selectedSession.paymentId || 'N/A'}</span>
+                  {/* The therapist's own share. This showed the patient's full
+                      price and their Razorpay payment id, which are the
+                      patient's payment details, not the therapist's. */}
+                  <span className="text-gray-500">You earn</span>
+                  <span className="font-bold text-gray-800">₹{(selectedSession.doctorEarnings ?? selectedSession.price).toLocaleString('en-IN')}</span>
                 </div>
               </div>
 

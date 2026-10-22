@@ -30,18 +30,34 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
     }
   }, [activeTab]);
 
+  // Notes and task text are kept as a draft in this tab (sessionStorage) until
+  // saved: a call that ended, a refresh or a dropped connection used to lose
+  // everything typed so far.
+  const draftKey = `vw:session-tools:${sessionId}`;
+  const draft = (() => {
+    try { return JSON.parse(sessionStorage.getItem(draftKey) || '{}'); } catch { return {}; }
+  })();
+
   // Notes state
-  const [noteContent, setNoteContent] = useState('');
-  const [mood, setMood] = useState('');
-  const [topicsDiscussed, setTopicsDiscussed] = useState('');
-  const [progressInsights, setProgressInsights] = useState('');
-  const [therapeuticTechniques, setTherapeuticTechniques] = useState('');
+  const [noteContent, setNoteContent] = useState<string>(draft.noteContent || '');
+  const [mood, setMood] = useState<string>(draft.mood || '');
+  const [topicsDiscussed, setTopicsDiscussed] = useState<string>(draft.topicsDiscussed || '');
+  const [progressInsights, setProgressInsights] = useState<string>(draft.progressInsights || '');
+  const [therapeuticTechniques, setTherapeuticTechniques] = useState<string>(draft.therapeuticTechniques || '');
 
   // Tasks state
-  const [taskTitle, setTaskTitle] = useState('');
-  const [taskDescription, setTaskDescription] = useState('');
-  const [taskDueDate, setTaskDueDate] = useState('');
-  const [taskPriority, setTaskPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [taskTitle, setTaskTitle] = useState<string>(draft.taskTitle || '');
+  const [taskDescription, setTaskDescription] = useState<string>(draft.taskDescription || '');
+  const [taskDueDate, setTaskDueDate] = useState<string>(draft.taskDueDate || '');
+  const [taskPriority, setTaskPriority] = useState<'low' | 'medium' | 'high'>(draft.taskPriority || 'medium');
+
+  useEffect(() => {
+    try {
+      const values = { noteContent, mood, topicsDiscussed, progressInsights, therapeuticTechniques, taskTitle, taskDescription, taskDueDate, taskPriority };
+      const empty = !noteContent && !mood && !topicsDiscussed && !progressInsights && !therapeuticTechniques && !taskTitle && !taskDescription && !taskDueDate;
+      if (empty) sessionStorage.removeItem(draftKey); else sessionStorage.setItem(draftKey, JSON.stringify(values));
+    } catch { /* storage unavailable: nothing to keep */ }
+  }, [draftKey, noteContent, mood, topicsDiscussed, progressInsights, therapeuticTechniques, taskTitle, taskDescription, taskDueDate, taskPriority]);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
   const showNotification = (type: 'success' | 'error', message: string) => {
@@ -93,11 +109,8 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-        console.error(' Notes error:', errorData);
         throw new Error(errorData.message || 'Failed to save notes');
       }
-
-      const result = await response.json();
 
       showNotification('success', 'Session notes saved successfully!');
       // Clear form
@@ -107,7 +120,6 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
       setProgressInsights('');
       setTherapeuticTechniques('');
     } catch (error: any) {
-      console.error(' Error saving notes:', error);
       showNotification('error', `Failed to save notes: ${error.message}`);
     } finally {
       setSaving(false);
@@ -139,11 +151,8 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-        console.error(' Task error:', errorData);
         throw new Error(errorData.message || 'Failed to create task');
       }
-
-      const result = await response.json();
 
       showNotification('success', 'Task created successfully!');
       // Clear form
@@ -152,7 +161,6 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
       setTaskDueDate('');
       setTaskPriority('medium');
     } catch (error: any) {
-      console.error(' Error creating task:', error);
       showNotification('error', `Failed to create task: ${error.message}`);
     } finally {
       setSaving(false);
@@ -342,7 +350,11 @@ const SessionToolsModal: React.FC<SessionToolsModalProps> = ({
                   <label className="block text-[10px] font-bold uppercase tracking-widest text-white/30 mb-2">Due Date</label>
                   <input
                     type="date"
+                    aria-label="Due date"
                     value={taskDueDate}
+                    // From today (IST) to a year ahead — what the server accepts.
+                    min={new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date())}
+                    max={new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date(Date.now() + 365 * 864e5))}
                     onChange={(e) => setTaskDueDate(e.target.value)}
                     className="w-full bg-transparent border-0 border-b border-white/10 text-white/90 focus:border-white focus:ring-0 outline-none focus:outline-none py-2 px-0 transition-all icon-white text-sm"
                     style={{ colorScheme: 'dark' }}

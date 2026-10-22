@@ -265,14 +265,12 @@ const CASES = [
     expect: 403
   },
   {
-    name: 'V4b a patient never receives a note flagged private',
+    // Session notes are the therapist's own working notes (decision
+    // 2026-10-21): a patient cannot list them at all, not even unflagged ones.
+    name: 'V4b a patient cannot list session notes about them',
     as: 'patientA', method: 'get',
     url: () => `/api/session-tools/notes/patient/${fixtures.patientA._id}`,
-    expect: 200,
-    assert: (res) => {
-      expect(res.body.notes.every((n) => n.isPrivate === false)).toBe(true);
-      expect(res.body.notes.some((n) => n.content === 'PRIVATE clinical impression')).toBe(false);
-    }
+    expect: 403
   },
   {
     name: 'V4c a non-authoring doctor sees an empty list, not another doctor\'s notes',

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { API_CONFIG } from '../config/api';
 import logger from '../utils/logger';
 import { generateReportPdf } from '../utils/reportPdf';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 interface PostSessionReportModalProps {
     isOpen: boolean;
@@ -38,6 +38,21 @@ const PostSessionReportModal: React.FC<PostSessionReportModalProps> = ({
     const [error, setError] = useState<string | null>(null);
     const [isSubmitted, setIsSubmitted] = useState(false);
     const [createdReport, setCreatedReport] = useState<any>(null);
+    // Shared by default; the therapist can keep a report to themselves
+    // (decision 2026-10-21). Every report used to go to the patient,
+    // diagnosis and "crisis intervention needed" included.
+    const [shareWithPatient, setShareWithPatient] = useState(true);
+    const { data: signatureInfo } = useQuery({
+        queryKey: ['doctor', 'signature'],
+        queryFn: async () => {
+            const res = await fetch(`${API_CONFIG.BASE_URL}/profile/signature`, { credentials: 'include' });
+            if (!res.ok) throw new Error('Could not check the signature');
+            return res.json();
+        },
+        enabled: isOpen,
+        staleTime: 60_000,
+    });
+    const hasSignature = !!signatureInfo?.signature;
     
     const queryClient = useQueryClient();
 
@@ -95,8 +110,9 @@ const PostSessionReportModal: React.FC<PostSessionReportModalProps> = ({
                 credentials: 'include',
                 body: JSON.stringify(reportData)
             });
-            if (!response.ok) throw new Error('Failed to create report');
-            return response.json();
+            const body = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(body.message || 'Failed to submit report. Please try again.');
+            return body;
         },
         onSuccess: (data) => {
             setIsSubmitted(true);
@@ -110,7 +126,7 @@ const PostSessionReportModal: React.FC<PostSessionReportModalProps> = ({
         },
         onError: (err) => {
             logger.error('Error creating post-session report:', err);
-            setError('Failed to submit report. Please try again.');
+            setError((err as Error).message || 'Failed to submit report. Please try again.');
         }
     });
 
@@ -120,10 +136,11 @@ const PostSessionReportModal: React.FC<PostSessionReportModalProps> = ({
         const reportData = {
             sessionId,
             patientId,
-            title: `${reportTypes.find(t => t.value === formData.reportType)?.label} - ${patientName} - ${new Date().toLocaleDateString()}`,
+            // The date in IST and one format (dd/mm/yyyy), not the device's own.
+            title: `${reportTypes.find(t => t.value === formData.reportType)?.label} - ${patientName} - ${new Date().toLocaleDateString('en-GB', { timeZone: 'Asia/Kolkata' })}`,
             reportType: formData.reportType,
             content: JSON.stringify(formData), // Save structured data
-            isSharedWithPatient: true
+            isSharedWithPatient: shareWithPatient
         };
 
         submitReportMutation.mutate(reportData);
@@ -340,8 +357,27 @@ const PostSessionReportModal: React.FC<PostSessionReportModalProps> = ({
                                 </div>
                                 <div className="mb-6">
                                     <h3 className="text-[18px] font-bold text-gray-800 tracking-tight mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>Ready to Submit?</h3>
-                                    <p className="text-[13px] text-gray-500 max-w-[80%] mx-auto leading-relaxed" style={{ fontFamily: 'Inter, sans-serif' }}>Please review all data. Once submitted, an official hospital-style PDF will be generated.</p>
+                                    <p className="text-[13px] text-gray-500 max-w-[80%] mx-auto leading-relaxed" style={{ fontFamily: 'Inter, sans-serif' }}>Please review it. A report can't be changed once it's filed.</p>
                                 </div>
+                                <label className="flex items-start gap-3 text-left mb-4 p-3 rounded-xl border border-gray-100 bg-gray-50/60 cursor-pointer">
+                                    <input
+                                        type="checkbox"
+                                        checked={shareWithPatient}
+                                        onChange={(e) => setShareWithPatient(e.target.checked)}
+                                        className="mt-0.5 w-4 h-4 accent-teal-600"
+                                    />
+                                    <span className="text-[13px] text-gray-700">
+                                        <strong className="font-semibold">Share with {patientName || 'the patient'}</strong>
+                                        <span className="block text-gray-500 text-[12px]">
+                                            {shareWithPatient ? 'They can read and download it in Reports.' : 'Only you will see this report.'}
+                                        </span>
+                                    </span>
+                                </label>
+                                {signatureInfo && !hasSignature && (
+                                    <p role="note" className="text-left text-[12px] text-amber-800 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">
+                                        You haven't added a signature, so this report will be filed without one. You can add it in Pricing &amp; Payouts → Signature for future reports.
+                                    </p>
+                                )}
                                 <div className="pt-2 flex flex-col gap-2">
                                     <button
                                         onClick={handleSubmit}

@@ -16,6 +16,8 @@ interface CallRecord {
   duration: number;
   mode: 'Video Calling' | 'Voice Calling';
   paymentAmount: number;
+  /** The therapist's share (therapist view). */
+  doctorEarnings?: number;
   paymentStatus: string;
   refundAmount?: number;
   sessionType: string;
@@ -29,6 +31,12 @@ interface CallRecord {
  * What became of the session. Every cancellation used to read "Cancelled &
  * Refunded", refunded or not; now it says what actually happened.
  */
+/** Whether the therapist is paid for this session: not if it was refunded or cancelled in time. */
+const therapistPaid = (call: CallRecord) =>
+  !(call.refundAmount && call.refundAmount > 0)
+  && !['refund_pending', 'refunded', 'refund_failed', 'failed', 'pending'].includes(call.paymentStatus || '')
+  && !(call.status === 'cancelled' && !call.lateCancellation);
+
 const callOutcome = (call: CallRecord, viewer: 'patient' | 'doctor') =>
   outcomeLabel({ ...call, price: call.paymentAmount, refundAmount: call.refundAmount }, viewer);
 
@@ -202,9 +210,10 @@ const CallHistoryPage: React.FC = () => {
                     </div>
                     
                     <div className="text-right">
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">Amount</p>
+                      {/* A therapist sees their own share, not the patient's price. */}
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-0.5">{viewer === 'doctor' ? 'You earn' : 'Amount'}</p>
                       <span className="text-[16px] font-bold text-[var(--teal)] tracking-tight" style={{ fontFamily: 'Inter, sans-serif' }}>
-                        ₹{call.paymentAmount}
+                        {viewer === 'doctor' && !therapistPaid(call) ? '—' : `₹${(viewer === 'doctor' ? (call.doctorEarnings ?? call.paymentAmount) : call.paymentAmount).toLocaleString('en-IN')}`}
                       </span>
                       {/* Where the refund is: started, delayed or done ("refunded"
                           used to show only once it was done, nothing before). */}
