@@ -415,7 +415,7 @@ function AppRoutes() {
         <Route path="/doctor-tasks/:patientId" element={<ProtectedRoute allowedRoles={['doctor']}><DoctorTasksDetailPage /></ProtectedRoute>} />
         <Route path="/doctor-session-notes" element={<ProtectedRoute allowedRoles={['doctor']}><DoctorSessionNotesPage /></ProtectedRoute>} />
         <Route path="/doctor-session-notes/:patientId" element={<ProtectedRoute allowedRoles={['doctor']}><DoctorSessionNotesDetailPage /></ProtectedRoute>} />
-        <Route path="/profile-setup" element={<ProtectedRoute><ProfileSetupPage /></ProtectedRoute>} />
+        <Route path="/profile-setup" element={<ProtectedRoute allowedRoles={['doctor']}><ProfileSetupPage /></ProtectedRoute>} />
         <Route path="/patient-profile-setup" element={<ProtectedRoute allowedRoles={['patient']}><PatientProfileSetupPage /></ProtectedRoute>} />
 
         {/* Admin Article Management Routes */}

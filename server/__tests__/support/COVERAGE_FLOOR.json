@@ -1,9 +1,9 @@
 {
   "_comment": "A RATCHET, not a target. Regenerate with: node scripts/check-coverage.js --update. Values may only rise; a drop fails npm run test:coverage.",
-  "_recorded": "2026-10-20",
+  "_recorded": "2026-10-21",
   "_total": {
-    "statements": 87.86,
-    "branches": 79.53
+    "statements": 88.26,
+    "branches": 80.14
   },
   "files": {
     "authz/actor.js": {
@@ -39,8 +39,8 @@
       "branches": 78.75
     },
     "authz/policies/clinicalRecords.policy.js": {
-      "statements": 72,
-      "branches": 47.05
+      "statements": 78,
+      "branches": 51.02
     },
     "authz/policies/journal.policy.js": {
       "statements": 100,
@@ -99,8 +99,8 @@
       "branches": 80.45
     },
     "controllers/availability.controller.js": {
-      "statements": 81.94,
-      "branches": 53.84
+      "statements": 84.41,
+      "branches": 72.5
     },
     "controllers/callEvents.controller.js": {
       "statements": 98.27,
@@ -111,8 +111,8 @@
       "branches": 89.47
     },
     "controllers/doctorStatus.controller.js": {
-      "statements": 60.86,
-      "branches": 0
+      "statements": 78.43,
+      "branches": 64.28
     },
     "controllers/enquiry.controller.js": {
       "statements": 100,
@@ -127,12 +127,12 @@
       "branches": 84.21
     },
     "controllers/note.controller.js": {
-      "statements": 84,
+      "statements": 85.71,
       "branches": 100
     },
     "controllers/patient.controller.js": {
-      "statements": 84.48,
-      "branches": 65.62
+      "statements": 96.66,
+      "branches": 69.69
     },
     "controllers/payment.controller.js": {
       "statements": 80.95,
@@ -143,28 +143,28 @@
       "branches": 78.33
     },
     "controllers/profile.controller.js": {
-      "statements": 92.16,
-      "branches": 80.45
+      "statements": 92.14,
+      "branches": 82.53
     },
     "controllers/report.controller.js": {
-      "statements": 76.19,
-      "branches": 55.55
+      "statements": 82.97,
+      "branches": 76.92
     },
     "controllers/review.controller.js": {
       "statements": 75.69,
       "branches": 79.31
     },
     "controllers/session.controller.js": {
-      "statements": 88.85,
-      "branches": 77.57
+      "statements": 88.9,
+      "branches": 77.77
     },
     "controllers/sessionReport.controller.js": {
       "statements": 95.55,
       "branches": 84.21
     },
     "controllers/task.controller.js": {
-      "statements": 81.81,
-      "branches": 50
+      "statements": 82.97,
+      "branches": 55.55
     },
     "controllers/upload.controller.js": {
       "statements": 86.61,
@@ -203,8 +203,8 @@
       "branches": 66.66
     },
     "models/doctorAvailability.js": {
-      "statements": 91.86,
-      "branches": 73.21
+      "statements": 95.09,
+      "branches": 75
     },
     "models/doctorProfile.js": {
       "statements": 79.16,
@@ -348,15 +348,19 @@
     },
     "services/doctorStatus.service.js": {
       "statements": 69.56,
-      "branches": 62.5
+      "branches": 75
+    },
+    "services/doctorVisibility.js": {
+      "statements": 100,
+      "branches": 94.11
     },
     "services/earnings.js": {
       "statements": 100,
       "branches": 100
     },
     "services/email.service.js": {
-      "statements": 90.54,
-      "branches": 81.73
+      "statements": 90.6,
+      "branches": 81.16
     },
     "services/liveUpdates.js": {
       "statements": 100,
@@ -400,7 +404,7 @@
     },
     "services/sessionOutcomes.js": {
       "statements": 89.78,
-      "branches": 76.85
+      "branches": 77.77
     },
     "services/sessionPayment.js": {
       "statements": 82.55,
@@ -445,6 +449,14 @@
     "utils/assessmentScoring.js": {
       "statements": 96.25,
       "branches": 95.23
+    },
+    "utils/availabilityInput.js": {
+      "statements": 88.23,
+      "branches": 84.33
+    },
+    "utils/clinicalInput.js": {
+      "statements": 88.7,
+      "branches": 87.09
     },
     "utils/cloudinaryUrl.js": {
       "statements": 100,

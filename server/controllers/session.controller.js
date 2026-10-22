@@ -37,7 +37,7 @@ const sessionPolicy = require('../services/sessionPolicy');
 const doctorCounters = require('../services/doctorCounters');
 const bookability = require('../services/bookability');
 const availabilityService = require('../services/availability');
-const { JOIN_LEAD_MINUTES } = require('../config/time');
+const { JOIN_LEAD_MINUTES, BOOKING_HORIZON_DAYS } = require('../config/time');
 const { getRazorpay } = require('../services/razorpay.client');
 const { isStubMode } = require('../config/payments');
 const { createLogger } = require('../utils/logger');
@@ -184,7 +184,20 @@ const getStats = asyncHandler(async (req, res) => {
           totalPlatformFee: { $sum: '$platformFee' },
           totalDoctorEarnings: { $sum: '$doctorEarnings' },
           totalSessions: { $count: {} },
-          totalDurationMinutes: { $sum: '$duration' }
+          // Payable is broader than "held": a late cancellation or a patient
+          // no-show pays the doctor but no minutes were spent. Time and the
+          // held count come only from completed sessions, using the minutes
+          // actually spent when the call recorded them.
+          heldSessions: { $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] } },
+          totalDurationMinutes: {
+            $sum: {
+              $cond: [
+                { $eq: ['$status', 'completed'] },
+                { $cond: [{ $gt: [{ $ifNull: ['$actualDuration', 0] }, 0] }, '$actualDuration', '$duration'] },
+                0
+              ]
+            }
+          }
         }
       }
     ]),
@@ -207,7 +220,7 @@ const getStats = asyncHandler(async (req, res) => {
     ])
   ]);
 
-  const r = overallStats[0] || { totalGross: 0, totalPlatformFee: 0, totalDoctorEarnings: 0, totalSessions: 0, totalDurationMinutes: 0 };
+  const r = overallStats[0] || { totalGross: 0, totalPlatformFee: 0, totalDoctorEarnings: 0, totalSessions: 0, heldSessions: 0, totalDurationMinutes: 0 };
 
   // What the doctor is owed but has not been paid.
   //
@@ -254,6 +267,7 @@ const getStats = asyncHandler(async (req, res) => {
     totalPlatformFee: r.totalPlatformFee,
     totalDoctorEarnings: r.totalDoctorEarnings,
     totalSessions: r.totalSessions,
+    heldSessions: r.heldSessions,
     // One decimal: whole hours rounded a single 40-minute session up to "1".
     totalHours: Math.round(r.totalDurationMinutes / 6) / 10,
     totalDurationMinutes: r.totalDurationMinutes,
@@ -324,7 +338,7 @@ const getCallHistory = asyncHandler(async (req, res) => {
     // Minutes actually spent in the call. A session nobody attended used to
     // show its full booked length ("20 mins") as if it had happened.
     date: s.sessionDate, startsAt: s.startsAt, duration: s.actualDuration || (s.status === 'completed' ? s.duration : 0), plannedDuration: s.duration, mode: s.callMode || 'Video Calling',
-    paymentAmount: s.price, paymentStatus: s.paymentStatus, refundAmount: s.refundAmount || 0,
+    paymentAmount: s.price, doctorEarnings: s.doctorEarnings, paymentStatus: s.paymentStatus, refundAmount: s.refundAmount || 0,
     sessionType: s.sessionType, status: s.status, callStatus: s.callStatus, rating: s.rating, rated: !!(s.rating && s.rating.score),
     outcome: s.outcome && s.outcome.code ? s.outcome.code : null,
     cancelledBy: s.cancelledBy || null, lateCancellation: !!s.lateCancellation
@@ -342,11 +356,12 @@ const getCallHistory = asyncHandler(async (req, res) => {
  */
 function _bookableSlotTimes(availability, date, now = new Date()) {
   const earliest = new Date(now.getTime() + JOIN_LEAD_MINUTES * 60 * 1000);
+  const latest = new Date(now.getTime() + BOOKING_HORIZON_DAYS * 24 * 60 * 60 * 1000);
   const open = [];
   for (const slot of availability.getAvailableSlotsForDate(date).filter(s => !s.isBooked)) {
     let startsAt;
     try { startsAt = zonedToUtc(date, slot.time, PLATFORM_TIMEZONE); } catch (e) { continue; }
-    if (startsAt < earliest) continue;
+    if (startsAt < earliest || startsAt > latest) continue;
     open.push({ time: slot.time, startsAt });
   }
   return open.sort((a, b) => a.startsAt - b.startsAt);
@@ -544,6 +559,9 @@ const bookSession = asyncHandler(async (req, res) => {
   // remindable, so nothing starting within JOIN_LEAD_MINUTES.
   if (requestedStartsAt < new Date(Date.now() + JOIN_LEAD_MINUTES * 60 * 1000)) {
     return res.status(400).json({ success: false, message: 'That time is too soon to book — please pick a later slot.' });
+  }
+  if (requestedStartsAt > new Date(Date.now() + BOOKING_HORIZON_DAYS * 24 * 60 * 60 * 1000)) {
+    return res.status(400).json({ success: false, message: `Times can be booked up to ${BOOKING_HORIZON_DAYS} days ahead.` });
   }
 
   const { doctorProfile, error } = await _loadBookableDoctor(doctorId);

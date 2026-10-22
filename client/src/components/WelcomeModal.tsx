@@ -96,7 +96,9 @@ const WelcomeModal: React.FC<WelcomeModalProps> = ({ isOpen, onClose, showClose 
             Welcome, {user?.firstName ? user.firstName.charAt(0).toUpperCase() + user.firstName.slice(1) : 'there'}!
           </h2>
           <p className="text-gray-600 text-sm leading-relaxed mb-8 font-sans">
-            Let's get started by setting up your profile. This helps us personalize your experience and connect you with the right support.
+            {user?.role === 'doctor'
+              ? 'Set up your profile and prices first. Your dashboard then shows the last steps — bank details and your weekly times — before patients can book you.'
+              : "Let's get started by setting up your profile. This helps us personalize your experience and connect you with the right support."}
           </p>
 
           {/* Action Buttons */}
@@ -125,7 +127,7 @@ const WelcomeModal: React.FC<WelcomeModalProps> = ({ isOpen, onClose, showClose 
               <line x1="12" y1="16" x2="12" y2="12" />
               <line x1="12" y1="8" x2="12.01" y2="8" />
             </svg>
-            <span>Takes less than 2 minutes</span>
+            <span>{user?.role === 'doctor' ? 'Takes about 5 minutes' : 'Takes less than 2 minutes'}</span>
           </div>
         </div>
       </div>

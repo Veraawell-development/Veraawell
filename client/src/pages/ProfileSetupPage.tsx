@@ -8,19 +8,30 @@ import { API_BASE_URL } from '../config/api';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
 import { missingPriceSlots } from '../utils/sessionPricing';
+import { doctorInitials } from '../utils/doctorName';
 
 const ProfileSetupPage: React.FC = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, checkAuth } = useAuth();
   const [isEditing] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const queryClient = useQueryClient();
   const [focusedField, setFocusedField] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(1);
   const totalSteps = 4;
-  console.log('[ProfileSetupPage] RENDER - user:', user?.userId, 'role:', user?.role, 'currentStep:', currentStep);
 
-  const platformFeePercent = 20; // Assuming 20% platform fee
+  // The therapist's own fee (an admin can set one per therapist); 20% only
+  // until it loads. The preview used to assume 20% for everyone.
+  const { data: feeData } = useQuery({
+    queryKey: ['doctor', 'stats', user?.userId, 'fee'],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/sessions/stats`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Failed to load fee');
+      return res.json();
+    },
+    enabled: !!user && user.role === 'doctor',
+  });
+  const platformFeePercent = typeof feeData?.platformFeePercent === 'number' ? feeData.platformFeePercent : 20;
   const calculateEarnings = (priceStr: string) => {
     const p = parseFloat(priceStr) || 0;
     return Math.max(0, p - (p * platformFeePercent / 100)).toFixed(0);
@@ -48,13 +59,12 @@ const ProfileSetupPage: React.FC = () => {
     introduction: ''
   });
 
-  const qualificationOptions = ['MBBS', 'MD', 'PhD', 'PsyD', 'MSc Psychology', 'MA Psychology', 'Licensed Therapist'];
-  const languageOptions = ['English', 'Hindi', 'Bengali', 'Tamil', 'Telugu', 'Marathi', 'Gujarati', 'Kannada', 'Malayalam', 'Punjabi'];
+  // The common Indian qualifications, and "Other" for anything else — the
+  // fixed list had no M.Phil Clinical Psychology or RCI registration.
+  const qualificationOptions = ['M.Phil Clinical Psychology', 'RCI Registered', 'MA Psychology', 'MSc Psychology', 'MA Counselling Psychology', 'MSc Counselling Psychology', 'M.Phil Psychiatric Social Work', 'PhD', 'PsyD', 'MBBS', 'MD Psychiatry', 'DNB Psychiatry', 'DPM', 'Licensed Therapist'];
+  const languageOptions = ['English', 'Hindi', 'Bengali', 'Tamil', 'Telugu', 'Marathi', 'Gujarati', 'Kannada', 'Malayalam', 'Punjabi', 'Urdu', 'Odia', 'Assamese'];
   const typeOptions = ['Psychiatrist', 'Psychologist', 'Counselor', 'Therapist'];
-  const specializationOptions = ['Anxiety', 'Depression', 'Stress Management', 'Relationship Issues', 'Trauma', 'PTSD', 'OCD', 'Bipolar Disorder', 'Addiction', 'Family Therapy', 'Child Psychology', 'Career Counseling'];
-  // Only what can be booked: video and voice calls (there are no in-person or
-  // chat-only sessions).
-  const sessionModeOptions = ['Video Call', 'Audio Call'];
+  const specializationOptions = ['Anxiety', 'Depression', 'Stress Management', 'Relationship Issues', 'Couples Therapy', 'Trauma', 'PTSD', 'OCD', 'Bipolar Disorder', 'Addiction', 'Grief & Loss', 'Sleep Issues', 'Self-esteem', 'Anger Management', 'Eating Concerns', 'LGBTQ+ Affirmative', 'Family Therapy', 'Child Psychology', 'Career Counseling'];
 
   const handleMultiSelect = (field: 'qualification' | 'languages' | 'specialization' | 'modeOfSession', value: string) => {
     setFormData(prev => {
@@ -66,6 +76,39 @@ const ProfileSetupPage: React.FC = () => {
       }
     });
   };
+
+  // "Other": a value the list doesn't have, typed by the therapist.
+  const OTHER = '__other';
+  const [otherFor, setOtherFor] = useState<'qualification' | 'languages' | 'specialization' | null>(null);
+  const [otherText, setOtherText] = useState('');
+  const pick = (field: 'qualification' | 'languages' | 'specialization', value: string) => {
+    if (value === OTHER) { setOtherFor(field); setOtherText(''); return; }
+    handleMultiSelect(field, value);
+  };
+  const addOther = () => {
+    const value = otherText.trim().replace(/\s+/g, ' ').slice(0, 60);
+    if (otherFor && value && !formData[otherFor].some((v) => v.toLowerCase() === value.toLowerCase())) {
+      setFormData((prev) => ({ ...prev, [otherFor]: [...prev[otherFor], value] }));
+    }
+    setOtherFor(null);
+    setOtherText('');
+  };
+  const renderOther = (field: 'qualification' | 'languages' | 'specialization', label: string) =>
+    otherFor === field && (
+      <div className="flex gap-2 mt-2">
+        <input
+          autoFocus
+          aria-label={`Your own ${label}`}
+          value={otherText}
+          maxLength={60}
+          onChange={(e) => setOtherText(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addOther(); } if (e.key === 'Escape') setOtherFor(null); }}
+          placeholder={`Type your ${label}`}
+          className="flex-1 min-w-0 px-3 py-2 text-sm border border-teal-500 rounded-lg focus:outline-none ring-2 ring-teal-100"
+        />
+        <button type="button" onClick={addOther} className="px-3 py-2 text-sm font-semibold text-white bg-teal-600 rounded-lg hover:bg-teal-700">Add</button>
+      </div>
+    );
 
   // Fetch existing profile data on component mount
   const { data: profileData } = useQuery({
@@ -122,9 +165,14 @@ const ProfileSetupPage: React.FC = () => {
       }
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       toast.success('Profile saved successfully!');
       queryClient.invalidateQueries({ queryKey: ['doctor', 'profile', user?.userId] });
+      queryClient.invalidateQueries({ queryKey: ['doctor', 'visibility', user?.userId] });
+      // The signed-in user still said profileCompleted: false, so the
+      // dashboard greeted a therapist who had just finished with "Welcome —
+      // set up your profile".
+      await checkAuth({ force: true }).catch(() => false);
       navigate('/doctor-dashboard');
     },
     onError: (err: any) => {
@@ -201,7 +249,7 @@ const ProfileSetupPage: React.FC = () => {
       case 2:
         return formData.qualification.length > 0 && formData.languages.length > 0 && formData.specialization.length > 0;
       case 3:
-        return formData.modeOfSession.length > 0 && missingPrices.length === 0;
+        return missingPrices.length === 0;
       case 4:
         return true; // Optional step
       default:
@@ -282,7 +330,7 @@ const ProfileSetupPage: React.FC = () => {
 
       {/* Main Content Area (Sidebar + Form) */}
       <div className="flex-1 overflow-hidden p-4 sm:p-6 lg:p-8 flex justify-center">
-        <div className="max-w-6xl w-full flex bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+        <div className="max-w-6xl w-full flex flex-col md:flex-row bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
           {/* Sidebar */}
           <div className="w-64 flex-shrink-0 border-r border-gray-200 bg-gray-50 overflow-y-auto hidden md:block">
             <nav className="p-4 space-y-2">
@@ -330,7 +378,7 @@ const ProfileSetupPage: React.FC = () => {
         </div>
 
         {/* Right Form Area */}
-        <div className="flex-1 bg-white overflow-y-auto relative">
+        <div className="flex-1 min-h-0 min-w-0 bg-white overflow-y-auto relative">
           {error && (
             <div className="m-4 sm:m-8 p-4 bg-red-50 border-l-4 border-red-500 rounded-lg flex items-start gap-3">
               <svg className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
@@ -370,7 +418,7 @@ const ProfileSetupPage: React.FC = () => {
                           currentImage={formData.profileImage}
                           onImageUpdate={(imageUrl) => setFormData({ ...formData, profileImage: imageUrl })}
                           onImageRemove={() => setFormData({ ...formData, profileImage: '' })}
-                          defaultImage="/male.png"
+                          initials={doctorInitials(user?.firstName, user?.lastName)}
                         />
                       </div>
                     </div>
@@ -382,19 +430,18 @@ const ProfileSetupPage: React.FC = () => {
                         <label className="block text-xs font-medium text-gray-700">
                           Full Name <span className="text-red-500">*</span>
                         </label>
+                        {/* Locked: the name an admin checked at approval, shown to
+                            patients. Changes go through support. */}
                         <input
                           type="text"
                           value={formData.name}
-                          onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                          onFocus={() => setFocusedField('name')}
-                          onBlur={() => setFocusedField(null)}
-                          className={`w-full px-3 py-2 text-sm border rounded-lg transition-all duration-200 ${focusedField === 'name'
-                            ? 'border-teal-500 ring-2 ring-teal-100 bg-white'
-                            : 'border-gray-300 bg-gray-50 hover:border-gray-400'
-                            } focus:outline-none`}
-                          placeholder="Dr. John Doe"
-                          required
+                          readOnly
+                          aria-describedby="name-locked"
+                          className="w-full px-3 py-2 text-sm border rounded-lg border-gray-200 bg-gray-100 text-gray-700 cursor-not-allowed focus:outline-none"
                         />
+                        <p id="name-locked" className="text-[11px] text-gray-500 mt-1">
+                          Checked when you were approved. To change it, write to support@veraawell.com.
+                        </p>
                       </div>
 
                       {/* Type */}
@@ -471,7 +518,7 @@ const ProfileSetupPage: React.FC = () => {
                             } focus:outline-none cursor-pointer`}
                           onChange={(e) => {
                             if (e.target.value) {
-                              handleMultiSelect('qualification', e.target.value);
+                              pick('qualification', e.target.value);
                               e.target.value = '';
                             }
                           }}
@@ -480,11 +527,13 @@ const ProfileSetupPage: React.FC = () => {
                           {qualificationOptions.filter(opt => !formData.qualification.includes(opt)).map(opt => (
                             <option key={opt} value={opt}>{opt}</option>
                           ))}
+                          <option value={OTHER}>Other (type your own)</option>
                         </select>
                         <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                         </svg>
                       </div>
+                      {renderOther('qualification', 'qualification')}
                       {formData.qualification.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {formData.qualification.map(qual => (
@@ -518,7 +567,7 @@ const ProfileSetupPage: React.FC = () => {
                             } focus:outline-none cursor-pointer`}
                           onChange={(e) => {
                             if (e.target.value) {
-                              handleMultiSelect('languages', e.target.value);
+                              pick('languages', e.target.value);
                               e.target.value = '';
                             }
                           }}
@@ -527,11 +576,13 @@ const ProfileSetupPage: React.FC = () => {
                           {languageOptions.filter(opt => !formData.languages.includes(opt)).map(opt => (
                             <option key={opt} value={opt}>{opt}</option>
                           ))}
+                          <option value={OTHER}>Other (type your own)</option>
                         </select>
                         <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                         </svg>
                       </div>
+                      {renderOther('languages', 'language')}
                       {formData.languages.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {formData.languages.map(lang => (
@@ -565,7 +616,7 @@ const ProfileSetupPage: React.FC = () => {
                             } focus:outline-none cursor-pointer`}
                           onChange={(e) => {
                             if (e.target.value) {
-                              handleMultiSelect('specialization', e.target.value);
+                              pick('specialization', e.target.value);
                               e.target.value = '';
                             }
                           }}
@@ -574,11 +625,13 @@ const ProfileSetupPage: React.FC = () => {
                           {specializationOptions.filter(opt => !formData.specialization.includes(opt)).map(opt => (
                             <option key={opt} value={opt}>{opt}</option>
                           ))}
+                          <option value={OTHER}>Other (type your own)</option>
                         </select>
                         <svg className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
                         </svg>
                       </div>
+                      {renderOther('specialization', 'specialization')}
                       {formData.specialization.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mt-2">
                           {formData.specialization.map(spec => (
@@ -780,58 +833,6 @@ const ProfileSetupPage: React.FC = () => {
                       </p>
                     </div>
 
-                    {/* Mode of Session - Multi-select */}
-                    <div className="space-y-2">
-                      <label className="block text-sm font-medium text-gray-700">
-                        Preferred Session Mode <span className="text-red-500">*</span>
-                      </label>
-                      <div className="relative">
-                        <select
-                          onFocus={() => setFocusedField('modeOfSession')}
-                          onBlur={() => setFocusedField(null)}
-                          className={`w-full px-4 py-3 border rounded-xl appearance-none transition-all duration-200 ${focusedField === 'modeOfSession'
-                            ? 'border-teal-500 ring-4 ring-teal-100 bg-white'
-                            : 'border-gray-300 bg-gray-50 hover:border-gray-400'
-                            } focus:outline-none cursor-pointer`}
-                          onChange={(e) => {
-                            if (e.target.value) {
-                              handleMultiSelect('modeOfSession', e.target.value);
-                              e.target.value = '';
-                            }
-                          }}
-                        >
-                          <option value="">Add a session mode</option>
-                          {sessionModeOptions.filter(opt => !formData.modeOfSession.includes(opt)).map(opt => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                        <svg className="absolute right-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                        </svg>
-                      </div>
-                      {formData.modeOfSession.length > 0 && (
-                        <div className="flex flex-wrap gap-2 mt-3">
-                          {formData.modeOfSession.map(mode => (
-                            <span key={mode} className="inline-flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 rounded-lg text-sm font-medium border border-green-200">
-                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                              </svg>
-                              {mode}
-                              <button
-                                type="button"
-                                onClick={() => handleMultiSelect('modeOfSession', mode)}
-                                className="ml-1 hover:bg-green-200 rounded-full p-0.5 transition-colors"
-                                aria-label={`Remove ${mode}`}
-                              >
-                                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 20 20">
-                                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-                                </svg>
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
                   </>
                 )}
 

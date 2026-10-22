@@ -35,9 +35,21 @@ const doctorAvailabilitySchema = new mongoose.Schema({
   },
   availabilityType: {
     type: String,
-    enum: ['same_slots', 'different_slots'],
+    // 'weekly': the same times on chosen weekdays, repeating (decision
+    // 2026-10-21). The two older modes needed every date ticked by hand, only
+    // 14 days ahead, so a therapist vanished from the directory as soon as
+    // their ticked dates ran out. Kept for calendars saved before.
+    enum: ['weekly', 'same_slots', 'different_slots'],
     default: 'same_slots'
   },
+  // For 'weekly': the times offered on each weekday (0 = Sunday, IST days).
+  weeklySlots: [{
+    weekday: { type: Number, min: 0, max: 6, required: true },
+    slots: [{ type: String }]
+  }],
+  // For 'weekly': single days switched off ("YYYY-MM-DD"). A day with other
+  // times than usual is an entry in customAvailability, as before.
+  offDates: [{ type: String }],
   // For "same slots for each day" option
   defaultSlots: [{
     type: String // e.g., ["09:00 AM", "11:00 AM", "03:00 PM"]
@@ -98,6 +110,14 @@ doctorAvailabilitySchema.pre('validate', function normaliseSlots(next) {
     if (Array.isArray(this.activeDates)) {
       this.activeDates = this.activeDates.map((d) => normalizeDate(d));
     }
+    if (Array.isArray(this.offDates)) {
+      this.offDates = this.offDates.map((d) => normalizeDate(d));
+    }
+    if (Array.isArray(this.weeklySlots)) {
+      for (const day of this.weeklySlots) {
+        if (day && Array.isArray(day.slots)) day.slots = day.slots.map((t) => to12hSlot(normalizeTimeTo24h(t)));
+      }
+    }
     // bookedSlots written before `slotKey` existed carry no value for a field
     // the schema marks required, so ANY later save() of the whole document
     // fails validation on rows the caller never touched. That bricked
@@ -135,6 +155,13 @@ doctorAvailabilitySchema.methods.getAvailableSlotsForDate = function (dateStr) {
   if (dayAvailability && dayAvailability.slots.length > 0) {
     // If a custom override exists and has slots, use those slots
     slots = JSON.parse(JSON.stringify(dayAvailability.slots));
+  } else if (this.availabilityType === 'weekly') {
+    // The weekday of the calendar date itself — read in UTC so the server's
+    // own zone can't shift it to the day before.
+    const off = (this.offDates || []).includes(dateStr);
+    const weekday = /^\d{4}-\d{2}-\d{2}$/.test(dateStr) ? new Date(`${dateStr}T00:00:00Z`).getUTCDay() : -1;
+    const day = (this.weeklySlots || []).find((d) => d.weekday === weekday);
+    if (!off && day) slots = day.slots.map((time) => ({ time, isBooked: false, sessionId: null }));
   } else if (this.activeDates && this.activeDates.includes(dateStr)) {
     // Fall back to default slots if date is in activeDates and no override exists
     slots = this.defaultSlots.map(time => ({

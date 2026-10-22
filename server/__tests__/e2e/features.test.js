@@ -428,7 +428,7 @@ describe('clinical notes, tasks and reports', () => {
     expect(String(note.patientId)).toBe(String(f.patientA._id));
   });
 
-  test('a private note is withheld from the patient but visible to its author', async () => {
+  test('session notes are the therapist\'s alone: a patient cannot list them, private flag or not', async () => {
     await Models.SessionNote.create({
       sessionId: f.paidSession._id, doctorId: f.doctorA._id, patientId: f.patientA._id,
       content: 'PRIVATE clinical impression', isPrivate: true
@@ -439,8 +439,10 @@ describe('clinical notes, tasks and reports', () => {
     });
 
     const asPatient = await call('get', `/api/session-tools/notes/patient/${f.patientA._id}`, tokens.patientA);
-    expect(asPatient.status).toBe(200);
-    expect(asPatient.body.notes.every((n) => n.isPrivate === false)).toBe(true);
+    expect(asPatient.status).toBe(403);
+    expect(JSON.stringify(asPatient.body)).not.toMatch(/Shared summary|PRIVATE clinical impression/);
+    const bySession = await call('get', `/api/session-tools/notes/session/${f.paidSession._id}`, tokens.patientA);
+    expect(bySession.status).toBe(403);
 
     const asDoctor = await call('get', `/api/session-tools/notes/patient/${f.patientA._id}`, tokens.doctorA);
     expect(asDoctor.body.notes).toHaveLength(2);

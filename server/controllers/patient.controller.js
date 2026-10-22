@@ -53,38 +53,61 @@ const getDoctorPatients = asyncHandler(async (req, res) => {
   const doctorId = req.user._id.toString();
 
   // Only real bookings: a checkout row exists before payment, so everyone who
-  // ever opened and closed Razorpay used to be listed here, email included.
+  // ever opened and closed Razorpay used to be listed here.
   const { RELATIONSHIP_PAYMENT_STATES } = require('../services/chat.service');
   const sessions = await Session.find({ doctorId, paymentStatus: { $in: RELATIONSHIP_PAYMENT_STATES } })
-    .populate('patientId', 'firstName lastName email').lean();
+    .select('patientId startsAt endsAt duration status sessionType callMode outcome paymentStatus refundAmount cancelledBy lateCancellation')
+    .populate('patientId', 'firstName lastName')
+    .sort({ startsAt: -1 })
+    .lean();
 
-  const patientMap = new Map();
-  sessions.forEach(session => {
-    if (!session.patientId) return;
-    const patientId = session.patientId._id.toString();
-    if (!patientMap.has(patientId)) {
-      patientMap.set(patientId, {
-        _id: patientId,
-        name: `${session.patientId.firstName} ${session.patientId.lastName}`,
-        email: session.patientId.email,
-        sessions: []
+  // What the card used to show — an "occupation" and "primary issue" pulled
+  // out of free-text notes by regex (always "Not specified"), every session
+  // counted including cancelled ones, and the patient's email, which this
+  // screen never needs — is replaced by facts from the sessions themselves.
+  const now = Date.now();
+  const byPatient = new Map();
+  for (const s of sessions) {
+    if (!s.patientId) continue;
+    const id = String(s.patientId._id);
+    if (!byPatient.has(id)) {
+      byPatient.set(id, {
+        _id: id,
+        firstName: s.patientId.firstName,
+        lastName: s.patientId.lastName,
+        name: `${s.patientId.firstName || ''} ${s.patientId.lastName || ''}`.trim(),
+        completedSessions: 0,
+        upcomingSessions: 0,
+        lastSessionAt: null,
+        nextSessionAt: null,
+        sessions: [],
       });
     }
-    patientMap.get(patientId).sessions.push({ sessionId: session._id, sessionType: session.sessionType, sessionDate: session.sessionDate, status: session.status, notes: session.sessionNotes });
-  });
-
-  const patients = Array.from(patientMap.values()).map(patient => {
-    let occupation = 'Not specified', issue = 'Not specified';
-    for (const session of patient.sessions) {
-      if (session.notes) {
-        const occupationMatch = session.notes.match(/occupation[:\s]+([^,\n]+)/i);
-        if (occupationMatch) occupation = occupationMatch[1].trim();
-        const issueMatch = session.notes.match(/(?:issue|concern|problem)[:\s]+([^,\n]+)/i);
-        if (issueMatch) issue = issueMatch[1].trim();
-      }
+    const p = byPatient.get(id);
+    const startsAt = s.startsAt ? new Date(s.startsAt) : null;
+    if (s.status === 'completed') {
+      p.completedSessions += 1;
+      if (startsAt && (!p.lastSessionAt || startsAt > p.lastSessionAt)) p.lastSessionAt = startsAt;
     }
-    return { _id: patient._id, name: patient.name, email: patient.email, occupation, issue, totalSessions: patient.sessions.length, sessions: patient.sessions };
-  });
+    if ((s.status === 'scheduled' || s.status === 'active') && startsAt && startsAt.getTime() >= now - 60 * 60 * 1000) {
+      p.upcomingSessions += 1;
+      if (!p.nextSessionAt || startsAt < p.nextSessionAt) p.nextSessionAt = startsAt;
+    }
+    if (p.sessions.length < 20) {
+      p.sessions.push({
+        _id: s._id, startsAt: s.startsAt, endsAt: s.endsAt, duration: s.duration, status: s.status,
+        sessionType: s.sessionType, callMode: s.callMode, outcome: s.outcome,
+        paymentStatus: s.paymentStatus, refundAmount: s.refundAmount,
+        cancelledBy: s.cancelledBy, lateCancellation: !!s.lateCancellation,
+      });
+    }
+  }
+
+  // Next session first, then most recently seen.
+  const patients = [...byPatient.values()].sort((x, y) =>
+    (x.nextSessionAt ? 0 : 1) - (y.nextSessionAt ? 0 : 1)
+    || (x.nextSessionAt && y.nextSessionAt ? x.nextSessionAt - y.nextSessionAt : 0)
+    || (y.lastSessionAt || 0) - (x.lastSessionAt || 0));
 
   logger.info('Doctor patients fetched', { doctorId: doctorId.substring(0, 8), count: patients.length });
   res.json(patients);

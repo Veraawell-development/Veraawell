@@ -1,3 +1,4 @@
+import { reportTypeLabel } from '../utils/reportPdf';
 import React, { useState, useEffect } from 'react';
 import { formatReportText } from '../utils/reportContent';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -13,6 +14,7 @@ interface Report {
   reportType: string;
   content: string;
   createdAt: string;
+  isSharedWithPatient?: boolean;
   patientId: {
     firstName: string;
     lastName: string;
@@ -53,13 +55,14 @@ const DoctorReportsDetailPage: React.FC = () => {
     return date.toLocaleDateString('en-US', {
       day: 'numeric',
       month: 'long',
-      year: 'numeric'
+      year: 'numeric',
+      timeZone: 'Asia/Kolkata'
     });
   };
 
   if (loading) {
     return (
-      <div className="h-[calc(100vh-80px)] flex items-center justify-center bg-[#FAFAFA]">
+      <div className="h-[calc(100vh-80px)] flex items-center justify-center bg-[#f6f3ec]">
         <div className="text-center">
           <div className="w-8 h-8 border-2 border-teal-600 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-gray-500 text-[13px] font-medium" style={{ fontFamily: 'Inter, sans-serif' }}>Loading reports...</p>
@@ -69,7 +72,7 @@ const DoctorReportsDetailPage: React.FC = () => {
   }
 
   return (
-    <div className="h-screen pt-[64px] md:pt-[80px] bg-[#FAFAFA] font-sans flex flex-col overflow-hidden box-border">
+    <div className="h-screen pt-[64px] md:pt-[80px] bg-[#f6f3ec] font-sans flex flex-col overflow-hidden box-border">
       {/* Main Content Area */}
       <div className="flex-1 max-w-7xl mx-auto w-full px-6 py-8 md:py-10 flex flex-col min-h-0">
         
@@ -86,7 +89,7 @@ const DoctorReportsDetailPage: React.FC = () => {
             Back to All Patients
           </button>
 
-          <h1 className="text-[32px] md:text-[36px] font-extrabold text-gray-800 tracking-tight mb-3" style={{ fontFamily: 'Inter, sans-serif' }}>
+          <h1 className="text-[32px] md:text-[36px] font-medium text-gray-800 mb-3" style={{ fontFamily: "'Newsreader', Georgia, serif", letterSpacing: '-0.01em' }}>
             {patientName ? `${patientName}'s Reports` : 'Patient Reports'}
           </h1>
           <p className="text-[15px] text-gray-500 font-medium leading-relaxed max-w-2xl" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -124,9 +127,14 @@ const DoctorReportsDetailPage: React.FC = () => {
                         <p className="text-[12px] font-medium text-gray-500" style={{ fontFamily: 'Inter, sans-serif' }}>Generated on {formatDate(report.createdAt)}</p>
                       </div>
                     </div>
-                    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold tracking-wide uppercase bg-gray-100 text-gray-600 border border-gray-200/50 shrink-0 ml-2" style={{ fontFamily: 'Inter, sans-serif' }}>
-                      {report.reportType}
-                    </span>
+                    <div className="flex flex-col items-end gap-1.5 shrink-0 ml-2">
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[9px] font-bold tracking-wide uppercase bg-gray-100 text-gray-600 border border-gray-200/50" style={{ fontFamily: 'Inter, sans-serif' }}>
+                        {reportTypeLabel(report.reportType)}
+                      </span>
+                      <span className={`inline-flex items-center px-2.5 py-1 rounded-lg text-[9px] font-bold tracking-wide uppercase border ${report.isSharedWithPatient === false ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-teal-50 text-teal-700 border-teal-100'}`} style={{ fontFamily: 'Inter, sans-serif' }}>
+                        {report.isSharedWithPatient === false ? 'Only you' : 'Shared'}
+                      </span>
+                    </div>
                   </div>
 
                   <div className="mt-2 w-full flex-1 flex flex-col">
@@ -148,7 +156,7 @@ const DoctorReportsDetailPage: React.FC = () => {
                                   <span className="text-[9px] font-extrabold text-emerald-400 uppercase tracking-widest mb-1" style={{ fontFamily: 'Inter, sans-serif' }}>Progress</span>
                                   <div className="flex items-end gap-1">
                                     <span className="text-[18px] font-black text-emerald-700 leading-none" style={{ fontFamily: 'Inter, sans-serif' }}>{parsed.progress}</span>
-                                    <span className="text-[11px] font-bold text-emerald-500 mb-0.5" style={{ fontFamily: 'Inter, sans-serif' }}>/10</span>
+                                    <span className="text-[11px] font-bold text-emerald-500 mb-0.5" style={{ fontFamily: 'Inter, sans-serif' }}>/5</span>
                                   </div>
                                 </div>
                               )}

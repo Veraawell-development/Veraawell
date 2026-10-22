@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 import { IndianRupee, Video, Mic, Landmark, Clock, CheckCircle, XCircle, BarChart3, ArrowLeft, Lightbulb, Check, RotateCcw, PenLine } from 'lucide-react';
@@ -13,6 +13,10 @@ import { getAuthToken } from '../utils/authToken';
 import { API_BASE_URL } from '../config/api';
 import SignaturePad from '../components/SignaturePad';
 import { missingPriceSlots } from '../utils/sessionPricing';
+import DoctorVisibilityCard, { visibilityQueryKey } from '../components/DoctorVisibilityCard';
+import ChangePasswordForm from '../components/ChangePasswordForm';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { formatDate as formatIstDate } from '../utils/dateUtils';
 
 /** Standard platform fee, used only for the earnings ESTIMATE on this page. */
 const ESTIMATED_PLATFORM_FEE_PERCENT = 20;
@@ -104,10 +108,76 @@ interface EarningsStats {
   totalDoctorEarnings: number;
   totalGross: number;
   totalSessions: number;
+  /** Completed sessions (late cancellations and no-shows are paid, not held). */
+  heldSessions?: number;
   pendingPayout: number;
   /** The fee this doctor's bookings are charged at. Absent from older servers. */
   platformFeePercent?: number;
 }
+
+interface PayoutRow {
+  _id: string;
+  periodStart: string;
+  periodEnd: string;
+  status: 'locked' | 'paid';
+  sessionCount: number;
+  netPayable: number;
+  paidAt?: string | null;
+  transferReference?: string | null;
+  scheduledPayoutDate?: string | null;
+}
+
+/**
+ * The therapist's weekly payouts. GET /payouts/my-payouts existed and nothing
+ * showed it, so a therapist could not see what had been paid, or when.
+ */
+const PayoutHistory: React.FC = () => {
+  const { data: payouts, isError } = useQuery<PayoutRow[]>({
+    queryKey: ['doctor', 'payouts'],
+    queryFn: async () => {
+      const res = await fetch(`${API_BASE_URL}/payouts/my-payouts`, { credentials: 'include' });
+      if (!res.ok) throw new Error('Could not load payouts');
+      return (await res.json()).payouts || [];
+    },
+  });
+  const inr = (n: number) => `₹${Math.round(n || 0).toLocaleString('en-IN')}`;
+  return (
+    <section aria-labelledby="payout-history" className="px-6 pb-6">
+      <h3 id="payout-history" className="mb-3" style={{ ...eyebrow, color: T.teal }}>Payout history</h3>
+      {isError ? (
+        <p role="alert" style={{ fontSize: 12.5, color: '#b42318' }}>Could not load your payouts. Please refresh.</p>
+      ) : !payouts ? (
+        <p style={{ fontSize: 12.5, color: T.muted }}>Loading…</p>
+      ) : payouts.length === 0 ? (
+        <p style={{ fontSize: 12.5, color: T.muted }}>No payouts yet. Your first one appears here after the week it covers.</p>
+      ) : (
+        <ul className="divide-y" style={{ borderColor: T.border }}>
+          {payouts.map((p) => (
+            <li key={p._id} data-testid="payout-row" className="py-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: T.text }}>
+                  {formatIstDate(p.periodStart)} – {formatIstDate(new Date(new Date(p.periodEnd).getTime() - 1).toISOString())}
+                </div>
+                <div style={{ fontSize: 11.5, color: T.muted }}>
+                  {p.sessionCount} session{p.sessionCount === 1 ? '' : 's'}
+                  {p.status === 'paid'
+                    ? ` · paid ${p.paidAt ? formatIstDate(p.paidAt) : ''}${p.transferReference ? ` · ref ${p.transferReference}` : ''}`
+                    : ` · being paid${p.scheduledPayoutDate ? ` on ${formatIstDate(p.scheduledPayoutDate)}` : ''}`}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span style={{ ...figure, fontSize: 17 }}>{inr(p.netPayable)}</span>
+                <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', borderRadius: 100, padding: '3px 9px', background: p.status === 'paid' ? '#eef6f0' : '#f7f1e8', color: p.status === 'paid' ? '#2b8a7a' : '#a97c3f' }}>
+                  {p.status === 'paid' ? 'Paid' : 'Processing'}
+                </span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+};
 
 const DoctorSettingsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -127,17 +197,36 @@ const DoctorSettingsPage: React.FC = () => {
   const feeIsKnown = typeof earnings?.platformFeePercent === 'number';
   const platformFeePercent = feeIsKnown ? (earnings!.platformFeePercent as number) : ESTIMATED_PLATFORM_FEE_PERCENT;
   const [isSavingPricing, setIsSavingPricing] = useState(false);
-  const [currentStep, setCurrentStep] = useState(1);
-  const totalSteps = 4;
+  // Tabs, not a wizard: these are four separate tools, and the bank details
+  // sat behind "Next" where a therapist never found them. The URL hash picks
+  // the tab, so the dashboard checklist can link straight to one.
+  const location = useLocation();
+  const queryClient = useQueryClient();
+  const TABS = [
+    { id: 'pricing', label: 'Prices' },
+    { id: 'payouts', label: 'Bank & payouts' },
+    { id: 'earnings', label: 'Earnings' },
+    { id: 'signature', label: 'Signature' },
+    { id: 'account', label: 'Account' },
+  ] as const;
+  type TabId = typeof TABS[number]['id'];
+  const tabFromHash = (): TabId => (TABS.find((t) => `#${t.id}` === location.hash)?.id ?? 'pricing');
+  const [tab, setTab] = useState<TabId>(tabFromHash);
+  useEffect(() => { setTab(tabFromHash()); }, [location.hash]); // eslint-disable-line react-hooks/exhaustive-deps
+  const openTab = (id: TabId) => { setTab(id); navigate(`#${id}`, { replace: true }); };
   const [profileLoading, setProfileLoading] = useState(true);
 
   const [bank, setBank] = useState<BankDetailsState | null>(null);
   const [bankForm, setBankForm] = useState<BankForm>({
     accountHolderName: '', accountNumber: '', ifsc: '', panNumber: ''
   });
-  const [bankErrors, setBankErrors] = useState<Partial<Record<keyof BankForm, string>>>({});
+  // Typed twice: a digit wrong sends the money to someone else's account.
+  const [accountNumberConfirm, setAccountNumberConfirm] = useState('');
+  const [bankErrors, setBankErrors] = useState<Partial<Record<keyof BankForm | 'accountNumberConfirm', string>>>({});
   const [isSavingBank, setIsSavingBank] = useState(false);
   const [editingBank, setEditingBank] = useState(false);
+  // Bank details hang off the profile: none yet means "set up your profile first".
+  const [bankNeedsProfile, setBankNeedsProfile] = useState(false);
 
 
   const token = getAuthToken();
@@ -182,7 +271,10 @@ const DoctorSettingsPage: React.FC = () => {
   };
 
   const handleSubmitBank = async () => {
-    const errors = validateBank(bankForm);
+    const errors: Record<string, string> = { ...validateBank(bankForm) };
+    if (!errors.accountNumber && bankForm.accountNumber.replace(/\s/g, '') !== accountNumberConfirm.replace(/\s/g, '')) {
+      errors.accountNumberConfirm = 'The account numbers do not match';
+    }
     setBankErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
@@ -204,6 +296,8 @@ const DoctorSettingsPage: React.FC = () => {
       }
       toast.success(data.message || 'Submitted for review');
       setEditingBank(false);
+      setAccountNumberConfirm('');
+      queryClient.invalidateQueries({ queryKey: visibilityQueryKey(user?.userId) });
       await loadBankDetails();
     } catch {
       toast.error('Network error. Please try again.');
@@ -291,6 +385,7 @@ const DoctorSettingsPage: React.FC = () => {
           setSignatureSavedAt(sig.updatedAt || null);
         }
 
+        if (bankRes.status === 404) setBankNeedsProfile(true);
         if (bankRes.ok) {
           const bankData: BankDetailsState = await bankRes.json();
           setBank(bankData);
@@ -325,7 +420,11 @@ const DoctorSettingsPage: React.FC = () => {
             totalDoctorEarnings: statsData.totalDoctorEarnings || 0,
             totalGross: statsData.totalGross || 0,
             totalSessions: statsData.totalSessions || 0,
-            pendingPayout: statsData.pendingPayout || 0
+            heldSessions: statsData.heldSessions,
+            pendingPayout: statsData.pendingPayout || 0,
+            // Dropped here before, so the page always showed the 20% estimate
+            // even for a therapist with their own agreed fee.
+            platformFeePercent: statsData.platformFeePercent
           });
         }
       } catch (err) {
@@ -346,7 +445,7 @@ const DoctorSettingsPage: React.FC = () => {
     const p = parseFloat(price);
     if (!p || isNaN(p)) return '—';
     const earned = Math.round(p * (1 - platformFeePercent / 100));
-    return `≈ ₹${earned.toLocaleString('en-IN')}`;
+    return `${feeIsKnown ? '' : '≈ '}₹${earned.toLocaleString('en-IN')}`;
   };
 
   // ── Save Pricing ─────────────────────────────────────────────────────────────
@@ -391,6 +490,7 @@ const DoctorSettingsPage: React.FC = () => {
       const data = await res.json();
       if (data.success) {
         toast.success('Pricing saved! New rates apply to future bookings.');
+        queryClient.invalidateQueries({ queryKey: visibilityQueryKey(user?.userId) });
       } else {
         toast.error(data.message || 'Failed to save pricing');
       }
@@ -439,16 +539,28 @@ const DoctorSettingsPage: React.FC = () => {
             </div>
           </div>
 
-          <div style={{ ...eyebrow, fontSize: 10, letterSpacing: '.1em' }}>
-            Step {currentStep} of {totalSteps}
-          </div>
         </div>
+        <nav aria-label="Settings sections" className="max-w-3xl mx-auto mt-4 flex gap-1.5 overflow-x-auto hide-scrollbar" role="tablist">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={tab === t.id}
+              onClick={() => openTab(t.id)}
+              className="flex-none px-4 py-2 rounded-full text-[13px] font-semibold transition-colors"
+              style={tab === t.id ? { background: T.teal, color: '#fff' } : { background: 'rgba(255,255,255,.7)', color: T.text2, border: `1px solid ${T.border}` }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
       </div>
 
       <div className="max-w-3xl mx-auto px-4 py-8 space-y-6 flex-1 w-full overflow-y-auto">
+        {(tab === 'pricing' || tab === 'payouts') && <DoctorVisibilityCard only={['prices', 'bank']} />}
 
         {/* ── SESSION PRICING CARD (STEP 1) ───────────────────────────────────────────── */}
-        {currentStep === 1 && (
+        {tab === 'pricing' && (
         <div style={{ ...cardStyle, overflow: 'hidden' }}>
           <div className="px-6 py-5" style={{ borderBottom: `1px solid ${T.border}` }}>
             <h2 className="flex items-center gap-2" style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, lineHeight: 1.2, color: T.text }}>
@@ -470,7 +582,7 @@ const DoctorSettingsPage: React.FC = () => {
                 {videoSlots.map(({ key, label }) => (
                   <div key={key} className="flex items-center gap-3">
                     <label className="w-24 shrink-0" style={{ fontSize: 12.5, fontWeight: 500, color: T.text2 }}>{label}</label>
-                    <div className="flex items-center gap-2 flex-1">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 flex-1 min-w-0">
                       {/* minWidth so a four-digit price is never clipped —
                           this row previously rendered ₹800 as "₹ 8". */}
                       <div className="relative flex-1" style={{ minWidth: 104, maxWidth: 144 }}>
@@ -488,8 +600,8 @@ const DoctorSettingsPage: React.FC = () => {
                           placeholder="0"
                         />
                       </div>
-                      <span className="shrink-0" style={{ fontSize: 11.5, color: T.muted }}>
-                        Est. you earn: <span style={{ ...figure, fontSize: 13.5, color: T.teal }}>{doctorEarns(pricing[key])}</span>
+                      <span style={{ fontSize: 11.5, color: T.muted }}>
+                        You earn: <span style={{ ...figure, fontSize: 13.5, color: T.teal }}>{doctorEarns(pricing[key])}</span>
                       </span>
                     </div>
                   </div>
@@ -508,7 +620,7 @@ const DoctorSettingsPage: React.FC = () => {
                 {videoSlots.map(({ key, label }) => (
                   <div key={key} className="flex items-center gap-3">
                     <label className="w-24 shrink-0" style={{ fontSize: 12.5, fontWeight: 500, color: T.text2 }}>{label}</label>
-                    <div className="flex items-center gap-2 flex-1">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 flex-1 min-w-0">
                       {/* minWidth so a four-digit price is never clipped —
                           this row previously rendered ₹800 as "₹ 8". */}
                       <div className="relative flex-1" style={{ minWidth: 104, maxWidth: 144 }}>
@@ -526,8 +638,8 @@ const DoctorSettingsPage: React.FC = () => {
                           placeholder="0"
                         />
                       </div>
-                      <span className="shrink-0" style={{ fontSize: 11.5, color: T.muted }}>
-                        Est. you earn: <span style={{ ...figure, fontSize: 13.5, color: T.teal }}>{doctorEarns(pricing.audio[key])}</span>
+                      <span style={{ fontSize: 11.5, color: T.muted }}>
+                        You earn: <span style={{ ...figure, fontSize: 13.5, color: T.teal }}>{doctorEarns(pricing.audio[key])}</span>
                       </span>
                     </div>
                   </div>
@@ -571,7 +683,7 @@ const DoctorSettingsPage: React.FC = () => {
         )}
 
         {/* ── PAYOUT SETUP CARD (STEP 2) ──────────────────────────────────────────────── */}
-        {currentStep === 2 && (
+        {tab === 'payouts' && (
         <div style={{ ...cardStyle, overflow: 'hidden' }}>
           <div className="px-6 py-5" style={{ borderBottom: `1px solid ${T.border}` }}>
             <h2 className="flex items-center gap-2" style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, lineHeight: 1.2, color: T.text }}>
@@ -583,7 +695,16 @@ const DoctorSettingsPage: React.FC = () => {
           </div>
 
           <div className="p-6">
-            {!bank ? (
+            {bankNeedsProfile ? (
+              // It sat on "Loading status…" for ever: the server answers 404
+              // until the therapist has a profile to attach the details to.
+              <div role="status" style={{ fontSize: 13, color: T.text2 }}>
+                Set up your profile first — your bank details are saved with it.{' '}
+                <button onClick={() => navigate('/profile-setup')} style={{ border: 'none', background: 'none', padding: 0, color: T.teal, fontWeight: 600, cursor: 'pointer' }}>
+                  Set up profile →
+                </button>
+              </div>
+            ) : !bank ? (
               <div className="flex items-center gap-3" style={{ color: T.muted }}>
                 <div className="w-4 h-4 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: T.muted, borderTopColor: 'transparent' }} />
                 <span className="text-sm">Loading status...</span>
@@ -719,6 +840,31 @@ const DoctorSettingsPage: React.FC = () => {
                           {bankErrors[field.key] && (
                             <p className="mt-1" style={{ fontSize: 11.5, color: '#dc2626' }}>{bankErrors[field.key]}</p>
                           )}
+                          {field.key === 'accountNumber' && (
+                            <div className="mt-3">
+                              <label htmlFor="accountNumberConfirm" className="block mb-1.5" style={{ fontSize: 12.5, fontWeight: 500, color: T.text2 }}>
+                                Confirm account number
+                              </label>
+                              <input
+                                id="accountNumberConfirm"
+                                value={accountNumberConfirm}
+                                inputMode="numeric"
+                                autoComplete="off"
+                                onPaste={(e) => e.preventDefault()}
+                                aria-invalid={!!bankErrors.accountNumberConfirm}
+                                onChange={(e) => {
+                                  setAccountNumberConfirm(e.target.value.replace(/[^\d]/g, ''));
+                                  setBankErrors((errs) => { if (!errs.accountNumberConfirm) return errs; const next = { ...errs }; delete next.accountNumberConfirm; return next; });
+                                }}
+                                placeholder="Type it again"
+                                className="w-full px-3 py-2.5 rounded-xl focus:outline-none focus:ring-2 transition-all"
+                                style={{ ...figure, fontSize: 15, border: `1px solid ${bankErrors.accountNumberConfirm ? '#dc2626' : T.border}`, background: 'rgba(255,255,255,.6)' }}
+                              />
+                              {bankErrors.accountNumberConfirm && (
+                                <p className="mt-1" style={{ fontSize: 11.5, color: '#dc2626' }}>{bankErrors.accountNumberConfirm}</p>
+                              )}
+                            </div>
+                          )}
                         </div>
                       ))}
                     </div>
@@ -757,13 +903,13 @@ const DoctorSettingsPage: React.FC = () => {
         )}
 
         {/* ── EARNINGS SUMMARY CARD (STEP 3) ─────────────────────────────────────── */}
-        {currentStep === 3 && earnings !== null && (
+        {tab === 'earnings' && earnings !== null && (
           <div style={{ ...cardStyle, overflow: 'hidden' }}>
             <div className="px-6 py-5" style={{ borderBottom: `1px solid ${T.border}` }}>
               <h2 className="flex items-center gap-2" style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, lineHeight: 1.2, color: T.text }}>
                 <BarChart3 className="w-[18px] h-[18px]" style={{ color: T.teal }} /> Earnings Summary
               </h2>
-              <p className="mt-1" style={{ fontSize: 12.5, color: T.text2 }}>All-time stats from completed sessions</p>
+              <p className="mt-1" style={{ fontSize: 12.5, color: T.text2 }}>Each week (Monday to Sunday) is paid to your bank account on the following Tuesday, once your bank details are approved.</p>
             </div>
             {/*
               Same shape as the dashboard's Key Metrics: one array, one tile
@@ -775,7 +921,10 @@ const DoctorSettingsPage: React.FC = () => {
               {[
                 { label: 'Total Earned', value: `₹${earnings.totalDoctorEarnings.toLocaleString('en-IN')}`, note: 'after platform fee', span: false },
                 { label: 'Pending Payout', value: `₹${earnings.pendingPayout.toLocaleString('en-IN')}`, note: 'paid in the weekly payout', span: false },
-                { label: 'Sessions Completed', value: `${earnings.totalSessions}`, note: `Gross collected: ₹${earnings.totalGross.toLocaleString('en-IN')}`, span: true },
+                // Held = completed. Paid sessions also include late
+                // cancellations and patients who didn't join; the label used
+                // to call all of them "completed".
+                { label: 'Sessions Held', value: `${earnings.heldSessions ?? earnings.totalSessions}`, note: `${earnings.totalSessions} paid in all · gross collected ₹${earnings.totalGross.toLocaleString('en-IN')}`, span: true },
               ].map((m) => (
                 <div
                   key={m.label}
@@ -788,11 +937,12 @@ const DoctorSettingsPage: React.FC = () => {
                 </div>
               ))}
             </div>
+            <PayoutHistory />
           </div>
         )}
 
         {/* ── SIGNATURE CARD (STEP 4) ────────────────────────────────────────────── */}
-        {currentStep === 4 && (
+        {tab === 'signature' && (
           <div style={{ ...cardStyle, overflow: 'hidden' }}>
             <div className="px-6 py-5" style={{ borderBottom: `1px solid ${T.border}` }}>
               <h2 className="flex items-center gap-2" style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, lineHeight: 1.2, color: T.text }}>
@@ -853,31 +1003,28 @@ const DoctorSettingsPage: React.FC = () => {
           </div>
         )}
 
-        {/* ── WIZARD CONTROLS ───────────────────────────────────────────────────── */}
-        <div className="flex items-center justify-between pt-6 mt-8">
-          <button
-            onClick={() => setCurrentStep(prev => Math.max(1, prev - 1))}
-            disabled={currentStep === 1}
-            className={`px-6 py-2.5 rounded-xl font-medium text-sm transition-all ${
-              currentStep === 1 
-                ? 'opacity-0 pointer-events-none' 
-                : 'hover:opacity-80'
-            }`}
-          >
-            Previous
-          </button>
-          
-          <button
-            onClick={() => {
-              if (currentStep < totalSteps) setCurrentStep(prev => prev + 1);
-              else navigate('/doctor-dashboard');
-            }}
-            className="px-6 py-2.5 rounded-full transition-all hover:opacity-90"
-            style={{ background: T.teal, color: '#fff', fontWeight: 600, fontSize: 12.5, letterSpacing: '.04em', textTransform: 'uppercase', border: 'none' }}
-          >
-            {currentStep === totalSteps ? 'Done' : 'Next'}
-          </button>
-        </div>
+        {/* ── ACCOUNT ─────────────────────────────────────────────────────────── */}
+        {tab === 'account' && (
+          <div style={{ ...cardStyle, overflow: 'hidden' }}>
+            <div className="px-6 py-5" style={{ borderBottom: `1px solid ${T.border}` }}>
+              <h2 style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 17, lineHeight: 1.2, color: T.text }}>Account</h2>
+              <p className="mt-1" style={{ fontSize: 12.5, color: T.text2 }}>Signed in as {user?.email || user?.username}.</p>
+            </div>
+            <div className="p-6 space-y-6">
+              <section aria-labelledby="pw-heading">
+                <h3 id="pw-heading" className="mb-3" style={{ ...eyebrow, color: T.teal }}>Change password</h3>
+                <ChangePasswordForm />
+              </section>
+              <section aria-labelledby="close-heading" style={{ borderTop: `1px solid ${T.border}`, paddingTop: 20 }}>
+                <h3 id="close-heading" className="mb-2" style={{ ...eyebrow, color: T.teal }}>Closing your account</h3>
+                <p style={{ fontSize: 12.5, color: T.text2, lineHeight: 1.55 }}>
+                  Your sessions, reports and payouts are records your patients and Veraawell must keep, so a
+                  therapist account is closed by our team. Write to support@veraawell.com and we will help.
+                </p>
+              </section>
+            </div>
+          </div>
+        )}
 
       </div>
     </div>

@@ -18,7 +18,7 @@ import {
  * DESIGN NOTES
  *
  * The first pass laid every field out as an identical full-width section, so
- * "Positive" and "4/10" carried the same visual weight as a paragraph of
+ * "Positive" and "4/5" carried the same visual weight as a paragraph of
  * clinical narrative, and a short report left a large void before a signature
  * floating mid-page. A clinical document has two kinds of content and should
  * look like it does:
@@ -166,10 +166,10 @@ export async function buildReportPdf(report: ReportPdfInput): Promise<any> {
       doc.setTextColor(C.INK);
       doc.text(f.value, x + 6, y + 15.6);
 
-      // Progress is a number out of ten; a meter reads faster than the digits.
-      const m = /^(\d+(?:\.\d+)?)\s*\/\s*10$/.exec(f.value);
+      // Progress is a number out of five; a meter reads faster than the digits.
+      const m = /^(\d+(?:\.\d+)?)\s*\/\s*5$/.exec(f.value);
       if (m) {
-        const pct = Math.max(0, Math.min(1, parseFloat(m[1]) / 10));
+        const pct = Math.max(0, Math.min(1, parseFloat(m[1]) / 5));
         const barX = x + 6 + doc.getTextWidth(f.value) + 6;
         const barW = cardW - (barX - x) - 7;
         if (barW > 10) {

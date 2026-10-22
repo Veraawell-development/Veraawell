@@ -17,11 +17,20 @@ const logger = createLogger('DOCTOR-STATUS-CTRL');
 const toggleOnline = asyncHandler(async (req, res) => {
   if (req.user.role !== 'doctor') throw new AuthorizationError('Only doctors can toggle online status');
   const userId = req.user._id.toString();
-  const newStatus = !req.user.isOnline;
+  // An explicit { online } sets that state. Flipping whatever the server had
+  // meant a second tab showing a stale switch turned the doctor the opposite
+  // way to what they clicked. A body without it still toggles (older tabs).
+  const wanted = req.body && typeof req.body.online === 'boolean' ? req.body.online : null;
+  const newStatus = wanted === null ? !req.user.isOnline : wanted;
   const io = req.app.get('io');
-  await updateDoctorStatus(userId, newStatus, io);
-  logger.info('Doctor status toggled', { doctorId: userId.substring(0, 8), isOnline: newStatus });
-  res.json({ success: true, isOnline: newStatus, lastActiveAt: new Date() });
+  if (newStatus !== !!req.user.isOnline) await updateDoctorStatus(userId, newStatus, io);
+  logger.info('Doctor status set', { doctorId: userId.substring(0, 8), isOnline: newStatus });
+  // Whether being online actually lets patients ring them: an online doctor
+  // without approved bank details or all six prices is not in "Available now".
+  const DoctorProfile = require('../models/doctorProfile');
+  const { bookabilityOf } = require('../services/bookability');
+  const { instant } = bookabilityOf(await DoctorProfile.findOne({ userId }).select('pricing payoutApproved bookableUntil').lean());
+  res.json({ success: true, isOnline: newStatus, instantReady: instant, lastActiveAt: new Date() });
 });
 
 /** GET /api/doctor-status/status — Get current doctor's own status */

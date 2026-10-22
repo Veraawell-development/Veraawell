@@ -16,10 +16,19 @@ const logger = createLogger('REPORT-CTRL');
  * Create a report (Doctor only)
  */
 const createReport = asyncHandler(async (req, res) => {
-  const { title, reportType, content, isSharedWithPatient } = req.body;
+  const checked = require('../utils/clinicalInput').checkReport(req.body || {});
+  if (checked.error) return res.status(400).json({ success: false, message: checked.error });
+  const { title, reportType, content, isSharedWithPatient } = checked.value;
   const doctorId = req.actor.id;
   // Server-derived from the authorized session — see authz/policies/clinicalRecords.policy.js
   const { sessionId, patientId } = req.authz.derived;
+
+  // One report per session. A double-click on Submit, or writing it again
+  // from "Reports to write" after the post-call modal had filed it, used to
+  // file two — and the patient received both.
+  if (await Report.exists({ sessionId })) {
+    return res.status(409).json({ success: false, message: 'A report for this session has already been filed.' });
+  }
 
   // Snapshot the signature at filing time — see the field's note on the model.
   const DoctorProfile = require('../models/doctorProfile');
@@ -28,7 +37,7 @@ const createReport = asyncHandler(async (req, res) => {
   const report = new Report({
     sessionId, doctorId, patientId, title, reportType, content,
     doctorSignature: (signingProfile && signingProfile.signature) || null,
-    isSharedWithPatient: isSharedWithPatient !== undefined ? isSharedWithPatient : true
+    isSharedWithPatient
   });
   await report.save();
 

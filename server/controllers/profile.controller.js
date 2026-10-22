@@ -170,6 +170,15 @@ const setupProfile = asyncHandler(async (req, res) => {
     if (blank || (sent === undefined && !(stored && stored.type))) {
       return res.status(400).json({ success: false, message: 'Choose your professional type (Basic information).' });
     }
+    // The lists take typed "Other" values now: short text, a sensible count.
+    for (const [field, label] of [['qualification', 'qualifications'], ['languages', 'languages'], ['specialization', 'specializations']]) {
+      const list = req.body[field];
+      if (list === undefined) continue;
+      if (!Array.isArray(list) || list.length > 15 || !list.every((v) => typeof v === 'string' && v.trim() && v.trim().length <= 60)) {
+        return res.status(400).json({ success: false, message: `Check your ${label}: up to 15, each under 60 characters.` });
+      }
+      req.body[field] = [...new Set(list.map((v) => v.trim().replace(/\s+/g, ' ')))];
+    }
   }
 
   const {
@@ -194,7 +203,19 @@ const setupProfile = asyncHandler(async (req, res) => {
 
   // Update user's name if fullName or name is provided
   const targetName = fullName || name;
-  if (targetName) {
+  // A therapist's name is what an admin checked against their documents and
+  // what patients see on the directory; it could be changed here at any time
+  // and went live unreviewed. Re-sending the same name (the form always sends
+  // it) is fine; a different one goes through support.
+  if (targetName && user.role === 'doctor') {
+    const norm = (n) => String(n || '').replace(/^\s*dr\.?\s+/i, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (norm(targetName) !== norm(`${user.firstName} ${user.lastName}`)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Your name was checked when your account was approved. To change it, write to support@veraawell.com.'
+      });
+    }
+  } else if (targetName) {
     const nameParts = String(targetName).trim().split(/\s+/);
     user.firstName = nameParts[0] || '';
     user.lastName = nameParts.slice(1).join(' ') || '';
@@ -450,6 +471,18 @@ const updateProfile = asyncHandler(async (req, res) => {
   });
 });
 
+/**
+ * GET /api/profile/visibility — can patients find and book me, and if not,
+ * what is missing (services/doctorVisibility.js). Self-scoped: the role gate
+ * on the route is the whole policy.
+ */
+const getVisibility = asyncHandler(async (req, res) => {
+  const user = await User.findById(req.actor.id).select('isOnline role');
+  if (!user) throw new NotFoundError('User');
+  const { visibilityFor } = require('../services/doctorVisibility');
+  res.json({ success: true, ...(await visibilityFor(user)) });
+});
+
 /* ───────────────────────── practitioner signature ───────────────────────── */
 
 /**
@@ -545,6 +578,7 @@ module.exports = {
   getProfile,
   updateProfile,
   updatePricing,
+  getVisibility,
   getSignature,
   saveSignature,
   deleteSignature,

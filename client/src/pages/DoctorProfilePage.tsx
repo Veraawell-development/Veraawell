@@ -677,7 +677,7 @@ const DoctorProfilePage: React.FC = () => {
   );
 
   return (
-    <div className="bg-white min-h-[100dvh] pt-16 md:pt-[80px]">
+    <div className="bg-white min-h-[100dvh] pt-16 md:pt-[80px] overflow-x-clip">
       <Helmet>
         <title>{`${displayName} - ${specializationText} | Veraawell`}</title>
         <meta name="description" content={`Book a session with ${displayName}.${experienceText ? ` ${experienceText} of experience` : ''}${specializationText ? ` in ${specializationText}` : ''}.`} />

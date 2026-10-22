@@ -38,7 +38,7 @@ const sessionNoteSchema = new mongoose.Schema({
   },
   isPrivate: {
     type: Boolean,
-    default: false // If true, only doctor can see
+    default: true // Notes are the therapist's own; patients never read them
   },
   createdAt: {
     type: Date,

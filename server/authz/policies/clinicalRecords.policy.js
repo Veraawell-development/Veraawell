@@ -107,8 +107,12 @@ module.exports = {
     'note:list-by-patient': ({ actor, params }) => {
       switch (actor.role) {
         case ROLE.PATIENT:
-          // Own chart only, and never a note the doctor marked private.
-          return actor.id === params.patientId ? { patientId: params.patientId, isPrivate: false } : DENY;
+          // Session notes are the therapist's working notes and never the
+          // patient's to read (decision 2026-10-21). They were saved
+          // isPrivate:false by default, so this route handed a patient every
+          // note about them although no screen ever showed one. What a
+          // therapist shares goes in a report.
+          return DENY;
         case ROLE.DOCTOR:
           // Only notes this doctor authored. This also makes a separate
           // treating-relationship check unnecessary: a doctor who never
@@ -121,7 +125,7 @@ module.exports = {
 
     'note:list-by-session': ({ actor, params }) => {
       switch (actor.role) {
-        case ROLE.PATIENT: return { sessionId: params.sessionId, patientId: actor.id, isPrivate: false };
+        case ROLE.PATIENT: return DENY; // see note:list-by-patient
         case ROLE.DOCTOR: return { sessionId: params.sessionId, doctorId: actor.id };
         default: return DENY;
       }

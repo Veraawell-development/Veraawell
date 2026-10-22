@@ -10,7 +10,9 @@ import toast from 'react-hot-toast';
 import PostSessionReportModal from '../components/PostSessionReportModal';
 import DoctorSidebar from '../components/DoctorSidebar';
 import { API_BASE_URL } from '../config/api';
-import { getGreeting, getGreetingPunctuation } from '../utils/dateUtils';
+import { getGreeting, getGreetingPunctuation, formatDate as formatIstDate } from '../utils/dateUtils';
+import DoctorVisibilityCard, { visibilityQueryKey } from '../components/DoctorVisibilityCard';
+import { doctorInitials, stripDrPrefix } from '../utils/doctorName';
 import { useQuery, useQueryClient, useMutation } from '@tanstack/react-query';
 
 // ── Design tokens (identical to the patient dashboard's design system) ──────
@@ -57,8 +59,8 @@ const subCardStyle: React.CSSProperties = {
   borderRadius: 14,
 };
 
-const getDrInitials = (firstName?: string, lastName?: string) =>
-  `${firstName?.[0] || ''}${lastName?.[0] || ''}`.toUpperCase() || 'D';
+// Patients' initials on the note rows; "Dr." never counts as a name.
+const getDrInitials = (firstName?: string, lastName?: string) => doctorInitials(firstName, lastName) || 'P';
 
 const getNoteSnippet = (content?: string) => {
   const text = content || '';
@@ -105,7 +107,8 @@ const playNotificationSound = () => {
     playBeep(now + 0.4, 1046.50); // C6
     
   } catch (e) {
-    console.log('Audio synthesis failed', e);
+    // No audio available: the toast still shows.
+    void e;
   }
 };
 
@@ -114,26 +117,6 @@ const DoctorDashboard: React.FC = () => {
   const location = useLocation();
   const { user } = useAuth();
 
-  // Does the doctor have any open dates from today? With none, patients can't
-  // find or book them (the directory hides a calendar that has run out) —
-  // and nothing used to tell the doctor. Same query as ManageCalendar, so the
-  // two screens share the cached answer.
-  const { data: ownAvailability } = useQuery({
-    queryKey: ['doctor', 'availability', user?.userId],
-    queryFn: async () => {
-      const res = await fetch(`${API_BASE_URL}/availability/doctor/current`, { credentials: 'include' });
-      if (!res.ok) throw new Error('Failed to load availability');
-      return res.json();
-    },
-    enabled: !!user?.userId,
-  });
-  const todayIst = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
-  const hasOpenDates = !ownAvailability || (
-    (ownAvailability.availabilityType !== 'different_slots'
-      && (ownAvailability.defaultSlots || []).length > 0
-      && (ownAvailability.activeDates || []).some((d: string) => d >= todayIst))
-    || (ownAvailability.customAvailability || []).some((d: { date: string; slots?: unknown[] }) => d.date >= todayIst && (d.slots || []).length > 0)
-  );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [showWelcomeModal, setShowWelcomeModal] = useState(false);
   const [selectedSession, setSelectedSession] = useState<Session | null>(null);
@@ -288,15 +271,21 @@ const DoctorDashboard: React.FC = () => {
   });
 
   const toggleStatusMutation = useMutation({
-    mutationFn: async () => {
-      const res = await fetch(`${API_BASE_URL}/doctor-status/toggle-online`, { method: 'POST', credentials: 'include' });
+    // The state the doctor clicked, not "the other one": a second tab showing
+    // a stale switch used to flip them the opposite way.
+    mutationFn: async (online: boolean) => {
+      const res = await fetch(`${API_BASE_URL}/doctor-status/toggle-online`, {
+        method: 'POST', credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ online })
+      });
       if (!res.ok) throw new Error('Failed to toggle status');
       return res.json();
     },
-    onMutate: async () => {
+    onMutate: async (online: boolean) => {
       await queryClient.cancelQueries({ queryKey: ['doctor', 'status', user?.userId] });
       const previousStatus = queryClient.getQueryData(['doctor', 'status', user?.userId]);
-      queryClient.setQueryData(['doctor', 'status', user?.userId], (old: any) => !old);
+      queryClient.setQueryData(['doctor', 'status', user?.userId], online);
       return { previousStatus };
     },
     onError: (err, newTodo, context) => {
@@ -304,7 +293,14 @@ const DoctorDashboard: React.FC = () => {
       toast.error('Failed to change status');
     },
     onSuccess: (data) => {
-      toast.success(`You are now ${data.isOnline ? 'Online' : 'Offline'}`);
+      // Online only matters if patients can ring them: without approved bank
+      // details or all six prices they are not in "Available now".
+      if (data.isOnline && data.instantReady === false) {
+        toast("You're online, but patients can't ring you yet — see the checklist on your dashboard.", { id: 'online-not-ready', duration: 6000 });
+      } else {
+        toast.success(`You are now ${data.isOnline ? 'Online' : 'Offline'}`);
+      }
+      queryClient.invalidateQueries({ queryKey: visibilityQueryKey(user?.userId) });
       queryClient.invalidateQueries({ queryKey: ['doctor', 'status', user?.userId] });
     }
   });
@@ -335,7 +331,6 @@ const DoctorDashboard: React.FC = () => {
     // GlobalIncomingCallListener's incoming-request handler each time the
     // dashboard unmounted, silently killing the ring.
     const onSessionBooked = ({ session }: any) => {
-      console.log('[REAL-TIME] New session booked:', session);
 
       //  NEW: If it's an immediate session, show the request modal
       if (session.sessionType === 'immediate') {
@@ -357,7 +352,6 @@ const DoctorDashboard: React.FC = () => {
     };
 
     const onStatusUpdate = ({ sessionId, acceptanceStatus }: any) => {
-      console.log('[REAL-TIME] Session status updated:', { sessionId, acceptanceStatus });
       setCalendarRefreshTrigger(prev => prev + 1);
       queryClient.invalidateQueries({ queryKey: ['doctor', 'stats', user?.userId] });
       // An accept, a delay or a completion all change what is still waiting.
@@ -373,7 +367,6 @@ const DoctorDashboard: React.FC = () => {
     //  NEW: Listen for real-time online status changes
     const onDoctorStatusChange = (data: any) => {
       if (data.doctorId === user?.userId) {
-        console.log('[REAL-TIME] Online status changed:', data.isOnline);
         queryClient.setQueryData(['doctor', 'status', user?.userId], data.isOnline);
       }
     };
@@ -411,43 +404,24 @@ const DoctorDashboard: React.FC = () => {
     const state = location.state as { refreshSessions?: boolean; pendingReport?: any };
 
     if (state?.pendingReport) {
-      console.log('[DOCTOR-DASHBOARD]  Found pending report:', state.pendingReport);
       setPendingReportData(state.pendingReport);
       setShowPostSessionReport(true);
 
       // Clear state to prevent modal popping up again on refresh
       navigate(location.pathname, { replace: true, state: { ...state, pendingReport: undefined } });
     } else if (state?.refreshSessions) {
-      console.log('[DOCTOR-DASHBOARD]  Refreshing after booking');
       setCalendarRefreshTrigger(prev => prev + 1);
       queryClient.invalidateQueries({ queryKey: ['doctor'] });
       navigate(location.pathname, { replace: true, state: {} });
     }
   }, [location.state, navigate, location.pathname, queryClient]);
 
-  const toggleOnlineStatus = () => {
-    toggleStatusMutation.mutate();
+  const setOnline = (online: boolean) => {
+    toggleStatusMutation.mutate(online);
   };
 
-  const formatDate = (dateString?: string) => {
-    const date = new Date(dateString ?? NaN);
-    if (Number.isNaN(date.getTime())) return '—';
-    const day = date.getDate();
-    const month = date.toLocaleString('en-US', { month: 'long' });
-    const year = date.getFullYear();
-
-    const suffix = (day: number) => {
-      if (day > 3 && day < 21) return 'th';
-      switch (day % 10) {
-        case 1: return 'st';
-        case 2: return 'nd';
-        case 3: return 'rd';
-        default: return 'th';
-      }
-    };
-
-    return `${day}${suffix(day)} ${month}, ${year}`;
-  };
+  // IST calendar days, like every date on the platform.
+  const formatDate = (dateString?: string) => (dateString ? formatIstDate(dateString) : '—');
 
   const handleSessionClick = (session: Session) => {
     setSelectedSession(session);
@@ -604,19 +578,23 @@ const DoctorDashboard: React.FC = () => {
         <div className="max-w-[1600px] mx-auto w-full flex items-start sm:items-center gap-4 sm:gap-6 flex-wrap lg:flex-nowrap">
           <button
             onClick={() => setSidebarOpen(true)}
-            aria-label="Open menu"
+            aria-label="Open practice menu"
+            title="Practice menu"
             className="flex-none flex items-center justify-center"
             style={{ width: 40, height: 40, borderRadius: 12, border: '1px solid rgba(27,43,46,.12)', background: '#fff', cursor: 'pointer' }}
           >
-            <svg width="18" height="14" viewBox="0 0 18 14" fill="none">
-              <rect width="18" height="2" rx="1" fill="#1b2b2e" />
-              <rect y="6" width="18" height="2" rx="1" fill="#1b2b2e" />
-              <rect y="12" width="18" height="2" rx="1" fill="#1b2b2e" />
+            {/* A grid, not ☰: on a phone the site's own ☰ menu sits just
+                above, and two identical buttons read as one broken one. */}
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="#1b2b2e" aria-hidden="true">
+              <rect x="0" y="0" width="7" height="7" rx="2" />
+              <rect x="9" y="0" width="7" height="7" rx="2" />
+              <rect x="0" y="9" width="7" height="7" rx="2" />
+              <rect x="9" y="9" width="7" height="7" rx="2" />
             </svg>
           </button>
 
           <div className="flex-none flex items-center justify-center" style={{ width: 52, height: 52, borderRadius: '50%', background: T.teal, color: '#fff', fontFamily: FONT_SERIF, fontSize: 20, fontWeight: 600 }}>
-            {getDrInitials(user?.firstName, user?.lastName)}
+            {doctorInitials(user?.firstName, user?.lastName) || 'D'}
           </div>
 
           <div className="flex-1 min-w-0">
@@ -625,13 +603,13 @@ const DoctorDashboard: React.FC = () => {
               Practitioner Dashboard
             </div>
             <div style={{ fontFamily: FONT_SERIF, fontWeight: 500, fontSize: 24, lineHeight: 1.15, color: T.text }}>
-              {getGreeting()}, <em style={{ fontStyle: 'italic', color: T.teal }}>Dr. {user?.firstName || user?.username || 'Doctor'}</em>{getGreetingPunctuation()}
+              {getGreeting()}, <em style={{ fontStyle: 'italic', color: T.teal }}>Dr. {stripDrPrefix(user?.firstName) || 'Doctor'}</em>{getGreetingPunctuation()}
             </div>
             <div className="flex items-center gap-3.5 mt-2 flex-wrap">
               <span style={{ fontSize: 13, color: T.text2 }}>Availability</span>
               <div className="flex gap-2">
                 <button
-                  onClick={isActive ? undefined : toggleOnlineStatus}
+                  onClick={isActive ? undefined : () => setOnline(true)}
                   disabled={isStatusLoading}
                   style={{
                     border: `1px solid ${isActive ? 'rgba(47,174,122,.45)' : 'rgba(27,43,46,.15)'}`,
@@ -645,7 +623,7 @@ const DoctorDashboard: React.FC = () => {
                   Online
                 </button>
                 <button
-                  onClick={!isActive ? undefined : toggleOnlineStatus}
+                  onClick={!isActive ? undefined : () => setOnline(false)}
                   disabled={isStatusLoading}
                   style={{
                     border: `1px solid ${!isActive ? 'rgba(31,122,140,.4)' : 'rgba(27,43,46,.15)'}`,
@@ -660,17 +638,7 @@ const DoctorDashboard: React.FC = () => {
                 </button>
               </div>
             </div>
-            {!hasOpenDates && (
-              <div role="status" className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5" style={{ background: '#fdf6ec', border: '1px solid rgba(201,154,91,.35)', borderRadius: 12, padding: '9px 14px', fontSize: 12.5, color: T.text, maxWidth: 560 }}>
-                <span><strong>Patients can't book you</strong> — your calendar has no open dates from today.</span>
-                <button
-                  onClick={() => navigate('/manage-calendar')}
-                  style={{ border: 'none', background: 'none', padding: 0, color: T.teal, fontWeight: 600, fontSize: 12.5, cursor: 'pointer' }}
-                >
-                  Add dates →
-                </button>
-              </div>
-            )}
+            <div className="mt-3"><DoctorVisibilityCard collapsible /></div>
           </div>
 
           <div className="flex flex-col items-start sm:items-end gap-1.5 flex-none w-full sm:w-auto sm:ml-auto mt-1 sm:mt-0">

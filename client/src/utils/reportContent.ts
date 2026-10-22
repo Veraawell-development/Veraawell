@@ -53,7 +53,9 @@ export function reportFields(content?: string): Array<{ label: string; value: st
   const out: Array<{ label: string; value: string }> = [];
   if (r.mood) out.push({ label: 'Mood', value: titleCase(r.mood) });
   if (typeof r.progress === 'number' && r.progress > 0) {
-    out.push({ label: 'Progress', value: `${r.progress}/10` });
+    // The form rates progress with 1–5 stars (PostSessionReportModal). It was
+    // printed "/10", so a therapist's 5 of 5 read as half-way on the report.
+    out.push({ label: 'Progress', value: `${r.progress}/5` });
   }
   if (Array.isArray(r.observations) && r.observations.length > 0) {
     out.push({ label: 'Observations', value: r.observations.join(', ') });

@@ -20,7 +20,8 @@ const getCurrentDoctorAvailability = asyncHandler(async (req, res) => {
 
   let availability = await DoctorAvailability.findOne({ doctorId: userId });
   if (!availability) {
-    availability = new DoctorAvailability({ doctorId: userId, availabilityType: 'same_slots', defaultSlots: [], activeDates: [], customAvailability: [] });
+    // A new calendar starts as a weekly one (the Manage Calendar default).
+    availability = new DoctorAvailability({ doctorId: userId, availabilityType: 'weekly', weeklySlots: [], offDates: [], defaultSlots: [], activeDates: [], customAvailability: [] });
     await availability.save();
   }
   res.json(availability);
@@ -31,7 +32,7 @@ const getDoctorAvailabilityById = asyncHandler(async (req, res) => {
   const { doctorId } = req.params;
   const availability = await DoctorAvailability.findOne({ doctorId });
   if (!availability) {
-    return res.json({ availabilityType: 'same_slots', defaultSlots: [], activeDates: [], customAvailability: [] });
+    return res.json({ availabilityType: 'weekly', weeklySlots: [], offDates: [], defaultSlots: [], activeDates: [], customAvailability: [] });
   }
   // Public: which times are taken, never which sessions took them (the ids
   // of the doctor's booked sessions were in this response).
@@ -44,16 +45,15 @@ const getDoctorAvailabilityById = asyncHandler(async (req, res) => {
 const saveAvailability = asyncHandler(async (req, res) => {
   if (req.user.role !== 'doctor') throw new AuthorizationError('Only doctors can set availability');
   const userId = req.user._id.toString();
-  const { availabilityType, defaultSlots, customAvailability, activeDates } = req.body;
+  const checked = require('../utils/availabilityInput').checkAvailability(req.body || {});
+  if (checked.error) return res.status(400).json({ success: false, message: checked.error });
+  const fields = checked.value;
 
   let availability = await DoctorAvailability.findOne({ doctorId: userId });
   if (availability) {
-    availability.availabilityType = availabilityType;
-    availability.defaultSlots = defaultSlots || [];
-    availability.customAvailability = customAvailability || [];
-    availability.activeDates = activeDates || [];
+    Object.assign(availability, fields);
   } else {
-    availability = new DoctorAvailability({ doctorId: userId, availabilityType, defaultSlots: defaultSlots || [], customAvailability: customAvailability || [], activeDates: activeDates || [] });
+    availability = new DoctorAvailability({ doctorId: userId, ...fields });
   }
   await availability.save();
   await syncBookableUntil(userId, availability);
@@ -75,6 +75,9 @@ const saveAvailability = asyncHandler(async (req, res) => {
  * query. It is derived, never authoritative: DoctorAvailability remains the
  * source of truth and this is recomputed from it on every save.
  */
+/** bookableUntil for a calendar that repeats weekly. */
+const OPEN_ENDED = new Date('2100-01-01T00:00:00Z');
+
 async function syncBookableUntil(doctorId, availability) {
   const DoctorProfile = require('../models/doctorProfile');
   const { zonedToUtc } = require('../utils/zonedTime');
@@ -87,7 +90,13 @@ async function syncBookableUntil(doctorId, availability) {
   ].filter(Boolean);
 
   let bookableUntil = null;
-  if (dates.length > 0) {
+  // A weekly calendar repeats without an end: open-ended while any weekday
+  // has times. (Bookings themselves stop BOOKING_HORIZON_DAYS ahead.)
+  const repeats = availability.availabilityType === 'weekly'
+    && (availability.weeklySlots || []).some((d) => d && Array.isArray(d.slots) && d.slots.length > 0);
+  if (repeats) {
+    bookableUntil = OPEN_ENDED;
+  } else if (dates.length > 0) {
     const latest = dates.sort().at(-1);
     try {
       // End of that local day, so a date is "bookable until" its last minute
